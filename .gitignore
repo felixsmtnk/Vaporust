@@ -1,9 +1,12 @@
 # Сборка
 /target
-/Aurelia-0.2.3/target
+/vendor/aurelia/target
 
-# Архив исходников Aurelia: те же файлы уже лежат в Aurelia-0.2.3
+# Архив исходников Aurelia: те же файлы уже лежат в vendor/aurelia
 /Aurelia-0.2.3.zip
 
 # Рабочие заметки для Claude: в них сведения о личной машине и аккаунте
 /CLAUDE.md
+
+# Готовые архивы для релизов
+/dist

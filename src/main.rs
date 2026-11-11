@@ -976,7 +976,7 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
     eframe::run_native(
-        "Vaporust",
+        concat!("Vaporust ", env!("CARGO_PKG_VERSION")),
         options,
         Box::new(|cc| Ok(Box::new(LauncherApp::new(&cc.egui_ctx)))),
     )
