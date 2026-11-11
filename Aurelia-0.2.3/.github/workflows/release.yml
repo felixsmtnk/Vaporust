@@ -1,0 +1,259 @@
+name: Aurelia Release
+
+# Build release binaries for every target on a native runner (no cross-compiling)
+# and attach them to a GitHub Release. Asset names follow the wiki's Releasing page
+# (https://github.com/Drackrath/Aurelia/wiki/Releasing) (the names
+# Heroic's downloader expects): aurelia_<os>_<arch>[.exe]. The Linux jobs also
+# build and attach a Debian package (.deb) for standalone `apt`/`dpkg` installs.
+#
+# Triggers on a pushed v* tag (creates the release); workflow_dispatch just
+# builds the artifacts so you can test the matrix without tagging.
+# Schedule only warms main's cache.
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+  # Unused caches expire after 7 days.
+  schedule:
+    - cron: "0 3 * * 1,5"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-24.04
+            asset: aurelia_linux_x86_64
+          - name: linux-arm64
+            os: ubuntu-24.04-arm
+            asset: aurelia_linux_arm64
+          - name: windows-x86_64
+            os: windows-latest
+            asset: aurelia_windows_x86_64.exe
+          - name: windows-arm64
+            os: windows-11-arm
+            asset: aurelia_windows_arm64.exe
+          - name: nix-flake
+            os: ubuntu-24.04
+            builder: nix
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux' && matrix.builder != 'nix'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            libx11-dev \
+            libxi-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libxcursor-dev \
+            libxkbcommon-dev \
+            libasound2-dev \
+            libudev-dev \
+            libwayland-dev \
+            libgtk-3-dev \
+            libpulse-dev \
+            libdbus-1-dev \
+            libegl1-mesa-dev \
+            libgles2-mesa-dev
+
+      - name: Install Rust toolchain
+        if: matrix.builder != 'nix'
+        uses: dtolnay/rust-toolchain@stable
+
+      # After the toolchain: rustc is keyed.
+      - name: Cache Rust build
+        if: matrix.builder != 'nix'
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.name }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build Aurelia (release)
+        if: matrix.builder != 'nix'
+        run: cargo build --release
+
+      - name: Install Nix
+        if: matrix.builder == 'nix'
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - name: Build Aurelia (nix flake)
+        if: matrix.builder == 'nix'
+        run: nix build --print-build-logs .#aurelia
+      - name: Smoke-test the flake build
+        if: matrix.builder == 'nix'
+        run: ./result/bin/aurelia --version
+
+      - name: Stage binary as release asset
+        if: matrix.builder != 'nix'
+        shell: bash
+        run: |
+          mkdir -p dist
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cp "target/release/aurelia.exe" "dist/${{ matrix.asset }}"
+          else
+            cp "target/release/aurelia" "dist/${{ matrix.asset }}"
+            chmod +x "dist/${{ matrix.asset }}"
+          fi
+
+      # Build a Debian package for standalone `apt`/`dpkg` installs (independent of
+      # Heroic, which fetches the raw binary above). cargo-deb auto-detects the
+      # runner's architecture, so the x86_64 and arm64 Linux jobs each emit their
+      # own .deb. `--no-build` reuses the binary built in the previous step.
+      - name: Build .deb package (Linux)
+        if: runner.os == 'Linux' && matrix.builder != 'nix'
+        run: |
+          cargo install cargo-deb --locked
+          cargo deb --no-build
+
+      # Upload this target's binary straight to the GitHub Release with `gh`
+      # (no upload/download-artifact round-trip — that proved unreliable in this
+      # runner setup). The first job to finish creates the release; the rest
+      # attach their asset to it. Only runs for an actual tag; workflow_dispatch
+      # just builds.
+      - name: Publish asset to release
+        if: startsWith(github.ref, 'refs/tags/') && matrix.builder != 'nix'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset="dist/${{ matrix.asset }}"
+          # rc/beta/alpha/pre tags: prereleases.
+          # Hotfixes like v0.1.37-2 stay releases.
+          pre=()
+          case "$GITHUB_REF_NAME" in
+            *-rc*|*-beta*|*-alpha*|*-pre*) pre=(--prerelease) ;;
+          esac
+          gh release create "$GITHUB_REF_NAME" "$asset" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Aurelia $GITHUB_REF_NAME" \
+            --generate-notes "${pre[@]}" 2>/dev/null \
+          || gh release upload "$GITHUB_REF_NAME" "$asset" --repo "$GITHUB_REPOSITORY" --clobber
+
+      # Attach the .deb (built above) to the same release. Runs after the step
+      # above, so the release is guaranteed to exist by now. cargo-deb names it
+      # aurelia_<version>_<arch>.deb under target/debian/.
+      - name: Publish .deb to release (Linux)
+        if: runner.os == 'Linux' && startsWith(github.ref, 'refs/tags/') && matrix.builder != 'nix'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          deb=$(ls target/debian/*.deb | head -n1)
+          gh release upload "$GITHUB_REF_NAME" "$deb" --repo "$GITHUB_REPOSITORY" --clobber
+
+  checksums:
+    name: Generate release checksums
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Download release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p release-assets
+          gh release download "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir release-assets
+
+      - name: Generate SHA256SUMS
+        shell: bash
+        run: |
+          rm -f release-assets/SHA256SUMS
+          (
+            cd release-assets
+            find . -maxdepth 1 -type f -printf '%f\0' \
+              | sort -z \
+              | while IFS= read -r -d '' asset; do
+                  sha256sum -- "$asset"
+                done
+          ) > SHA256SUMS
+          test -s SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign SHA256SUMS
+        shell: bash
+        run: |
+          cosign sign-blob SHA256SUMS \
+            --yes \
+            --output-signature SHA256SUMS.sig \
+            --output-certificate SHA256SUMS.pem
+          test -s SHA256SUMS.sig
+          test -s SHA256SUMS.pem
+
+      - name: Publish checksums and signatures
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" \
+            SHA256SUMS \
+            SHA256SUMS.sig \
+            SHA256SUMS.pem \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
+  crates-io:
+    name: Publish to crates.io
+    # Stable tags only; prereleases skip crates.io.
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libdbus-1-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check tag matches crate version
+        shell: bash
+        run: |
+          version="$(cargo pkgid | sed 's/.*[#@]//')"
+          test "$GITHUB_REF_NAME" = "v$version"
+
+      - name: Authenticate with crates.io
+        id: crates-io-auth
+        uses: rust-lang/crates-io-auth-action@v1
+
+      - name: Publish crate
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
+        run: cargo publish --locked
