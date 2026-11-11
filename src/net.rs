@@ -45,6 +45,8 @@ pub enum Cmd {
     LoadEmoticons,
     /// Отправить картинку из файла.
     SendImage { to: u64, path: PathBuf },
+    /// Команда магазина Steam (поиск, страница игры, список желаемого...).
+    Store(crate::store::StoreCmd),
     /// Статус для друзей (EPersonaState: 1 в сети, 2 не беспокоить, 3 отошёл, 7 невидимка).
     SetPersona(u32),
     /// Проверить, каким установленным играм (appid, папка) нужно обновление.
@@ -163,6 +165,8 @@ pub struct NetState {
     pub props: HashMap<u32, PropsData>,
     /// Игры, которым нужно обновление (None — ещё не проверяли).
     pub updates: Option<std::collections::HashSet<u32>>,
+    /// Данные магазина (отдельно: их много, а NetState копируется каждый кадр).
+    pub store: crate::store::SharedStore,
 }
 
 pub type Shared = Arc<Mutex<NetState>>;
@@ -393,6 +397,10 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 reload_history(client, to, st, ctx).await;
                 upd(st, ctx, |s| s.chats.entry(to).or_default().status = None);
             }
+        }
+        Cmd::Store(cmd) => {
+            let store = st.lock().unwrap().store.clone();
+            crate::store::handle(client, cmd, &store, ctx);
         }
         Cmd::SetPersona(state) => {
             let c = client.clone();
@@ -964,6 +972,43 @@ mod live_updates {
             let ids = c.games_needing_update(&list).await.unwrap();
             let names: Vec<_> = ids.iter().filter_map(|i| games.iter().find(|g| g.appid == *i)).map(|g| g.name.clone()).collect();
             println!("checked {} in {:.1}s, need update: {:?}", list.len(), t.elapsed().as_secs_f32(), names);
+        });
+    }
+}
+
+#[cfg(test)]
+mod live_store {
+    /// cargo test live_store_data -- --ignored --nocapture (только чтение)
+    #[test]
+    #[ignore]
+    fn live_store_data() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            let cc = c.store_country();
+            println!("country {cc} me {:?}", c.my_steam_id());
+            let s = c.search_store("doom", 5, "russian", &cc).await.unwrap();
+            println!("search {:?} total {}", s.app_ids, s.total);
+            let apps = c.fetch_store_apps(&[70, 2280], "russian", &cc).await.unwrap();
+            for a in &apps {
+                println!("== {} {} price {:?} orig {:?} disc {} review {:?} rel {:?}", a.app_id, a.name, a.price, a.original_price, a.discount_pct, a.review_summary, a.release_date);
+                println!("dev {:?} pub {:?} tags {:?}", a.developers, a.publishers, a.tags.iter().take(5).map(|t| t.name.clone()).collect::<Vec<_>>());
+                println!("assets {:?}", a.assets);
+                println!("shots {} first {:?}", a.screenshots.len(), a.screenshots.first());
+                println!("short {:?}", a.short_description.chars().take(150).collect::<String>());
+                println!("full {:?}", a.full_description.chars().take(300).collect::<String>());
+            }
+            let w = c.wishlist(c.my_steam_id().unwrap()).await.map(|w| w.len());
+            println!("wishlist {:?}", w.map_err(|e| e.to_string()));
+            let d = c.query_deals(aurelia::steam_client::DealsScope::DiscountedTopSellers, 1, 0, 10, "russian", &cc).await.map(|p| p.app_ids.len());
+            println!("deals {:?}", d.map_err(|e| e.to_string()));
+            let sim = c.similar_apps(70, 5, "russian", &cc).await.map(|p| p.app_ids);
+            println!("similar {:?}", sim.map_err(|e| e.to_string()));
+            println!("players {:?}", c.current_players(70).await.map_err(|e| e.to_string()));
+            let http = aurelia::core::net::steam_web_client().unwrap();
+            let news = aurelia::web::discovery::fetch_news(&http, 70, 3, 300).await.map(|n| n.iter().map(|x| x.title.clone()).collect::<Vec<_>>());
+            println!("news {:?}", news.map_err(|e| e.to_string()));
         });
     }
 }

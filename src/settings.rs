@@ -59,6 +59,8 @@ pub struct Settings {
     pub queue: Vec<(u32, String)>,
     /// Вся очередь придержана кнопкой «Пауза очереди».
     pub queue_paused: bool,
+    /// Регион цен в магазине (код страны); None — по IP подключения к Steam.
+    pub store_country: Option<String>,
 }
 
 /// Игра в очереди установки.
@@ -96,6 +98,7 @@ impl Default for Settings {
             downloads: Vec::new(),
             queue: Vec::new(),
             queue_paused: false,
+            store_country: None,
         }
     }
 }

@@ -10,6 +10,8 @@ mod net;
 mod notify;
 mod props;
 mod settings;
+mod store;
+mod storewin;
 mod tray;
 
 use eframe::egui;
@@ -86,6 +88,8 @@ struct LauncherApp {
     /// appid, названия которых уже запрошены.
     requested_apps: std::collections::HashSet<u32>,
 
+    /// Открытое окно «Магазин Steam».
+    store_win: Option<storewin::StoreWin>,
     /// Остальные сохраняемые настройки (сортировка, статус, трей, звук).
     settings: settings::Settings,
     /// Когда игры запускались последний раз (из localconfig.vdf Steam).
@@ -162,6 +166,7 @@ impl LauncherApp {
             lib_idx: 0,
             seen_disk_changed: 0,
             install_note: String::new(),
+            store_win: None,
             settings: saved,
             last_played: HashMap::new(),
         };
@@ -662,6 +667,9 @@ impl LauncherApp {
                     "Друзья".to_string()
                 };
                 ui.toggle_value(&mut self.show_friends, label);
+                if ui.button("Магазин").on_hover_text("Магазин Steam: поиск, скидки, список желаемого").clicked() {
+                    self.open_store(None);
+                }
                 // Статус для друзей; сохраняется и применяется при каждом входе.
                 let before = self.settings.persona;
                 egui::ComboBox::from_id_salt("persona")
@@ -1123,6 +1131,7 @@ impl eframe::App for LauncherApp {
             let rows = self.rows(&net);
             let mut to_play = None;
             let mut to_update = None;
+            let mut to_store = None;
             let mut to_install = None;
             let mut to_ach = None;
             let mut to_opts = None;
@@ -1184,13 +1193,22 @@ impl eframe::App for LauncherApp {
                         if this_installing {
                             ui.strong(&r.name);
                             ui.spinner();
-                        } else if r.ready {
-                            ui.label(&r.name);
-                        } else if r.installed {
-                            ui.label(&r.name).on_hover_text("Установка не закончена");
-                            ui.weak("(недокачана)");
                         } else {
-                            ui.weak(&r.name).on_hover_text("Не установлена");
+                            // Название — ссылка на страницу игры в магазине.
+                            let mut text = egui::RichText::new(&r.name);
+                            if !r.installed {
+                                text = text.color(ui.visuals().weak_text_color());
+                            }
+                            let resp = ui
+                                .add(egui::Label::new(text).sense(egui::Sense::click()))
+                                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                .on_hover_text("Открыть страницу игры в магазине");
+                            if resp.clicked() {
+                                to_store = Some(r.appid);
+                            }
+                            if r.installed && !r.ready {
+                                ui.weak("(недокачана)");
+                            }
                         }
                         if let Some(m) = r.playtime_min.filter(|m| *m > 0) {
                             ui.weak(fmt_hours(m));
@@ -1213,6 +1231,9 @@ impl eframe::App for LauncherApp {
             if let Some(appid) = to_update {
                 self.start_update(appid, ctx);
             }
+            if let Some(appid) = to_store {
+                self.open_store(Some(appid));
+            }
             if let Some((appid, name)) = to_install {
                 self.enqueue(appid, name, &net);
             }
@@ -1230,6 +1251,7 @@ impl eframe::App for LauncherApp {
 
         self.achievements_window(ctx, &net);
         self.props_window(ctx, &net);
+        self.store_window(ctx, &net);
         chatwin::show(ctx, &self.chat, &self.net, &self.tx);
     }
 }

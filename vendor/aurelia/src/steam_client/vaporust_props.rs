@@ -46,4 +46,18 @@ impl SteamClient {
         self.check_for_updates(&mut list).await?;
         Ok(list.into_iter().filter(|g| g.update_available).map(|g| g.app_id).collect())
     }
+
+    /// Страна для цен магазина: по IP подключения к Steam (иначе US).
+    pub fn store_country(&self) -> String {
+        self.connection
+            .as_ref()
+            .map(|c| c.ip_country_code().to_string())
+            .filter(|c| !c.is_empty())
+            .unwrap_or_else(|| "US".to_string())
+    }
+
+    /// SteamID64 вошедшего аккаунта.
+    pub fn my_steam_id(&self) -> Option<u64> {
+        self.connection.as_ref().map(|c| u64::from(c.steam_id()))
+    }
 }
