@@ -28,6 +28,8 @@ pub struct Game {
     pub ready: bool,
     /// Steam пометил игру как требующую обновления (StateFlags != 4).
     pub needs_update: bool,
+    /// Размер на диске (SizeOnDisk из appmanifest), байт.
+    pub size: u64,
 }
 
 #[derive(Clone)]
@@ -190,7 +192,7 @@ pub fn scan_games(steam_dir: &Path) -> Vec<Game> {
             let Ok(text) = fs::read_to_string(e.path()) else {
                 continue;
             };
-            let (mut appid, mut name, mut installdir, mut flags) = (None, None, None, 0u32);
+            let (mut appid, mut name, mut installdir, mut flags, mut size) = (None, None, None, 0u32, 0u64);
             for line in text.lines() {
                 if let Some((k, v)) = kv(line) {
                     match k.as_str() {
@@ -198,6 +200,7 @@ pub fn scan_games(steam_dir: &Path) -> Vec<Game> {
                         "name" if name.is_none() => name = Some(v),
                         "installdir" if installdir.is_none() => installdir = Some(v),
                         "StateFlags" => flags = v.parse().unwrap_or(0),
+                        "SizeOnDisk" => size = v.parse().unwrap_or(0),
                         _ => {}
                     }
                 }
@@ -208,7 +211,7 @@ pub fn scan_games(steam_dir: &Path) -> Vec<Game> {
                     let dir = lib.join("steamapps").join("common").join(installdir);
                     let ready = flags & 4 != 0;
                     let needs_update = ready && flags != 4;
-                    games.push(Game { appid, name, dir, ready, needs_update });
+                    games.push(Game { appid, name, dir, ready, needs_update, size });
                 }
             }
         }

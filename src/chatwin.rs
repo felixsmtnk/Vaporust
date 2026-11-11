@@ -68,6 +68,7 @@ pub fn show(ctx: &egui::Context, chat: &SharedChat, net: &Shared, tx: &Unbounded
             win.frame(ctx, &snapshot, &net, &tx);
             if ctx.input(|i| i.viewport().close_requested()) {
                 *guard = None;
+                crate::notify::set_open_chat(0);
                 // Картинки и кадры чата больше не нужны — освобождаем память.
                 ctx.forget_all_images();
                 ctx.request_repaint_of(egui::ViewportId::ROOT);
@@ -79,6 +80,8 @@ pub fn show(ctx: &egui::Context, chat: &SharedChat, net: &Shared, tx: &Unbounded
 impl ChatWin {
     fn frame(&mut self, ctx: &egui::Context, net: &NetState, shared: &Shared, tx: &UnboundedSender<Cmd>) {
         let id = self.id;
+        // Для уведомлений: со звуком не беспокоим, если активен чат именно с этим другом.
+        crate::notify::set_open_chat(id);
         // Окно открыто и активно — значит, всё прочитано.
         if ctx.input(|i| i.focused) && net.chats.get(&id).is_some_and(|c| c.unread > 0) {
             if let Some(c) = shared.lock().unwrap().chats.get_mut(&id) {

@@ -8,6 +8,8 @@ pub enum Kind {
     Launcher,
     /// Окно чата: облачко сообщения.
     Chat,
+    /// Иконка трея с красной точкой: есть непрочитанные сообщения.
+    LauncherUnread,
 }
 
 pub fn icon(kind: Kind) -> Arc<egui::IconData> {
@@ -26,7 +28,9 @@ pub fn icon(kind: Kind) -> Arc<egui::IconData> {
             ];
             // Белый знак поверх фона.
             let mark = match kind {
-                Kind::Launcher => triangle(fx, fy, (24.0, 16.0), (24.0, 48.0), (50.0, 32.0)),
+                Kind::Launcher | Kind::LauncherUnread => {
+                    triangle(fx, fy, (24.0, 16.0), (24.0, 48.0), (50.0, 32.0))
+                }
                 Kind::Chat => {
                     let bubble = rounded_rect(fx, fy, 12.0, 14.0, 52.0, 42.0, 9.0);
                     let tail = triangle(fx, fy, (20.0, 38.0), (32.0, 41.0), (17.0, 52.0));
@@ -38,6 +42,18 @@ pub fn icon(kind: Kind) -> Arc<egui::IconData> {
                 rgba[i + c] = (base[c] as f32 * (1.0 - mark) + 255.0 * mark) as u8;
             }
             rgba[i + 3] = (bg * 255.0) as u8;
+            // Красная точка в правом верхнем углу: есть непрочитанные сообщения.
+            if matches!(kind, Kind::LauncherUnread) {
+                let d = ((fx - 50.0).powi(2) + (fy - 14.0).powi(2)).sqrt();
+                let dot = (13.5 - d).clamp(0.0, 1.0);
+                if dot > 0.0 {
+                    let red = [230.0, 50.0, 50.0];
+                    for c in 0..3 {
+                        rgba[i + c] = (rgba[i + c] as f32 * (1.0 - dot) + red[c] * dot) as u8;
+                    }
+                    rgba[i + 3] = rgba[i + 3].max((dot * 255.0) as u8);
+                }
+            }
         }
     }
     Arc::new(egui::IconData { rgba, width: N as u32, height: N as u32 })

@@ -7,7 +7,10 @@ mod icons;
 mod launchopts;
 mod local;
 mod net;
+mod notify;
 mod props;
+mod settings;
+mod tray;
 
 use eframe::egui;
 use std::{
@@ -33,6 +36,10 @@ struct Row {
     /// Нужно обновление (по пометке Steam или проверке через Aurelia).
     needs_update: bool,
     playtime_min: Option<u32>,
+    /// Размер на диске, байт (0 — не установлена).
+    size: u64,
+    /// Последний запуск, unix-время (0 — неизвестно).
+    last_played: u64,
 }
 
 struct LauncherApp {
@@ -46,6 +53,12 @@ struct LauncherApp {
     rescan_needed: Arc<AtomicBool>,
     /// Проверка обновлений уже отправлена для текущего входа.
     updates_checked: bool,
+    /// Статус для друзей уже объявлен для текущего входа.
+    persona_sent: bool,
+    /// Сколько непрочитанных было в прошлом кадре (для заголовка окна).
+    last_unread: u32,
+    /// Когда очередь последний раз запускала установку.
+    queue_started: Option<std::time::Instant>,
     freeze_webhelper: bool,
 
     // Сеть (Aurelia)
@@ -73,6 +86,11 @@ struct LauncherApp {
     /// appid, названия которых уже запрошены.
     requested_apps: std::collections::HashSet<u32>,
 
+    /// Остальные сохраняемые настройки (сортировка, статус, трей, звук).
+    settings: settings::Settings,
+    /// Когда игры запускались последний раз (из localconfig.vdf Steam).
+    last_played: HashMap<u32, u64>,
+
     // Установка
     libraries: Vec<std::path::PathBuf>,
     lib_idx: usize,
@@ -81,7 +99,17 @@ struct LauncherApp {
 }
 
 impl LauncherApp {
-    fn new(ctx: &egui::Context) -> Self {
+    fn new(cc: &eframe::CreationContext) -> Self {
+        let ctx = &cc.egui_ctx;
+        // Настройки прошлого запуска (или значения по умолчанию).
+        let saved: settings::Settings = cc
+            .storage
+            .and_then(|s| eframe::get_value::<settings::Settings>(s, settings::KEY))
+            .map(|mut s| {
+                s.migrate();
+                s
+            })
+            .unwrap_or_default();
         let net: Shared = Arc::new(Mutex::new(NetState::default()));
         let tx = net::spawn_worker(net.clone(), ctx.clone());
         let _ = tx.send(Cmd::Restore);
@@ -89,6 +117,18 @@ impl LauncherApp {
         ctx.style_mut(|s| s.spacing.scroll = egui::style::ScrollStyle::solid());
         // Загрузчики картинок для чата (http + png/jpeg/gif/webp).
         egui_extras::install_image_loaders(ctx);
+
+        // HWND главного окна — для мигания в панели задач и для трея.
+        {
+            use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            if let Ok(h) = cc.window_handle() {
+                if let RawWindowHandle::Win32(w) = h.as_raw() {
+                    notify::init(w.hwnd.get());
+                }
+            }
+        }
+        notify::set_sound(saved.notify_sound);
+        tray::start();
 
         let mut app = Self {
             steam: None,
@@ -98,12 +138,15 @@ impl LauncherApp {
             cancel: Arc::new(AtomicBool::new(false)),
             rescan_needed: Arc::new(AtomicBool::new(false)),
             updates_checked: false,
-            // По просьбе пользователя включено сразу (проверено: работает хорошо).
-            freeze_webhelper: true,
+            persona_sent: false,
+            last_unread: 0,
+            queue_started: None,
+            // По умолчанию включено (по просьбе пользователя), дальше — как сохранено.
+            freeze_webhelper: saved.freeze_webhelper,
             net,
             tx,
             filter: String::new(),
-            only_installed: false,
+            only_installed: saved.only_installed,
             login_user: String::new(),
             login_pass: String::new(),
             login_code: String::new(),
@@ -111,7 +154,7 @@ impl LauncherApp {
             props: None,
             closing: Arc::new(AtomicBool::new(false)),
             steam_check: None,
-            show_friends: true,
+            show_friends: saved.show_friends,
             friend_filter: String::new(),
             chat: Default::default(),
             requested_apps: Default::default(),
@@ -119,8 +162,16 @@ impl LauncherApp {
             lib_idx: 0,
             seen_disk_changed: 0,
             install_note: String::new(),
+            settings: saved,
+            last_played: HashMap::new(),
         };
         app.rescan();
+        // Выбранная в прошлый раз папка библиотеки.
+        if let Some(lib) = app.settings.library.clone() {
+            if let Some(i) = app.libraries.iter().position(|l| l.to_string_lossy() == lib) {
+                app.lib_idx = i;
+            }
+        }
         app
     }
 
@@ -139,6 +190,12 @@ impl LauncherApp {
         if self.lib_idx >= self.libraries.len() {
             self.lib_idx = 0;
         }
+        self.last_played = self
+            .steam
+            .as_ref()
+            .and_then(|s| launchopts::find_localconfig(&s.dir))
+            .map(|p| launchopts::read_last_played(&p))
+            .unwrap_or_default();
         if !self.launching.load(Ordering::Relaxed) {
             *self.launch_status.lock().unwrap() = match &self.steam {
                 Some(_) => format!("Установлено игр: {}", self.games.len()),
@@ -172,18 +229,105 @@ impl LauncherApp {
         });
     }
 
+    /// Поставить игру в очередь установки (или сразу начать, если ничего не качается).
+    fn enqueue(&mut self, appid: u32, name: String, net: &NetState) {
+        if let Some(q) = self.settings.downloads.iter_mut().find(|q| q.appid == appid) {
+            q.paused = false; // уже в очереди на паузе — «Докачать» снимает паузу
+            return;
+        }
+        let busy = net.install.as_ref().is_some_and(|i| i.active());
+        let waiting = self.settings.downloads.iter().any(|q| !q.paused);
+        if !busy && !waiting && !self.settings.queue_paused {
+            self.install(appid, name);
+            self.queue_started = Some(std::time::Instant::now());
+        } else {
+            self.settings.downloads.push(settings::QueueItem { appid, name, paused: false });
+        }
+    }
+
+    /// Запустить следующую игру из очереди, когда загрузка свободна.
+    fn run_queue(&mut self, net: &NetState) {
+        let busy = net.install.as_ref().is_some_and(|i| i.active());
+        // Команда установки доходит до сетевого потока не мгновенно: пауза 3 с между запусками.
+        let cooling = self.queue_started.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(3));
+        // Первая игра в очереди, которая не на паузе.
+        let next = self.settings.downloads.iter().position(|q| !q.paused);
+        if busy
+            || cooling
+            || self.settings.queue_paused
+            || next.is_none()
+            || net.account.is_none()
+            || self.launching.load(Ordering::Relaxed)
+            || self.steam_running()
+        {
+            return;
+        }
+        let q = self.settings.downloads.remove(next.unwrap());
+        self.install(q.appid, q.name);
+        self.queue_started = Some(std::time::Instant::now());
+    }
+
     fn install_panel(&mut self, ui: &mut egui::Ui, net: &NetState) {
         if !self.install_note.is_empty() {
             ui.colored_label(egui::Color32::from_rgb(230, 170, 60), &self.install_note);
         }
+        // Очередь установок: у каждой игры своя пауза, плюс пауза всей очереди.
+        if !self.settings.downloads.is_empty() {
+            let mut remove = None;
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Очередь:");
+                let (label, hint) = if self.settings.queue_paused {
+                    ("Продолжить очередь", "Снова качать игры из очереди по порядку.")
+                } else {
+                    ("Пауза очереди", "Не начинать следующие игры из очереди (текущая загрузка продолжится).")
+                };
+                if ui.button(label).on_hover_text(hint).clicked() {
+                    self.settings.queue_paused = !self.settings.queue_paused;
+                }
+                for (i, q) in self.settings.downloads.iter_mut().enumerate() {
+                    ui.separator();
+                    if q.paused {
+                        ui.weak(format!("{} (пауза)", q.name));
+                        if ui.small_button("продолжить").on_hover_text("Продолжить эту игру").clicked() {
+                            q.paused = false;
+                        }
+                    } else {
+                        ui.label(&q.name);
+                        if ui.small_button("пауза").on_hover_text("Пропускать эту игру, пока не продолжите").clicked() {
+                            q.paused = true;
+                        }
+                    }
+                    if ui.small_button("✖").on_hover_text("Убрать из очереди").clicked() {
+                        remove = Some(i);
+                    }
+                }
+            });
+            if let Some(i) = remove {
+                self.settings.downloads.remove(i);
+            }
+        }
         let Some(inst) = &net.install else {
             return;
         };
+        let is_install = inst.done_text == "установлена.";
         ui.horizontal(|ui| {
             ui.strong(&inst.name);
             match &inst.result {
                 None => {
                     ui.label(format!("— {}", inst.stage));
+                    if is_install
+                        && ui
+                            .button("Пауза")
+                            .on_hover_text("Поставить на паузу только эту игру: скачанное сохранится, «продолжить» в очереди докачает с того же места. Следующие игры из очереди начнут качаться.")
+                            .clicked()
+                    {
+                        inst.abort.store(true, Ordering::Relaxed);
+                        self.settings.downloads.retain(|q| q.appid != inst.appid);
+                        self.settings.downloads.insert(
+                            0,
+                            settings::QueueItem { appid: inst.appid, name: inst.name.clone(), paused: true },
+                        );
+                    }
                     if ui.button("Отмена").clicked() {
                         inst.abort.store(true, Ordering::Relaxed);
                     }
@@ -312,6 +456,8 @@ impl LauncherApp {
                     ready: false,
                     needs_update: false,
                     playtime_min: Some(g.playtime_forever_minutes),
+                    size: 0,
+                    last_played: 0,
                 },
             );
         }
@@ -321,6 +467,7 @@ impl LauncherApp {
                     r.installed = true;
                     r.ready = g.ready;
                     r.needs_update = g.needs_update;
+                    r.size = g.size;
                 })
                 .or_insert(Row {
                     appid: g.appid,
@@ -329,6 +476,8 @@ impl LauncherApp {
                     ready: g.ready,
                     needs_update: g.needs_update,
                     playtime_min: None,
+                    size: g.size,
+                    last_played: 0,
                 });
         }
         let filter = self.filter.to_lowercase();
@@ -336,12 +485,22 @@ impl LauncherApp {
             .into_values()
             .filter(|r| !self.only_installed || r.installed)
             .filter(|r| r.name.to_lowercase().contains(&filter))
+            .map(|mut r| {
+                r.last_played = self.last_played.get(&r.appid).copied().unwrap_or(0);
+                r
+            })
             .collect();
-        rows.sort_by(|a, b| {
-            b.installed
-                .cmp(&a.installed)
-                .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-        });
+        let by_name = |a: &Row, b: &Row| a.name.to_lowercase().cmp(&b.name.to_lowercase());
+        match self.settings.sort {
+            settings::Sort::Name => rows.sort_by(|a, b| b.installed.cmp(&a.installed).then(by_name(a, b))),
+            settings::Sort::LastPlayed => {
+                rows.sort_by(|a, b| b.last_played.cmp(&a.last_played).then(b.installed.cmp(&a.installed)).then(by_name(a, b)))
+            }
+            settings::Sort::Playtime => rows.sort_by(|a, b| {
+                b.playtime_min.unwrap_or(0).cmp(&a.playtime_min.unwrap_or(0)).then(by_name(a, b))
+            }),
+            settings::Sort::Size => rows.sort_by(|a, b| b.size.cmp(&a.size).then(by_name(a, b))),
+        }
         rows
     }
 
@@ -503,6 +662,20 @@ impl LauncherApp {
                     "Друзья".to_string()
                 };
                 ui.toggle_value(&mut self.show_friends, label);
+                // Статус для друзей; сохраняется и применяется при каждом входе.
+                let before = self.settings.persona;
+                egui::ComboBox::from_id_salt("persona")
+                    .selected_text(format!("Статус: {}", settings::persona_label(before)))
+                    .show_ui(ui, |ui| {
+                        for (state, label) in settings::PERSONAS {
+                            ui.selectable_value(&mut self.settings.persona, state, label);
+                        }
+                    })
+                    .response
+                    .on_hover_text("Как вас видят друзья, пока открыт Vaporust. «Невидимка»: вы видите их, они вас — нет.");
+                if self.settings.persona != before {
+                    let _ = self.tx.send(Cmd::SetPersona(self.settings.persona));
+                }
             });
         } else if net.need_login {
             ui.label("Вход в Steam (нужен для списка всех игр, времени в игре и достижений)");
@@ -734,6 +907,20 @@ fn draw_seg(ui: &mut egui::Ui, seg: chatfmt::Seg, anims: &mut anim::Cache) {
     }
 }
 
+/// Дата последнего запуска: «сегодня», «вчера» или «03.11.2026».
+fn fmt_day(unix: u64) -> String {
+    use chrono::{Local, TimeZone};
+    let Some(t) = Local.timestamp_opt(unix as i64, 0).single() else {
+        return String::new();
+    };
+    let days = (Local::now().date_naive() - t.date_naive()).num_days();
+    match days {
+        0 => "сегодня".into(),
+        1 => "вчера".into(),
+        _ => t.format("%d.%m.%Y").to_string(),
+    }
+}
+
 /// Время сообщения: «14:05» сегодня, «03.11 14:05» раньше.
 fn fmt_time(unix: u64) -> String {
     use chrono::{Local, TimeZone};
@@ -755,9 +942,41 @@ fn fmt_eta(secs: u64) -> String {
 }
 
 impl eframe::App for LauncherApp {
+    /// eframe вызывает при выходе и периодически (раз в 30 с).
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        self.settings.freeze_webhelper = self.freeze_webhelper;
+        self.settings.only_installed = self.only_installed;
+        self.settings.show_friends = self.show_friends;
+        self.settings.library = self
+            .libraries
+            .get(self.lib_idx)
+            .map(|l| l.to_string_lossy().into_owned());
+        eframe::set_value(storage, settings::KEY, &self.settings);
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Снимок сетевого состояния на кадр, чтобы не держать блокировку.
         let net = self.net.lock().unwrap().clone();
+
+        // Непрочитанные сообщения: число в заголовке окна; когда всё прочитано — убрать точку в трее.
+        let unread: u32 = net.chats.values().map(|c| c.unread).sum();
+        if unread != self.last_unread {
+            self.last_unread = unread;
+            let base = concat!("Vaporust ", env!("CARGO_PKG_VERSION"));
+            let title = if unread > 0 { format!("({unread}) {base}") } else { base.to_string() };
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
+            if unread == 0 {
+                tray::set_unread(false);
+            }
+        }
+        // Крестик прячет окно в трей, если так настроено (кроме «Выход» из меню трея).
+        if ctx.input(|i| i.viewport().close_requested())
+            && self.settings.close_to_tray
+            && !tray::exit_requested()
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            tray::hide_main();
+        }
 
         // Установка закончилась (успешно или нет) — перечитываем диск.
         if net.disk_changed != self.seen_disk_changed {
@@ -768,6 +987,13 @@ impl eframe::App for LauncherApp {
         if self.rescan_needed.swap(false, Ordering::Relaxed) {
             self.rescan();
             self.updates_checked = false;
+        }
+        // Сохранённый статус для друзей — после каждого входа.
+        if net.account.is_none() {
+            self.persona_sent = false;
+        } else if !self.persona_sent {
+            self.persona_sent = true;
+            let _ = self.tx.send(Cmd::SetPersona(self.settings.persona));
         }
         // Проверка обновлений один раз после входа (и после работы Steam).
         if net.account.is_none() {
@@ -821,14 +1047,29 @@ impl eframe::App for LauncherApp {
                 }
                 ui.label(self.launch_status.lock().unwrap().clone());
             });
-            ui.add_enabled(
-                !self.launching.load(Ordering::Relaxed),
-                egui::Checkbox::new(
-                    &mut self.freeze_webhelper,
-                    "Замораживать steamwebhelper во время игры (эксперимент)",
-                ),
-            )
-            .on_hover_text("Через 20 с после старта игры приостанавливает steamwebhelper и сбрасывает его память на диск. После выхода из игры размораживает.");
+            ui.horizontal_wrapped(|ui| {
+                ui.add_enabled(
+                    !self.launching.load(Ordering::Relaxed),
+                    egui::Checkbox::new(&mut self.freeze_webhelper, "Замораживать steamwebhelper"),
+                )
+                .on_hover_text("Во время игры и обновления (через 20 с) приостанавливает steamwebhelper и сбрасывает его память на диск. Потом размораживает.");
+                if ui
+                    .checkbox(&mut self.settings.notify_sound, "Звук сообщений")
+                    .on_hover_text("Короткий звук, когда пришло сообщение, а окна Vaporust не активны.")
+                    .changed()
+                {
+                    notify::set_sound(self.settings.notify_sound);
+                }
+                if ui
+                    .small_button("проверить")
+                    .on_hover_text("Сыграть звук сообщения (Windows: «Уведомление о мгновенном сообщении»).")
+                    .clicked()
+                {
+                    notify::play_message_sound();
+                }
+                ui.checkbox(&mut self.settings.close_to_tray, "Крестик — в трей")
+                    .on_hover_text("Крестик окна прячет Vaporust в область уведомлений (у часов), чат продолжает работать. Вернуть — щелчком по иконке, выйти — правый щелчок → «Выход».");
+            });
             ui.add_space(2.0);
         });
 
@@ -845,6 +1086,13 @@ impl eframe::App for LauncherApp {
                 ui.label("Поиск:");
                 ui.text_edit_singleline(&mut self.filter);
                 ui.checkbox(&mut self.only_installed, "Только установленные");
+                egui::ComboBox::from_id_salt("sort")
+                    .selected_text(format!("Сортировка: {}", self.settings.sort.label()))
+                    .show_ui(ui, |ui| {
+                        for s in settings::Sort::ALL {
+                            ui.selectable_value(&mut self.settings.sort, s, s.label());
+                        }
+                    });
                 if ui.button("Пересканировать диск").clicked() {
                     self.rescan();
                 }
@@ -902,15 +1150,23 @@ impl eframe::App for LauncherApp {
                                 to_update = Some(r.appid);
                             }
                         } else {
-                            let text = if r.installed { "Докачать" } else { "Установить" };
+                            let queued = self.settings.downloads.iter().any(|q| q.appid == r.appid && !q.paused)
+                                || net.install.as_ref().is_some_and(|i| i.active() && i.appid == r.appid);
+                            let text = if queued {
+                                "В очереди"
+                            } else if r.installed {
+                                "Докачать"
+                            } else {
+                                "Установить"
+                            };
                             let btn = ui
-                                .add_enabled(
-                                    net.account.is_some() && !launching && !installing,
-                                    egui::Button::new(text),
-                                )
-                                .on_disabled_hover_text(
-                                    "Нужен вход в аккаунт; одновременно идёт только одна установка",
-                                );
+                                .add_enabled(net.account.is_some() && !launching && !queued, egui::Button::new(text))
+                                .on_hover_text(if installing {
+                                    "Сейчас идёт другая загрузка — игра встанет в очередь"
+                                } else {
+                                    "Скачать игру"
+                                })
+                                .on_disabled_hover_text("Нужен вход в аккаунт; игра уже в очереди или качается");
                             if btn.clicked() {
                                 to_install = Some((r.appid, r.name.clone()));
                             }
@@ -939,6 +1195,15 @@ impl eframe::App for LauncherApp {
                         if let Some(m) = r.playtime_min.filter(|m| *m > 0) {
                             ui.weak(fmt_hours(m));
                         }
+                        match self.settings.sort {
+                            settings::Sort::Size if r.size > 0 => {
+                                ui.weak(net::fmt_bytes(r.size));
+                            }
+                            settings::Sort::LastPlayed if r.last_played > 0 => {
+                                ui.weak(format!("запуск: {}", fmt_day(r.last_played)));
+                            }
+                            _ => {}
+                        }
                     });
                 }
             });
@@ -949,8 +1214,9 @@ impl eframe::App for LauncherApp {
                 self.start_update(appid, ctx);
             }
             if let Some((appid, name)) = to_install {
-                self.install(appid, name);
+                self.enqueue(appid, name, &net);
             }
+            self.run_queue(&net);
             if let Some((appid, name)) = to_opts {
                 self.open_props(appid, name);
             }
@@ -972,12 +1238,15 @@ fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([960.0, 600.0])
+            // Постоянный идентификатор: по нему eframe хранит настройки (%APPDATA%Vaporust),
+            // поэтому они не теряются при смене версии в заголовке.
+            .with_app_id("Vaporust")
             .with_icon(icons::icon(icons::Kind::Launcher)),
         ..Default::default()
     };
     eframe::run_native(
         concat!("Vaporust ", env!("CARGO_PKG_VERSION")),
         options,
-        Box::new(|cc| Ok(Box::new(LauncherApp::new(&cc.egui_ctx)))),
+        Box::new(|cc| Ok(Box::new(LauncherApp::new(cc)))),
     )
 }

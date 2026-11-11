@@ -45,6 +45,8 @@ pub enum Cmd {
     LoadEmoticons,
     /// Отправить картинку из файла.
     SendImage { to: u64, path: PathBuf },
+    /// Статус для друзей (EPersonaState: 1 в сети, 2 не беспокоить, 3 отошёл, 7 невидимка).
+    SetPersona(u32),
     /// Проверить, каким установленным играм (appid, папка) нужно обновление.
     CheckUpdates(Vec<(u32, PathBuf)>),
     /// Загрузить данные для окна «Свойства».
@@ -392,6 +394,15 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 upd(st, ctx, |s| s.chats.entry(to).or_default().status = None);
             }
         }
+        Cmd::SetPersona(state) => {
+            let c = client.clone();
+            tokio::spawn(async move {
+                // Наблюдатель друзей при входе сам объявляет статус из конфига Aurelia
+                // (невидимка); ждём его и объявляем свой поверх.
+                tokio::time::sleep(Duration::from_secs(3)).await;
+                let _ = c.announce_persona(state).await;
+            });
+        }
         Cmd::CheckUpdates(games) => {
             let (c, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             tokio::spawn(async move {
@@ -641,6 +652,10 @@ fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st: &Shared, 
                     conv.unread += 1;
                 }
             });
+            if !from_self {
+                // Мигание в панели задач, звук и точка на иконке трея, если окна неактивны.
+                crate::notify::new_message(friend);
+            }
         }
     });
 }

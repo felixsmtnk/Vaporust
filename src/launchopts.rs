@@ -111,6 +111,42 @@ fn locate(lines: &[&str], appid: u32) -> Found {
     found
 }
 
+/// Когда игры запускались последний раз (unix-время) — поле LastPlayed в том же разделе apps.
+pub fn read_last_played(localconfig: &Path) -> std::collections::HashMap<u32, u64> {
+    let mut out = std::collections::HashMap::new();
+    let Ok(text) = fs::read_to_string(localconfig) else {
+        return out;
+    };
+    let mut stack: Vec<String> = Vec::new();
+    let mut pending: Option<String> = None;
+    let in_app = |st: &[String]| {
+        st.len() == APPS_PATH.len() + 1
+            && st.iter().zip(APPS_PATH).all(|(a, b)| a.eq_ignore_ascii_case(b))
+    };
+    for line in text.lines() {
+        let t = line.trim();
+        if t == "{" {
+            stack.push(pending.take().unwrap_or_default());
+            continue;
+        }
+        if t == "}" {
+            stack.pop();
+            continue;
+        }
+        let tk = tokens(t);
+        match tk.len() {
+            1 => pending = Some(tk[0].clone()),
+            2.. if in_app(&stack) && tk[0].eq_ignore_ascii_case("LastPlayed") => {
+                if let (Ok(app), Ok(time)) = (stack[APPS_PATH.len()].parse::<u32>(), tk[1].parse::<u64>()) {
+                    out.insert(app, time);
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 /// Текущие параметры запуска игры ("" если не заданы).
 pub fn read(localconfig: &Path, appid: u32) -> Result<String, String> {
     let text = fs::read_to_string(localconfig)
