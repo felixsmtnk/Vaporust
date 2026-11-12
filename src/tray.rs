@@ -55,6 +55,13 @@ fn send(cmd: TrayCmd) {
     }
 }
 
+/// Тип значения GetWindowLongPtrW: на 64-битной Windows isize, на 32-битной — i32
+/// (там это просто GetWindowLongW).
+#[cfg(all(windows, target_pointer_width = "64"))]
+type LongPtr = isize;
+#[cfg(all(windows, target_pointer_width = "32"))]
+type LongPtr = i32;
+
 /// Где было окно до прятанья в трей (левый верхний угол, физические пиксели).
 #[cfg(windows)]
 static SAVED_POS: Mutex<Option<(i32, i32)>> = Mutex::new(None);
@@ -83,7 +90,7 @@ pub fn hide_main() {
         // Стиль окна меняется только у скрытого окна, поэтому: спрятать -> поменять -> показать вне экрана.
         ShowWindow(hwnd as _, SW_HIDE);
         let ex = GetWindowLongPtrW(hwnd as _, GWL_EXSTYLE);
-        SetWindowLongPtrW(hwnd as _, GWL_EXSTYLE, (ex | WS_EX_TOOLWINDOW as isize) & !(WS_EX_APPWINDOW as isize));
+        SetWindowLongPtrW(hwnd as _, GWL_EXSTYLE, (ex | WS_EX_TOOLWINDOW as LongPtr) & !(WS_EX_APPWINDOW as LongPtr));
         SetWindowPos(hwnd as _, std::ptr::null_mut(), -32000, -32000, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         ShowWindow(hwnd as _, SW_SHOWNOACTIVATE);
     }
@@ -105,7 +112,7 @@ pub fn show_main() {
         if crate::notify::in_tray() {
             ShowWindow(hwnd as _, SW_HIDE);
             let ex = GetWindowLongPtrW(hwnd as _, GWL_EXSTYLE);
-            SetWindowLongPtrW(hwnd as _, GWL_EXSTYLE, ex & !(WS_EX_TOOLWINDOW as isize));
+            SetWindowLongPtrW(hwnd as _, GWL_EXSTYLE, ex & !(WS_EX_TOOLWINDOW as LongPtr));
             if let Some((x, y)) = SAVED_POS.lock().unwrap().take() {
                 SetWindowPos(hwnd as _, std::ptr::null_mut(), x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
             }
