@@ -4,6 +4,8 @@ mod anim;
 mod chatfmt;
 mod chatwin;
 mod colls;
+#[cfg(all(windows, target_arch = "x86"))]
+mod compat32;
 mod covers;
 mod direct;
 mod icons;
