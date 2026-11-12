@@ -88,6 +88,43 @@ impl SteamClient {
         Ok(out)
     }
 
+    /// vaporust: языковые хранилища игры для смены языка без Steam: (depot, язык, oslist,
+    /// depotfromapp — хранилище принадлежит другой игре (общее), dlcappid, текущая версия на ветке `branch`).
+    pub async fn language_depots(
+        &self,
+        appid: u32,
+        branch: &str,
+    ) -> Result<Vec<(u32, String, Option<String>, Option<u32>, Option<u32>, Option<u64>)>> {
+        let buffer = self.pics_buffer(appid, "failed requesting appinfo for language depots").await?;
+        let vdf = find_vdf_in_pics(&buffer).context("failed to parse product info VDF")?;
+        let mut out = Vec::new();
+        if let Some(depots) = pics_depots_value(&vdf).and_then(|v| v.as_obj()) {
+            for (key, value) in depots.iter() {
+                let Ok(id) = key.parse::<u32>() else { continue };
+                let s = |path: &[&str]| -> Option<String> {
+                    let mut cur = value;
+                    for p in path {
+                        cur = cur.as_obj()?.get(*p)?;
+                    }
+                    cur.as_str().map(str::to_string).filter(|v| !v.is_empty())
+                };
+                let Some(lang) = s(&["config", "language"]) else { continue };
+                let manifest = s(&["manifests", branch, "gid"])
+                    .or_else(|| s(&["manifests", "public", "gid"]))
+                    .and_then(|v| v.parse().ok());
+                out.push((
+                    id,
+                    lang,
+                    s(&["config", "oslist"]),
+                    s(&["depotfromapp"]).and_then(|v| v.parse().ok()),
+                    s(&["dlcappid"]).and_then(|v| v.parse().ok()),
+                    manifest,
+                ));
+            }
+        }
+        Ok(out)
+    }
+
     /// vaporust: все ветки игры с описанием и признаком «нужен пароль» (pwdrequired).
     /// `fetch_branches` закрытые ветки скрывает, а интерфейсу нужно знать, что они есть.
     pub async fn branches_detailed(&self, appid: u32) -> Result<Vec<(String, Option<String>, bool)>> {
@@ -122,5 +159,36 @@ impl SteamClient {
     /// SteamID64 вошедшего аккаунта.
     pub fn my_steam_id(&self) -> Option<u64> {
         self.connection.as_ref().map(|c| u64::from(c.steam_id()))
+    }
+}
+
+impl SteamClient {
+    /// vaporust: имена файлов хранилища в версии `manifest` (нижний регистр, разделитель "/").
+    /// В отличие от `fetch_manifest_files` (depot_browser создаёт клиент CDN без серверов и падает
+    /// с «no available cdn servers»), берёт серверы и ключ так же, как установка.
+    pub async fn depot_file_names(&self, appid: u32, depot: u32, manifest: u64) -> Result<Vec<String>> {
+        let connection = self.require_connection_owned()?;
+        let hosts = self.get_content_servers(connection.cell_id()).await?;
+        let key = self.get_depot_key(appid, depot).await?;
+        let key: [u8; 32] = key.as_slice().try_into().map_err(|_| anyhow!("bad depot key length"))?;
+        let code = self.get_manifest_request_code(appid, depot, manifest).await.ok();
+        let mut last = anyhow!("no content servers");
+        for host in hosts.iter().take(4) {
+            let token = self.get_cdn_auth_token(appid, depot, &host.host).await.ok();
+            let server = super::install::cdn_server_for(host, connection.cell_id(), token);
+            let cdn = steam_cdn::CDNClient::with_servers(Arc::new(connection.clone()), vec![server]);
+            match cdn.get_manifest(appid, depot, manifest, code, Some(key)).await {
+                Ok(m) => {
+                    return Ok(m
+                        .files()
+                        .into_iter()
+                        .map(|f| f.full_path().to_lowercase())
+                        .filter(|n| !n.is_empty())
+                        .collect())
+                }
+                Err(e) => last = anyhow!("{e}"),
+            }
+        }
+        Err(last)
     }
 }

@@ -28,6 +28,8 @@ pub enum FriendAction {
     Profile(u64),
     Chat(u64, String),
     Remove(u64),
+    /// Список желаемого друга (в магазине).
+    Wishlist(u64, String),
 }
 
 /// Меню по правому щелчку на друге.
@@ -41,6 +43,10 @@ pub fn friend_menu(resp: &egui::Response, id: u64, name: &str, out: &mut Option<
         }
         if ui.button("Написать").clicked() {
             *out = Some(FriendAction::Chat(id, name.to_string()));
+            ui.close_menu();
+        }
+        if ui.button("Список желаемого").clicked() {
+            *out = Some(FriendAction::Wishlist(id, name.to_string()));
             ui.close_menu();
         }
         ui.separator();
@@ -94,7 +100,7 @@ impl LauncherApp {
                 .on_hover_text("Звук при новом сообщении (кроме случая, когда открыт чат именно с этим другом).")
                 .changed()
             {
-                crate::notify::set_sound(self.settings.notify_sound);
+                crate::popup::set_sound(self.settings.notify_sound);
             }
         });
         // Заявки: входящие (2) — принять/отклонить; исходящие (4) — отменить.
@@ -176,6 +182,7 @@ impl LauncherApp {
             FriendAction::Profile(id) => self.open_profile(id, net),
             FriendAction::Chat(id, name) => self.open_chat(ctx, id, name, net),
             FriendAction::Remove(id) => self.social_ui.confirm_remove = Some(id),
+            FriendAction::Wishlist(id, name) => self.open_friend_wishlist(id, name),
         }
     }
 
@@ -187,6 +194,7 @@ impl LauncherApp {
             let is_friend = net.roster.read().unwrap().get(&id).is_some_and(|f| f.relationship == 3);
             let is_me = net.my_id == Some(id);
             let mut chat = None;
+            let mut wish: Option<(u64, String)> = None;
             let tx = self.tx.clone();
             let closed = ctx.show_viewport_immediate(
                 egui::ViewportId::from_hash_of("vaporust_profile"),
@@ -240,6 +248,9 @@ impl LauncherApp {
                             if !is_friend && !is_me && ui.button("Добавить в друзья").clicked() {
                                 let _ = tx.send(Cmd::Social(SocialCmd::AddFriend(id)));
                             }
+                            if !is_me && ui.button("Список желаемого").clicked() {
+                                wish = Some((id, name.clone()));
+                            }
                             if ui.button("Открыть в браузере").clicked() {
                                 ui.ctx().open_url(egui::OpenUrl::new_tab(&p.profile_url));
                             }
@@ -257,6 +268,9 @@ impl LauncherApp {
             }
             if let Some((id, name)) = chat {
                 self.open_chat(ctx, id, name, net);
+            }
+            if let Some((id, name)) = wish {
+                self.open_friend_wishlist(id, name);
             }
         }
 

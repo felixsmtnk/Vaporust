@@ -18,7 +18,12 @@ pub struct ChatWin {
     pub name: String,
     input: String,
     picker_open: bool,
-    picker_stickers: bool,
+    /// Вкладка панели: 0 смайлики, 1 стикеры, 2 эффекты.
+    picker_tab: u8,
+    /// Повторная загрузка сломанных значков эффектов уже была.
+    icons_retried: bool,
+    /// Когда последний раз просили список своих эффектов.
+    effects_asked: Option<std::time::Instant>,
     emoticons_requested: bool,
     /// Кадры анимированных стикеров (живут, пока открыт чат).
     anims: anim::Cache,
@@ -26,6 +31,9 @@ pub struct ChatWin {
     v_was_down: bool,
     /// Поставить курсор в поле ввода (сразу после открытия).
     focus_input: bool,
+    /// Идущий эффект комнаты и время последнего показанного (чтобы не повторять).
+    effect: Option<crate::effects::Effect>,
+    effect_seen: u64,
 }
 
 impl ChatWin {
@@ -35,11 +43,15 @@ impl ChatWin {
             name,
             input: String::new(),
             picker_open: false,
-            picker_stickers: false,
+            picker_tab: 0,
+            icons_retried: false,
+            effects_asked: None,
             emoticons_requested: false,
             anims: Default::default(),
             v_was_down: false,
             focus_input: true,
+            effect: None,
+            effect_seen: 0,
         }
     }
 }
@@ -114,6 +126,14 @@ impl ChatWin {
             if let Some(n) = &conv.status_note {
                 ui.colored_label(egui::Color32::from_rgb(110, 200, 110), n);
             }
+            // Вкладка «Эффекты» открыта — перечитать свои эффекты (могли купить), не чаще раза в 20 с.
+            if self.picker_open
+                && self.picker_tab == 2
+                && self.effects_asked.is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(20))
+            {
+                self.effects_asked = Some(std::time::Instant::now());
+                let _ = tx.send(Cmd::LoadChatEffects);
+            }
             if self.picker_open {
                 if let Some(msg) = self.picker(ui, net) {
                     send = Some(msg);
@@ -182,6 +202,9 @@ impl ChatWin {
                         ui.weak("Сообщений пока нет.");
                     }
                     for l in &conv.lines {
+                        if l.text.trim().is_empty() {
+                            continue; // пустые (например, эффект, которого нет у отправителя) — как в Steam, не показываем
+                        }
                         let who = if l.from_self { "Вы" } else { self.name.as_str() };
                         let color = if l.from_self {
                             egui::Color32::from_rgb(120, 170, 230)
@@ -192,7 +215,7 @@ impl ChatWin {
                             ui.weak(crate::fmt_time(l.time));
                             ui.colored_label(color, format!("{who}:"));
                             for seg in chatfmt::parse(&l.text) {
-                                crate::draw_seg(ui, seg, &mut self.anims);
+                                crate::draw_seg(ui, seg, &mut self.anims, who);
                             }
                         });
                     }
@@ -218,6 +241,24 @@ impl ChatWin {
         if let Some(path) = ctx.input(|i| i.raw.dropped_files.iter().find_map(|f| f.path.clone())) {
             send_image = Some(path);
         }
+        // Эффект комнаты: свежий (не старше 20 с) из переписки или «показать ещё раз».
+        let now = crate::net::now_unix();
+        if let Some(l) = conv.lines.iter().rev().take(5).find(|l| l.text.contains("[roomeffect")) {
+            if l.time > self.effect_seen && now.saturating_sub(l.time) <= 20 {
+                self.effect_seen = l.time;
+                if let Some(chatfmt::Seg::RoomEffect(kind)) =
+                    chatfmt::parse(&l.text).into_iter().find(|s| matches!(s, chatfmt::Seg::RoomEffect(_)))
+                {
+                    self.effect = crate::effects::Effect::new(&kind);
+                }
+            }
+        }
+        if let Some(kind) = crate::effects::take_replay() {
+            self.effect = crate::effects::Effect::new(&kind);
+        }
+        if self.effect.as_mut().is_some_and(|e| !e.draw(ctx)) {
+            self.effect = None;
+        }
         if let Some(text) = send {
             let _ = tx.send(Cmd::SendChat { to: id, text });
         }
@@ -231,8 +272,9 @@ impl ChatWin {
     fn picker(&mut self, ui: &mut egui::Ui, net: &NetState) -> Option<String> {
         let mut send = None;
         ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.picker_stickers, false, "Смайлики");
-            ui.selectable_value(&mut self.picker_stickers, true, "Стикеры");
+            ui.selectable_value(&mut self.picker_tab, 0, "Смайлики");
+            ui.selectable_value(&mut self.picker_tab, 1, "Стикеры");
+            ui.selectable_value(&mut self.picker_tab, 2, "Эффекты");
         });
         let Some((emoticons, stickers)) = &net.emoticons else {
             ui.horizontal(|ui| {
@@ -247,7 +289,43 @@ impl ChatWin {
             .auto_shrink([false, true])
             .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    if !self.picker_stickers {
+                    if self.picker_tab == 2 {
+                        // Только купленные эффекты (из инвентаря Steam; перечитываются при открытии вкладки).
+                        let Some(list) = net.chat_effects.clone() else {
+                            ui.spinner();
+                            ui.weak("Загружаю ваши эффекты...");
+                            return;
+                        };
+                        if list.is_empty() {
+                            ui.vertical(|ui| {
+                                ui.weak("У вас нет эффектов комнаты. Их получают за очки в магазине очков Steam.");
+                                ui.hyperlink_to("Магазин очков Steam", "https://store.steampowered.com/points/shop/");
+                            });
+                        }
+                        // Значок не загрузился (сбой сети) — один раз забыть ошибку, чтобы egui попробовал снова.
+                        if !self.icons_retried {
+                            self.icons_retried = true;
+                            for name in &list {
+                                let url = crate::effects::icon_url(name);
+                                if ui.ctx().try_load_image(&url, Default::default()).is_err() {
+                                    ui.ctx().forget_image(&url);
+                                }
+                            }
+                        }
+                        for name in &list {
+                            let img = egui::Image::new(crate::effects::icon_url(name))
+                                .fit_to_exact_size(egui::vec2(48.0, 48.0));
+                            if ui
+                                .add(egui::ImageButton::new(img))
+                                .on_hover_text(format!("{} — отправить", crate::effects::short_name(name)))
+                                .clicked()
+                            {
+                                // Как в клиенте Steam: команда /roomeffect, сервер превращает её в [roomeffect].
+                                send = Some(format!("/roomeffect {name}"));
+                                self.picker_open = false;
+                            }
+                        }
+                    } else if self.picker_tab == 0 {
                         if emoticons.is_empty() {
                             ui.weak("У вас нет смайликов Steam.");
                         }

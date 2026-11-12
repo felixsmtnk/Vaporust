@@ -7,6 +7,7 @@ mod colls;
 #[cfg(all(windows, target_arch = "x86"))]
 mod compat32;
 mod covers;
+mod effects;
 mod direct;
 mod icons;
 mod invent;
@@ -15,14 +16,19 @@ mod launchopts;
 mod libview;
 mod local;
 mod net;
+mod notices;
 mod notify;
 mod pinning;
 mod portable;
+mod schedule;
 mod props;
 mod settings;
 mod settingsui;
+mod shots;
+mod popup;
 mod social;
 mod socialwin;
+mod stats;
 mod store;
 mod storewin;
 mod tray;
@@ -37,6 +43,7 @@ pub enum View {
     Inventory,
     Workshop,
     Settings,
+    Screenshots,
 }
 
 use eframe::egui;
@@ -51,6 +58,9 @@ use std::{
 
 use local::{Game, SteamInfo};
 use net::{Cmd, NetState, Shared};
+
+/// Особый «фильтр-коллекция»: игры семейной библиотеки Steam.
+const FAMILY: &str = "__family";
 
 /// Одна строка библиотеки: объединение установленных и купленных игр.
 struct Row {
@@ -67,6 +77,10 @@ struct Row {
     size: u64,
     /// Последний запуск, unix-время (0 — неизвестно).
     last_played: u64,
+    /// Игра из семейной библиотеки Steam (не куплена этим аккаунтом).
+    family: bool,
+    /// SteamID64 владельца семейной игры, если известен.
+    owner: Option<u64>,
 }
 
 struct LauncherApp {
@@ -84,8 +98,6 @@ struct LauncherApp {
     pin_ok: std::collections::HashSet<u32>,
     /// Закреплённые игры, для которых уже обновляли устаревшую маскировку (раз за сеанс).
     pin_stale_sent: std::collections::HashSet<u32>,
-    /// Итог включения/выключения портативного режима (для вкладки «Настройки»).
-    portable_note: Option<Result<String, String>>,
     /// Обновления Vaporust: состояние проверки/установки; полоса скрыта кнопкой «Позже».
     upd: updater::Shared,
     upd_hidden: bool,
@@ -95,6 +107,10 @@ struct LauncherApp {
     duplicates: Option<Vec<(u32, String, Vec<std::path::PathBuf>)>>,
     /// Прокси сохранён (показать «действует после перезапуска»).
     proxy_note: bool,
+    /// Текст поля «Скорость загрузки» (МБ/с); None — взять из настроек.
+    limit_text: Option<String>,
+    /// То же для скорости по расписанию.
+    sched_text: Option<String>,
     /// Статус для друзей уже объявлен для текущего входа.
     persona_sent: bool,
     /// Коллекции уже запрошены для текущего входа.
@@ -142,6 +158,8 @@ struct LauncherApp {
     ws_ui: workshopui::WsUi,
     /// Открытое окно Мастерской: (appid, название игры).
     ws_open: Option<(u32, String)>,
+    /// Раздел «Скриншоты» (открыт, пока Some).
+    shots_win: Option<shots::ShotsWin>,
     /// Мастерская, магазин, инвентарь открыты отдельным окном (Ctrl+щелчок).
     ws_detached: bool,
     store_detached: bool,
@@ -165,6 +183,12 @@ struct LauncherApp {
     /// Когда последний раз перечитывали диск и было ли окно активно (для auto_rescan).
     last_rescan: std::time::Instant,
     was_focused: bool,
+    /// Последняя проверка расписания загрузок.
+    sched_check: Option<std::time::Instant>,
+    /// Уведомления о друзьях, скидках и загрузках.
+    notices: notices::Notices,
+    /// Ограничение скорости, отправленное в Aurelia (КБ/с).
+    sent_limit: Option<u64>,
     install_note: String,
 }
 
@@ -197,7 +221,8 @@ impl LauncherApp {
                 }
             }
         }
-        notify::set_sound(saved.notify_sound);
+        popup::set_sound(saved.notify_sound);
+        popup::init(&cc.egui_ctx);
         tray::set_close_to_tray(saved.close_to_tray);
         tray::start();
 
@@ -211,12 +236,13 @@ impl LauncherApp {
             updates_checked: false,
             pin_ok: Default::default(),
             pin_stale_sent: Default::default(),
-            portable_note: None,
             upd: Default::default(),
             upd_hidden: false,
             upd_manual: false,
             duplicates: None,
             proxy_note: false,
+            limit_text: None,
+            sched_text: None,
             persona_sent: false,
             colls_requested: false,
             collection: None,
@@ -247,10 +273,14 @@ impl LauncherApp {
             last_rescan: std::time::Instant::now(),
             was_focused: true,
             install_note: String::new(),
+            sched_check: None,
+            notices: Default::default(),
+            sent_limit: None,
             covers: covers::Covers::new(ctx, local::find_steam().map(|s| s.dir)),
             social_ui: Default::default(),
             ws_ui: Default::default(),
             ws_open: None,
+            shots_win: None,
             ws_detached: false,
             store_detached: false,
             inv_detached: false,
@@ -297,6 +327,9 @@ impl LauncherApp {
     fn rescan(&mut self) {
         self.last_rescan = std::time::Instant::now();
         self.steam = local::find_steam();
+        if let Some(s) = &self.steam {
+            effects::set_steam_dir(&s.dir);
+        }
         self.games = self
             .steam
             .as_ref()
@@ -401,7 +434,15 @@ impl LauncherApp {
         }
         let busy = net.install.as_ref().is_some_and(|i| i.active());
         let waiting = self.settings.downloads.iter().any(|q| !q.paused);
-        if !busy && !waiting && !self.settings.queue_paused {
+        let allowed = schedule::may_download(&self.settings);
+        if !allowed {
+            self.install_note = format!(
+                "«{name}» в очереди: по расписанию загрузки идут с {} до {}.",
+                schedule::hh(self.settings.sched_from),
+                schedule::hh(self.settings.sched_to)
+            );
+        }
+        if !busy && !waiting && !self.settings.queue_paused && allowed {
             self.install(appid, name);
             self.queue_started = Some(std::time::Instant::now());
         } else {
@@ -419,6 +460,7 @@ impl LauncherApp {
         if busy
             || cooling
             || self.settings.queue_paused
+            || !schedule::may_download(&self.settings)
             || next.is_none()
             || net.account.is_none()
             || self.launching.load(Ordering::Relaxed)
@@ -440,6 +482,12 @@ impl LauncherApp {
             let mut remove = None;
             ui.horizontal_wrapped(|ui| {
                 ui.label("Очередь:");
+                if !schedule::may_download(&self.settings) {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(230, 170, 60),
+                        format!("ждёт расписания (с {})", schedule::hh(self.settings.sched_from)),
+                    );
+                }
                 let (label, hint) = if self.settings.queue_paused {
                     ("Продолжить очередь", "Снова качать игры из очереди по порядку.")
                 } else {
@@ -530,7 +578,8 @@ impl LauncherApp {
     fn steam_running(&mut self) -> bool {
         let now = std::time::Instant::now();
         match self.steam_check {
-            Some((t, v)) if now.duration_since(t) < std::time::Duration::from_secs(2) => v,
+            // Снимок процессов стоит ~5–7 мс — не чаще раза в 5 с (в покое это основная нагрузка).
+            Some((t, v)) if now.duration_since(t) < std::time::Duration::from_secs(5) => v,
             _ => {
                 let v = local::steam_running();
                 self.steam_check = Some((now, v));
@@ -562,7 +611,46 @@ impl LauncherApp {
     }
 
     /// Обновить игру через скрытый Steam (без запуска игры).
+    /// «Обновить» в библиотеке: без Steam (Aurelia), если можно; иначе — через скрытый Steam.
     pub(crate) fn start_update(&mut self, appid: u32, ctx: &egui::Context) {
+        let Some(game) = self.games.iter().find(|g| g.appid == appid).cloned() else { return };
+        let acf = local::appmanifest_path(&game);
+        let info = local::read_acf(&acf);
+        // Ждёт смены языка (выбрано в «Свойствах») — Vaporust сменит его сам (switch_language).
+        let switching = !info.user_language.is_empty()
+            && !info.mounted_language.is_empty()
+            && info.user_language != info.mounted_language;
+        // Смена беты — без Steam: Aurelia качает версии выбранной ветки для установленных хранилищ.
+        let beta = (info.user_beta != info.mounted_beta).then(|| info.user_beta.clone());
+        let logged_in = self.net.lock().unwrap().account.is_some();
+        // Игра в двух библиотеках: Aurelia берёт первую по алфавиту копию — может обновить не ту.
+        let duplicate = self
+            .steam
+            .as_ref()
+            .is_some_and(|s| local::find_duplicates(&s.dir).iter().any(|(id, _, _)| *id == appid));
+        if self.settings.update_via_steam || duplicate || !logged_in || self.settings.pinned.contains_key(&appid) {
+            self.steam_task(appid, ctx, true);
+            return;
+        }
+        if self.steam_running() {
+            self.install_note = "Сначала закройте Steam (кнопка «Закрыть Steam» внизу), потом нажмите «Обновить» ещё раз.".into();
+            return;
+        }
+        if self.net.lock().unwrap().install.as_ref().is_some_and(|i| i.active()) {
+            self.install_note = "Сейчас идёт другая загрузка — обновите игру, когда она закончится.".into();
+            return;
+        }
+        self.install_note.clear();
+        if switching {
+            // Сначала язык (бета, если тоже выбрана, — следующим нажатием «Обновить»).
+            let _ = self.tx.send(Cmd::SetLanguage { appid, name: game.name.clone(), acf, lang: info.user_language.clone() });
+            return;
+        }
+        let _ = self.tx.send(Cmd::UpdateDirect { appid, name: game.name.clone(), acf, beta });
+    }
+
+    /// Обновить через скрытый Steam (как раньше).
+    pub(crate) fn start_update_steam(&mut self, appid: u32, ctx: &egui::Context) {
         self.steam_task(appid, ctx, true);
     }
 
@@ -641,6 +729,8 @@ impl LauncherApp {
                     playtime_min: Some(g.playtime_forever_minutes),
                     size: 0,
                     last_played: 0,
+                    family: false,
+                    owner: None,
                 },
             );
         }
@@ -661,7 +751,30 @@ impl LauncherApp {
                     playtime_min: None,
                     size: g.size,
                     last_played: 0,
+                    family: false,
+                    owner: None,
                 });
+        }
+        // Семейная библиотека: чужие игры, которых нет среди своих.
+        let own: std::collections::HashSet<u32> = net.owned.iter().map(|g| g.app_id).collect();
+        for f in &net.family {
+            if own.contains(&f.app_id) {
+                continue;
+            }
+            let r = map.entry(f.app_id).or_insert_with(|| Row {
+                appid: f.app_id,
+                name: f.name.clone(),
+                installed: false,
+                ready: false,
+                needs_update: false,
+                playtime_min: None,
+                size: 0,
+                last_played: 0,
+                family: false,
+                owner: None,
+            });
+            r.family = true;
+            r.owner = f.owner_steamid;
         }
         for r in map.values_mut() {
             r.last_played = self.last_played.get(&r.appid).copied().unwrap_or(0);
@@ -684,9 +797,11 @@ impl LauncherApp {
             .into_values()
             .filter(|r| !self.only_installed || r.installed)
             // Коллекция: выбранная — только её игры; «все игры» — без «Скрытых», как в Steam.
-            .filter(|r| match selected {
-                Some(c) => c.apps.contains(&r.appid),
-                None => !hidden.contains(&r.appid),
+            // «Семейная библиотека» — только игры семьи; в «Все игры» — по галочке в настройках.
+            .filter(|r| match (self.collection.as_deref(), selected) {
+                (Some(FAMILY), _) => r.family,
+                (_, Some(c)) => c.apps.contains(&r.appid),
+                _ => !hidden.contains(&r.appid) && (self.settings.show_family || !r.family),
             })
             .filter(|r| r.name.to_lowercase().contains(&filter))
             .collect();
@@ -846,8 +961,11 @@ impl LauncherApp {
             *chat = Some(chatwin::ChatWin::new(id, name));
         }
         drop(chat);
-        // Если окно чата уже открыто, вынести его на передний план.
-        ctx.send_viewport_cmd_to(chatwin::viewport_id(), egui::ViewportCommand::Focus);
+        // Если окно чата уже открыто, вынести его на передний план (команда несуществующему окну
+        // создала бы пустое «egui window»).
+        if notify::chat_open() {
+            ctx.send_viewport_cmd_to(chatwin::viewport_id(), egui::ViewportCommand::Focus);
+        }
     }
 
     /// «Уже скачана...»: выбрать папку игры в steamapps\common и добавить её в Steam.
@@ -889,7 +1007,7 @@ impl LauncherApp {
             View::Store => self.store_detached.then_some("Магазин"),
             View::Inventory => self.inv_detached.then_some("Инвентарь"),
             View::Workshop => self.ws_detached.then_some("Мастерская"),
-            View::Library | View::Settings => None,
+            View::Library | View::Settings | View::Screenshots => None,
         };
         if let Some(what) = detached {
             ui.add_space(20.0);
@@ -925,6 +1043,7 @@ impl LauncherApp {
                 self.workshop_contents(ui, net);
             }
             View::Settings => self.settings_contents(ui, net),
+            View::Screenshots => self.shots_contents(ui, net),
             View::Library => {}
         }
     }
@@ -938,6 +1057,10 @@ impl LauncherApp {
                         if let Some(me) = net.my_id {
                             self.open_profile(me, net);
                         }
+                        ui.close_menu();
+                    }
+                    if ui.button("Мои скриншоты").clicked() {
+                        self.open_shots(None);
                         ui.close_menu();
                     }
                     ui.separator();
@@ -969,6 +1092,19 @@ impl LauncherApp {
                 }
                 if ui.selectable_label(self.view == View::Settings, "Настройки").clicked() {
                     self.view = View::Settings;
+                }
+                // Скриншоты — временная вкладка, пока открыты.
+                if self.shots_win.is_some() {
+                    ui.separator();
+                    if ui.selectable_label(self.view == View::Screenshots, "Скриншоты").clicked() {
+                        self.view = View::Screenshots;
+                    }
+                    if ui.small_button("✖").on_hover_text("Закрыть скриншоты").clicked() {
+                        self.shots_win = None;
+                        if self.view == View::Screenshots {
+                            self.view = View::Library;
+                        }
+                    }
                 }
                 // Мастерская игры — временная вкладка, пока она открыта.
                 if self.ws_open.is_some() && !self.ws_detached {
@@ -1186,7 +1322,7 @@ fn clipboard_image_file() -> Result<Option<std::path::PathBuf>, String> {
 
 /// Один кусок сообщения чата: текст, ссылка, картинка, смайлик или стикер.
 /// Картинки грузятся с серверов Steam при первом показе (egui_extras), пока грузятся — крутится значок.
-fn draw_seg(ui: &mut egui::Ui, seg: chatfmt::Seg, anims: &mut anim::Cache) {
+fn draw_seg(ui: &mut egui::Ui, seg: chatfmt::Seg, anims: &mut anim::Cache, who: &str) {
     use chatfmt::Seg;
     match seg {
         Seg::Text(t) => {
@@ -1198,6 +1334,15 @@ fn draw_seg(ui: &mut egui::Ui, seg: chatfmt::Seg, anims: &mut anim::Cache) {
         Seg::Emoticon(name) => {
             ui.add(egui::Image::new(chatfmt::emoticon_url(&name)).fit_to_exact_size(egui::vec2(30.0, 30.0)))
                 .on_hover_text(format!(":{name}:"));
+        }
+        Seg::RoomEffect(kind) => {
+            // Как в Steam: значок эффекта, «… запускает воздушные шарики!» и кнопка повтора.
+            ui.add(egui::Image::new(effects::icon_url(&kind)).fit_to_exact_size(egui::vec2(28.0, 28.0)));
+            ui.label(egui::RichText::new(effects::label(&kind, who)).italics());
+            let known = effects::KNOWN.iter().any(|(n, _)| n.eq_ignore_ascii_case(&kind));
+            if known && ui.small_button("Повторить эффект").clicked() {
+                effects::request_replay(&kind);
+            }
         }
         Seg::Sticker(name) => {
             // Точный размер (с max_size egui ужимает до высоты строки); APNG анимируем сами.
@@ -1277,6 +1422,7 @@ impl eframe::App for LauncherApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let frame_start = std::time::Instant::now();
         // Снимок сетевого состояния на кадр, чтобы не держать блокировку.
         let mut net = self.net.lock().unwrap().clone();
 
@@ -1327,6 +1473,14 @@ impl eframe::App for LauncherApp {
             self.persona_sent = true;
             let _ = self.tx.send(Cmd::SetPersona(self.settings.persona));
             self.send_aurelia_config();
+            // Свои эффекты комнаты: сразу — из сохранённого списка, свежий — из инвентаря в фоне.
+            if net.chat_effects.is_none() {
+                self.net.lock().unwrap().chat_effects = Some(self.settings.chat_effects.clone());
+            }
+            let _ = self.tx.send(Cmd::LoadChatEffects);
+        }
+        if let Some(e) = net.chat_effects.as_ref().filter(|e| **e != self.settings.chat_effects) {
+            self.settings.chat_effects = e.clone();
         }
         // Проверка обновлений один раз после входа (и после работы Steam).
         if net.account.is_none() {
@@ -1341,182 +1495,206 @@ impl eframe::App for LauncherApp {
         // Запуск без Steam: пришла таблица запуска.
         self.direct_tick();
         let installing = net.install.as_ref().is_some_and(|i| i.active());
-        // Перерисовка раз в 1–2 с: полоса прогресса и кнопка «Закрыть Steam» не должны устаревать.
-        ctx.request_repaint_after(std::time::Duration::from_secs(if installing { 1 } else { 2 }));
+        // Перерисовка: во время загрузки или запуска игры — раз в секунду (полоса прогресса, статус),
+        // в покое — раз в 5 с (кнопка «Закрыть Steam», если Steam запустили вручную).
+        let busy = installing || self.launching.load(Ordering::Relaxed) || self.closing.load(Ordering::Relaxed);
+        ctx.request_repaint_after(std::time::Duration::from_secs(if busy { 1 } else { 5 }));
 
-        egui::TopBottomPanel::top("account").show(ctx, |ui| {
-            ui.add_space(4.0);
-            self.account_panel(ui, &net);
-            ui.add_space(4.0);
-        });
-        self.update_banner(ctx);
-
-        egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
-            ui.add_space(2.0);
-            self.install_panel(ui, &net);
-            ui.add_space(2.0);
-            let steam_running = self.steam_running();
-            ui.horizontal(|ui| {
-                let launching = self.launching.load(Ordering::Relaxed);
-                let closing = self.closing.load(Ordering::Relaxed);
-                if launching || closing {
-                    ui.spinner();
-                }
-                if launching && !closing {
-                    if ui
-                        .button("Перестать следить")
-                        .on_hover_text(
-                            "Запасной выход, если лаунчер не заметил закрытия игры.\n\
-                             Лаунчер перестаёт ждать, а Steam остаётся открытым:\n\
-                             его можно закрыть кнопкой «Закрыть Steam».",
-                        )
-                        .clicked()
-                    {
-                        self.cancel.store(true, Ordering::Relaxed);
-                    }
-                } else if steam_running && !closing {
-                    if ui
-                        .button("Закрыть Steam")
-                        .on_hover_text("Закрывает Steam (если он завис — принудительно).")
-                        .clicked()
-                    {
-                        self.close_steam(ctx);
-                    }
-                }
-                ui.label(self.launch_status.lock().unwrap().clone());
+        if !notify::in_tray() {
+            egui::TopBottomPanel::top("account").show(ctx, |ui| {
+                ui.add_space(4.0);
+                self.account_panel(ui, &net);
+                ui.add_space(4.0);
             });
-            // Заморозка steamwebhelper и прочие галочки — в «Настройках» (меню «Аккаунт»).
-            ui.add_space(2.0);
-        });
+            self.update_banner(ctx);
 
-        if net.account.is_some() && self.show_friends {
-            egui::SidePanel::right("friends")
-                .resizable(true)
-                .default_width(230.0)
-                .show(ctx, |ui| self.friends_panel(ui, &net));
-        }
-
-        let ctrl = ctx.input(|i| i.modifiers.ctrl);
-        egui::CentralPanel::default().show(ctx, |ui| {
-            // Магазин, инвентарь, Мастерская — вместо библиотеки, в этом же окне.
-            if self.view != View::Library {
-                self.section_view(ui, &net);
-                return;
-            }
-            // Одна строка: поиск и «только установленные» слева, коллекция и сортировка справа.
-            // (Вид «Плитка / Список» и «Обновить библиотеку» — в «Настройках».)
-            ui.add_space(2.0);
-            ui.horizontal(|ui| {
-                let hint = if net.owned.is_empty() {
-                    "Поиск по названию".to_string()
-                } else {
-                    format!("Поиск среди {} игр", net.owned.len())
-                };
-                ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text(hint).desired_width(260.0));
-                ui.checkbox(&mut self.only_installed, "Только установленные");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                egui::ComboBox::from_id_salt("sort")
-                    .selected_text(format!("Сортировка: {}", self.settings.sort.label()))
-                    .show_ui(ui, |ui| {
-                        for s in settings::Sort::ALL {
-                            ui.selectable_value(&mut self.settings.sort, s, s.label());
+            egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
+                ui.add_space(2.0);
+                self.install_panel(ui, &net);
+                ui.add_space(2.0);
+                let steam_running = self.steam_running();
+                ui.horizontal(|ui| {
+                    let launching = self.launching.load(Ordering::Relaxed);
+                    let closing = self.closing.load(Ordering::Relaxed);
+                    if launching || closing {
+                        ui.spinner();
+                    }
+                    if launching && !closing {
+                        if ui
+                            .button("Перестать следить")
+                            .on_hover_text(
+                                "Запасной выход, если лаунчер не заметил закрытия игры.\n\
+                                 Лаунчер перестаёт ждать, а Steam остаётся открытым:\n\
+                                 его можно закрыть кнопкой «Закрыть Steam».",
+                            )
+                            .clicked()
+                        {
+                            self.cancel.store(true, Ordering::Relaxed);
                         }
-                    });
-                // Коллекции Steam (правый щелчок по игре — добавить в коллекцию).
-                if let Some(colls) = net.collections.as_ref() {
-                    let current = self
-                        .collection
-                        .as_ref()
-                        .and_then(|id| colls.iter().find(|c| &c.id == id))
-                        .map(|c| c.name.clone())
-                        .unwrap_or_else(|| "Все игры".into());
-                    egui::ComboBox::from_id_salt("collection")
-                        .selected_text(format!("Коллекция: {current}"))
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.collection, None, "Все игры");
-                            for c in colls {
-                                ui.selectable_value(
-                                    &mut self.collection,
-                                    Some(c.id.clone()),
-                                    format!("{} ({})", c.name, c.apps.len()),
-                                );
-                            }
-                        })
-                        .response
-                        .on_hover_text("Коллекции из Steam. Добавить игру — правый щелчок по ней. «Скрытые» в «Все игры» не показываются.");
-                }
+                    } else if steam_running && !closing {
+                        if ui
+                            .button("Закрыть Steam")
+                            .on_hover_text("Закрывает Steam (если он завис — принудительно).")
+                            .clicked()
+                        {
+                            self.close_steam(ctx);
+                        }
+                    }
+                    ui.label(self.launch_status.lock().unwrap().clone());
                 });
+                // Заморозка steamwebhelper и прочие галочки — в «Настройках» (меню «Аккаунт»).
+                ui.add_space(2.0);
             });
-            if let Some(e) = &net.collections_error {
-                ui.colored_label(egui::Color32::from_rgb(230, 110, 110), e);
-            }
-            // Папка для установки новых игр выбирается в «Настройках».
-            ui.separator();
 
-            let launching =
-                self.launching.load(Ordering::Relaxed) || self.closing.load(Ordering::Relaxed);
-            let rows = self.rows(&net);
-            // Список или плитка — по настройке; кнопки у обоих видов общие (libview).
-            let queued: std::collections::HashSet<u32> =
-                self.settings.downloads.iter().filter(|q| !q.paused).map(|q| q.appid).collect();
-            let vc = libview::Ctx {
-                launching,
-                installing,
-                logged_in: net.account.is_some(),
-                net: &net,
-                queued: &queued,
-                sort: self.settings.sort,
-                collections: net.collections.as_deref().unwrap_or(&[]),
-            };
-            let page_row = self.lib_page.and_then(|id| self.row_map(&net).remove(&id));
-            let action = if let Some(r) = &page_row {
-                // Страница игры: новости и онлайн — из данных магазина, достижения — из сети.
-                let store = net.store.lock().unwrap();
-                let ex = store.extras.get(&r.appid);
-                let data = libview::PageData {
-                    achievements: net.achievements.get(&r.appid),
-                    news: ex.and_then(|e| e.news.as_ref()),
-                    players: ex.and_then(|e| e.players),
-                };
-                libview::page(ui, r, &vc, &self.covers, &data)
-            } else {
-                match self.settings.view {
-                    settings::View::List => libview::list(ui, &rows, &vc),
-                    settings::View::Grid => libview::grid(ui, &rows, &vc, &self.covers),
-                }
-            };
-            match action {
-                Some(libview::Action::Play(appid)) => self.start(appid, ctx),
-                Some(libview::Action::Update(appid)) => self.start_update(appid, ctx),
-                Some(libview::Action::Install(appid, name)) => self.enqueue(appid, name, &net),
-                Some(libview::Action::Props(appid, name)) => self.open_props(appid, name),
-                Some(libview::Action::Achievements(appid, name)) => {
-                    if !net.achievements.contains_key(&appid) {
-                        let _ = self.tx.send(Cmd::Achievements(appid));
-                    }
-                    self.ach_open = Some((appid, name));
-                }
-                Some(libview::Action::Page(appid)) => {
-                    // Страница игры в библиотеке: заодно грузим достижения и новости/онлайн.
-                    self.lib_page = Some(appid);
-                    if net.account.is_some() && !net.achievements.contains_key(&appid) {
-                        let _ = self.tx.send(Cmd::Achievements(appid));
-                    }
-                    let _ = self.tx.send(Cmd::Store(store::StoreCmd::Page(appid)));
-                }
-                Some(libview::Action::Back) => self.lib_page = None,
-                Some(libview::Action::Store(appid)) => self.open_store(Some(appid), ctrl),
-                Some(libview::Action::Workshop(appid, name)) => self.open_workshop(appid, name, ctrl),
-                Some(libview::Action::Import(appid, name)) => self.import_game(appid, name),
-                Some(libview::Action::Collection { id, appid, add }) => {
-                    let _ = self.tx.send(Cmd::Coll(colls::CollCmd::Toggle { id, appid, add }));
-                }
-                Some(libview::Action::NewCollection { name, appid }) => {
-                    let _ = self.tx.send(Cmd::Coll(colls::CollCmd::Create { name, appid: Some(appid) }));
-                }
-                None => {}
+            if net.account.is_some() && self.show_friends {
+                egui::SidePanel::right("friends")
+                    .resizable(true)
+                    .default_width(230.0)
+                    .show(ctx, |ui| self.friends_panel(ui, &net));
             }
-        });
+
+            let ctrl = ctx.input(|i| i.modifiers.ctrl);
+            egui::CentralPanel::default().show(ctx, |ui| {
+                // Магазин, инвентарь, Мастерская — вместо библиотеки, в этом же окне.
+                if self.view != View::Library {
+                    self.section_view(ui, &net);
+                    return;
+                }
+                // Одна строка: поиск и «только установленные» слева, коллекция и сортировка справа.
+                // (Вид «Плитка / Список» и «Обновить библиотеку» — в «Настройках».)
+                ui.add_space(2.0);
+                ui.horizontal(|ui| {
+                    let hint = if net.owned.is_empty() {
+                        "Поиск по названию".to_string()
+                    } else {
+                        format!("Поиск среди {} игр", net.owned.len())
+                    };
+                    ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text(hint).desired_width(260.0));
+                    ui.checkbox(&mut self.only_installed, "Только установленные");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    egui::ComboBox::from_id_salt("sort")
+                        .selected_text(format!("Сортировка: {}", self.settings.sort.label()))
+                        .show_ui(ui, |ui| {
+                            for s in settings::Sort::ALL {
+                                ui.selectable_value(&mut self.settings.sort, s, s.label());
+                            }
+                        });
+                    // Коллекции Steam (правый щелчок по игре — добавить в коллекцию).
+                    if let Some(colls) = net.collections.as_ref() {
+                        let current = self
+                            .collection
+                            .as_ref()
+                            .and_then(|id| colls.iter().find(|c| &c.id == id))
+                            .map(|c| c.name.clone())
+                            .or_else(|| (self.collection.as_deref() == Some(FAMILY)).then(|| "Семейная библиотека".to_string()))
+                            .unwrap_or_else(|| "Все игры".into());
+                        let family_n = self.row_map(&net).values().filter(|r| r.family).count();
+                        egui::ComboBox::from_id_salt("collection")
+                            .selected_text(format!("Коллекция: {current}"))
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.collection, None, "Все игры");
+                                if family_n > 0 {
+                                    ui.selectable_value(
+                                        &mut self.collection,
+                                        Some(FAMILY.to_string()),
+                                        format!("Семейная библиотека ({family_n})"),
+                                    )
+                                    .on_hover_text("Игры, которыми с вами делятся члены семьи Steam");
+                                }
+                                for c in colls {
+                                    ui.selectable_value(
+                                        &mut self.collection,
+                                        Some(c.id.clone()),
+                                        format!("{} ({})", c.name, c.apps.len()),
+                                    );
+                                }
+                            })
+                            .response
+                            .on_hover_text("Коллекции из Steam. Добавить игру — правый щелчок по ней. «Скрытые» в «Все игры» не показываются.");
+                    }
+                    });
+                });
+                if let Some(e) = &net.collections_error {
+                    ui.colored_label(egui::Color32::from_rgb(230, 110, 110), e);
+                }
+                // Папка для установки новых игр выбирается в «Настройках».
+                ui.separator();
+
+                let launching =
+                    self.launching.load(Ordering::Relaxed) || self.closing.load(Ordering::Relaxed);
+                let rows = self.rows(&net);
+                // Список или плитка — по настройке; кнопки у обоих видов общие (libview).
+                let queued: std::collections::HashSet<u32> =
+                    self.settings.downloads.iter().filter(|q| !q.paused).map(|q| q.appid).collect();
+                let vc = libview::Ctx {
+                    launching,
+                    installing,
+                    logged_in: net.account.is_some(),
+                    net: &net,
+                    queued: &queued,
+                    sort: self.settings.sort,
+                    collections: net.collections.as_deref().unwrap_or(&[]),
+                    update_via_steam: self.settings.update_via_steam,
+                };
+                let page_row = self.lib_page.and_then(|id| self.row_map(&net).remove(&id));
+                let action = if let Some(r) = &page_row {
+                    // Страница игры: новости и онлайн — из данных магазина, достижения — из сети.
+                    let store = net.store.lock().unwrap();
+                    let ex = store.extras.get(&r.appid);
+                    let data = libview::PageData {
+                        achievements: net.achievements.get(&r.appid),
+                        news: ex.and_then(|e| e.news.as_ref()),
+                        players: ex.and_then(|e| e.players),
+                    };
+                    libview::page(ui, r, &vc, &self.covers, &data)
+                } else {
+                    match self.settings.view {
+                        settings::View::List => libview::list(ui, &rows, &vc),
+                        settings::View::Grid => libview::grid(ui, &rows, &vc, &self.covers),
+                    }
+                };
+                match action {
+                    Some(libview::Action::Play(appid)) => self.start(appid, ctx),
+                    Some(libview::Action::Update(appid)) => self.start_update(appid, ctx),
+                    Some(libview::Action::Install(appid, name)) => self.enqueue(appid, name, &net),
+                    Some(libview::Action::Props(appid, name)) => self.open_props(appid, name),
+                    Some(libview::Action::Achievements(appid, name)) => {
+                        if !net.achievements.contains_key(&appid) {
+                            let _ = self.tx.send(Cmd::Achievements(appid));
+                        }
+                        self.ach_open = Some((appid, name));
+                    }
+                    Some(libview::Action::Page(appid)) => {
+                        // Страница игры в библиотеке: заодно грузим достижения и новости/онлайн.
+                        self.lib_page = Some(appid);
+                        if net.account.is_some() && !net.achievements.contains_key(&appid) {
+                            let _ = self.tx.send(Cmd::Achievements(appid));
+                        }
+                        let _ = self.tx.send(Cmd::Store(store::StoreCmd::Page(appid)));
+                    }
+                    Some(libview::Action::Back) => self.lib_page = None,
+                    Some(libview::Action::Store(appid)) => self.open_store(Some(appid), ctrl),
+                    Some(libview::Action::Workshop(appid, name)) => self.open_workshop(appid, name, ctrl),
+                    Some(libview::Action::Shots(appid)) => self.open_shots(Some(appid)),
+                    Some(libview::Action::Import(appid, name)) => self.import_game(appid, name),
+                    Some(libview::Action::Collection { id, appid, add }) => {
+                        let _ = self.tx.send(Cmd::Coll(colls::CollCmd::Toggle { id, appid, add }));
+                    }
+                    Some(libview::Action::NewCollection { name, appid }) => {
+                        let _ = self.tx.send(Cmd::Coll(colls::CollCmd::Create { name, appid: Some(appid) }));
+                    }
+                    None => {}
+                }
+            });
+        } else {
+            // В трее окно за краем экрана: интерфейс библиотеки не рисуем (экономия процессора),
+            // логика ниже (очередь, расписание, уведомления, чат) работает как обычно.
+            egui::CentralPanel::default().show(ctx, |_| {});
+        }
+        self.schedule_tick(&net);
+        self.notices_tick(&net);
+        self.popups_ui(ctx);
+        self.popup_clicks(ctx, &net);
         self.run_queue(&net);
         self.guard_partials(&net);
 
@@ -1527,6 +1705,7 @@ impl eframe::App for LauncherApp {
         self.social_windows(ctx, &net);
         self.workshop_window(ctx, &net);
         chatwin::show(ctx, &self.chat, &self.net, &self.tx);
+        stats::frame(frame_start);
     }
 }
 

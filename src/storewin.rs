@@ -15,6 +15,8 @@ pub enum Tab {
     Deals,
     Events,
     Wishlist,
+    /// Список желаемого друга (временная вкладка).
+    FriendWishlist,
 }
 
 /// Сортировка списков магазина.
@@ -144,6 +146,26 @@ impl StoreWin {
 
 impl LauncherApp {
     /// Открыть магазин: в главном окне или (detached) в отдельном.
+    /// Магазин на вкладке «Желаемое: <друг>».
+    pub(crate) fn open_friend_wishlist(&mut self, id: u64, name: String) {
+        self.open_store(None, false);
+        self.net.lock().unwrap().store.lock().unwrap().friend_wishlist = Some((id, name, None));
+        let _ = self.tx.send(Cmd::Store(StoreCmd::FriendWishlist(id)));
+        if let Some(w) = self.store_win.as_mut() {
+            w.tab = Tab::FriendWishlist;
+            w.pages.clear();
+        }
+    }
+
+    /// Магазин на вкладке «Список желаемого» (щелчок по уведомлению о скидках).
+    pub(crate) fn open_wishlist(&mut self) {
+        self.open_store(None, false);
+        if let Some(w) = self.store_win.as_mut() {
+            w.tab = Tab::Wishlist;
+            w.pages.clear();
+        }
+    }
+
     pub(crate) fn open_store(&mut self, page: Option<u32>, detached: bool) {
         if detached {
             self.store_detached = true;
@@ -204,6 +226,7 @@ impl LauncherApp {
         let mut cmds: Vec<Cmd> = Vec::new();
         let mut open_page: Option<u32> = None;
         let mut play: Option<u32> = None;
+        let mut close_friend_wish = false;
         let mut install: Option<(u32, String)> = None;
         let Some(w) = self.store_win.as_mut() else { return };
 
@@ -213,10 +236,25 @@ impl LauncherApp {
                 if !w.pages.is_empty() && ui.button("< Назад").clicked() {
                     w.pages.pop();
                 }
-                for (tab, label) in [(Tab::Search, "Поиск"), (Tab::Deals, "Скидки"), (Tab::Events, "События"), (Tab::Wishlist, "Список желаемого")] {
-                    if ui.selectable_label(w.tab == tab && w.pages.is_empty(), label).clicked() {
-                        w.tab = tab;
+                // «Скидки» — одна вкладка с двумя списками (Deals и Events), переключатель ниже.
+                let in_deals = matches!(w.tab, Tab::Deals | Tab::Events);
+                for (tab, label) in [(Tab::Search, "Поиск"), (Tab::Deals, "Скидки"), (Tab::Wishlist, "Список желаемого")] {
+                    let on = if tab == Tab::Deals { in_deals } else { w.tab == tab };
+                    if ui.selectable_label(on && w.pages.is_empty(), label).clicked() {
+                        if !(tab == Tab::Deals && in_deals) {
+                            w.tab = tab;
+                        }
                         w.pages.clear();
+                    }
+                }
+                // Желаемое друга — временная вкладка, пока открыта.
+                if let Some((_, name, _)) = st.friend_wishlist.clone() {
+                    if ui.selectable_label(w.tab == Tab::FriendWishlist && w.pages.is_empty(), format!("Желаемое: {name}")).clicked() {
+                        w.tab = Tab::FriendWishlist;
+                        w.pages.clear();
+                    }
+                    if ui.small_button("✖").on_hover_text("Закрыть").clicked() {
+                        close_friend_wish = true;
                     }
                 }
                 ui.separator();
@@ -261,6 +299,14 @@ impl LauncherApp {
                     }
                 });
             }
+            if w.pages.is_empty() && matches!(w.tab, Tab::Deals | Tab::Events) {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut w.tab, Tab::Deals, "Популярное со скидкой")
+                        .on_hover_text("50 самых продаваемых игр в вашем регионе, на которые сейчас есть скидка");
+                    ui.selectable_value(&mut w.tab, Tab::Events, "Акции Steam")
+                        .on_hover_text("Скидка дня, скидки недели и выходных, бесплатные выходные, новинки");
+                });
+            }
             if w.pages.is_empty() {
                 ui.horizontal_wrapped(|ui| {
                     egui::ComboBox::from_id_salt("store_sort")
@@ -286,7 +332,19 @@ impl LauncherApp {
                 game_page(ui, appid, &st, &owned, &installed, &wish, &mut cmds, &mut open_page, &mut play, &mut install);
                 return;
             }
-            // Пометки во вкладке «События»: что за событие и до какого числа.
+            let hint = match w.tab {
+                Tab::Deals => Some("Самые продаваемые игры в вашем регионе, на которые сейчас есть скидка."),
+                Tab::Events => Some(
+                    "Что Steam сейчас продвигает на главной странице: скидка дня, скидки середины недели и \
+                     выходных, бесплатные выходные, новинки и обновления. Жёлтым — вид акции и до какого числа.",
+                ),
+                _ => None,
+            };
+            if let Some(h) = hint {
+                ui.weak(h);
+                ui.add_space(4.0);
+            }
+            // Пометки в списке «Акции Steam»: что за акция и до какого числа.
             let badges: std::collections::HashMap<u32, String> = match (&w.tab, &st.events) {
                 (Tab::Events, Some(Ok(v))) => v
                     .iter()
@@ -319,6 +377,7 @@ impl LauncherApp {
                     st.events.as_ref().map(|r| r.clone().map(|v| v.iter().map(|e| e.0).collect()))
                 }
                 Tab::Wishlist => st.wishlist.clone(),
+                Tab::FriendWishlist => st.friend_wishlist.as_ref().and_then(|f| f.2.clone()),
             };
             match ids {
                 None if w.tab == Tab::Search => {
@@ -405,6 +464,12 @@ impl LauncherApp {
             }
         });
         drop(st);
+        if close_friend_wish {
+            shared.lock().unwrap().friend_wishlist = None;
+            if w.tab == Tab::FriendWishlist {
+                w.tab = Tab::Wishlist;
+            }
+        }
 
         if let Some(id) = open_page {
             w.pages.push(id);
@@ -631,13 +696,91 @@ fn game_page(
             }
         });
 
+        if let Some((min, rec)) = ex.and_then(|e| e.requirements.as_ref()) {
+            egui::CollapsingHeader::new("Системные требования").id_salt(("req", appid)).show(ui, |ui| {
+                if !min.is_empty() {
+                    ui.label(min);
+                }
+                if !rec.is_empty() {
+                    ui.add_space(4.0);
+                    ui.label(rec);
+                }
+            });
+        }
+
         egui::CollapsingHeader::new("Отзывы").id_salt(("reviews", appid)).show(ui, |ui| {
             match &a.review_summary {
                 Some(r) => ui.label(format!("Итог: {}", review_ru(r))),
                 None => ui.weak("Отзывов пока мало."),
             };
-            // Сами отзывы Steam сейчас отдаёт только на сайте.
-            ui.hyperlink_to("Читать отзывы в браузере", format!("{}#app_reviews_hash", store_url(appid)));
+            let rv = ex.and_then(|e| e.reviews.as_ref());
+            let (sort, all_langs) = rv.map(|r| (r.sort, r.all_langs)).unwrap_or((0, false));
+            if rv.is_none() {
+                // Раздел открыли — первая страница (полезные за всё время, на русском), как на сайте.
+                cmds.push(Cmd::Store(StoreCmd::Reviews { appid, sort: 0, all_langs: false, page: 1 }));
+            }
+            ui.horizontal(|ui| {
+                let (mut r2, mut l2) = (sort, all_langs);
+                egui::ComboBox::from_id_salt(("rev_sort", appid))
+                    .selected_text(store::REVIEW_SORTS[r2 as usize].1)
+                    .show_ui(ui, |ui| {
+                        for (i, (_, label)) in store::REVIEW_SORTS.iter().enumerate() {
+                            ui.selectable_value(&mut r2, i as u8, *label);
+                        }
+                    });
+                ui.separator();
+                ui.selectable_value(&mut l2, false, "На русском");
+                ui.selectable_value(&mut l2, true, "На всех языках");
+                if (r2, l2) != (sort, all_langs) {
+                    cmds.push(Cmd::Store(StoreCmd::Reviews { appid, sort: r2, all_langs: l2, page: 1 }));
+                }
+                ui.separator();
+                ui.hyperlink_to("В браузере", format!("https://steamcommunity.com/app/{appid}/reviews/"));
+            });
+            let Some(rv) = rv else {
+                ui.spinner();
+                return;
+            };
+            if let Some(e) = &rv.error {
+                ui.colored_label(egui::Color32::from_rgb(230, 110, 110), format!("Не удалось загрузить отзывы: {e}"));
+            }
+            if rv.list.is_empty() && !rv.loading && rv.error.is_none() {
+                ui.weak("Отзывов с такими условиями нет.");
+            }
+            for r in &rv.list {
+                egui::Frame::group(ui.style()).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal_wrapped(|ui| {
+                        let (c, t) = if r.positive {
+                            (egui::Color32::from_rgb(110, 190, 240), "Рекомендует")
+                        } else {
+                            (egui::Color32::from_rgb(230, 110, 110), "Не рекомендует")
+                        };
+                        ui.colored_label(c, egui::RichText::new(t).strong());
+                        ui.label(&r.author);
+                        ui.weak(format!("· {} · {}", r.hours, r.date));
+                    });
+                    // Очень длинные отзывы — начало и ссылка на полный текст.
+                    let long = r.text.chars().count() > 1200;
+                    let text: String = if long { r.text.chars().take(1200).collect::<String>() + "…" } else { r.text.clone() };
+                    ui.label(text);
+                    ui.horizontal_wrapped(|ui| {
+                        if !r.helpful.is_empty() {
+                            ui.weak(egui::RichText::new(r.helpful.replace('\n', " · ")).small());
+                        }
+                        if long && !r.url.is_empty() {
+                            ui.hyperlink_to("Читать полностью", &r.url);
+                        }
+                    });
+                });
+            }
+            if rv.loading {
+                ui.spinner();
+            } else if rv.more && ui.button("Показать ещё").clicked() {
+                cmds.push(Cmd::Store(StoreCmd::Reviews { appid, sort, all_langs, page: rv.pages + 1 }));
+            } else if sort == 0 && rv.list.len() >= 10 {
+                ui.weak("За всё время Steam показывает только первые 10 отзывов. Больше — выберите период (например, «за год») или «Новые».");
+            }
         });
 
 

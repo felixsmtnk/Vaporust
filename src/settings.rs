@@ -64,6 +64,19 @@ pub struct Settings {
     pub close_to_tray: bool,
     /// Звук при новом сообщении, когда окно не активно.
     pub notify_sound: bool,
+    /// Уведомления: общая галочка и отдельные виды.
+    pub notify_on: bool,
+    pub notify_msg: bool,
+    pub notify_friend_game: bool,
+    pub notify_friend_online: bool,
+    pub notify_wishlist: bool,
+    pub notify_download: bool,
+    /// Скидки из списка желаемого, о которых уже сообщили: appid -> конец скидки (unix).
+    pub notified_sales: std::collections::BTreeMap<u32, u64>,
+    /// Свои эффекты комнаты (последний известный список — чтобы панель открывалась сразу).
+    pub chat_effects: Vec<String>,
+    /// Обновлять игры через скрытый Steam (по умолчанию — без Steam, загрузчиком Vaporust).
+    pub update_via_steam: bool,
     /// Очередь установок; сохраняется между запусками.
     pub downloads: Vec<QueueItem>,
     /// Старый формат очереди (alpha.2 до правки): только читаем и переносим в `downloads`.
@@ -85,6 +98,16 @@ pub struct Settings {
     pub check_updates: bool,
     /// Игры, которые запускаются без Steam (галочка в «Свойствах»).
     pub no_steam: std::collections::BTreeSet<u32>,
+    /// Показывать игры семейной библиотеки в «Все игры».
+    pub show_family: bool,
+    /// Расписание загрузок: часы окна [sched_from, sched_to).
+    pub sched_from: u8,
+    pub sched_to: u8,
+    /// Качать только в часы окна.
+    pub sched_only: bool,
+    /// В часы окна — своё ограничение скорости (КБ/с, 0 — без ограничения).
+    pub sched_limit_on: bool,
+    pub sched_limit_kb: u64,
     /// Запомненные таблицы запуска для игр без Steam (чтобы запускались и без интернета).
     pub direct_specs: std::collections::BTreeMap<u32, crate::direct::LaunchSpec>,
     /// Ограничение скорости загрузки игр, КБ/с (0 — без ограничения).
@@ -126,6 +149,15 @@ impl Default for Settings {
             persona: 7,
             close_to_tray: true,
             notify_sound: true,
+            notify_on: true,
+            notify_msg: true,
+            notify_friend_game: true,
+            notify_friend_online: false,
+            notify_wishlist: true,
+            notify_download: true,
+            notified_sales: Default::default(),
+            chat_effects: Vec::new(),
+            update_via_steam: false,
             downloads: Vec::new(),
             queue: Vec::new(),
             queue_paused: false,
@@ -135,6 +167,12 @@ impl Default for Settings {
             pinned: Default::default(),
             check_updates: true,
             no_steam: Default::default(),
+            show_family: true,
+            sched_from: 1,
+            sched_to: 7,
+            sched_only: false,
+            sched_limit_on: false,
+            sched_limit_kb: 0,
             direct_specs: Default::default(),
             download_limit_kb: 0,
             proxy: String::new(),

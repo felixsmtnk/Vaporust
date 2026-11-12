@@ -180,7 +180,45 @@ pub fn installed_size(library: &Path, appid: u32) -> u64 {
 
 /// Запущен ли сейчас steam.exe.
 pub fn steam_running() -> bool {
-    Procs::new().steam_running()
+    let t = std::time::Instant::now();
+    let v = process_named("steam.exe");
+    crate::stats::proc_scan(t);
+    v
+}
+
+/// Есть ли процесс с таким именем. Снимок ToolHelp — только имена, без путей к exe (sysinfo для
+/// этого спрашивал путь у каждого процесса: ~10 мс против ~1 мс).
+#[cfg(windows)]
+pub fn process_named(name: &str) -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+    };
+    unsafe {
+        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snap == INVALID_HANDLE_VALUE {
+            return Procs::new().named_exists(name);
+        }
+        let mut e: PROCESSENTRY32W = std::mem::zeroed();
+        e.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut found = false;
+        let mut ok = Process32FirstW(snap, &mut e) != 0;
+        while ok {
+            let len = e.szExeFile.iter().position(|&c| c == 0).unwrap_or(e.szExeFile.len());
+            if String::from_utf16_lossy(&e.szExeFile[..len]).eq_ignore_ascii_case(name) {
+                found = true;
+                break;
+            }
+            ok = Process32NextW(snap, &mut e) != 0;
+        }
+        CloseHandle(snap);
+        found
+    }
+}
+
+#[cfg(not(windows))]
+pub fn process_named(name: &str) -> bool {
+    Procs::new().named_exists(name)
 }
 
 pub fn scan_games(steam_dir: &Path) -> Vec<Game> {
@@ -337,6 +375,16 @@ pub fn read_acf(path: &Path) -> AcfInfo {
 /// Записать UserConfig.<key> (пустое значение — удалить ключ) и пометить игру как
 /// требующую обновления: Steam докачает нужное при следующем запуске. Только при закрытом Steam.
 pub fn set_user_config(path: &Path, key: &str, value: &str) -> Result<(), String> {
+    set_config_block(path, "UserConfig", key, value, true)
+}
+
+/// То же в MountedConfig («что установлено сейчас») — без пометки «нужно обновление».
+/// Нужно после смены беты без Steam: файлы новой ветки уже скачаны.
+pub fn set_mounted_config(path: &Path, key: &str, value: &str) -> Result<(), String> {
+    set_config_block(path, "MountedConfig", key, value, false)
+}
+
+fn set_config_block(path: &Path, block: &str, key: &str, value: &str, mark_update: bool) -> Result<(), String> {
     let text = fs::read_to_string(path).map_err(|e| format!("Не удалось прочитать файл игры: {e}"))?;
     let lines: Vec<&str> = text.lines().collect();
     let mut out: Vec<String> = Vec::with_capacity(lines.len() + 4);
@@ -346,7 +394,7 @@ pub fn set_user_config(path: &Path, key: &str, value: &str) -> Result<(), String
         let t = line.trim();
         if t == "{" {
             depth += 1;
-            in_user = depth == 2 && pending.eq_ignore_ascii_case("UserConfig");
+            in_user = depth == 2 && pending.eq_ignore_ascii_case(block);
             user_seen |= in_user;
             out.push(line.to_string());
             continue;
@@ -360,8 +408,8 @@ pub fn set_user_config(path: &Path, key: &str, value: &str) -> Result<(), String
                 in_user = false;
             }
             if depth == 1 && !user_seen && !value.is_empty() {
-                // Блока UserConfig нет — добавляем перед концом файла.
-                out.push("\t\"UserConfig\"".into());
+                // Блока нет — добавляем перед концом файла.
+                out.push(format!("\t\"{block}\""));
                 out.push("\t{".into());
                 out.push(format!("\t\t\"{key}\"\t\t\"{value}\""));
                 out.push("\t}".into());
@@ -380,7 +428,7 @@ pub fn set_user_config(path: &Path, key: &str, value: &str) -> Result<(), String
                 done = true;
                 continue;
             }
-            if depth == 1 && k.eq_ignore_ascii_case("StateFlags") {
+            if mark_update && depth == 1 && k.eq_ignore_ascii_case("StateFlags") {
                 // 2 = UpdateRequired: Steam сверит конфигурацию и докачает файлы.
                 let flags = kv(t).and_then(|(_, v)| v.parse::<u32>().ok()).unwrap_or(4) | 2;
                 let indent: String = line.chars().take_while(|c| c.is_whitespace()).collect();
@@ -576,6 +624,11 @@ impl Procs {
     fn steam_running(&mut self) -> bool {
         self.refresh();
         self.named("steam.exe").next().is_some()
+    }
+
+    fn named_exists(&mut self, name: &str) -> bool {
+        self.sys.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
+        self.named(name).next().is_some()
     }
 
     /// Игра запущена = есть процесс, чей exe лежит в папке игры.
@@ -978,6 +1031,19 @@ mod acf_tests {
     }
 
     #[test]
+    fn mounted_config() {
+        let p = tmp("mounted", ACF);
+        set_mounted_config(&p, "BetaKey", "").unwrap();
+        let i = read_acf(&p);
+        assert_eq!((i.mounted_beta.as_str(), i.state_flags), ("", 4));
+        set_mounted_config(&p, "BetaKey", "previous").unwrap();
+        let i = read_acf(&p);
+        assert_eq!((i.mounted_beta.as_str(), i.mounted_language.as_str(), i.state_flags), ("previous", "english", 4));
+        let _ = fs::remove_file(&p);
+        let _ = fs::remove_file(p.with_extension("acf.vaporust.bak"));
+    }
+
+    #[test]
     fn read_and_edit() {
         let p = tmp("edit", ACF);
         let i = read_acf(&p);
@@ -1002,5 +1068,207 @@ mod acf_tests {
         let p = tmp("nouser", "\"AppState\"\n{\n\t\"appid\"\t\t\"70\"\n\t\"StateFlags\"\t\t\"4\"\n}\n");
         set_user_config(&p, "language", "german").unwrap();
         assert_eq!(read_acf(&p).user_language, "german");
+    }
+}
+
+/// Номер сборки (buildid) из appmanifest.
+pub fn acf_buildid(path: &Path) -> Option<String> {
+    let text = fs::read_to_string(path).ok()?;
+    let mut depth = 0;
+    for line in text.lines() {
+        let t = line.trim();
+        match t {
+            "{" => depth += 1,
+            "}" => depth -= 1,
+            _ if depth == 1 => {
+                if let Some((k, v)) = kv(t) {
+                    if k.eq_ignore_ascii_case("buildid") {
+                        return Some(v.to_string()).filter(|v| !v.is_empty() && v != "0");
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Общие хранилища из appmanifest (SharedDepots: depot -> игра, которой оно принадлежит).
+pub fn shared_depots(path: &Path) -> std::collections::BTreeMap<u32, u32> {
+    let mut out = std::collections::BTreeMap::new();
+    let Ok(text) = fs::read_to_string(path) else { return out };
+    let mut stack: Vec<String> = Vec::new();
+    let mut pending = String::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if t == "{" {
+            stack.push(std::mem::take(&mut pending));
+            continue;
+        }
+        if t == "}" {
+            stack.pop();
+            continue;
+        }
+        if let Some((k, v)) = kv(t) {
+            if stack.len() == 2 && stack[1].eq_ignore_ascii_case("SharedDepots") {
+                if let (Ok(d), Ok(a)) = (k.parse(), v.parse()) {
+                    out.insert(d, a);
+                }
+            }
+        } else if let Some(k) = t.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+            pending = k.to_string();
+        }
+    }
+    out
+}
+
+/// Изменения списков хранилищ в appmanifest (для смены языка без Steam).
+#[derive(Default, Debug)]
+pub struct DepotEdit {
+    /// Убрать из InstalledDepots.
+    pub remove_installed: Vec<u32>,
+    /// Добавить в InstalledDepots: (depot, manifest, size).
+    pub add_installed: Vec<(u32, u64, u64)>,
+    /// Убрать из SharedDepots.
+    pub remove_shared: Vec<u32>,
+    /// Добавить в SharedDepots: (depot, игра-владелец).
+    pub add_shared: Vec<(u32, u32)>,
+}
+
+fn installed_entry(d: u32, m: u64, s: u64) -> Vec<String> {
+    vec![
+        format!("\t\t\"{d}\""),
+        "\t\t{".to_string(),
+        format!("\t\t\t\"manifest\"\t\t\"{m}\""),
+        format!("\t\t\t\"size\"\t\t\"{s}\""),
+        "\t\t}".to_string(),
+    ]
+}
+
+/// Поправить InstalledDepots и SharedDepots, остальное — байт в байт. Нет блока — создаётся.
+pub fn edit_depot_lists(path: &Path, e: &DepotEdit) -> Result<(), String> {
+    let text = fs::read_to_string(path).map_err(|err| format!("Не удалось прочитать файл игры: {err}"))?;
+    let mut out: Vec<String> = Vec::new();
+    let mut stack: Vec<String> = Vec::new();
+    let mut pending = String::new();
+    // Пропуск убираемого хранилища внутри InstalledDepots: глубина, до которой пропускаем.
+    let mut skip_to: Option<usize> = None;
+    let (mut seen_inst, mut seen_shared) = (false, false);
+    let lines: Vec<&str> = text.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let t = line.trim();
+        i += 1;
+        if let Some(depth) = skip_to {
+            if t == "{" {
+                stack.push(String::new());
+            } else if t == "}" {
+                stack.pop();
+                if stack.len() == depth {
+                    skip_to = None;
+                }
+            }
+            continue;
+        }
+        if t == "{" {
+            let name = std::mem::take(&mut pending);
+            seen_inst |= stack.len() == 1 && name.eq_ignore_ascii_case("InstalledDepots");
+            seen_shared |= stack.len() == 1 && name.eq_ignore_ascii_case("SharedDepots");
+            stack.push(name);
+            out.push(line.to_string());
+            continue;
+        }
+        if t == "}" {
+            if stack.len() == 2 && stack[1].eq_ignore_ascii_case("InstalledDepots") {
+                for &(d, m, s) in &e.add_installed {
+                    out.extend(installed_entry(d, m, s));
+                }
+            }
+            if stack.len() == 2 && stack[1].eq_ignore_ascii_case("SharedDepots") {
+                for &(d, a) in &e.add_shared {
+                    out.push(format!("\t\t\"{d}\"\t\t\"{a}\""));
+                }
+            }
+            if stack.len() == 1 {
+                if !seen_inst && !e.add_installed.is_empty() {
+                    out.push("\t\"InstalledDepots\"".into());
+                    out.push("\t{".into());
+                    for &(d, m, s) in &e.add_installed {
+                        out.extend(installed_entry(d, m, s));
+                    }
+                    out.push("\t}".into());
+                }
+                if !seen_shared && !e.add_shared.is_empty() {
+                    out.push("\t\"SharedDepots\"".into());
+                    out.push("\t{".into());
+                    for &(d, a) in &e.add_shared {
+                        out.push(format!("\t\t\"{d}\"\t\t\"{a}\""));
+                    }
+                    out.push("\t}".into());
+                }
+            }
+            stack.pop();
+            out.push(line.to_string());
+            continue;
+        }
+        if let Some((k, _)) = kv(t) {
+            if stack.len() == 2 && stack[1].eq_ignore_ascii_case("SharedDepots") {
+                let d: Option<u32> = k.parse().ok();
+                // Убираемые и те, что добавятся заново (без дублей).
+                if d.is_some_and(|d| e.remove_shared.contains(&d) || e.add_shared.iter().any(|x| x.0 == d)) {
+                    continue;
+                }
+            }
+        } else if let Some(k) = t.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+            if stack.len() == 2 && stack[1].eq_ignore_ascii_case("InstalledDepots") {
+                let d: Option<u32> = k.parse().ok();
+                if d.is_some_and(|d| e.remove_installed.contains(&d) || e.add_installed.iter().any(|x| x.0 == d)) {
+                    // Пропустить блок хранилища целиком.
+                    if lines.get(i).is_some_and(|l| l.trim() == "{") {
+                        skip_to = Some(stack.len());
+                        stack.push(String::new());
+                        i += 1;
+                    }
+                    continue;
+                }
+            }
+            pending = k.to_string();
+        }
+        out.push(line.to_string());
+    }
+    let mut body = out.join("\n");
+    body.push('\n');
+    let tmp = path.with_extension("acf.tmp");
+    fs::write(&tmp, body).map_err(|err| format!("Не удалось записать файл игры: {err}"))?;
+    fs::rename(&tmp, path).map_err(|err| format!("Не удалось записать файл игры: {err}"))
+}
+
+#[cfg(test)]
+mod depot_edit_tests {
+    use super::*;
+
+    #[test]
+    fn edit_lists() {
+        let acf = "\"AppState\"\n{\n\t\"appid\"\t\t\"60\"\n\t\"InstalledDepots\"\n\t{\n\t\t\"61\"\n\t\t{\n\t\t\t\"manifest\"\t\t\"1\"\n\t\t\t\"size\"\t\t\"10\"\n\t\t}\n\t\t\"62\"\n\t\t{\n\t\t\t\"manifest\"\t\t\"2\"\n\t\t\t\"size\"\t\t\"20\"\n\t\t}\n\t}\n\t\"SharedDepots\"\n\t{\n\t\t\"228988\"\t\t\"228980\"\n\t\t\"72\"\t\t\"70\"\n\t}\n\t\"UserConfig\"\n\t{\n\t\t\"language\"\t\t\"french\"\n\t}\n}\n";
+        let p = std::env::temp_dir().join(format!("vaporust_edit_{}.acf", std::process::id()));
+        fs::write(&p, acf).unwrap();
+        let e = DepotEdit {
+            remove_installed: vec![62],
+            add_installed: vec![(63, 3, 30)],
+            remove_shared: vec![72],
+            add_shared: vec![(73, 70)],
+        };
+        edit_depot_lists(&p, &e).unwrap();
+        assert_eq!(installed_depots(&p).into_iter().collect::<Vec<_>>(), vec![(61, 1), (63, 3)]);
+        assert_eq!(shared_depots(&p).into_iter().collect::<Vec<_>>(), vec![(73, 70), (228988, 228980)]);
+        assert_eq!(read_acf(&p).user_language, "french");
+        // Блоков нет — создаются.
+        fs::write(&p, "\"AppState\"\n{\n\t\"appid\"\t\t\"60\"\n}\n").unwrap();
+        edit_depot_lists(&p, &DepotEdit { add_installed: vec![(62, 2, 20)], add_shared: vec![(141, 70)], ..Default::default() })
+            .unwrap();
+        assert_eq!(installed_depots(&p).into_iter().collect::<Vec<_>>(), vec![(62, 2)]);
+        assert_eq!(shared_depots(&p).into_iter().collect::<Vec<_>>(), vec![(141, 70)]);
+        let _ = fs::remove_file(&p);
     }
 }

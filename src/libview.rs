@@ -25,6 +25,8 @@ pub enum Action {
     Store(u32),
     /// Открыть Мастерскую игры (отдельное окно).
     Workshop(u32, String),
+    /// Скриншоты этой игры.
+    Shots(u32),
     /// Игра уже скачана — указать папку с файлами.
     Import(u32, String),
 }
@@ -40,6 +42,8 @@ pub struct Ctx<'a> {
     pub sort: Sort,
     /// Коллекции Steam (для меню по правому щелчку).
     pub collections: &'a [crate::colls::Coll],
+    /// Обновлять через Steam (для подсказки кнопки «Обновить»).
+    pub update_via_steam: bool,
 }
 
 impl Ctx<'_> {
@@ -66,7 +70,11 @@ fn main_button(ui: &mut egui::Ui, r: &Row, c: &Ctx, out: &mut Option<Action>) {
                     !c.launching && !c.installing,
                     egui::Button::new(egui::RichText::new("Обновить").color(egui::Color32::from_rgb(230, 170, 60))),
                 )
-                .on_hover_text("Есть обновление. Steam откроется незаметно, скачает его и закроется.")
+                .on_hover_text(if c.update_via_steam {
+                    "Есть обновление. Steam откроется незаметно, скачает его и закроется."
+                } else {
+                    "Есть обновление. Vaporust скачает его сам, Steam не запускается."
+                })
                 .clicked()
         {
             *out = Some(Action::Update(r.appid));
@@ -128,6 +136,9 @@ pub fn list(ui: &mut egui::Ui, rows: &[Row], c: &Ctx) -> Option<Action> {
                     }
                     if r.installed && !r.ready {
                         ui.weak("(недокачана)");
+                    }
+                    if r.family {
+                        ui.weak("(семья)").on_hover_text(family_text(r, c));
                     }
                 }
                 if let Some(m) = r.playtime_min.filter(|m| *m > 0) {
@@ -205,9 +216,10 @@ fn tile_ui(ui: &mut egui::Ui, r: &Row, c: &Ctx, covers: &Covers, tile: egui::Vec
     if resp
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .on_hover_text(format!(
-            "{}{}",
+            "{}{}{}",
             r.name,
-            r.playtime_min.filter(|m| *m > 0).map(|m| format!("\n{}", fmt_hours(m))).unwrap_or_default()
+            r.playtime_min.filter(|m| *m > 0).map(|m| format!("\n{}", fmt_hours(m))).unwrap_or_default(),
+            if r.family { format!("\n{}", family_text(r, c)) } else { String::new() }
         ))
         .clicked()
     {
@@ -325,6 +337,9 @@ pub fn page(
             if ui.button("Мастерская").clicked() {
                 out = Some(Action::Workshop(r.appid, r.name.clone()));
             }
+            if ui.button("Скриншоты").on_hover_text("Ваши скриншоты этой игры: на ПК и в облаке Steam").clicked() {
+                out = Some(Action::Shots(r.appid));
+            }
         });
 
         ui.add_space(8.0);
@@ -347,6 +362,11 @@ pub fn page(
             if let Some(p) = d.players {
                 ui.weak("Сейчас играют");
                 ui.label(p.to_string());
+                ui.end_row();
+            }
+            if r.family {
+                ui.weak("Доступ");
+                ui.label(family_text(r, c));
                 ui.end_row();
             }
             ui.weak("Состояние");
@@ -433,4 +453,16 @@ pub fn page(
         }
     });
     out
+}
+
+/// «Семейная библиотека (владелец: имя)» — имя берём из списка друзей, если владелец там есть.
+fn family_text(r: &Row, c: &Ctx) -> String {
+    let name = r.owner.and_then(|id| {
+        let roster = c.net.roster.read().ok()?;
+        roster.get(&id).and_then(|f| f.persona_name.clone())
+    });
+    match name {
+        Some(n) => format!("Семейная библиотека (владелец: {n})"),
+        None => "Семейная библиотека Steam".to_string(),
+    }
 }

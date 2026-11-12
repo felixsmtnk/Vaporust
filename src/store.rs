@@ -33,6 +33,37 @@ pub struct Extras {
     pub players: Option<i32>,
     pub news: Option<Result<Vec<NewsItem>, String>>,
     pub similar: Option<Vec<u32>>,
+    /// Системные требования (Windows): минимальные и рекомендуемые, текстом.
+    pub requirements: Option<(String, String)>,
+    /// Отзывы со страницы сообщества (подгружаются по кнопке).
+    pub reviews: Option<Reviews>,
+}
+
+/// Отзывы игры: выбранный порядок и язык, загруженные страницы.
+#[derive(Default, Clone)]
+pub struct Reviews {
+    /// Порядок (номер в REVIEW_SORTS).
+    pub sort: u8,
+    /// false — на русском, true — на всех языках.
+    pub all_langs: bool,
+    pub pages: u32,
+    pub list: Vec<Review>,
+    pub more: bool,
+    /// Курсор следующей страницы (Steam листает отзывы по нему).
+    pub cursor: Option<String>,
+    pub loading: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Review {
+    pub positive: bool,
+    pub hours: String,
+    pub date: String,
+    pub author: String,
+    pub text: String,
+    pub helpful: String,
+    pub url: String,
 }
 
 #[derive(Default)]
@@ -55,6 +86,23 @@ pub struct StoreState {
     pub extras: HashMap<u32, Extras>,
     /// Ошибка последнего действия (например, добавления в желаемое).
     pub error: Option<String>,
+    /// Список желаемого друга: (SteamID, имя, список по приоритету).
+    pub friend_wishlist: Option<(u64, String, Option<Result<Vec<u32>, String>>)>,
+    /// Скидки на игры из списка желаемого (для уведомлений); растёт sales_gen при каждой проверке.
+    pub sales: Vec<Sale>,
+    pub sales_gen: u64,
+}
+
+/// Игра из списка желаемого со скидкой.
+#[derive(Clone)]
+pub struct Sale {
+    pub appid: u32,
+    pub name: String,
+    pub pct: i32,
+    /// Цена со скидкой (текстом, в валюте региона).
+    pub price: String,
+    /// Конец скидки (unix), 0 — неизвестен.
+    pub end: u64,
 }
 
 pub type SharedStore = Arc<Mutex<StoreState>>;
@@ -66,6 +114,12 @@ pub enum StoreCmd {
     /// События и распродажи (скидки дня/выходных, выход игр, обновления).
     Events,
     Wishlist,
+    /// Проверить скидки на игры из списка желаемого (для уведомлений).
+    WishlistSales,
+    /// Список желаемого друга (если он открыт настройками приватности).
+    FriendWishlist(u64),
+    /// Отзывы игры: порядок (REVIEW_SORTS), все языки?, страница (с 1).
+    Reviews { appid: u32, sort: u8, all_langs: bool, page: u32 },
     /// Подробности для этих игр (лениво, для видимых в списке).
     Details(Vec<u32>),
     /// Страница игры: подробности + онлайн, новости, отзывы, похожие.
@@ -186,6 +240,50 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                 };
                 st.lock().unwrap().wishlist = Some(res);
             }
+            StoreCmd::WishlistSales => {
+                let Some(me) = c.my_steam_id() else { return };
+                let Ok(list) = c.wishlist(me).await else { return };
+                let ids: Vec<u32> = list.into_iter().map(|e| e.app_id).collect();
+                let cc = country(&c, &st);
+                let mut sales = Vec::new();
+                // Свежие цены (без кэша страницы магазина): скидки меняются.
+                for chunk in ids.chunks(50) {
+                    if let Ok(apps) = c.fetch_store_apps(chunk, LANG, &cc).await {
+                        for a in apps {
+                            if a.discount_pct > 0 {
+                                sales.push(Sale {
+                                    appid: a.app_id,
+                                    name: a.name.clone(),
+                                    pct: a.discount_pct,
+                                    price: a.price.clone().unwrap_or_default(),
+                                    end: a.discount_end.unwrap_or(0),
+                                });
+                            }
+                        }
+                    }
+                }
+                let mut s = st.lock().unwrap();
+                s.sales = sales;
+                s.sales_gen += 1;
+                drop(s);
+                ctx.request_repaint();
+            }
+            StoreCmd::FriendWishlist(id) => {
+                let res = c
+                    .wishlist(id)
+                    .await
+                    .map(|w| w.into_iter().map(|e| e.app_id).collect::<Vec<u32>>())
+                    .map_err(|e| format!("список закрыт настройками приватности или недоступен ({})", err(e)));
+                if let Ok(ids) = &res {
+                    load_details(&c, ids.iter().take(30).copied().collect(), &st, &ctx).await;
+                }
+                let mut s = st.lock().unwrap();
+                if let Some(fw) = s.friend_wishlist.as_mut().filter(|f| f.0 == id) {
+                    fw.2 = Some(res);
+                }
+                drop(s);
+                ctx.request_repaint();
+            }
             StoreCmd::Details(ids) => load_details(&c, ids, &st, &ctx).await,
             StoreCmd::Page(appid) => {
                 st.lock().unwrap().extras.entry(appid).or_default();
@@ -212,6 +310,45 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                     Err(e) => Err(err(e)),
                 };
                 st.lock().unwrap().extras.entry(appid).or_default().news = Some(news);
+                // Системные требования — из открытого API магазина (api/appdetails), по-русски.
+                if let Some(req) = fetch_requirements(appid).await {
+                    st.lock().unwrap().extras.entry(appid).or_default().requirements = Some(req);
+                }
+                ctx.request_repaint();
+            }
+            StoreCmd::Reviews { appid, sort, all_langs, page } => {
+                {
+                    let mut s = st.lock().unwrap();
+                    let r = s.extras.entry(appid).or_default().reviews.get_or_insert_with(Default::default);
+                    // Тот же запрос уже идёт (раздел открыт, ответа ещё нет) — не повторяем.
+                    if r.loading && r.sort == sort && r.all_langs == all_langs {
+                        return;
+                    }
+                    // Сменили порядок или язык — начинаем заново.
+                    if page == 1 || r.sort != sort || r.all_langs != all_langs {
+                        *r = Reviews { sort, all_langs, ..Default::default() };
+                    }
+                    r.loading = true;
+                }
+                ctx.request_repaint();
+                let cursor = st.lock().unwrap().extras.get(&appid).and_then(|e| e.reviews.as_ref()).and_then(|r| r.cursor.clone());
+                let res = fetch_reviews(appid, sort, all_langs, page, cursor).await;
+                let mut s = st.lock().unwrap();
+                let r = s.extras.entry(appid).or_default().reviews.get_or_insert_with(Default::default);
+                if r.sort != sort || r.all_langs != all_langs {
+                    return; // пока грузили, выбрали другой порядок или язык
+                }
+                r.loading = false;
+                match res {
+                    Ok((v, next)) => {
+                        r.more = v.len() >= 10 && next.is_some() && REVIEW_SORTS[sort as usize].0 != "toprated";
+                        r.cursor = next;
+                        r.pages = page;
+                        r.list.extend(v);
+                        r.error = None;
+                    }
+                    Err(e) => r.error = Some(e),
+                }
             }
             StoreCmd::WishlistSet(appid, add) => {
                 let res = if add { c.wishlist_add(appid).await } else { c.wishlist_remove(appid).await };
@@ -433,6 +570,168 @@ mod events_live {
             c.restore_session().await.unwrap();
             for e in c.active_store_events("UA").await.unwrap() {
                 println!("{} | {} | id {} {} | {}..{}", e.kind, e.title, e.associated_id, e.associated_name, e.start, e.end);
+            }
+        });
+    }
+}
+
+/// Системные требования для Windows (минимальные, рекомендуемые) из store.steampowered.com/api/appdetails.
+async fn fetch_requirements(appid: u32) -> Option<(String, String)> {
+    let http = aurelia::core::net::steam_web_client().ok()?;
+    let url = format!("https://store.steampowered.com/api/appdetails?appids={appid}&l=russian");
+    let text = http.get(url).send().await.ok()?.text().await.ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let req = v.get(appid.to_string())?.get("data")?.get("pc_requirements")?;
+    // Нет требований — Steam присылает пустой массив вместо объекта.
+    let get = |k: &str| req.get(k).and_then(|x| x.as_str()).map(plain_text).unwrap_or_default();
+    let (min, rec) = (get("minimum"), get("recommended"));
+    (!min.is_empty() || !rec.is_empty()).then_some((min, rec))
+}
+
+/// Порядок отзывов, как на сайте Steam: (browsefilter, подпись).
+pub const REVIEW_SORTS: [(&str, &str); 7] = [
+    ("toprated", "Полезные за всё время"),
+    ("trendyear", "Полезные за год"),
+    ("trendsixmonths", "Полезные за полгода"),
+    ("trendthreemonths", "Полезные за 3 месяца"),
+    ("trendmonth", "Полезные за месяц"),
+    ("trendweek", "Полезные за неделю"),
+    ("mostrecent", "Новые"),
+];
+
+/// Страница отзывов из сообщества Steam (как её подгружает сам сайт при прокрутке): по 10 отзывов.
+/// Следующие страницы — по курсору из формы MoreContentForm предыдущего ответа.
+/// «Полезные за всё время» без входа Steam не листает (всегда первые 10) — проверено.
+async fn fetch_reviews(
+    appid: u32,
+    sort: u8,
+    all_langs: bool,
+    page: u32,
+    cursor: Option<String>,
+) -> Result<(Vec<Review>, Option<String>), String> {
+    let http = aurelia::core::net::steam_web_client().map_err(err)?;
+    let filter = REVIEW_SORTS.get(sort as usize).map_or("toprated", |s| s.0);
+    let lang = if all_langs { "all" } else { "russian" };
+    let p = page.max(1);
+    let cursor = match (p, cursor) {
+        (1, _) => String::new(),
+        (_, Some(c)) => format!("&userreviewscursor={}", urlenc(&c)),
+        (_, None) => return Ok((Vec::new(), None)),
+    };
+    let url = format!(
+        "https://steamcommunity.com/app/{appid}/homecontent/?userreviewsoffset={off}&p={p}{cursor}&numperpage=10\
+         &browsefilter={filter}&appid={appid}&appHubSubSection=10&l=russian&filterLanguage={lang}&searchText=\
+         &maxInappropriateScore=50",
+        off = (p - 1) * 10
+    );
+    let resp = http.get(url).send().await.map_err(err)?;
+    if !resp.status().is_success() {
+        return Err(format!("Steam ответил {}", resp.status()));
+    }
+    let html = resp.text().await.map_err(err)?;
+    let next = between(&html, "name=\"userreviewscursor\" value=\"", "\"").map(str::to_string);
+    Ok((parse_reviews(&html), next))
+}
+
+fn urlenc(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+/// &quot; &amp; и т.п. -> символы.
+fn entities(s: &str) -> String {
+    s.replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+}
+
+/// HTML-кусок -> текст: <br> -> перевод строки, теги убираются.
+fn strip_html(s: &str) -> String {
+    let s = s.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n");
+    let mut out = String::new();
+    let mut tag = false;
+    for c in s.chars() {
+        match c {
+            '<' => tag = true,
+            '>' if tag => tag = false,
+            _ if !tag => out.push(c),
+            _ => {}
+        }
+    }
+    let lines: Vec<String> = entities(&out).lines().map(|l| l.trim().to_string()).collect();
+    lines.join("\n").trim().to_string()
+}
+
+fn between<'a>(s: &'a str, start: &str, end: &str) -> Option<&'a str> {
+    let i = s.find(start)? + start.len();
+    let j = s[i..].find(end)? + i;
+    Some(&s[i..j])
+}
+
+/// Разбор карточек отзывов (apphub_Card) со страницы сообщества.
+pub fn parse_reviews(html: &str) -> Vec<Review> {
+    html.split("apphub_Card modalContentLink")
+        .skip(1)
+        .filter_map(|card| {
+            let url = between(card, "data-modal-content-url=\"", "\"").unwrap_or("").to_string();
+            let helpful = between(card, "<div class=\"found_helpful\">", "<div")
+                .or_else(|| between(card, "<div class=\"found_helpful\">", "</div>"))
+                .map(strip_html)
+                .unwrap_or_default();
+            let positive = between(card, "<div class=\"thumb\">", "</div>").is_some_and(|t| t.contains("thumbsUp"));
+            let hours = between(card, "<div class=\"hours\">", "</div>").map(strip_html).unwrap_or_default();
+            let body = between(card, "<div class=\"apphub_CardTextContent\">", "<div class=\"UserReviewCardContent_Footer\"")?;
+            let date = between(body, "<div class=\"date_posted\">", "</div>").map(strip_html).unwrap_or_default();
+            let text = body.split_once("</div>").map(|(_, t)| t).unwrap_or(body);
+            // Хвост карточки: закрывающие </div> текста и карточки.
+            let text = strip_html(text.trim_end().trim_end_matches("</div>"));
+            let author = between(card, "apphub_CardContentAuthorName", "</a>")
+                .and_then(|a| a.rsplit_once('>').map(|(_, n)| entities(n.trim())))
+                .unwrap_or_default();
+            Some(Review { positive, hours, date, author, text, helpful, url })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod reviews_tests {
+    /// VAPORUST_DUMP=страница отзывов (сохранённая) — разбор карточек.
+    #[test]
+    #[ignore]
+    fn parse_saved_reviews() {
+        let html = std::fs::read_to_string(std::env::var("VAPORUST_DUMP").unwrap()).unwrap();
+        let v = super::parse_reviews(&html);
+        for r in &v {
+            println!("{} | {} | {} | {} | {}\n  {}", r.positive, r.author, r.hours, r.date, r.helpful.replace('\n', " / "), r.text.chars().take(120).collect::<String>());
+        }
+        assert_eq!(v.len(), 10);
+    }
+}
+
+#[cfg(test)]
+mod reviews_live {
+    /// Три страницы «Полезные за год» (Half-Life) — отзывы не должны повторяться.
+    #[test]
+    #[ignore]
+    fn reviews_paging_live() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut cursor = None;
+            let mut seen = std::collections::HashSet::new();
+            for page in 1..=3 {
+                let (v, next) = super::fetch_reviews(70, 1, false, page, cursor.clone()).await.unwrap();
+                println!("стр. {page}: {} отзывов, первый — {}", v.len(), v.first().map(|r| r.author.clone()).unwrap_or_default());
+                for r in &v {
+                    assert!(seen.insert(r.url.clone()), "повтор: {}", r.url);
+                }
+                cursor = next;
             }
         });
     }

@@ -1,9 +1,7 @@
 //! Иконка в области уведомлений (трей).
 //!
 //! Работает в отдельном потоке со своим циклом сообщений Windows: так она отвечает на
-//! щелчки и показывает непрочитанные сообщения, даже когда главное окно спрятано
-//! (спрятанное окно eframe само не перерисовывается). Окно показываем и прячем
-//! напрямую через WinAPI по его HWND.
+//! щелчки, пока главное окно спрятано в трей. Окно показываем и прячем напрямую через WinAPI.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{mpsc, Mutex, OnceLock};
@@ -57,28 +55,61 @@ fn send(cmd: TrayCmd) {
     }
 }
 
+/// Где было окно до прятанья в трей (левый верхний угол, физические пиксели).
+#[cfg(windows)]
+static SAVED_POS: Mutex<Option<(i32, i32)>> = Mutex::new(None);
+
 /// Спрятать главное окно в трей.
+///
+/// Окно НЕ скрывается по-настоящему: скрытое окно eframe перестаёт обновляться, и вместе с ним
+/// засыпала бы вся программа (очередь, расписание, всплывающие уведомления). Вместо этого окно
+/// уезжает за пределы экрана и становится «инструментальным» — без кнопки на панели задач и в Alt+Tab.
 #[cfg(windows)]
 pub fn hide_main() {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+    use windows_sys::Win32::Foundation::RECT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, GetWindowRect, SetWindowLongPtrW, SetWindowPos, ShowWindow, GWL_EXSTYLE, SWP_NOACTIVATE,
+        SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_SHOWNOACTIVATE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+    };
     let hwnd = crate::notify::main_hwnd();
-    if hwnd != 0 {
-        unsafe { ShowWindow(hwnd as _, SW_HIDE) };
-        crate::notify::set_in_tray(true);
+    if hwnd == 0 || crate::notify::in_tray() {
+        return;
     }
+    unsafe {
+        let mut r: RECT = std::mem::zeroed();
+        if GetWindowRect(hwnd as _, &mut r) != 0 {
+            *SAVED_POS.lock().unwrap() = Some((r.left, r.top));
+        }
+        // Стиль окна меняется только у скрытого окна, поэтому: спрятать -> поменять -> показать вне экрана.
+        ShowWindow(hwnd as _, SW_HIDE);
+        let ex = GetWindowLongPtrW(hwnd as _, GWL_EXSTYLE);
+        SetWindowLongPtrW(hwnd as _, GWL_EXSTYLE, (ex | WS_EX_TOOLWINDOW as isize) & !(WS_EX_APPWINDOW as isize));
+        SetWindowPos(hwnd as _, std::ptr::null_mut(), -32000, -32000, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        ShowWindow(hwnd as _, SW_SHOWNOACTIVATE);
+    }
+    crate::notify::set_in_tray(true);
 }
 
 /// Показать главное окно из трея и вывести на передний план.
 #[cfg(windows)]
 pub fn show_main() {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
+        GetWindowLongPtrW, IsIconic, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, GWL_EXSTYLE,
+        SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_RESTORE, SW_SHOW, WS_EX_TOOLWINDOW,
     };
     let hwnd = crate::notify::main_hwnd();
     if hwnd == 0 {
         return;
     }
     unsafe {
+        if crate::notify::in_tray() {
+            ShowWindow(hwnd as _, SW_HIDE);
+            let ex = GetWindowLongPtrW(hwnd as _, GWL_EXSTYLE);
+            SetWindowLongPtrW(hwnd as _, GWL_EXSTYLE, ex & !(WS_EX_TOOLWINDOW as isize));
+            if let Some((x, y)) = SAVED_POS.lock().unwrap().take() {
+                SetWindowPos(hwnd as _, std::ptr::null_mut(), x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+            }
+        }
         ShowWindow(hwnd as _, SW_SHOW);
         if IsIconic(hwnd as _) != 0 {
             ShowWindow(hwnd as _, SW_RESTORE);

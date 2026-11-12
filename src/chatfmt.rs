@@ -15,6 +15,8 @@ pub enum Seg {
     Image { url: String, size: Option<(f32, f32)> },
     Emoticon(String),
     Sticker(String),
+    /// Эффект комнаты (шарики, конфетти…): тип из [roomeffect type="…"].
+    RoomEffect(String),
 }
 
 const CDN: &str = "https://community.fastly.steamstatic.com/economy";
@@ -143,6 +145,12 @@ pub fn parse(msg: &str) -> Vec<Seg> {
                     rest = inner("gameinvite").map(|(_, t)| t).unwrap_or(body);
                     continue;
                 }
+                "roomeffect" => {
+                    flush(&mut text, &mut segs);
+                    segs.push(Seg::RoomEffect(attr(tag, "type").unwrap_or_default()));
+                    rest = inner("roomeffect").map(|(_, t)| t).unwrap_or(body);
+                    continue;
+                }
                 "sticker" => {
                     flush(&mut text, &mut segs);
                     segs.push(Seg::Sticker(attr(tag, "type").unwrap_or_default()));
@@ -179,7 +187,7 @@ pub fn parse(msg: &str) -> Vec<Seg> {
                 _ => {}
             }
         }
-        if FORMAT_TAGS.contains(&name.as_str()) || (closing && (name == "emoticon" || name == "sticker")) {
+        if FORMAT_TAGS.contains(&name.as_str()) || (closing && (name == "emoticon" || name == "sticker" || name == "roomeffect")) {
             rest = body;
             continue;
         }
@@ -301,5 +309,60 @@ mod tests {
             sticker_url("Buoyant Bobber"),
             "https://community.fastly.steamstatic.com/economy/sticker/Buoyant%20Bobber"
         );
+    }
+}
+
+
+/// Для всплывающего уведомления: текст сообщения и картинка (первый смайлик или стикер).
+pub fn preview(msg: &str) -> (String, Option<String>) {
+    let mut text = String::new();
+    let mut image = None;
+    let mut what = "";
+    for s in parse(msg) {
+        match s {
+            Seg::Text(t) => text.push_str(&t),
+            Seg::Link { label, .. } => text.push_str(&label),
+            Seg::Image { .. } => what = "картинка",
+            Seg::Emoticon(n) => {
+                image.get_or_insert_with(|| emoticon_url(&n));
+                if what.is_empty() {
+                    what = "смайлик";
+                }
+            }
+            Seg::Sticker(n) => {
+                image.get_or_insert_with(|| sticker_url(&n));
+                what = "стикер";
+            }
+            Seg::RoomEffect(t) => {
+                image.get_or_insert_with(|| crate::effects::icon_url(&t));
+                text.push_str(&format!("эффект комнаты: {}", crate::effects::short_name(&t)));
+            }
+        }
+    }
+    let mut text = text.trim().to_string();
+    if text.is_empty() {
+        text = what.to_string();
+    }
+    (text, image)
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::*;
+
+    #[test]
+    fn room_effect_and_preview() {
+        let s = parse(r#"[roomeffect type="balloons" limit="0"][/roomeffect]"#);
+        assert!(matches!(s.as_slice(), [Seg::RoomEffect(t)] if t == "balloons"));
+        let (t, img) = preview(r#"[roomeffect type="balloons" limit="0"][/roomeffect]"#);
+        assert!(t.starts_with("эффект комнаты: "));
+        assert!(img.unwrap().ends_with("96px/balloons.png"));
+        let (t, img) = preview("[emoticon]steamhappy[/emoticon]");
+        assert_eq!(t, "смайлик");
+        assert!(img.unwrap().contains("steamhappy"));
+        let (t, img) = preview(r#"[sticker type="SteamLaugh" limit="0"][/sticker]"#);
+        assert_eq!(t, "стикер");
+        assert!(img.unwrap().contains("SteamLaugh"));
+        assert_eq!(preview("привет ːsteamhappyː").0, "привет");
     }
 }

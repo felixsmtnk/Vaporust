@@ -43,6 +43,15 @@ pub enum Cmd {
     ResolveApps(Vec<u32>),
     /// Загрузить свои смайлики и стикеры (для панели выбора).
     LoadEmoticons,
+    /// Обновить игру без Steam (Aurelia). acf — её appmanifest.
+    /// Сменить язык игры без Steam (lang — как в UserConfig: "russian"…).
+    SetLanguage { appid: u32, name: String, acf: PathBuf, lang: String },
+    /// beta — Some(ветка), если это смена беты: после загрузки отметить её установленной (MountedConfig).
+    UpdateDirect { appid: u32, name: String, acf: PathBuf, beta: Option<String> },
+    /// Свои эффекты комнаты (из инвентаря Steam) — перечитываются при открытии вкладки «Эффекты».
+    LoadChatEffects,
+    /// Свои скриншоты в облаке Steam: игра (0 — все), страница (с 1).
+    CloudShots { appid: u32, page: u32 },
     /// Отправить картинку из файла.
     SendImage { to: u64, path: PathBuf },
     /// Профили, заявки в друзья, приглашение в игру, Мастерская.
@@ -198,6 +207,8 @@ pub struct NetState {
     pub qr_url: Option<String>,
     pub qr_scanned: bool,
     pub owned: Vec<OwnedGame>,
+    /// Игры семейной группы Steam (чужие, не купленные этим аккаунтом).
+    pub family: Vec<aurelia::steam_client::SharedApp>,
     pub achievements: HashMap<u32, Result<Vec<GameAchievement>, String>>,
     /// Текущая или последняя установка.
     pub install: Option<Install>,
@@ -211,6 +222,11 @@ pub struct NetState {
     pub app_names: HashMap<u32, String>,
     /// Свои смайлики и стикеры; None — ещё не загружены.
     pub emoticons: Option<(Vec<String>, Vec<String>)>,
+    /// Свои эффекты комнаты (имена для /roomeffect), из инвентаря Steam.
+    pub chat_effects: Option<Vec<String>>,
+    /// Скриншоты в облаке Steam: (игра-фильтр, всего, загруженные страницы); None — не загружали.
+    pub cloud_shots: Option<Result<(u32, u32, Vec<aurelia::steam_client::CloudScreenshot>), String>>,
+    pub cloud_shots_busy: bool,
     /// Данные окон «Свойства» по appid.
     pub props: HashMap<u32, PropsData>,
     /// Закрепление версии: итог последней Cmd::PinRefresh (главное окно забирает).
@@ -243,8 +259,11 @@ pub type Shared = Arc<Mutex<NetState>>;
 fn upd(st: &Shared, ctx: &egui::Context, f: impl FnOnce(&mut NetState)) {
     f(&mut st.lock().unwrap());
     ctx.request_repaint();
-    // Окно чата — отдельный viewport: его тоже будим (новые сообщения, статусы).
-    ctx.request_repaint_of(crate::chatwin::viewport_id());
+    // Окно чата — отдельный viewport: его тоже будим (новые сообщения, статусы), но только
+    // если оно открыто — иначе eframe на миг создаёт пустое окно «egui window».
+    if crate::notify::chat_open() {
+        ctx.request_repaint_of(crate::chatwin::viewport_id());
+    }
 }
 
 pub fn spawn_worker(st: Shared, ctx: egui::Context) -> UnboundedSender<Cmd> {
@@ -435,6 +454,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             });
         }
         Cmd::SendChat { to, text } => {
+            let orig = text.clone();
             let res = client.send_chat_message(to, text.clone()).await;
             upd(st, ctx, |s| {
                 let conv = s.chats.entry(to).or_default();
@@ -464,7 +484,17 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             let refresh = st.lock().unwrap().chats.get(&to).is_some_and(|c| c.status.is_some());
             if refresh {
                 reload_history(client, to, st, ctx).await;
-                upd(st, ctx, |s| s.chats.entry(to).or_default().status = None);
+                upd(st, ctx, |s| {
+                    let conv = s.chats.entry(to).or_default();
+                    conv.status = None;
+                    // Эффекта (или стикера) нет в аккаунте — сервер превращает команду в пустое сообщение.
+                    let empty = conv.lines.iter().rev().find(|l| l.from_self).is_some_and(|l| l.text.trim().is_empty());
+                    if empty && orig.starts_with("/roomeffect ") {
+                        conv.error = Some("Эффект не отправлен: его нет в вашем аккаунте Steam (у друга могло появиться пустое сообщение).".into());
+                    } else if empty && orig.starts_with("/sticker ") {
+                        conv.error = Some("Стикер не отправлен: его нет в вашем аккаунте Steam.".into());
+                    }
+                });
             }
         }
         Cmd::Coll(cmd) => crate::colls::handle(client, cmd, st, ctx),
@@ -505,6 +535,50 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                     p.dlc = Some(list);
                     p.error = res.err().map(|e| format!("DLC не переключено: {e}"));
                 });
+            });
+        }
+        Cmd::SetLanguage { appid, name, acf, lang } => {
+            let c = client.clone();
+            let (st2, ctx2) = (st.clone(), ctx.clone());
+            start_op(appid, format!("Смена языка: {name}"), "язык изменён.", st, ctx, move |abort| async move {
+                switch_language(&c, appid, &acf, &lang, &abort, &st2, &ctx2).await?;
+                // Файлы на месте — убрать жёлтую «Обновить» с карточки.
+                upd(&st2, &ctx2, |s| {
+                    if let Some(u) = s.updates.as_mut() {
+                        u.retain(|a| *a != appid);
+                    }
+                });
+                Ok(())
+            });
+        }
+        Cmd::UpdateDirect { appid, name, acf, beta } => {
+            // Обновление без Steam: Aurelia качает новые версии уже установленных хранилищ.
+            // Её appmanifest пишется с нуля (теряет язык, SharedDepots, InstallScripts…), поэтому
+            // потом возвращаем исходный файл и вписываем в него только новые версии и сборку.
+            let c = client.clone();
+            let (st2, ctx2) = (st.clone(), ctx.clone());
+            start_op(appid, format!("Обновление: {name}"), "обновлена.", st, ctx, move |abort| async move {
+                let original = std::fs::read_to_string(&acf).map_err(|e| format!("Не удалось прочитать файл игры: {e}"))?;
+                let state = Arc::new(RwLock::new(DownloadState::default()));
+                if let Ok(mut s) = state.write() {
+                    s.abort_signal = abort.clone();
+                }
+                let rx = c
+                    .update_game(appid, state)
+                    .await
+                    .map_err(|e| format!("Не удалось начать обновление: {e:#}"))?;
+                let res = drain_progress(rx, &abort, "Обновление отменено.", &st2, &ctx2).await;
+                merge_after_update(&acf, &original, res.is_ok())?;
+                res?;
+                if let Some(b) = &beta {
+                    crate::local::set_mounted_config(&acf, "BetaKey", b)?;
+                }
+                upd(&st2, &ctx2, |s| {
+                    if let Some(u) = s.updates.as_mut() {
+                        u.retain(|a| *a != appid);
+                    }
+                });
+                Ok(())
             });
         }
         Cmd::Verify { appid, name } => {
@@ -576,6 +650,8 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             });
         }
         Cmd::AureliaConfig { limit_kbit, proxy } => {
+            // Сразу для идущих загрузок; config.json — чтобы Aurelia не вернула старое значение.
+            aurelia::steam_client::set_download_limit_now(limit_kbit);
             tokio::spawn(async move {
                 if let Ok(mut cfg) = aurelia::core::config::LauncherConfig::load().await {
                     if cfg.download_limit_kbit != limit_kbit || cfg.proxy.url != proxy {
@@ -584,6 +660,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                         let _ = cfg.save().await;
                     }
                 }
+                aurelia::steam_client::set_download_limit_now(limit_kbit);
             });
         }
         Cmd::DirectSpec(appid) => {
@@ -678,6 +755,46 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             tokio::spawn(async move {
                 let lists = client.fetch_emoticons_and_stickers().await.unwrap_or_default();
                 upd(&st, &ctx, |s| s.emoticons = Some(lists));
+            });
+        }
+        Cmd::CloudShots { appid, page } => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            upd(&st, &ctx, |s| s.cloud_shots_busy = true);
+            tokio::spawn(async move {
+                let r = client.my_cloud_screenshots(appid, page, 50).await.map_err(es);
+                upd(&st, &ctx, |s| {
+                    s.cloud_shots_busy = false;
+                    s.cloud_shots = Some(match r {
+                        // Следующая страница того же фильтра — дописываем.
+                        Ok((total, v)) => match s.cloud_shots.take() {
+                            Some(Ok((a, _, mut old))) if a == appid && page > 1 => {
+                                old.extend(v);
+                                Ok((appid, total, old))
+                            }
+                            _ => Ok((appid, total, v)),
+                        },
+                        Err(e) => Err(e),
+                    });
+                });
+            });
+        }
+        Cmd::LoadChatEffects => {
+            // Эффекты комнаты: Steam не сообщает отдельному сеансу, какие куплены, — они лежат в
+            // инвентаре (753/6), как стикеры: тип «Winter Sale Event 2019 Chat Effect», имя «Confetti».
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let Ok(web) = client.web_session().await else { return };
+                let Ok(items) = aurelia::steam_client::inventory_via_lang(&web, 753, 6, "english").await else {
+                    return;
+                };
+                let mut v: Vec<String> = items
+                    .into_iter()
+                    .filter(|i| i.item_type.to_lowercase().contains("chat effect"))
+                    .map(|i| crate::effects::from_item_name(&i.name))
+                    .collect();
+                v.sort();
+                v.dedup();
+                upd(&st, &ctx, |s| s.chat_effects = Some(v));
             });
         }
         Cmd::SendImage { to, path } => {
@@ -802,7 +919,7 @@ fn prepare_image(path: &std::path::Path) -> Result<(Vec<u8>, &'static str, u32, 
     Ok((bytes, ext, w, h))
 }
 
-fn now_unix() -> u64 {
+pub fn now_unix() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -812,15 +929,17 @@ fn now_unix() -> u64 {
 /// Фоновые задачи на время сессии: список друзей и входящие сообщения.
 /// Обе заканчиваются сами, когда соединение закрывается (выход из аккаунта).
 fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st: &Shared, ctx: &egui::Context) {
+    let names = roster.clone(); // имена отправителей для уведомлений
     // Друзья: Aurelia сама объявляет статус (по умолчанию «невидимка») и следит за изменениями.
     {
         let (client, ctx) = (client.clone(), ctx.clone());
         tokio::spawn(async move {
-            // Перерисовка раз в 2 с, пока работает наблюдатель, чтобы статусы друзей обновлялись.
+            // Перерисовка раз в 4 с, пока работает наблюдатель, чтобы статусы друзей обновлялись
+            // (чаще не нужно: в покое это основная причина кадров).
             let ctx2 = ctx.clone();
             let ticker = tokio::spawn(async move {
                 loop {
-                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    tokio::time::sleep(Duration::from_secs(4)).await;
                     ctx2.request_repaint();
                 }
             });
@@ -872,8 +991,21 @@ fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st: &Shared, 
                 }
             });
             if !from_self {
-                // Мигание в панели задач, звук и точка на иконке трея, если окна неактивны.
-                crate::notify::new_message(friend);
+                // Звук, мигание в панели задач, точка в трее и всплывающее уведомление.
+                let (name, accent) = names
+                    .read()
+                    .ok()
+                    .and_then(|r| {
+                        r.get(&friend).map(|f| {
+                            let in_game = f.game_app_id.is_some_and(|g| g != 0);
+                            (f.persona_name.clone(), crate::popup::status_color(f.persona_state, in_game))
+                        })
+                    })
+                    .unwrap_or((None, None));
+                let text = conv_text(&st, friend);
+                if !text.trim().is_empty() {
+                    crate::notify::new_message(friend, name, text, accent);
+                }
             }
         }
     });
@@ -891,6 +1023,10 @@ async fn load_owned(client: &mut SteamClient, st: &Shared, ctx: &egui::Context) 
             s.message = format!("Не удалось получить список игр: {e:#}");
             s.busy = false;
         }),
+    }
+    // Семейная библиотека: ошибка не мешает остальному (аккаунт может быть не в семье).
+    if let Ok(family) = client.fetch_family_shared_apps().await {
+        upd(st, ctx, |s| s.family = family);
     }
 }
 
@@ -1286,6 +1422,646 @@ mod live_social {
                 Err(e) => println!("workshop err {e:#}"),
             }
             println!("subscribed {:?}", c.fetch_subscribed_items(550).await.map(|v| v.len()).map_err(|e| e.to_string()));
+        });
+    }
+}
+
+#[cfg(test)]
+mod limit_live {
+    /// Живой тест ограничения скорости: качает игру во временную папку (VAPORUST_DUMP)
+    /// при лимите VAPORUST_LIMIT кбит/с 20 секунд и печатает, сколько насчитал прогресс.
+    #[test]
+    #[ignore]
+    fn download_limit_live() {
+        use std::sync::{atomic::Ordering, Arc, RwLock};
+        let dir = std::env::var("VAPORUST_DUMP").unwrap();
+        let limit: u64 = std::env::var("VAPORUST_LIMIT").unwrap().parse().unwrap();
+        let appid: u32 = std::env::var("VAPORUST_APP").unwrap_or("3620".into()).parse().unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut cfg = aurelia::core::config::LauncherConfig::load().await.unwrap();
+            cfg.download_limit_kbit = limit;
+            cfg.save().await.unwrap();
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            let state = Arc::new(RwLock::new(aurelia::core::models::DownloadState::default()));
+            let abort = state.read().unwrap().abort_signal.clone();
+            let opts = aurelia::steam_client::InstallOptions {
+                library_override: Some(dir),
+                ..Default::default()
+            };
+            let mut rx = c
+                .install_game(appid, aurelia::core::models::DepotPlatform::Windows, opts, state)
+                .await
+                .unwrap();
+            let t0 = std::time::Instant::now();
+            let mut last = 0u64;
+            let mut mark: Option<(f64, u64)> = None;
+            let switch: Option<u64> = std::env::var("VAPORUST_LIMIT2").ok().and_then(|v| v.parse().ok());
+            while t0.elapsed().as_secs() < 25 {
+                if let (Some(l2), None) = (switch, mark) {
+                    if t0.elapsed().as_secs() >= 8 {
+                        let mut cfg = aurelia::core::config::LauncherConfig::load().await.unwrap();
+                        cfg.download_limit_kbit = l2;
+                        cfg.save().await.unwrap();
+                        aurelia::steam_client::set_download_limit_now(l2);
+                        println!("лимит сменён: {last} байт за 8 с");
+                        mark = Some((t0.elapsed().as_secs_f64(), last));
+                    }
+                }
+                match tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv()).await {
+                    Ok(Some(p)) => last = p.bytes_downloaded.saturating_sub(p.reused_bytes),
+                    Ok(None) => break,
+                    Err(_) => {}
+                }
+            }
+            println!("progress bytes: {last} за {:.1} с", t0.elapsed().as_secs_f64());
+            if let Some((t, b)) = mark {
+                println!("после смены: {:.2} МБ/с", (last - b) as f64 / 1e6 / (t0.elapsed().as_secs_f64() - t));
+            }
+            abort.store(true, Ordering::Relaxed);
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        });
+    }
+}
+
+#[cfg(test)]
+mod family_live {
+    /// Живой тест: игры семейной группы Steam (без своих).
+    #[test]
+    #[ignore]
+    fn family_apps_live() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            match c.fetch_family_shared_apps().await {
+                Ok(v) => {
+                    println!("семейных игр: {}", v.len());
+                    for a in v.iter().take(40) {
+                        println!("{} {} владелец={}", a.app_id, a.name, a.owner_steamid.is_some());
+                    }
+                }
+                Err(e) => println!("ошибка: {e:#}"),
+            }
+        });
+    }
+}
+
+/// Последнее сообщение беседы (с BBCode; для уведомления).
+fn conv_text(st: &Shared, friend: u64) -> String {
+    let s = st.lock().unwrap();
+    s.chats
+        .get(&friend)
+        .and_then(|c| c.lines.last())
+        .map(|l| l.text.clone())
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod effects_live {
+    /// Живой тест: какие типы предметов есть в инвентаре Steam (753/6) — ищем эффекты чата.
+    #[test]
+    #[ignore]
+    fn inventory_types_live() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            let web = c.web_session().await.unwrap();
+            let items = aurelia::steam_client::inventory_via_lang(&web, 753, 6, "english").await.unwrap();
+            let mut seen = std::collections::BTreeMap::<String, Vec<String>>::new();
+            for i in items {
+                let e = seen.entry(i.item_type.clone()).or_default();
+                if e.len() < 4 {
+                    e.push(format!("{} | {}", i.name, i.icon_url.unwrap_or_default()));
+                }
+            }
+            for (t, v) in seen {
+                if t.contains("Card") || t.contains("Background") {
+                    continue;
+                }
+                println!("== {t}");
+                for x in v {
+                    println!("   {x}");
+                }
+            }
+        });
+    }
+}
+
+#[cfg(test)]
+mod logon_burst_live {
+    /// Живой тест: какие сообщения сервер присылает сразу после входа (буфер необработанных).
+    #[test]
+    #[ignore]
+    fn logon_burst_live() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            let _ = c.connection().unwrap().take_unprocessed();
+            c.announce_persona(7).await.unwrap(); // невидимка, как у пользователя
+            for wait in [0u64, 3, 6] {
+                tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                let kinds: Vec<String> =
+                    c.connection().unwrap().take_unprocessed().iter().map(|r| format!("{:?}", r.kind)).collect();
+                println!("+{wait}s: {kinds:?}");
+            }
+        });
+    }
+}
+
+#[cfg(test)]
+mod shots_live {
+    /// Живой тест: свои скриншоты в облаке Steam.
+    #[test]
+    #[ignore]
+    fn shots_live() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            use steam_vent_proto::steammessages_publishedfile_steamclient::*;
+            use steam_vent::ConnectionTrait;
+            let conn = c.connection().unwrap();
+            for (ty, ft) in [("myfiles", Some(4u32))] {
+                let mut req = CPublishedFile_GetUserFiles_Request::new();
+                req.set_steamid(u64::from(conn.steam_id()));
+                req.set_appid(0);
+                req.set_numperpage(6);
+                req.set_type(ty.to_string());
+                if let Some(ft) = ft {
+                    req.set_filetype(ft);
+                }
+                let r: Result<CPublishedFile_GetUserFiles_Response, _> = conn.service_method(req).await;
+                match r {
+                    Ok(r) => {
+                        println!("== {ty} {ft:?}: total {}", r.total());
+                        for d in &r.publishedfiledetails {
+                            println!("  {} type={} {} [{}] file={} url={} img={} prev={} fn={} {}x{}", d.publishedfileid(), d.file_type(), d.app_name(), d.title(), d.file_url(), d.url(), d.image_url(), d.preview_url(), d.filename(), d.image_width(), d.image_height());
+                        }
+                    }
+                    Err(e) => println!("== {ty}: err {e}"),
+                }
+            }
+        });
+    }
+}
+
+
+/// После обновления Aurelia: вернуть исходный appmanifest (язык, SharedDepots, InstallScripts…)
+/// и, если обновление удалось, вписать в него новые версии хранилищ и сборку из файла Aurelia.
+pub fn merge_after_update(acf: &std::path::Path, original: &str, ok: bool) -> Result<(), String> {
+    let updated = crate::local::installed_depots(acf);
+    let build = crate::local::acf_buildid(acf);
+    let tmp = acf.with_extension("acf.tmp");
+    std::fs::write(&tmp, original)
+        .and_then(|_| std::fs::rename(&tmp, acf))
+        .map_err(|e| format!("Не удалось вернуть файл игры: {e}"))?;
+    if ok {
+        crate::local::write_depot_versions(acf, &updated, build.as_deref(), 4)?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod update_direct_live {
+    /// Живой тест обновления без Steam в ОТДЕЛЬНОЙ библиотеке (VAPORUST_DUMP), ваши игры не трогаются:
+    /// своя папка настроек Aurelia,
+    /// «старая» версия = поддельный номер в appmanifest + язык и SharedDepots, затем обновление и проверка.
+    /// ВНИМАНИЕ: Aurelia ищет appmanifest и в C:Program Files (x86)Steam (сортировка по алфавиту) —
+    /// поэтому только игра, которой нет в настоящих библиотеках (по умолчанию Ricochet, 5 МБ).
+    #[test]
+    #[ignore]
+    fn update_direct_live() {
+        use aurelia::core::models::{DepotPlatform, DownloadProgressState, DownloadState};
+        let root = std::path::PathBuf::from(std::env::var("VAPORUST_DUMP").unwrap());
+        let cfg_dir = root.join("cfg");
+        let lib = root.join("lib");
+        std::fs::create_dir_all(&cfg_dir).unwrap();
+        std::fs::create_dir_all(lib.join("steamapps")).unwrap();
+        let real = dirs_config();
+        for f in ["session.json"] {
+            std::fs::copy(real.join(f), cfg_dir.join(f)).unwrap();
+        }
+        std::env::set_var("AURELIA_CONFIG_DIR", &cfg_dir);
+        // Только игра, которой НЕТ в библиотеках Steam: Aurelia всегда ищет и в C:Program Files (x86)Steam.
+        let appid: u32 = std::env::var("VAPORUST_APP").ok().and_then(|v| v.parse().ok()).unwrap_or(60);
+        let steam = crate::local::find_steam().unwrap();
+        assert!(
+            !crate::local::scan_games(&steam.dir).iter().any(|g| g.appid == appid),
+            "игра {appid} установлена в Steam — тест её не трогает"
+        );
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut cfg = aurelia::core::config::LauncherConfig::load().await.unwrap();
+            cfg.steam_library_path = lib.to_string_lossy().into_owned();
+            cfg.windows_steam_discovery_enabled = false;
+            cfg.download_limit_kbit = 0;
+            cfg.save().await.unwrap();
+            aurelia::steam_client::set_download_limit_now(0);
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            let acf = lib.join("steamapps").join(format!("appmanifest_{appid}.acf"));
+            async fn drain(mut rx: tokio::sync::mpsc::Receiver<aurelia::core::models::DownloadProgress>) -> bool {
+                while let Some(p) = rx.recv().await {
+                    match p.state {
+                        DownloadProgressState::Completed => return true,
+                        DownloadProgressState::Failed => {
+                            println!("ошибка: {}", p.current_file);
+                            return false;
+                        }
+                        _ => {}
+                    }
+                }
+                false
+            }
+            if !acf.exists() {
+                let st = std::sync::Arc::new(std::sync::RwLock::new(DownloadState::default()));
+                let opts = aurelia::steam_client::InstallOptions {
+                    library_override: Some(lib.to_string_lossy().into_owned()),
+                    ..Default::default()
+                };
+                let rx = c.install_game(appid, DepotPlatform::Windows, opts, st).await.unwrap();
+                assert!(drain(rx).await, "установка не удалась");
+            }
+            // «Старая» версия + то, что Aurelia теряет при перезаписи.
+            let real_versions = crate::local::installed_depots(&acf);
+            let fake: std::collections::BTreeMap<u32, u64> = real_versions.keys().map(|d| (*d, 1111)).collect();
+            crate::local::write_depot_versions(&acf, &fake, Some("1"), 6).unwrap();
+            let mut text = std::fs::read_to_string(&acf).unwrap();
+            let end = text.rfind('}').unwrap();
+            text.insert_str(end, "\t\"UserConfig\"\n\t{\n\t\t\"language\"\t\t\"russian\"\n\t}\n\t\"SharedDepots\"\n\t{\n\t\t\"228988\"\t\t\"228980\"\n\t}\n");
+            std::fs::write(&acf, &text).unwrap();
+            let original = std::fs::read_to_string(&acf).unwrap();
+            // Обновление — как Cmd::UpdateDirect.
+            let st = std::sync::Arc::new(std::sync::RwLock::new(DownloadState::default()));
+            let t = std::time::Instant::now();
+            let rx = c.update_game(appid, st).await.unwrap();
+            let ok = drain(rx).await;
+            super::merge_after_update(&acf, &original, ok).unwrap();
+            let after = std::fs::read_to_string(&acf).unwrap();
+            println!("обновление: {ok}, {:.1} с\n{after}", t.elapsed().as_secs_f32());
+            assert!(ok);
+            assert_eq!(crate::local::installed_depots(&acf), real_versions, "версии не обновились");
+            assert!(after.contains("\"language\"\t\t\"russian\""), "язык потерян");
+            assert!(after.contains("SharedDepots"), "SharedDepots потеряны");
+            assert!(after.contains("\"StateFlags\"\t\t\"4\""));
+        });
+    }
+
+    fn dirs_config() -> std::path::PathBuf {
+        std::path::PathBuf::from(std::env::var("USERPROFILE").unwrap()).join(".config").join("Aurelia")
+    }
+}
+
+#[cfg(test)]
+mod small_games_live {
+    /// Маленькие купленные/семейные игры, которых нет на диске (для безопасных тестов загрузки).
+    #[test]
+    #[ignore]
+    fn small_games_live() {
+        let steam = crate::local::find_steam().unwrap();
+        let installed: std::collections::HashSet<u32> = crate::local::scan_games(&steam.dir).iter().map(|g| g.appid).collect();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            let mut ids: Vec<(u32, String)> = c.fetch_owned_games().await.unwrap().into_iter().map(|g| (g.app_id, g.name)).collect();
+            ids.extend(c.fetch_family_shared_apps().await.unwrap_or_default().into_iter().map(|a| (a.app_id, a.name)));
+            let mut out = Vec::new();
+            for (id, name) in ids.into_iter().filter(|(id, _)| !installed.contains(id)).take(120) {
+                if let Ok(e) = c.estimate_install_size(id, aurelia::core::models::DepotPlatform::Windows).await {
+                    if e.download_size > 0 && e.download_size < 60_000_000 {
+                        out.push((e.download_size, id, name));
+                    }
+                }
+            }
+            out.sort();
+            for (s, id, n) in out.iter().take(10) {
+                println!("{id} {n}: {} МБ", s / 1_000_000);
+            }
+        });
+    }
+}
+
+#[cfg(test)]
+mod lang_depots_live {
+    /// Языковые хранилища игр (VAPORUST_APPS через запятую).
+    #[test]
+    #[ignore]
+    fn lang_depots_live() {
+        let ids: Vec<u32> = std::env::var("VAPORUST_APPS").unwrap().split(',').filter_map(|s| s.trim().parse().ok()).collect();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            for id in ids {
+                let mut v = c.language_depots(id, "public").await.unwrap_or_default();
+                v.sort_by_key(|x| x.0);
+                println!("== {id}");
+                for (dep, lang, os, from, dlc, man) in v {
+                    println!("  {dep} lang={lang} os={os:?} from={from:?} dlc={dlc:?} manifest={man:?}");
+                }
+            }
+        });
+    }
+}
+
+/// Смена языка без Steam. `lang` — новый язык (как в UserConfig: "russian", "english"…).
+///
+/// 1. Хранилища старого языка убираются из appmanifest; если такие были — проверка файлов
+///    (старый язык мог перезаписать основные файлы — проверка возвращает оригиналы).
+/// 2. Свои хранилища нового языка скачиваются (явно с версией: иначе Aurelia берёт только английские).
+///    Общие хранилища нового языка (depotfromapp) — только ссылкой в SharedDepots, если игра-владелец
+///    уже установлена в этой же библиотеке и хранилище у неё есть; иначе — отказ (это умеет Steam).
+/// 3. Исходный appmanifest возвращается (Aurelia пишет свой с нуля) и правится: хранилища, язык
+///    в UserConfig и MountedConfig, StateFlags 4.
+pub async fn switch_language(
+    c: &SteamClient,
+    appid: u32,
+    acf: &std::path::Path,
+    lang: &str,
+    abort: &Arc<AtomicBool>,
+    st: &Shared,
+    ctx: &egui::Context,
+) -> Result<(), String> {
+    let new_state = || {
+        let s = Arc::new(RwLock::new(DownloadState::default()));
+        if let Ok(mut w) = s.write() {
+            w.abort_signal = abort.clone();
+        }
+        s
+    };
+    use crate::local;
+    let info = local::read_acf(acf);
+    let branch = if info.user_beta.is_empty() { "public".to_string() } else { info.user_beta.clone() };
+    let depots = c
+        .language_depots(appid, &branch)
+        .await
+        .map_err(|e| format!("Не удалось узнать языковые файлы игры: {e:#}"))?;
+    let library = acf.parent().and_then(|p| p.parent()).ok_or("Не найдена папка библиотеки")?.to_path_buf();
+    let installed = local::installed_depots(acf);
+    let shared = local::shared_depots(acf);
+    let lang_of = |d: u32| depots.iter().find(|x| x.0 == d).map(|x| x.1.clone());
+    let windows_ok = |os: &Option<String>| os.as_ref().is_none_or(|o| o.to_lowercase().contains("windows"));
+
+    let mut edit = local::DepotEdit::default();
+    // Старый язык: свои хранилища — убрать (с проверкой файлов), общие — убрать ссылку.
+    edit.remove_installed = installed.keys().copied().filter(|d| lang_of(*d).is_some_and(|l| l != lang)).collect();
+    edit.remove_shared = shared.keys().copied().filter(|d| lang_of(*d).is_some_and(|l| l != lang)).collect();
+    // Новый язык.
+    let mut new_own: Vec<(u32, u64)> = Vec::new();
+    for (d, l, os, from, dlc, manifest) in &depots {
+        if l != lang || dlc.is_some() || !windows_ok(os) || installed.contains_key(d) || shared.contains_key(d) {
+            continue;
+        }
+        match from {
+            None => {
+                let m = manifest.ok_or(format!("Нет версии языкового хранилища {d} на ветке {branch}"))?;
+                new_own.push((*d, m));
+            }
+            Some(owner) => {
+                // Общее хранилище: подходит, только если игра-владелец рядом и оно у неё установлено.
+                let owner_acf = library.join("steamapps").join(format!("appmanifest_{owner}.acf"));
+                if local::installed_depots(&owner_acf).contains_key(d) {
+                    edit.add_shared.push((*d, *owner));
+                } else {
+                    return Err(format!(
+                        "Этот язык ставится вместе с другой игрой (appid {owner}), которой нет в этой библиотеке \
+                         или в ней нет этого языка. Смените язык через Steam: «Свойства» -> «Обновить через Steam»."
+                    ));
+                }
+            }
+        }
+    }
+
+    let mut text = std::fs::read_to_string(acf).map_err(|e| format!("Не удалось прочитать файл игры: {e}"))?;
+    let restore = |t: &str| -> Result<(), String> {
+        let tmp = acf.with_extension("acf.tmp");
+        std::fs::write(&tmp, t).and_then(|_| std::fs::rename(&tmp, acf)).map_err(|e| format!("Не удалось вернуть файл игры: {e}"))
+    };
+
+    // 1. Убрать старый язык и проверить файлы.
+    if !edit.remove_installed.is_empty() {
+        // Как Steam: удалить файлы старого языка, которых нет в оставшихся хранилищах игры
+        // (в том числе общих). Не удалось узнать какой-то список — ничего не удаляем.
+        if let Err(e) = remove_language_files(c, appid, acf, &library, &installed, &shared, &edit.remove_installed).await {
+            eprintln!("файлы старого языка не удалены: {e}");
+        }
+        local::edit_depot_lists(acf, &local::DepotEdit { remove_installed: edit.remove_installed.clone(), ..Default::default() })?;
+        text = std::fs::read_to_string(acf).map_err(|e| format!("Не удалось прочитать файл игры: {e}"))?;
+        set_install(st, ctx, |i| i.stage = "Проверка файлов (после смены языка)".into());
+        let rx = c.verify_game(appid, new_state()).await.map_err(|e| format!("Не удалось начать проверку: {e:#}"))?;
+        let res = drain_progress(rx, abort, "Смена языка отменена.", st, ctx).await;
+        restore(&text)?;
+        res?;
+    }
+
+    // 2. Скачать свои хранилища нового языка.
+    if !new_own.is_empty() {
+        let opts = InstallOptions {
+            library_override: Some(library.to_string_lossy().into_owned()),
+            filter_depots: Some(new_own.iter().map(|(d, _)| *d as u64).collect()),
+            manifest_overrides: Some(new_own.iter().copied().collect()),
+            branch: Some(branch.clone()).filter(|b| b != "public"),
+            ..Default::default()
+        };
+        let rx = c
+            .install_game(appid, DepotPlatform::Windows, opts, new_state())
+            .await
+            .map_err(|e| format!("Не удалось начать загрузку языка: {e:#}"))?;
+        let res = drain_progress(rx, abort, "Смена языка отменена.", st, ctx).await;
+        let sizes = local::installed_depot_sizes(acf);
+        let got = local::installed_depots(acf);
+        restore(&text)?;
+        res?;
+        for (d, _) in &new_own {
+            let m = *got.get(d).ok_or(format!("Языковое хранилище {d} не скачалось"))?;
+            edit.add_installed.push((*d, m, sizes.get(d).copied().unwrap_or(0)));
+        }
+    }
+
+    // 3. Записать изменения в исходный appmanifest.
+    local::edit_depot_lists(acf, &edit)?;
+    local::set_user_config(acf, "language", lang)?;
+    local::set_mounted_config(acf, "language", lang)?;
+    // set_user_config помечает «нужно обновление» — файлы уже на месте.
+    local::write_depot_versions(acf, &Default::default(), None, 4)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod language_live {
+    /// Смена языка без Steam в ОТДЕЛЬНОЙ библиотеке (VAPORUST_DUMP) на Ricochet (60), которой нет в Steam:
+    /// english -> french (своё хранилище 62 качается, общее 72 от Half-Life — ссылкой на поддельный
+    /// appmanifest_70 во временной папке) -> english (62 убирается, проверка файлов).
+    #[test]
+    #[ignore]
+    fn language_live() {
+        use aurelia::core::models::{DepotPlatform, DownloadProgressState, DownloadState};
+        let appid = 60u32;
+        let steam = crate::local::find_steam().unwrap();
+        assert!(!crate::local::scan_games(&steam.dir).iter().any(|g| g.appid == appid), "Ricochet установлена в Steam");
+        let root = std::path::PathBuf::from(std::env::var("VAPORUST_DUMP").unwrap());
+        let (cfg_dir, lib) = (root.join("cfg"), root.join("lib"));
+        std::fs::create_dir_all(&cfg_dir).unwrap();
+        std::fs::create_dir_all(lib.join("steamapps")).unwrap();
+        let real = std::path::PathBuf::from(std::env::var("USERPROFILE").unwrap()).join(".config").join("Aurelia");
+        std::fs::copy(real.join("session.json"), cfg_dir.join("session.json")).unwrap();
+        std::env::set_var("AURELIA_CONFIG_DIR", &cfg_dir);
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut cfg = aurelia::core::config::LauncherConfig::load().await.unwrap();
+            cfg.steam_library_path = lib.to_string_lossy().into_owned();
+            cfg.windows_steam_discovery_enabled = false;
+            cfg.save().await.unwrap();
+            aurelia::steam_client::set_download_limit_now(0);
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            let acf = lib.join("steamapps").join(format!("appmanifest_{appid}.acf"));
+            if !acf.exists() {
+                let st = std::sync::Arc::new(std::sync::RwLock::new(DownloadState::default()));
+                let opts = aurelia::steam_client::InstallOptions {
+                    library_override: Some(lib.to_string_lossy().into_owned()),
+                    ..Default::default()
+                };
+                let mut rx = c.install_game(appid, DepotPlatform::Windows, opts, st).await.unwrap();
+                let mut ok = false;
+                while let Some(p) = rx.recv().await {
+                    if p.state == DownloadProgressState::Completed {
+                        ok = true;
+                        break;
+                    }
+                    if p.state == DownloadProgressState::Failed {
+                        break;
+                    }
+                }
+                assert!(ok, "установка не удалась");
+                crate::local::set_user_config(&acf, "language", "english").unwrap();
+                crate::local::set_mounted_config(&acf, "language", "english").unwrap();
+            }
+            // Поддельный «Half-Life» рядом: у него есть французское хранилище 72.
+            std::fs::write(
+                lib.join("steamapps").join("appmanifest_70.acf"),
+                "\"AppState\"\n{\n\t\"appid\"\t\t\"70\"\n\t\"InstalledDepots\"\n\t{\n\t\t\"72\"\n\t\t{\n\t\t\t\"manifest\"\t\t\"491735997354925434\"\n\t\t\t\"size\"\t\t\"1\"\n\t\t}\n\t}\n}\n",
+            )
+            .unwrap();
+            let shared: super::Shared = Default::default();
+            let ctx = eframe::egui::Context::default();
+            let abort = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let dir = lib.join("steamapps").join("common").join("Half-Life");
+            let count = |d: &std::path::Path| walk(d);
+            let before = count(&dir);
+            super::switch_language(&c, appid, &acf, "french", &abort, &shared, &ctx).await.unwrap();
+            let fr = std::fs::read_to_string(&acf).unwrap();
+            println!("--- french, файлов {} -> {}\n{fr}", before, count(&dir));
+            assert!(crate::local::installed_depots(&acf).contains_key(&62), "62 не установлено");
+            assert_eq!(crate::local::shared_depots(&acf).get(&72), Some(&70));
+            let i = crate::local::read_acf(&acf);
+            assert_eq!((i.user_language.as_str(), i.mounted_language.as_str(), i.state_flags), ("french", "french", 4));
+            super::switch_language(&c, appid, &acf, "english", &abort, &shared, &ctx).await.unwrap();
+            let en = std::fs::read_to_string(&acf).unwrap();
+            let after = count(&dir);
+            println!("--- english, файлов {after}\n{en}");
+            assert_eq!(after, before, "файлы французского не удалены");
+            assert!(!crate::local::installed_depots(&acf).contains_key(&62));
+            assert!(!crate::local::shared_depots(&acf).contains_key(&72));
+            let i = crate::local::read_acf(&acf);
+            assert_eq!((i.user_language.as_str(), i.mounted_language.as_str(), i.state_flags), ("english", "english", 4));
+        });
+    }
+
+    fn walk(d: &std::path::Path) -> usize {
+        std::fs::read_dir(d)
+            .map(|r| r.flatten().map(|e| if e.path().is_dir() { walk(&e.path()) } else { 1 }).sum())
+            .unwrap_or(0)
+    }
+}
+
+/// Удалить файлы хранилищ `removed`, которых нет ни в одном оставшемся хранилище игры (своих и общих).
+async fn remove_language_files(
+    c: &SteamClient,
+    appid: u32,
+    acf: &std::path::Path,
+    library: &std::path::Path,
+    installed: &std::collections::BTreeMap<u32, u64>,
+    shared: &std::collections::BTreeMap<u32, u32>,
+    removed: &[u32],
+) -> Result<usize, String> {
+    let text = std::fs::read_to_string(acf).map_err(es)?;
+    let installdir = text
+        .lines()
+        .find_map(|l| {
+            let t = l.trim();
+            t.to_lowercase().starts_with("\"installdir\"").then(|| t.rsplit('"').nth(1).unwrap_or("").to_string())
+        })
+        .filter(|d| !d.is_empty())
+        .ok_or("нет installdir")?;
+    let game_dir = library.join("steamapps").join("common").join(installdir);
+    let files = |app: u32, depot: u32, manifest: u64| async move {
+        c.depot_file_names(app, depot, manifest)
+            .await
+            .map_err(|e| format!("список файлов хранилища {depot}: {e:#}"))
+    };
+    let mut keep = std::collections::HashSet::new();
+    for (d, m) in installed.iter().filter(|(d, _)| !removed.contains(d)) {
+        keep.extend(files(appid, *d, *m).await?);
+    }
+    for (d, owner) in shared {
+        let owner_acf = library.join("steamapps").join(format!("appmanifest_{owner}.acf"));
+        let m = *crate::local::installed_depots(&owner_acf)
+            .get(d)
+            .ok_or(format!("неизвестна версия общего хранилища {d}"))?;
+        keep.extend(files(*owner, *d, m).await?);
+    }
+    let mut n = 0;
+    for d in removed {
+        let Some(m) = installed.get(d) else { continue };
+        for f in files(appid, *d, *m).await? {
+            if keep.contains(&f) {
+                continue;
+            }
+            let p = game_dir.join(f.replace('/', "\\"));
+            if p.is_file() && std::fs::remove_file(&p).is_ok() {
+                n += 1;
+            }
+        }
+    }
+    Ok(n)
+}
+
+#[cfg(test)]
+mod installed_langs_live {
+    /// Установленные игры со своими языковыми хранилищами (для проверки смены языка без Steam).
+    #[test]
+    #[ignore]
+    fn installed_langs_live() {
+        let steam = crate::local::find_steam().unwrap();
+        let games = crate::local::scan_games(&steam.dir);
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            for g in games.iter().filter(|g| g.ready) {
+                let Ok(d) = c.language_depots(g.appid, "public").await else { continue };
+                let own: Vec<String> = d
+                    .iter()
+                    .filter(|x| x.3.is_none() && x.4.is_none())
+                    .map(|x| x.1.clone())
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .collect();
+                let shared = d.iter().filter(|x| x.3.is_some()).count();
+                if !own.is_empty() || shared > 0 {
+                    let acf = crate::local::read_acf(&crate::local::appmanifest_path(g));
+                    println!(
+                        "{} ({}, {} МБ): свои языки {:?}, общих {}; сейчас язык «{}»",
+                        g.name, g.appid, g.size / 1_000_000, own, shared, acf.mounted_language
+                    );
+                }
+            }
         });
     }
 }

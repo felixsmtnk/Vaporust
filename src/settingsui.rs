@@ -45,9 +45,12 @@ fn note(ui: &mut egui::Ui, text: &str) {
 
 impl LauncherApp {
     /// Передать в Aurelia ограничение скорости загрузки и прокси.
-    pub(crate) fn send_aurelia_config(&self) {
+    pub(crate) fn send_aurelia_config(&mut self) {
         let proxy = Some(self.settings.proxy.trim().to_string()).filter(|p| !p.is_empty());
-        let _ = self.tx.send(Cmd::AureliaConfig { limit_kbit: self.settings.download_limit_kb * 8, proxy });
+        // С учётом расписания: в его часы может действовать своя скорость.
+        let kb = crate::schedule::effective_limit_kb(&self.settings);
+        self.sent_limit = Some(kb);
+        let _ = self.tx.send(Cmd::AureliaConfig { limit_kbit: kb * 8, proxy });
     }
 
     pub(crate) fn settings_contents(&mut self, ui: &mut egui::Ui, net: &NetState) {
@@ -88,21 +91,45 @@ impl LauncherApp {
                 });
                 note(ui, "Новую папку библиотеки пока можно добавить только в самом Steam (Настройки -> Хранилище).");
 
-                row(ui, "Скорость загрузки", |ui| {
-                    let before = self.settings.download_limit_kb;
-                    let label = |kb: u64| {
-                        if kb == 0 { "без ограничения".to_string() } else { format!("до {} МБ/с", kb as f64 / 1000.0) }
-                    };
-                    egui::ComboBox::from_id_salt("settings_limit").selected_text(label(before)).show_ui(ui, |ui| {
-                        for kb in [0u64, 500, 1000, 2000, 5000, 10000, 20000] {
-                            ui.selectable_value(&mut self.settings.download_limit_kb, kb, label(kb));
-                        }
-                    });
-                    if self.settings.download_limit_kb != before {
-                        self.send_aurelia_config();
+                let mut apply = false;
+                row(ui, "Ограничить скорость до", |ui| {
+                    apply |= limit_field(ui, &mut self.limit_text, &mut self.settings.download_limit_kb);
+                });
+                note(
+                    ui,
+                    "Пусто или 0 — без ограничения. Действует сразу, даже на идущую загрузку. Только для загрузок \
+                     через Vaporust (установка, откат); Steam при обновлении игр качает по своим настройкам.",
+                );
+
+                // ---------- Расписание загрузок ----------
+                row(ui, "Расписание загрузок", |ui| {
+                    ui.label("с");
+                    apply |= hour_box(ui, "sched_from", &mut self.settings.sched_from);
+                    ui.label("до");
+                    apply |= hour_box(ui, "sched_to", &mut self.settings.sched_to);
+                    if crate::schedule::window_now(&self.settings) {
+                        ui.weak("(сейчас эти часы)");
                     }
                 });
-                note(ui, "Для загрузок через Vaporust (установка, откат). Обновления через Steam идут по настройкам Steam.");
+                row(ui, "", |ui| {
+                    ui.checkbox(&mut self.settings.sched_only, "Качать только в эти часы");
+                });
+                row(ui, "", |ui| {
+                    apply |= ui.checkbox(&mut self.settings.sched_limit_on, "В эти часы скорость до").changed();
+                    ui.add_enabled_ui(self.settings.sched_limit_on, |ui| {
+                        apply |= limit_field(ui, &mut self.sched_text, &mut self.settings.sched_limit_kb);
+                    });
+                });
+                note(
+                    ui,
+                    "Например, с 01:00 до 07:00. «Качать только в эти часы»: в другое время очередь ждёт, а начатая \
+                     загрузка встаёт на паузу и сама продолжится в начале этих часов. «Скорость»: например, ночью \
+                     без ограничения (пусто), а днём — по полю выше. Vaporust должен быть запущен (можно в трее). \
+                     Если «с» и «до» совпадают — круглые сутки.",
+                );
+                if apply {
+                    self.send_aurelia_config();
+                }
 
                 row(ui, "Дубли установок", |ui| {
                     if ui.button("Найти").clicked() {
@@ -132,8 +159,27 @@ impl LauncherApp {
                     }
                     note(ui, "Игра лежит в двух библиотеках сразу — Steam из-за этого может без конца её обновлять. Удалите лишнюю копию (папку steamapps\\common\\<игра> и файл appmanifest_<номер>.acf) при закрытом Steam.");
                 } else {
-                    note(ui, "Ищет игры, установленные сразу в нескольких библиотеках Steam.");
+                    note(
+                        ui,
+                        "Если на ПК несколько папок библиотек Steam (например, на дисках C: и D:), одна и та же игра \
+                         могла оказаться установленной дважды и занимать место. Кнопка ищет такие копии; лишнюю \
+                         можно удалить. Если библиотека одна, дублей не бывает.",
+                    );
                 }
+
+                row(ui, "Семейная библиотека", |ui| {
+                    ui.checkbox(&mut self.settings.show_family, "Показывать игры семьи в «Все игры»");
+                    let n = net.family.len();
+                    if n > 0 {
+                        ui.weak(format!("доступно игр: {n}"));
+                    }
+                });
+                note(
+                    ui,
+                    "Игры, которыми с вами делятся члены семьи Steam. Их можно установить и запустить, но только \
+                     пока в них не играет кто-то другой из семьи. Отдельно их можно открыть пунктом «Семейная \
+                     библиотека» в списке коллекций.",
+                );
 
                 row(ui, "Список игр аккаунта", |ui| {
                     if ui
@@ -151,6 +197,17 @@ impl LauncherApp {
 
             // ---------- Запуск игр ----------
             card(ui, "Запуск игр", |ui| {
+                row(ui, "Обновление игр", |ui| {
+                    ui.radio_value(&mut self.settings.update_via_steam, false, "Без Steam");
+                    ui.radio_value(&mut self.settings.update_via_steam, true, "Через Steam");
+                });
+                note(
+                    ui,
+                    "Без Steam — Vaporust сам скачивает обновления, файлы другого языка или беты (выбранных в \
+                     «Свойствах»); Steam не запускается — легче для старого ПК. Настройки игры сохраняются. \
+                     Через Steam — как раньше: скрытый Steam обновит игру и закроется.",
+                );
+
                 row(ui, "Экономия памяти", |ui| {
                     ui.add_enabled(
                         !self.launching.load(std::sync::atomic::Ordering::Relaxed),
@@ -193,6 +250,43 @@ impl LauncherApp {
                         ui.add_enabled(false, egui::SelectableLabel::new(false, "English (в бете)"));
                     });
                 });
+            });
+
+            // ---------- Уведомления ----------
+            card(ui, "Уведомления", |ui| {
+                row(ui, "Уведомления", |ui| {
+                    ui.checkbox(&mut self.settings.notify_on, "Включены");
+                    ui.add_enabled(self.settings.notify_on, egui::Checkbox::new(&mut self.settings.notify_sound, "Со звуком"));
+                    if ui.small_button("Проверить").on_hover_text("Показать пробное уведомление").clicked() {
+                        crate::popup::push(crate::popup::Kind::Info, "Vaporust", "Так будут выглядеть уведомления.");
+                    }
+                });
+                note(
+                    ui,
+                    "Небольшие карточки в правом нижнем углу экрана на 6 секунд (пока над карточкой мышь — не \
+                     исчезают). Щелчок открывает чат с другом или страницу игры, крестик — закрыть. У каждого вида \
+                     свой звук. Работают и когда Vaporust свёрнут в трей.",
+                );
+                let s = &mut self.settings;
+                ui.add_enabled_ui(s.notify_on, |ui| {
+                    row(ui, "Сообщения от друзей", |ui| {
+                        ui.checkbox(&mut s.notify_msg, "Новое сообщение");
+                    });
+                    row(ui, "Друзья", |ui| {
+                        ui.checkbox(&mut s.notify_friend_game, "Друг зашёл в игру");
+                        ui.checkbox(&mut s.notify_friend_online, "Друг появился в сети");
+                    });
+                    row(ui, "Магазин", |ui| {
+                        ui.checkbox(&mut s.notify_wishlist, "Скидка на игру из списка желаемого");
+                    });
+                    row(ui, "Загрузки", |ui| {
+                        ui.checkbox(&mut s.notify_download, "Игра скачана");
+                    });
+                });
+                note(
+                    ui,
+                    "О сообщении — если не открыт чат именно с этим другом. Скидки проверяются при входе и раз в 6 часов, о каждой скидке — один раз.",
+                );
             });
 
             // ---------- Сеть ----------
@@ -274,51 +368,78 @@ impl LauncherApp {
                         }
                     }
                 });
-                row(ui, "Хранение данных", |ui| {
-                    if portable::enabled() {
-                        ui.label("портативно (рядом с программой)");
-                        if ui.button("Выключить").clicked() {
-                            self.portable_note = Some(portable::disable().map(|_| String::new()));
-                        }
-                    } else {
-                        ui.label("в профиле Windows");
-                        if ui.button("Портативный режим").clicked() {
-                            self.portable_note = Some(portable::enable().map(|_| String::new()));
-                        }
-                    }
-                });
-                note(
-                    ui,
-                    "Портативный режим: настройки и вход хранятся в папке VaporustData рядом с vaporust.exe — \
-                     удобно для флешки. Действует после перезапуска.",
-                );
-                match &self.portable_note {
-                    Some(Ok(_)) => {
-                        let mut restart = false;
-                        ui.horizontal(|ui| {
-                            ui.add_space(LABEL_W + ui.spacing().item_spacing.x);
-                            ui.colored_label(egui::Color32::from_rgb(110, 200, 110), "Готово. Нужен перезапуск.");
-                            restart = ui.button("Перезапустить Vaporust").clicked();
-                        });
-                        if restart {
-                            match portable::restart() {
-                                Ok(()) => {
-                                    tray::request_exit();
-                                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                                }
-                                Err(e) => self.portable_note = Some(Err(e)),
-                            }
-                        }
-                    }
-                    Some(Err(e)) => {
-                        let e = e.clone();
-                        note(ui, &e);
-                    }
-                    None => {}
-                }
                 ui.add_space(4.0);
                 ui.weak("Неофициальный проект, не связан с Valve. Лицензия GPL-3.0-or-later. Основан на Aurelia (Drackrath).");
             });
         });
     }
+}
+
+/// КБ/с -> «1.5» (МБ/с, без лишних нулей).
+fn fmt_mb(kb: u64) -> String {
+    let s = format!("{:.2}", kb as f64 / 1000.0);
+    s.trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
+/// Текст поля (МБ/с, допускается запятая) -> КБ/с. Пусто = 0. None — не число.
+fn parse_mb(text: &str) -> Option<u64> {
+    let t = text.trim().replace(',', ".");
+    if t.is_empty() {
+        return Some(0);
+    }
+    let v: f64 = t.parse().ok()?;
+    if !v.is_finite() || v < 0.0 {
+        return None;
+    }
+    Some((v * 1000.0).round() as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn mb_field() {
+        assert_eq!(super::parse_mb(""), Some(0));
+        assert_eq!(super::parse_mb("1,5"), Some(1500));
+        assert_eq!(super::parse_mb(" 0.25 "), Some(250));
+        assert_eq!(super::parse_mb("abc"), None);
+        assert_eq!(super::parse_mb("-1"), None);
+        assert_eq!(super::fmt_mb(1000), "1");
+        assert_eq!(super::fmt_mb(1500), "1.5");
+        assert_eq!(super::fmt_mb(250), "0.25");
+    }
+}
+
+/// Поле «__ МБ/с» + «Применить». Возвращает true, когда значение применено.
+fn limit_field(ui: &mut egui::Ui, buf: &mut Option<String>, value: &mut u64) -> bool {
+    let kb = *value;
+    let text = buf.get_or_insert_with(|| if kb == 0 { String::new() } else { fmt_mb(kb) });
+    let resp = ui.add(egui::TextEdit::singleline(text).desired_width(70.0).hint_text("нет"));
+    ui.label("МБ/с");
+    let parsed = parse_mb(text);
+    let enter = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+    let changed = parsed.is_some_and(|v| v != kb);
+    let mut applied = false;
+    if ui.add_enabled(changed, egui::Button::new("Применить")).clicked() || (enter && changed) {
+        *value = parsed.unwrap_or(0);
+        applied = true;
+    }
+    if parsed.is_none() {
+        ui.colored_label(egui::Color32::from_rgb(240, 120, 100), "введите число, например 2 или 0.5");
+    } else if *value == 0 {
+        ui.weak("сейчас без ограничения");
+    } else {
+        ui.weak(format!("сейчас до {} МБ/с", fmt_mb(*value)));
+    }
+    applied
+}
+
+/// Выбор часа «01:00». Возвращает true при изменении.
+fn hour_box(ui: &mut egui::Ui, id: &str, h: &mut u8) -> bool {
+    let before = *h;
+    egui::ComboBox::from_id_salt(id).width(64.0).selected_text(crate::schedule::hh(*h)).show_ui(ui, |ui| {
+        for x in 0..24u8 {
+            ui.selectable_value(h, x, crate::schedule::hh(x));
+        }
+    });
+    *h != before
 }

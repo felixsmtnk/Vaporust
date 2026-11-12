@@ -178,6 +178,8 @@ impl LauncherApp {
         let mut close_steam = false;
         let mut cmds: Vec<Cmd> = Vec::new();
         let mut do_update = false;
+        // Смена беты: без Steam (как кнопка «Обновить» в библиотеке).
+        let mut do_update_smart = false;
         // Закрепить (true) или открепить (false) — выполняется после отрисовки.
         let mut pin_action: Option<bool> = None;
         let pinned_real = self.settings.pinned.get(&appid).cloned();
@@ -337,10 +339,10 @@ impl LauncherApp {
                                 ));
                                 if ui
                                     .add_enabled(!locked, egui::Button::new("Обновить сейчас"))
-                                    .on_hover_text("Steam откроется незаметно, скачает файлы языка и закроется.")
+                                    .on_hover_text("Скачать файлы выбранного языка. Steam не запускается (если в «Настройках» не выбрано обновление через Steam).")
                                     .clicked()
                                 {
-                                    do_update = true;
+                                    do_update_smart = true;
                                 }
                             }
                         }
@@ -357,10 +359,10 @@ impl LauncherApp {
                         ));
                         if ui
                             .add_enabled(!locked, egui::Button::new("Обновить сейчас"))
-                            .on_hover_text("Steam откроется незаметно, скачает выбранную версию и закроется.")
+                            .on_hover_text("Скачать файлы выбранной версии. Steam не запускается (если в «Настройках» не выбрано обновление через Steam).")
                             .clicked()
                         {
-                            do_update = true;
+                            do_update_smart = true;
                         }
                     }
                     ui.add_space(6.0);
@@ -657,8 +659,14 @@ impl LauncherApp {
                     // ---------- Синхронизация вручную ----------
                     ui.strong("Синхронизация вручную");
                     ui.weak(
-                        "Steam сам синхронизирует сохранения при запуске игры и после выхода. Вручную — \
-                         чтобы вернуть сохранения из облака или отправить их туда, не запуская игру.",
+                        "Steam сам синхронизирует сохранения при запуске игры и после выхода. Здесь это можно \
+                         сделать вручную, не запуская игру. Сохранения лежат в папке игры на этом ПК (она указана \
+                         ниже, над списком файлов).",
+                    );
+                    ui.weak(
+                        "«Скачать из облака» — заменить файлы на ПК облачными (например, после переустановки \
+                         Windows или игры). «Отправить в облако» — наоборот. «Синхронизировать» — новые файлы \
+                         в обе стороны.",
                     );
                     let remote = match (&steam_dir, my_id) {
                         (Some(s), Some(id)) => Some(
@@ -688,10 +696,14 @@ impl LauncherApp {
                     });
                     match &data.cloud_sync {
                         Some(Ok(o)) => {
-                            ui.colored_label(
-                                GREEN,
-                                format!("Скачано файлов: {}, отправлено: {}.", o.downloaded, o.uploaded),
-                            );
+                            if o.downloaded == 0 && o.uploaded == 0 && o.conflicts.is_empty() && o.failed.is_empty() {
+                                ui.colored_label(GREEN, "Всё уже совпадает: сохранения на ПК и в облаке одинаковые.");
+                            } else {
+                                ui.colored_label(
+                                    GREEN,
+                                    format!("Скачано файлов: {}, отправлено: {}.", o.downloaded, o.uploaded),
+                                );
+                            }
                             if o.skipped > 0 {
                                 ui.weak(format!("Пропущено (неизвестная папка сохранений): {}", o.skipped));
                             }
@@ -728,7 +740,7 @@ impl LauncherApp {
                         }
                         None => {}
                     }
-                    if let (Some((direction, take)), Some(remote)) = (go, remote) {
+                    if let (Some((direction, take)), Some(remote)) = (go, remote.clone()) {
                         cmds.push(Cmd::CloudSync { appid, remote, dir: game.dir.clone(), direction, take });
                     }
                     ui.add_space(8.0);
@@ -745,13 +757,48 @@ impl LauncherApp {
                     }
                     Some(Ok(files)) => {
                         let total: u64 = files.iter().map(|f| f.size).sum();
+                        // Где эти файлы лежат на этом ПК: %WinAppDataLocalLow% и т.п. -> настоящие папки.
+                        let resolver = remote.clone().map(|r| {
+                            aurelia::library::cloud_sync::CloudPathResolver::new(r, Some(game.dir.clone()))
+                        });
+                        let local: Vec<Option<std::path::PathBuf>> = files
+                            .iter()
+                            .map(|f| resolver.as_ref().and_then(|r| r.resolve(&f.name).ok()))
+                            .collect();
+                        let base = common_dir(local.iter().flatten());
+                        if let Some(b) = &base {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label("Сохранения на этом ПК:");
+                                ui.monospace(b.display().to_string());
+                                if ui.small_button("Открыть папку").clicked() {
+                                    let dir = if b.is_dir() { b.clone() } else { b.parent().unwrap_or(b).to_path_buf() };
+                                    local::open_folder(&dir);
+                                }
+                            });
+                        }
                         ui.label(format!("Файлов в облаке: {}, всего {}", files.len(), net::fmt_bytes(total)));
                         ui.separator();
-                        egui::Grid::new("cloud").striped(true).num_columns(3).show(ui, |ui| {
-                            for f in files {
-                                ui.label(&f.name);
+                        egui::Grid::new("cloud").striped(true).num_columns(4).show(ui, |ui| {
+                            for (f, p) in files.iter().zip(&local) {
+                                let short = match (p, &base) {
+                                    (Some(p), Some(b)) => p
+                                        .strip_prefix(b)
+                                        .map(|r| r.display().to_string())
+                                        .unwrap_or_else(|_| p.display().to_string()),
+                                    (Some(p), None) => p.display().to_string(),
+                                    (None, _) => f.name.clone(),
+                                };
+                                let resp = ui.label(short);
+                                if let Some(p) = p {
+                                    resp.on_hover_text(p.display().to_string());
+                                }
                                 ui.label(net::fmt_bytes(f.size));
                                 ui.weak(fmt_date(f.time));
+                                match p {
+                                    Some(p) if p.is_file() => ui.weak("есть на диске"),
+                                    Some(_) => ui.colored_label(YELLOW, "нет на диске"),
+                                    None => ui.weak(""),
+                                };
                                 ui.end_row();
                             }
                         });
@@ -768,6 +815,10 @@ impl LauncherApp {
             self.close_steam(ctx);
         }
         if do_update {
+            // «Обновить через Steam» и смена языка (нужны другие хранилища) — через Steam.
+            self.start_update_steam(appid, ctx);
+        }
+        if do_update_smart {
             self.start_update(appid, ctx);
         }
         if let Some(on) = pin_action {
@@ -777,4 +828,26 @@ impl LauncherApp {
             }
         }
     }
+}
+
+/// Общая папка для всех путей (самый глубокий общий предок).
+fn common_dir<'a>(paths: impl Iterator<Item = &'a std::path::PathBuf>) -> Option<std::path::PathBuf> {
+    let mut base: Option<std::path::PathBuf> = None;
+    for p in paths {
+        let dir = p.parent()?.to_path_buf();
+        base = Some(match base {
+            None => dir,
+            Some(b) => {
+                let mut c = std::path::PathBuf::new();
+                for (x, y) in b.components().zip(dir.components()) {
+                    if x != y {
+                        break;
+                    }
+                    c.push(x);
+                }
+                c
+            }
+        });
+    }
+    base.filter(|b| b.components().count() > 1)
 }

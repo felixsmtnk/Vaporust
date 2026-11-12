@@ -90,7 +90,7 @@ Vaporust в **альфе**: основное работает и провере�
 | **Друзья и чат** | ✅ | Статусы и игры друзей, история, смайлики, анимированные стикеры, картинки, свой статус, уведомления, профили, заявки в друзья |
 | **Магазин** | ✅ | Поиск, скидки, **события и распродажи**, список желаемого, сортировка и фильтры, страница игры, регион цен; покупка — на сайте Steam |
 | **Инвентарь и рынок** | ✅ | Инвентарь по играм с ценами, кошелёк, поиск по торговой площадке, свои лоты и заявки; продажа — на сайте Steam |
-| **Программа** | ✅ | Вкладка «Настройки», трей, **автообновление**, **портативный режим**, прокси, 32-битная сборка |
+| **Программа** | ✅ | Вкладка «Настройки», трей, **автообновление**, прокси, 32-битная сборка |
 | **Закрытые беты с паролем** | ⏸ | Пока включаются в самом Steam |
 
 Планы по версиям — в [ROADMAP.md](ROADMAP.md).
@@ -109,10 +109,6 @@ Vaporust в **альфе**: основное работает и провере�
 **Готовая программа:** скачайте архив со страницы [Releases](../../releases), распакуйте
 в любую папку и запустите `vaporust.exe`. Установка не нужна. Новые версии Vaporust находит сам
 и ставит одной кнопкой.
-
-**Портативный режим (для флешки):** «Настройки» → «О программе» → «Портативный режим», либо
-просто положите рядом с `vaporust.exe` пустой файл `portable.txt`. Тогда настройки и вход хранятся
-в папке `VaporustData` рядом с программой.
 
 ---
 
@@ -292,7 +288,7 @@ built for low-end PCs where the official client's steamwebhelper is too heavy.
   verification, moving, uninstalling, DLC, cloud saves), achievements, and friends & chat
   with emoticons, animated stickers and images.
 - Inventory, wallet and Community Market browsing; store events; version rollback and pinning;
-  manual Steam Cloud sync; self-update from GitHub Releases; portable mode; 64- and 32-bit builds.
+  manual Steam Cloud sync; self-update from GitHub Releases; 64- and 32-bit builds.
 - Steam networking is provided by a lightly modified copy of
   **[Aurelia](https://github.com/Drackrath/Aurelia)** by Drackrath — huge thanks; this project
   is inspired by and built on it (changes are listed in `vendor/aurelia/VAPORUST_CHANGES.md`).

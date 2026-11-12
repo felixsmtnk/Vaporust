@@ -147,7 +147,9 @@ pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx
             }
         }
         ctx.request_repaint();
-        ctx.request_repaint_of(crate::chatwin::viewport_id());
+        if crate::notify::chat_open() {
+            ctx.request_repaint_of(crate::chatwin::viewport_id());
+        }
     });
 }
 

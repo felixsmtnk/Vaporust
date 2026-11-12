@@ -532,12 +532,15 @@ pub struct SteamClient {
 // SteamClient methods are implemented across these submodules.
 mod chat;
 mod vaporust_chat; // vaporust: смайлики/стикеры и картинки в чат
+mod vaporust_media; // vaporust: скриншоты в облаке Steam
+pub use vaporust_media::CloudScreenshot; // vaporust
 mod vaporust_props; // vaporust: данные для окна «Свойства игры»
 mod client;
 mod friends;
 mod install;
 mod market;
 pub use install::InstallOptions;
+pub use install::set_download_limit_now; // vaporust
 mod content;
 pub(crate) use content::ContentHost;
 mod launch;
