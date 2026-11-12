@@ -17,6 +17,7 @@ enum Tab {
     Files,
     Dlc,
     Cloud,
+    Workshop,
 }
 
 pub struct PropsWin {
@@ -33,6 +34,10 @@ pub struct PropsWin {
     move_idx: usize,
     confirm_uninstall: bool,
     note: Option<String>,
+    // Мастерская: подписки уже запрошены.
+    ws_loaded: bool,
+    // Откат: введённые номера версий по хранилищам.
+    dg_inputs: std::collections::BTreeMap<u32, String>,
 }
 
 const YELLOW: egui::Color32 = egui::Color32::from_rgb(230, 170, 60);
@@ -84,6 +89,26 @@ fn branch_name(key: &str) -> String {
     }
 }
 
+/// Понятное название хранилища: своё имя, DLC, язык, система или «основные файлы».
+fn depot_desc(d: Option<&net::DepotDesc>) -> String {
+    let Some((name, os, lang, dlc)) = d else { return "Файлы игры".into() };
+    if let Some(n) = name {
+        return n.clone();
+    }
+    if let Some(id) = dlc {
+        return format!("Дополнение (DLC {id})");
+    }
+    if let Some(l) = lang {
+        return format!("Язык: {}", lang_name(l));
+    }
+    match os.as_deref() {
+        Some(o) if o.contains("windows") => "Файлы для Windows".into(),
+        Some(o) if o.contains("linux") => "Файлы для Linux".into(),
+        Some(o) if o.contains("macos") => "Файлы для macOS".into(),
+        _ => "Основные файлы игры".into(),
+    }
+}
+
 fn fmt_date(unix: u64) -> String {
     use chrono::{Local, TimeZone};
     Local
@@ -115,6 +140,8 @@ impl LauncherApp {
             move_idx: 0,
             confirm_uninstall: false,
             note,
+            ws_loaded: false,
+            dg_inputs: Default::default(),
         });
         let _ = self.tx.send(Cmd::LoadProps(appid));
     }
@@ -151,6 +178,12 @@ impl LauncherApp {
         let mut close_steam = false;
         let mut cmds: Vec<Cmd> = Vec::new();
         let mut do_update = false;
+        // Закрепить (true) или открепить (false) — выполняется после отрисовки.
+        let mut pin_action: Option<bool> = None;
+        let pinned_real = self.settings.pinned.get(&appid).cloned();
+        let logged_in = net.account.is_some();
+        let my_id = net.my_id;
+        let steam_dir = self.steam.as_ref().map(|s| s.dir.clone());
 
         egui::SidePanel::left("props_tabs")
             .resizable(false)
@@ -163,6 +196,7 @@ impl LauncherApp {
                     (Tab::Files, "Установленные файлы"),
                     (Tab::Dlc, "DLC"),
                     (Tab::Cloud, "Облако Steam"),
+                    (Tab::Workshop, "Мастерская"),
                 ] {
                     ui.selectable_value(&mut w.tab, tab, label);
                 }
@@ -227,6 +261,31 @@ impl LauncherApp {
                             w.launch_text = w.launch_saved.clone();
                         }
                     });
+
+                    ui.add_space(12.0);
+                    ui.strong("Запуск без Steam");
+                    let mut direct = self.settings.no_steam.contains(&appid);
+                    if ui
+                        .checkbox(&mut direct, "Запускать эту игру без Steam")
+                        .on_hover_text("Быстрее и легче: Steam не запускается вовсе. Только для игр без защиты Steam.")
+                        .changed()
+                    {
+                        if direct {
+                            self.settings.no_steam.insert(appid);
+                        } else {
+                            self.settings.no_steam.remove(&appid);
+                        }
+                    }
+                    if crate::direct::uses_steam_api(&game.dir) {
+                        ui.colored_label(
+                            YELLOW,
+                            "В папке игры есть steam_api.dll — игре, скорее всего, нужен Steam: без него она может \
+                             не запуститься.",
+                        );
+                    } else {
+                        ui.weak("Steam API в папке игры не найден — похоже, игра запустится и без Steam.");
+                    }
+                    ui.weak("Без Steam не работают достижения, облачные сохранения, оверлей и учёт времени в игре.");
 
                     ui.add_space(12.0);
                     ui.strong("Язык игры");
@@ -315,10 +374,15 @@ impl LauncherApp {
                         Some(Ok(branches)) => {
                             let current = if acf.user_beta.is_empty() { "public".to_string() } else { acf.user_beta.clone() };
                             let choice = w.beta_choice.get_or_insert_with(|| current.clone());
-                            for b in branches {
-                                ui.radio_value(choice, b.clone(), branch_name(b));
+                            for (b, desc) in branches {
+                                ui.horizontal(|ui| {
+                                    ui.radio_value(choice, b.clone(), branch_name(b));
+                                    if let Some(d) = desc {
+                                        ui.weak(format!("— {d}"));
+                                    }
+                                });
                             }
-                            ui.weak("Ветки с паролем (закрытые беты) пока не поддерживаются.");
+                            ui.weak("Закрытые беты с паролем пока включаются только в самом Steam (Свойства игры -> Бета-версии).");
                             if ui
                                 .add_enabled(!locked && *choice != current, egui::Button::new("Переключить"))
                                 .clicked()
@@ -334,6 +398,104 @@ impl LauncherApp {
                             }
                         }
                     }
+
+                    // ---------- Закрепление и откат ----------
+                    ui.add_space(14.0);
+                    ui.separator();
+                    ui.strong("Версия игры");
+                    match &pinned_real {
+                        Some(_) => {
+                            ui.colored_label(GREEN, "Версия закреплена: Steam не будет обновлять эту игру.");
+                            ui.weak(
+                                "Перед каждым запуском Vaporust сообщает Steam, что игра уже обновлена. \
+                                 Проверка файлов и обновление недоступны, пока версия закреплена.",
+                            );
+                            if ui.add_enabled(!locked, egui::Button::new("Открепить")).clicked() {
+                                pin_action = Some(false);
+                            }
+                        }
+                        None => {
+                            ui.weak(
+                                "Закрепление не даёт Steam обновлять игру — например, чтобы после \
+                                 обновления не сломались моды или сохранения.",
+                            );
+                            if ui
+                                .add_enabled(!locked && logged_in, egui::Button::new("Закрепить текущую версию"))
+                                .clicked()
+                            {
+                                pin_action = Some(true);
+                            }
+                        }
+                    }
+
+                    ui.add_space(8.0);
+                    egui::CollapsingHeader::new("Откатить на старую версию").id_salt("downgrade").show(ui, |ui| {
+                        ui.weak(
+                            "Steam делит игру на части (хранилища): основные файлы, языки, файлы для \
+                             разных систем — у каждой своя история версий. Steam не хранит список старых \
+                             версий, номер нужной (Manifest ID) есть на SteamDB: откройте ссылку, найдите \
+                             дату и скопируйте число. Обычно хватает отката «Основных файлов игры». \
+                             Пустое поле — часть не меняется.",
+                        );
+                        ui.add_space(4.0);
+                        // Настоящие версии: у закреплённой игры в файле записаны «маскировочные».
+                        let current = pinned_real.clone().unwrap_or_else(|| local::installed_depots(&acf_path));
+                        if current.is_empty() {
+                            ui.weak("В файле игры нет списка хранилищ.");
+                            return;
+                        }
+                        let sizes = local::installed_depot_sizes(&acf_path);
+                        let descs = data.depots.as_ref().and_then(|r| r.as_ref().ok());
+                        egui::Grid::new("dg_grid").num_columns(4).spacing([10.0, 6.0]).show(ui, |ui| {
+                            ui.weak("Часть игры (хранилище)");
+                            ui.weak("Версия сейчас");
+                            ui.weak("Нужная версия");
+                            ui.end_row();
+                            for (depot, m) in &current {
+                                ui.vertical(|ui| {
+                                    ui.label(depot_desc(descs.and_then(|d| d.get(depot))));
+                                    let size = sizes.get(depot).map(|s| format!(" · {}", net::fmt_bytes(*s))).unwrap_or_default();
+                                    ui.weak(format!("№ {depot}{size}"));
+                                });
+                                ui.weak(m.to_string());
+                                let input = w.dg_inputs.entry(*depot).or_default();
+                                ui.add(egui::TextEdit::singleline(input).desired_width(170.0).hint_text("Manifest ID"));
+                                ui.hyperlink_to("SteamDB", format!("https://steamdb.info/depot/{depot}/manifests/"))
+                                    .on_hover_text("История версий этого хранилища");
+                                ui.end_row();
+                            }
+                        });
+                        let overrides: std::collections::HashMap<u32, u64> = w
+                            .dg_inputs
+                            .iter()
+                            .filter_map(|(d, s)| s.trim().parse::<u64>().ok().map(|m| (*d, m)))
+                            .filter(|(d, m)| current.get(d) != Some(m))
+                            .collect();
+                        let bad = w.dg_inputs.values().any(|s| !s.trim().is_empty() && s.trim().parse::<u64>().is_err());
+                        if bad {
+                            ui.colored_label(YELLOW, "Номер версии — это только цифры.");
+                        }
+                        ui.add_space(4.0);
+                        if ui
+                            .add_enabled(
+                                !locked && logged_in && !bad && !overrides.is_empty(),
+                                egui::Button::new("Скачать выбранную версию"),
+                            )
+                            .on_hover_text("Ход загрузки — внизу главного окна. После отката версия закрепится.")
+                            .clicked()
+                        {
+                            let library = game
+                                .dir
+                                .parent()
+                                .and_then(|p| p.parent())
+                                .and_then(|p| p.parent())
+                                .map(|p| p.to_path_buf())
+                                .unwrap_or_default();
+                            cmds.push(Cmd::Downgrade { appid, name: w.name.clone(), library, overrides });
+                            w.dg_inputs.clear();
+                            w.note = Some("Откат начат — ход загрузки внизу главного окна.".into());
+                        }
+                    });
                 }
 
                 Tab::Files => {
@@ -351,7 +513,7 @@ impl LauncherApp {
                         ui.colored_label(YELLOW, "Игре нужно обновление (или смена языка/беты ждёт загрузки).");
                     }
                     if ui
-                        .add_enabled(!locked, egui::Button::new("Обновить через Steam"))
+                        .add_enabled(!locked && pinned_real.is_none(), egui::Button::new("Обновить через Steam"))
                         .on_hover_text("Steam откроется незаметно, скачает обновление и закроется. Игра не запускается.")
                         .clicked()
                     {
@@ -360,7 +522,7 @@ impl LauncherApp {
                     ui.add_space(10.0);
 
                     if ui
-                        .add_enabled(!locked, egui::Button::new("Проверить целостность файлов"))
+                        .add_enabled(!locked && pinned_real.is_none(), egui::Button::new("Проверить целостность файлов"))
                         .on_hover_text("Сравнить файлы с серверами Steam и докачать испорченные. Ход проверки — внизу главного окна.")
                         .clicked()
                     {
@@ -481,7 +643,97 @@ impl LauncherApp {
                     }
                 },
 
-                Tab::Cloud => match &data.cloud {
+                Tab::Workshop => {
+                    // Только включение/выключение подписанных модов; поиск — на странице игры.
+                    if !w.ws_loaded {
+                        w.ws_loaded = true;
+                        cmds.push(Cmd::Social(crate::social::SocialCmd::WorkshopSubscribed(w.appid)));
+                    }
+                    let ws = net.workshop.lock().unwrap();
+                    crate::workshopui::subscriptions(ui, w.appid, &ws, &mut cmds);
+                }
+
+                Tab::Cloud => {
+                    // ---------- Синхронизация вручную ----------
+                    ui.strong("Синхронизация вручную");
+                    ui.weak(
+                        "Steam сам синхронизирует сохранения при запуске игры и после выхода. Вручную — \
+                         чтобы вернуть сохранения из облака или отправить их туда, не запуская игру.",
+                    );
+                    let remote = match (&steam_dir, my_id) {
+                        (Some(s), Some(id)) => Some(
+                            s.join("userdata").join((id as u32).to_string()).join(appid.to_string()).join("remote"),
+                        ),
+                        _ => None,
+                    };
+                    let can = !locked && logged_in && remote.is_some() && !data.cloud_busy;
+                    let mut go: Option<(u8, Option<bool>)> = None;
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.add_enabled(can, egui::Button::new("Скачать из облака")).clicked() {
+                            go = Some((0, None));
+                        }
+                        if ui.add_enabled(can, egui::Button::new("Отправить в облако")).clicked() {
+                            go = Some((1, None));
+                        }
+                        if ui
+                            .add_enabled(can, egui::Button::new("Синхронизировать"))
+                            .on_hover_text("Новое из облака — сюда, новое с диска — в облако")
+                            .clicked()
+                        {
+                            go = Some((2, None));
+                        }
+                        if data.cloud_busy {
+                            ui.spinner();
+                        }
+                    });
+                    match &data.cloud_sync {
+                        Some(Ok(o)) => {
+                            ui.colored_label(
+                                GREEN,
+                                format!("Скачано файлов: {}, отправлено: {}.", o.downloaded, o.uploaded),
+                            );
+                            if o.skipped > 0 {
+                                ui.weak(format!("Пропущено (неизвестная папка сохранений): {}", o.skipped));
+                            }
+                            for f in &o.failed {
+                                ui.colored_label(egui::Color32::from_rgb(230, 110, 110), f);
+                            }
+                            if !o.conflicts.is_empty() {
+                                ui.colored_label(
+                                    YELLOW,
+                                    format!(
+                                        "Расходятся (изменены и у вас, и в облаке): {}. Какую копию оставить?",
+                                        o.conflicts.len()
+                                    ),
+                                );
+                                for (name, local, cloud) in &o.conflicts {
+                                    ui.weak(format!(
+                                        "{name}: у вас {}, в облаке {}",
+                                        net::fmt_bytes(*local),
+                                        net::fmt_bytes(*cloud)
+                                    ));
+                                }
+                                ui.horizontal(|ui| {
+                                    if ui.add_enabled(can, egui::Button::new("Взять из облака")).clicked() {
+                                        go = Some((2, Some(true)));
+                                    }
+                                    if ui.add_enabled(can, egui::Button::new("Оставить мои")).clicked() {
+                                        go = Some((2, Some(false)));
+                                    }
+                                });
+                            }
+                        }
+                        Some(Err(e)) => {
+                            ui.colored_label(egui::Color32::from_rgb(230, 110, 110), format!("Не получилось: {e}"));
+                        }
+                        None => {}
+                    }
+                    if let (Some((direction, take)), Some(remote)) = (go, remote) {
+                        cmds.push(Cmd::CloudSync { appid, remote, dir: game.dir.clone(), direction, take });
+                    }
+                    ui.add_space(8.0);
+                    ui.separator();
+                    match &data.cloud {
                     None => {
                         ui.spinner();
                     }
@@ -494,7 +746,6 @@ impl LauncherApp {
                     Some(Ok(files)) => {
                         let total: u64 = files.iter().map(|f| f.size).sum();
                         ui.label(format!("Файлов в облаке: {}, всего {}", files.len(), net::fmt_bytes(total)));
-                        ui.weak("Steam сам синхронизирует сохранения при запуске игры и после выхода из неё.");
                         ui.separator();
                         egui::Grid::new("cloud").striped(true).num_columns(3).show(ui, |ui| {
                             for f in files {
@@ -505,7 +756,8 @@ impl LauncherApp {
                             }
                         });
                     }
-                },
+                    }
+                }
             });
         });
 
@@ -517,6 +769,12 @@ impl LauncherApp {
         }
         if do_update {
             self.start_update(appid, ctx);
+        }
+        if let Some(on) = pin_action {
+            let res = if on { self.pin_game(appid) } else { self.unpin_game(appid) };
+            if let Some(w) = self.props.as_mut() {
+                w.note = Some(res.unwrap_or_else(|e| e));
+            }
         }
     }
 }

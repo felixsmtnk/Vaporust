@@ -17,9 +17,25 @@ static THREAD_ID: AtomicU32 = AtomicU32::new(0);
 static UNREAD: AtomicBool = AtomicBool::new(false);
 /// Пользователь выбрал «Выход» в меню трея: крестик больше не прячет окно.
 static EXIT: AtomicBool = AtomicBool::new(false);
+/// Крестик окна прячет Vaporust в трей (галочка в меню трея).
+static CLOSE_TO_TRAY: AtomicBool = AtomicBool::new(false);
+
+/// Начальное значение галочки (из настроек) — до `start`.
+pub fn set_close_to_tray(on: bool) {
+    CLOSE_TO_TRAY.store(on, Ordering::Relaxed);
+}
+
+pub fn close_to_tray() -> bool {
+    CLOSE_TO_TRAY.load(Ordering::Relaxed)
+}
 
 pub fn exit_requested() -> bool {
     EXIT.load(Ordering::Relaxed)
+}
+
+/// Закрыть программу по-настоящему (крестик не прячет в трей), например для перезапуска.
+pub fn request_exit() {
+    EXIT.store(true, Ordering::Relaxed);
 }
 
 /// Показать красную точку на иконке (или убрать её).
@@ -80,7 +96,7 @@ pub fn show_main() {}
 /// Запустить иконку в трее (один раз, при старте программы).
 #[cfg(windows)]
 pub fn start() {
-    use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+    use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
     use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         DispatchMessageW, GetMessageW, PeekMessageW, PostMessageW, TranslateMessage, MSG,
@@ -106,10 +122,17 @@ pub fn start() {
         }
 
         let open = MenuItem::new("Открыть Vaporust", true, None);
+        let tray_close = CheckMenuItem::new("Крестик сворачивает в трей", true, close_to_tray(), None);
         let quit = MenuItem::new("Выход", true, None);
         let menu = Menu::new();
-        let _ = menu.append_items(&[&open, &PredefinedMenuItem::separator(), &quit]);
-        let (open_id, quit_id) = (open.id().clone(), quit.id().clone());
+        let _ = menu.append_items(&[
+            &open,
+            &PredefinedMenuItem::separator(),
+            &tray_close,
+            &PredefinedMenuItem::separator(),
+            &quit,
+        ]);
+        let (open_id, quit_id, close_id) = (open.id().clone(), quit.id().clone(), tray_close.id().clone());
 
         let mut builder = TrayIconBuilder::new()
             .with_tooltip("Vaporust")
@@ -123,6 +146,9 @@ pub fn start() {
         MenuEvent::set_event_handler(Some(move |e: MenuEvent| {
             if e.id == open_id {
                 show_main();
+            } else if e.id == close_id {
+                // Галочку меню переключает сама Windows; здесь — только настройка.
+                CLOSE_TO_TRAY.fetch_xor(true, Ordering::Relaxed);
             } else if e.id == quit_id {
                 // Закрыть программу по-настоящему: окно получит обычный запрос закрытия.
                 EXIT.store(true, Ordering::Relaxed);
@@ -166,6 +192,10 @@ pub fn start() {
                 }
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
+                // Галочка меню всегда совпадает с настройкой.
+                if tray_close.is_checked() != close_to_tray() {
+                    tray_close.set_checked(close_to_tray());
+                }
             }
         }
     });

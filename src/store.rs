@@ -49,6 +49,8 @@ pub struct StoreState {
     pub deals: Option<Result<Vec<u32>, String>>,
     /// Свой список желаемого, по приоритету.
     pub wishlist: Option<Result<Vec<u32>, String>>,
+    /// События и распродажи Steam: (appid, что за событие, до какого времени).
+    pub events: Option<Result<Vec<(u32, String, u64)>, String>>,
     /// Доп. данные страницы игры: онлайн, новости, отзывы, похожие.
     pub extras: HashMap<u32, Extras>,
     /// Ошибка последнего действия (например, добавления в желаемое).
@@ -61,6 +63,8 @@ pub type SharedStore = Arc<Mutex<StoreState>>;
 pub enum StoreCmd {
     Search(String),
     Deals,
+    /// События и распродажи (скидки дня/выходных, выход игр, обновления).
+    Events,
     Wishlist,
     /// Подробности для этих игр (лениво, для видимых в списке).
     Details(Vec<u32>),
@@ -70,6 +74,24 @@ pub enum StoreCmd {
     WishlistSet(u32, bool),
     /// Сменить регион цен (сбрасывает подробности).
     Country(String),
+}
+
+/// Русское название вида события Steam (MarketingMessage).
+pub fn event_kind(kind: &str) -> String {
+    match kind {
+        "MidweekDeal" => "скидка середины недели",
+        "WeekendDeal" => "скидка на выходные",
+        "DailyDeal" => "скидка дня",
+        "NowAvailable" => "уже вышла",
+        "Update" => "обновление",
+        "FreeWeekend" => "бесплатные выходные",
+        "FreeToPlay" => "бесплатно",
+        "Sale" | "PublisherSale" | "FranchiseSale" => "распродажа",
+        "DLCNowAvailable" => "новое дополнение",
+        "PreOrder" | "Preorder" => "предзаказ",
+        other => return other.to_string(),
+    }
+    .to_string()
 }
 
 fn err<E: std::fmt::Display>(e: E) -> String {
@@ -143,6 +165,20 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                 }
                 st.lock().unwrap().deals = Some(res);
             }
+            StoreCmd::Events => {
+                let cc = country(&c, &st);
+                let res = c.active_store_events(&cc).await.map_err(err).map(|list| {
+                    let mut seen = HashSet::new();
+                    list.into_iter()
+                        .filter(|e| e.associated_id != 0 && seen.insert(e.associated_id))
+                        .map(|e| (e.associated_id, event_kind(&e.kind), e.end))
+                        .collect::<Vec<_>>()
+                });
+                if let Ok(v) = &res {
+                    load_details(&c, v.iter().take(20).map(|e| e.0).collect(), &st, &ctx).await;
+                }
+                st.lock().unwrap().events = Some(res);
+            }
             StoreCmd::Wishlist => {
                 let res = match c.my_steam_id() {
                     Some(me) => c.wishlist(me).await.map(|w| w.into_iter().map(|e| e.app_id).collect()).map_err(err),
@@ -199,6 +235,7 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                 s.apps.clear();
                 s.requested.clear();
                 s.deals = None;
+                s.events = None;
             }
         }
         ctx.request_repaint();
@@ -381,5 +418,22 @@ mod tests {
             screenshot_thumb("https://x/apps/70/0000002343.jpg?t=1"),
             "https://x/apps/70/0000002343.600x338.jpg"
         );
+    }
+}
+
+#[cfg(test)]
+mod events_live {
+    /// Живой тест (только чтение): события и распродажи Steam для региона UA.
+    #[test]
+    #[ignore]
+    fn store_events_live() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            for e in c.active_store_events("UA").await.unwrap() {
+                println!("{} | {} | id {} {} | {}..{}", e.kind, e.title, e.associated_id, e.associated_name, e.start, e.end);
+            }
+        });
     }
 }

@@ -30,6 +30,16 @@ impl Sort {
     }
 }
 
+/// Вид библиотеки.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default, Debug)]
+pub enum View {
+    /// Компактный список (как в первых версиях).
+    #[default]
+    List,
+    /// Плитка с обложками.
+    Grid,
+}
+
 /// Статус для друзей (EPersonaState Steam).
 pub const PERSONAS: [(u32, &str); 4] = [(1, "В сети"), (3, "Отошёл"), (2, "Не беспокоить"), (7, "Невидимка")];
 
@@ -41,6 +51,8 @@ pub fn persona_label(state: u32) -> &'static str {
 #[serde(default)]
 pub struct Settings {
     pub freeze_webhelper: bool,
+    /// Флаги запуска скрытого Steam (по умолчанию local::DEFAULT_STEAM_ARGS).
+    pub steam_args: String,
     pub only_installed: bool,
     pub show_friends: bool,
     /// Папка библиотеки для установки новых игр.
@@ -61,6 +73,24 @@ pub struct Settings {
     pub queue_paused: bool,
     /// Регион цен в магазине (код страны); None — по IP подключения к Steam.
     pub store_country: Option<String>,
+    /// Список или плитка.
+    pub view: View,
+    /// Игры, которые Vaporust начал качать и ещё не докачал: пока загрузка не идёт, их
+    /// appmanifest прячется от Steam, иначе Steam сам начнёт их качать.
+    pub holding: Vec<u32>,
+    /// Закреплённые версии игр: appid -> настоящие версии хранилищ (depot -> manifest ID).
+    /// В appmanifest таких игр Vaporust пишет последние версии, чтобы Steam их не обновлял.
+    pub pinned: std::collections::BTreeMap<u32, std::collections::BTreeMap<u32, u64>>,
+    /// Проверять обновления Vaporust при запуске.
+    pub check_updates: bool,
+    /// Игры, которые запускаются без Steam (галочка в «Свойствах»).
+    pub no_steam: std::collections::BTreeSet<u32>,
+    /// Запомненные таблицы запуска для игр без Steam (чтобы запускались и без интернета).
+    pub direct_specs: std::collections::BTreeMap<u32, crate::direct::LaunchSpec>,
+    /// Ограничение скорости загрузки игр, КБ/с (0 — без ограничения).
+    pub download_limit_kb: u64,
+    /// Прокси для запросов Aurelia (http://хост:порт или socks5://…), пусто — без прокси.
+    pub proxy: String,
 }
 
 /// Игра в очереди установки.
@@ -88,17 +118,26 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             freeze_webhelper: true,
+            steam_args: crate::local::DEFAULT_STEAM_ARGS.to_string(),
             only_installed: false,
             show_friends: true,
             library: None,
             sort: Sort::Name,
             persona: 7,
-            close_to_tray: false,
+            close_to_tray: true,
             notify_sound: true,
             downloads: Vec::new(),
             queue: Vec::new(),
             queue_paused: false,
             store_country: None,
+            view: View::Grid,
+            holding: Vec::new(),
+            pinned: Default::default(),
+            check_updates: true,
+            no_steam: Default::default(),
+            direct_specs: Default::default(),
+            download_limit_kb: 0,
+            proxy: String::new(),
         }
     }
 }

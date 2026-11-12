@@ -148,9 +148,19 @@ pub async fn inventory_via(
     app_id: u32,
     context_id: u32,
 ) -> Result<Vec<InventoryItem>> {
+    inventory_via_lang(web, app_id, context_id, "english").await
+}
+
+/// vaporust: то же, что `inventory_via`, но с языком названий предметов (напр. "russian").
+pub async fn inventory_via_lang(
+    web: &WebSession,
+    app_id: u32,
+    context_id: u32,
+    lang: &str,
+) -> Result<Vec<InventoryItem>> {
     let steam_id = web.steam_id();
     let url = format!(
-        "https://steamcommunity.com/inventory/{steam_id}/{app_id}/{context_id}?l=english&count=2000"
+        "https://steamcommunity.com/inventory/{steam_id}/{app_id}/{context_id}?l={lang}&count=2000"
     );
     parse_inventory(&web.get_text(&url).await?)
 }

@@ -16,7 +16,8 @@ use std::{
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 // Флаги урезанного запуска Steam. Valve может менять их поддержку между версиями.
-const STEAM_ARGS: [&str; 4] = ["-silent", "-no-browser", "-cef-disable-gpu", "-nofriendsui"];
+/// Флаги урезанного Steam по умолчанию (меняются в «Настройках»).
+pub const DEFAULT_STEAM_ARGS: &str = "-silent -no-browser -cef-disable-gpu -nofriendsui";
 
 #[derive(Clone)]
 pub struct Game {
@@ -30,6 +31,8 @@ pub struct Game {
     pub needs_update: bool,
     /// Размер на диске (SizeOnDisk из appmanifest), байт.
     pub size: u64,
+    /// Недокачанная загрузка Vaporust, спрятанная от Steam (appmanifest переименован).
+    pub stashed: bool,
 }
 
 #[derive(Clone)]
@@ -38,11 +41,13 @@ pub struct SteamInfo {
     pub exe: PathBuf,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 pub struct LaunchOptions {
     /// Эксперимент: замораживать steamwebhelper во время игры.
     /// Закрывать его бесполезно: Steam сразу запускает его заново (проверено в 0.3).
     pub freeze_webhelper: bool,
+    /// Флаги запуска скрытого Steam; пусто — DEFAULT_STEAM_ARGS.
+    pub steam_args: String,
 }
 
 // ---------- Реестр ----------
@@ -186,7 +191,9 @@ pub fn scan_games(steam_dir: &Path) -> Vec<Game> {
         };
         for e in entries.flatten() {
             let fname = e.file_name().to_string_lossy().to_string();
-            if !(fname.starts_with("appmanifest_") && fname.ends_with(".acf")) {
+            // Спрятанные от Steam недокачанные загрузки Vaporust (см. stash_manifest) тоже наши.
+            let stashed = fname.starts_with("appmanifest_") && fname.ends_with(STASH_EXT);
+            if !(fname.starts_with("appmanifest_") && fname.ends_with(".acf")) && !stashed {
                 continue;
             }
             let Ok(text) = fs::read_to_string(e.path()) else {
@@ -209,9 +216,9 @@ pub fn scan_games(steam_dir: &Path) -> Vec<Game> {
                 // 228980 = Steamworks Common Redistributables, не игра
                 if appid != 228980 && !games.iter().any(|g| g.appid == appid) {
                     let dir = lib.join("steamapps").join("common").join(installdir);
-                    let ready = flags & 4 != 0;
+                    let ready = !stashed && flags & 4 != 0;
                     let needs_update = ready && flags != 4;
-                    games.push(Game { appid, name, dir, ready, needs_update, size });
+                    games.push(Game { appid, name, dir, ready, needs_update, size, stashed });
                 }
             }
         }
@@ -220,6 +227,35 @@ pub fn scan_games(steam_dir: &Path) -> Vec<Game> {
 }
 
 // ---------- appmanifest игры: состояние, язык, бета ----------
+
+/// Окончание имени спрятанного appmanifest. Steam читает только appmanifest_*.acf, поэтому
+/// недокачанную игру, поставленную на паузу в Vaporust, он не видит и не докачивает сам.
+pub const STASH_EXT: &str = ".acf.vaporust-paused";
+
+fn manifest_paths(library: &Path, appid: u32) -> (PathBuf, PathBuf) {
+    let dir = library.join("steamapps");
+    (
+        dir.join(format!("appmanifest_{appid}.acf")),
+        dir.join(format!("appmanifest_{appid}{STASH_EXT}")),
+    )
+}
+
+/// Спрятать appmanifest недокачанной игры от Steam. Только при закрытом Steam.
+/// Полностью установленные игры (StateFlags == 4) не трогаем.
+pub fn stash_manifest(library: &Path, appid: u32) -> bool {
+    let (acf, hidden) = manifest_paths(library, appid);
+    let info = read_acf(&acf);
+    if !acf.exists() || info.state_flags == 4 {
+        return false;
+    }
+    fs::rename(&acf, &hidden).is_ok()
+}
+
+/// Вернуть appmanifest на место перед продолжением загрузки.
+pub fn unstash_manifest(library: &Path, appid: u32) -> bool {
+    let (acf, hidden) = manifest_paths(library, appid);
+    hidden.exists() && !acf.exists() && fs::rename(&hidden, &acf).is_ok()
+}
 
 /// steamapps\appmanifest_<appid>.acf игры (рядом с папкой common).
 pub fn appmanifest_path(game: &Game) -> PathBuf {
@@ -363,6 +399,142 @@ pub fn set_user_config(path: &Path, key: &str, value: &str) -> Result<(), String
     let mut body = out.join("\n");
     body.push('\n');
     fs::write(path, body).map_err(|e| format!("Не удалось записать файл игры: {e}"))
+}
+
+/// Игры, установленные сразу в нескольких библиотеках Steam: (appid, название, папки
+/// библиотек). Из-за таких дублей Steam видит два разных файла игры и может без конца
+/// её «обновлять».
+pub fn find_duplicates(steam_dir: &Path) -> Vec<(u32, String, Vec<PathBuf>)> {
+    let mut map: std::collections::BTreeMap<u32, (String, Vec<PathBuf>)> = Default::default();
+    for lib in library_dirs(steam_dir) {
+        let Ok(rd) = fs::read_dir(lib.join("steamapps")) else { continue };
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            let Some(id) = name.strip_prefix("appmanifest_").and_then(|s| s.strip_suffix(".acf")) else { continue };
+            let Ok(appid) = id.parse::<u32>() else { continue };
+            let title = fs::read_to_string(e.path())
+                .ok()
+                .and_then(|t| t.lines().find_map(|l| kv(l).filter(|(k, _)| k.eq_ignore_ascii_case("name")).map(|(_, v)| v)))
+                .unwrap_or_else(|| appid.to_string());
+            let entry = map.entry(appid).or_insert_with(|| (title, Vec::new()));
+            if !entry.1.contains(&lib) {
+                entry.1.push(lib.clone());
+            }
+        }
+    }
+    map.into_iter().filter(|(_, (_, libs))| libs.len() > 1).map(|(id, (n, l))| (id, n, l)).collect()
+}
+
+/// Установленные версии хранилищ игры из appmanifest: InstalledDepots, депо -> manifest ID.
+pub fn installed_depots(path: &Path) -> std::collections::BTreeMap<u32, u64> {
+    let mut out = std::collections::BTreeMap::new();
+    let Ok(text) = fs::read_to_string(path) else { return out };
+    let mut stack: Vec<String> = Vec::new();
+    let mut pending = String::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if t == "{" {
+            stack.push(std::mem::take(&mut pending));
+            continue;
+        }
+        if t == "}" {
+            stack.pop();
+            continue;
+        }
+        if let Some((k, v)) = kv(t) {
+            if stack.len() == 3 && stack[1].eq_ignore_ascii_case("InstalledDepots") && k.eq_ignore_ascii_case("manifest") {
+                if let (Ok(d), Ok(m)) = (stack[2].parse(), v.parse()) {
+                    out.insert(d, m);
+                }
+            }
+        } else if let Some(k) = t.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+            pending = k.to_string();
+        }
+    }
+    out
+}
+
+/// Размеры установленных хранилищ из appmanifest (InstalledDepots: depot -> size).
+pub fn installed_depot_sizes(path: &Path) -> std::collections::BTreeMap<u32, u64> {
+    let mut out = std::collections::BTreeMap::new();
+    let Ok(text) = fs::read_to_string(path) else { return out };
+    let mut stack: Vec<String> = Vec::new();
+    let mut pending = String::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if t == "{" {
+            stack.push(std::mem::take(&mut pending));
+        } else if t == "}" {
+            stack.pop();
+        } else if let Some((k, v)) = kv(t) {
+            if stack.len() == 3 && stack[1].eq_ignore_ascii_case("InstalledDepots") && k.eq_ignore_ascii_case("size") {
+                if let (Ok(d), Ok(s)) = (stack[2].parse(), v.parse()) {
+                    out.insert(d, s);
+                }
+            }
+        } else if let Some(k) = t.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+            pending = k.to_string();
+        }
+    }
+    out
+}
+
+/// Записать в appmanifest версии хранилищ (manifest ID в InstalledDepots), номер сборки
+/// (buildid/TargetBuildID, если задан) и StateFlags. Остальное — байт в байт.
+/// Нужно для закрепления версии: Steam сверяет эти номера с последними и, если они
+/// совпадают, ничего не обновляет. Резервная копия — один раз, *.acf.vaporust-pin.bak.
+pub fn write_depot_versions(
+    path: &Path,
+    manifests: &std::collections::BTreeMap<u32, u64>,
+    buildid: Option<&str>,
+    state_flags: u32,
+) -> Result<(), String> {
+    let text = fs::read_to_string(path).map_err(|e| format!("Не удалось прочитать файл игры: {e}"))?;
+    let mut out: Vec<String> = Vec::new();
+    let mut stack: Vec<String> = Vec::new();
+    let mut pending = String::new();
+    for line in text.lines() {
+        let t = line.trim();
+        let indent: String = line.chars().take_while(|c| c.is_whitespace()).collect();
+        if t == "{" {
+            stack.push(std::mem::take(&mut pending));
+        } else if t == "}" {
+            stack.pop();
+        } else if let Some((k, _)) = kv(t) {
+            let top = stack.len() == 1;
+            if top && k.eq_ignore_ascii_case("StateFlags") {
+                out.push(format!("{indent}\"{k}\"\t\t\"{state_flags}\""));
+                continue;
+            }
+            if let Some(b) = buildid.filter(|_| top && k.eq_ignore_ascii_case("buildid")) {
+                out.push(format!("{indent}\"{k}\"\t\t\"{b}\""));
+                continue;
+            }
+            // У актуальной игры Steam держит TargetBuildID = 0 (нечего докачивать).
+            if top && state_flags == 4 && k.eq_ignore_ascii_case("TargetBuildID") {
+                out.push(format!("{indent}\"{k}\"\t\t\"0\""));
+                continue;
+            }
+            if stack.len() == 3 && stack[1].eq_ignore_ascii_case("InstalledDepots") && k.eq_ignore_ascii_case("manifest") {
+                if let Some(m) = stack[2].parse::<u32>().ok().and_then(|d| manifests.get(&d)) {
+                    out.push(format!("{indent}\"{k}\"\t\t\"{m}\""));
+                    continue;
+                }
+            }
+        } else if let Some(k) = t.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+            pending = k.to_string();
+        }
+        out.push(line.to_string());
+    }
+    let backup = path.with_extension("acf.vaporust-pin.bak");
+    if !backup.exists() {
+        let _ = fs::copy(path, &backup);
+    }
+    let mut body = out.join("\n");
+    body.push('\n');
+    let tmp = path.with_extension("acf.tmp");
+    fs::write(&tmp, body).map_err(|e| format!("Не удалось записать файл игры: {e}"))?;
+    fs::rename(&tmp, path).map_err(|e| format!("Не удалось записать файл игры: {e}"))
 }
 
 /// Открыть папку в Проводнике.
@@ -557,6 +729,7 @@ pub fn close_steam(steam: &SteamInfo, set: &dyn Fn(&str)) {
 /// (значит, и закрываем мы), Ok(Some(false)) — он уже был открыт пользователем, Ok(None) — отмена.
 fn start_hidden_steam(
     steam: &SteamInfo,
+    args: &str,
     procs: &mut Procs,
     cancel: &AtomicBool,
     set: &dyn Fn(&str),
@@ -568,7 +741,7 @@ fn start_hidden_steam(
     reset_active_user();
     set("Запускаю Steam в урезанном режиме...");
     Command::new(&steam.exe)
-        .args(STEAM_ARGS)
+        .args(if args.trim().is_empty() { DEFAULT_STEAM_ARGS } else { args }.split_whitespace())
         .spawn()
         .map_err(|e| format!("Не удалось запустить Steam: {e}"))?;
     if !wait_until(Duration::from_secs(90), cancel, || active_user() != 0) {
@@ -596,7 +769,7 @@ pub fn update_via_steam(
         "Лаунчер больше не следит за обновлением. Steam останется открытым и докачает игру сам.";
     let mut procs = Procs::new();
     let acf = appmanifest_path(game);
-    let we_started = match start_hidden_steam(steam, &mut procs, cancel, set)? {
+    let we_started = match start_hidden_steam(steam, &opts.steam_args, &mut procs, cancel, set)? {
         Some(w) => w,
         None => return Ok(CANCEL_MSG.into()),
     };
@@ -684,7 +857,7 @@ pub fn run_chain(
     const CANCEL_MSG: &str =
         "Лаунчер больше не следит за игрой. Steam останется открытым — закройте его кнопкой «Закрыть Steam».";
 
-    let we_started = match start_hidden_steam(steam, &mut procs, cancel, set)? {
+    let we_started = match start_hidden_steam(steam, &opts.steam_args, &mut procs, cancel, set)? {
         Some(w) => w,
         None => return Ok(CANCEL_MSG.into()),
     };
@@ -782,6 +955,26 @@ mod acf_tests {
         let p = std::env::temp_dir().join(format!("vaporust_acf_{name}_{}.acf", std::process::id()));
         fs::write(&p, body).unwrap();
         p
+    }
+
+    #[test]
+    fn depot_versions() {
+        let acf = "\"AppState\"\n{\n\t\"appid\"\t\t\"70\"\n\t\"StateFlags\"\t\t\"6\"\n\t\"buildid\"\t\t\"100\"\n\t\"TargetBuildID\"\t\t\"200\"\n\t\"InstalledDepots\"\n\t{\n\t\t\"1\"\n\t\t{\n\t\t\t\"manifest\"\t\t\"111\"\n\t\t\t\"size\"\t\t\"5\"\n\t\t}\n\t\t\"2\"\n\t\t{\n\t\t\t\"manifest\"\t\t\"222\"\n\t\t\t\"size\"\t\t\"6\"\n\t\t}\n\t}\n\t\"SharedDepots\"\n\t{\n\t\t\"228988\"\t\t\"228980\"\n\t}\n}\n";
+        let p = tmp("depots", acf);
+        let d = installed_depots(&p);
+        assert_eq!(d.into_iter().collect::<Vec<_>>(), vec![(1, 111), (2, 222)]);
+        let new: std::collections::BTreeMap<u32, u64> = [(1, 999)].into_iter().collect();
+        write_depot_versions(&p, &new, Some("300"), 4).unwrap();
+        let d = installed_depots(&p);
+        assert_eq!(d.into_iter().collect::<Vec<_>>(), vec![(1, 999), (2, 222)]);
+        let text = fs::read_to_string(&p).unwrap();
+        assert!(text.contains("\"buildid\"\t\t\"300\""));
+        assert!(text.contains("\"TargetBuildID\"\t\t\"0\""));
+        assert!(text.contains("\"StateFlags\"\t\t\"4\""));
+        assert!(text.contains("\"228988\"\t\t\"228980\""));
+        assert_eq!(read_acf(&p).state_flags, 4);
+        let _ = fs::remove_file(&p);
+        let _ = fs::remove_file(p.with_extension("acf.vaporust-pin.bak"));
     }
 
     #[test]

@@ -47,6 +47,69 @@ impl SteamClient {
         Ok(list.into_iter().filter(|g| g.update_available).map(|g| g.app_id).collect())
     }
 
+    /// vaporust: последние версии хранилищ ветки (depot -> manifest ID) и номер сборки.
+    /// Нужно для закрепления версии: Vaporust записывает их в appmanifest, и
+    /// настоящий Steam считает игру обновлённой.
+    pub async fn latest_depot_versions(
+        &self,
+        appid: u32,
+        branch: &str,
+    ) -> Result<(HashMap<u32, u64>, Option<String>)> {
+        let connection = self.require_connection()?;
+        let manifests = Self::remote_manifest_ids_static(connection, appid, branch).await?;
+        let buildid = Self::remote_buildid_static(connection, appid, branch).await;
+        Ok((manifests.into_iter().map(|(d, m)| (d as u32, m)).collect(), buildid))
+    }
+
+    /// vaporust: описание хранилищ игры из PICS: depot -> (имя, oslist, язык, DLC-appid).
+    /// Имени у многих хранилищ нет — тогда интерфейс описывает их по системе и языку.
+    pub async fn depot_descriptions(
+        &self,
+        appid: u32,
+    ) -> Result<HashMap<u32, (Option<String>, Option<String>, Option<String>, Option<u32>)>> {
+        let buffer = self.pics_buffer(appid, "failed requesting appinfo for depots").await?;
+        let vdf = find_vdf_in_pics(&buffer).context("failed to parse product info VDF")?;
+        let mut out = HashMap::new();
+        if let Some(depots) = pics_depots_value(&vdf).and_then(|v| v.as_obj()) {
+            for (key, value) in depots.iter() {
+                let Ok(id) = key.parse::<u32>() else { continue };
+                // Строковое значение по пути внутри описания хранилища.
+                let s = |path: &[&str]| -> Option<String> {
+                    let mut cur = value;
+                    for p in path {
+                        cur = cur.as_obj()?.get(*p)?;
+                    }
+                    cur.as_str().map(str::to_string).filter(|v| !v.is_empty())
+                };
+                let dlc = s(&["dlcappid"]).and_then(|v| v.parse().ok());
+                out.insert(id, (s(&["name"]), s(&["config", "oslist"]), s(&["config", "language"]), dlc));
+            }
+        }
+        Ok(out)
+    }
+
+    /// vaporust: все ветки игры с описанием и признаком «нужен пароль» (pwdrequired).
+    /// `fetch_branches` закрытые ветки скрывает, а интерфейсу нужно знать, что они есть.
+    pub async fn branches_detailed(&self, appid: u32) -> Result<Vec<(String, Option<String>, bool)>> {
+        let buffer = self.pics_buffer(appid, "failed requesting appinfo for branches").await?;
+        let vdf = find_vdf_in_pics(&buffer).context("failed to parse product info VDF")?;
+        let mut out = Vec::new();
+        if let Some(branches) = pics_depots_value(&vdf)
+            .and_then(|v| v.as_obj())
+            .and_then(|d| d.get("branches"))
+            .and_then(|b| b.as_obj())
+        {
+            for (name, node) in branches.iter() {
+                let o = node.as_obj();
+                let get = |k: &str| o.and_then(|o| o.get(k)).and_then(|v| v.as_str()).map(str::to_string);
+                let private = get("pwdrequired").is_some_and(|v| v != "0");
+                out.push((name.to_string(), get("description").filter(|d| !d.is_empty()), private));
+            }
+        }
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(out)
+    }
+
     /// Страна для цен магазина: по IP подключения к Steam (иначе US).
     pub fn store_country(&self) -> String {
         self.connection

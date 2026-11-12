@@ -136,6 +136,13 @@ pub fn parse(msg: &str) -> Vec<Seg> {
                         continue;
                     }
                 }
+                "gameinvite" => {
+                    // Приглашение в игру из чата Steam.
+                    flush(&mut text, &mut segs);
+                    segs.push(Seg::Text("[приглашение в игру]".into()));
+                    rest = inner("gameinvite").map(|(_, t)| t).unwrap_or(body);
+                    continue;
+                }
                 "sticker" => {
                     flush(&mut text, &mut segs);
                     segs.push(Seg::Sticker(attr(tag, "type").unwrap_or_default()));
@@ -249,6 +256,10 @@ mod tests {
 
     #[test]
     fn real_messages() {
+        assert_eq!(
+            parse("[gameinvite appid=\"0\" connect=\"\"][/gameinvite]"),
+            vec![t("[приглашение в игру]")]
+        );
         let u = "https://images.steamusercontent.com/ugc/10327085474773862713/497ABEAE997110E3CCB65049B2A23780E3104118/";
         let img = format!(
             "[img src={u} thumbnail_src={u} srcset=\"\" width=275 height=212][url={u}]{u}[/url][/img]"

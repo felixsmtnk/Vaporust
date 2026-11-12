@@ -6417,7 +6417,7 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "vaporust"
-version = "0.1.0-alpha.3"
+version = "0.2.0-alpha"
 dependencies = [
  "arboard",
  "aurelia-steam",
@@ -6425,11 +6425,13 @@ dependencies = [
  "chrono",
  "eframe",
  "egui_extras",
+ "ehttp",
  "image",
  "qrcode",
  "raw-window-handle",
  "rfd",
  "serde",
+ "serde_json",
  "sysinfo",
  "tokio",
  "tokio-stream",

@@ -13,6 +13,7 @@ use std::collections::HashSet;
 pub enum Tab {
     Search,
     Deals,
+    Events,
     Wishlist,
 }
 
@@ -74,6 +75,7 @@ pub struct StoreWin {
     /// Уже попросили подробности (чтобы не слать команду каждый кадр).
     asked: HashSet<u32>,
     deals_asked: bool,
+    events_asked: bool,
 }
 
 const GREEN: egui::Color32 = egui::Color32::from_rgb(140, 200, 80);
@@ -135,12 +137,20 @@ impl StoreWin {
             pages: Vec::new(),
             asked: HashSet::new(),
             deals_asked: false,
+            events_asked: false,
         }
     }
 }
 
 impl LauncherApp {
-    pub(crate) fn open_store(&mut self, page: Option<u32>) {
+    /// Открыть магазин: в главном окне или (detached) в отдельном.
+    pub(crate) fn open_store(&mut self, page: Option<u32>, detached: bool) {
+        if detached {
+            self.store_detached = true;
+        } else {
+            self.store_detached = false;
+            self.view = crate::View::Store;
+        }
         let win = self.store_win.get_or_insert_with(StoreWin::new);
         if let Some(appid) = page {
             if win.pages.last() != Some(&appid) {
@@ -152,8 +162,9 @@ impl LauncherApp {
         let _ = self.tx.send(Cmd::Store(StoreCmd::Wishlist));
     }
 
+    /// Магазин в отдельном окне (открыт с Ctrl).
     pub(crate) fn store_window(&mut self, ctx: &egui::Context, net: &NetState) {
-        if self.store_win.is_none() {
+        if self.store_win.is_none() || !self.store_detached {
             return;
         }
         let closed = ctx.show_viewport_immediate(
@@ -164,18 +175,18 @@ impl LauncherApp {
                 .with_min_inner_size([600.0, 400.0])
                 .with_icon(crate::icons::icon(crate::icons::Kind::Launcher)),
             |ctx, _| {
-                self.store_contents(ctx, net);
+                egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| self.store_contents(ui, net));
                 ctx.input(|i| i.viewport().close_requested())
             },
         );
         if closed {
             self.store_win = None;
-            // Картинки магазина больше не нужны.
-            ctx.forget_all_images();
+            self.store_detached = false;
         }
     }
 
-    fn store_contents(&mut self, ctx: &egui::Context, net: &NetState) {
+    /// Содержимое магазина: и в главном окне, и в отдельном.
+    pub(crate) fn store_contents(&mut self, ui: &mut egui::Ui, net: &NetState) {
         let shared = net.store.clone();
         let mut st = shared.lock().unwrap();
         // Регион цен: сохранённый в настройках, иначе определённый Steam по IP.
@@ -196,13 +207,13 @@ impl LauncherApp {
         let mut install: Option<(u32, String)> = None;
         let Some(w) = self.store_win.as_mut() else { return };
 
-        egui::TopBottomPanel::top("store_top").show(ctx, |ui| {
+        egui::TopBottomPanel::top("store_top").show_inside(ui, |ui| {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 if !w.pages.is_empty() && ui.button("< Назад").clicked() {
                     w.pages.pop();
                 }
-                for (tab, label) in [(Tab::Search, "Поиск"), (Tab::Deals, "Скидки"), (Tab::Wishlist, "Список желаемого")] {
+                for (tab, label) in [(Tab::Search, "Поиск"), (Tab::Deals, "Скидки"), (Tab::Events, "События"), (Tab::Wishlist, "Список желаемого")] {
                     if ui.selectable_label(w.tab == tab && w.pages.is_empty(), label).clicked() {
                         w.tab = tab;
                         w.pages.clear();
@@ -224,6 +235,7 @@ impl LauncherApp {
                                 cmds.push(Cmd::Store(StoreCmd::Country(cc.to_string())));
                                 w.asked.clear();
                                 w.deals_asked = false;
+                                w.events_asked = false;
                                 if let Some(&p) = w.pages.last() {
                                     cmds.push(Cmd::Store(StoreCmd::Details(vec![p])));
                                 }
@@ -269,11 +281,27 @@ impl LauncherApp {
             ui.add_space(4.0);
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             if let Some(&appid) = w.pages.last() {
                 game_page(ui, appid, &st, &owned, &installed, &wish, &mut cmds, &mut open_page, &mut play, &mut install);
                 return;
             }
+            // Пометки во вкладке «События»: что за событие и до какого числа.
+            let badges: std::collections::HashMap<u32, String> = match (&w.tab, &st.events) {
+                (Tab::Events, Some(Ok(v))) => v
+                    .iter()
+                    .map(|(id, kind, end)| {
+                        use chrono::TimeZone;
+                        let until = chrono::Local
+                            .timestamp_opt(*end as i64, 0)
+                            .single()
+                            .map(|t| format!(" · до {}", t.format("%d.%m")))
+                            .unwrap_or_default();
+                        (*id, format!("{kind}{until}"))
+                    })
+                    .collect(),
+                _ => Default::default(),
+            };
             let ids: Option<Result<Vec<u32>, String>> = match w.tab {
                 Tab::Search => st.search.as_ref().map(|(_, r)| r.clone()),
                 Tab::Deals => {
@@ -282,6 +310,13 @@ impl LauncherApp {
                         cmds.push(Cmd::Store(StoreCmd::Deals));
                     }
                     st.deals.clone()
+                }
+                Tab::Events => {
+                    if !w.events_asked && st.events.is_none() {
+                        w.events_asked = true;
+                        cmds.push(Cmd::Store(StoreCmd::Events));
+                    }
+                    st.events.as_ref().map(|r| r.clone().map(|v| v.iter().map(|e| e.0).collect()))
                 }
                 Tab::Wishlist => st.wishlist.clone(),
             };
@@ -344,7 +379,7 @@ impl LauncherApp {
                         for &id in &ids[range] {
                             match st.apps.get(&id) {
                                 Some(a) => {
-                                    if list_row(ui, a, owned.contains(&id), wish.contains(&id)) {
+                                    if list_row(ui, a, owned.contains(&id), wish.contains(&id), badges.get(&id).map(String::as_str)) {
                                         open_page = Some(id);
                                     }
                                 }
@@ -379,7 +414,8 @@ impl LauncherApp {
             let _ = self.tx.send(c);
         }
         if let Some(id) = play {
-            self.start(id, ctx);
+            let ctx = ui.ctx().clone();
+            self.start(id, &ctx);
         }
         if let Some((id, name)) = install {
             self.enqueue(id, name, net);
@@ -400,7 +436,7 @@ fn capsule(ui: &egui::Ui, appid: u32, a: Option<&StoreAppInfo>) -> String {
 }
 
 /// Строка списка: картинка, название, цена, отзывы. Возвращает true, если по ней щёлкнули.
-fn list_row(ui: &mut egui::Ui, a: &StoreAppInfo, owned: bool, wished: bool) -> bool {
+fn list_row(ui: &mut egui::Ui, a: &StoreAppInfo, owned: bool, wished: bool, badge: Option<&str>) -> bool {
     let resp = ui
         .allocate_ui(egui::vec2(ui.available_width(), ROW_H), |ui| {
             ui.horizontal(|ui| {
@@ -408,6 +444,9 @@ fn list_row(ui: &mut egui::Ui, a: &StoreAppInfo, owned: bool, wished: bool) -> b
                 ui.vertical(|ui| {
                     ui.horizontal(|ui| {
                         ui.strong(&a.name);
+                        if let Some(b) = badge {
+                            ui.label(egui::RichText::new(b).small().color(egui::Color32::from_rgb(240, 200, 80)));
+                        }
                         if owned {
                             ui.label(egui::RichText::new("в библиотеке").small().color(GREEN));
                         } else if wished {

@@ -45,8 +45,13 @@ pub enum Cmd {
     LoadEmoticons,
     /// Отправить картинку из файла.
     SendImage { to: u64, path: PathBuf },
+    /// Профили, заявки в друзья, приглашение в игру, Мастерская.
+    Social(crate::social::SocialCmd),
+    /// Коллекции Steam: загрузить, добавить/убрать игру, создать.
+    Coll(crate::colls::CollCmd),
     /// Команда магазина Steam (поиск, страница игры, список желаемого...).
     Store(crate::store::StoreCmd),
+    Inv(crate::invent::InvCmd),
     /// Статус для друзей (EPersonaState: 1 в сети, 2 не беспокоить, 3 отошёл, 7 невидимка).
     SetPersona(u32),
     /// Проверить, каким установленным играм (appid, папка) нужно обновление.
@@ -61,7 +66,30 @@ pub enum Cmd {
     Move { appid: u32, name: String, dest: PathBuf },
     /// Удалить игру с диска.
     Uninstall { appid: u32, name: String },
+    /// Закреплённая версия: записать в appmanifest последние версии хранилищ ветки, чтобы
+    /// настоящий Steam считал игру обновлённой. launch — после этого запустить игру.
+    PinRefresh { appid: u32, path: PathBuf, branch: String, launch: bool },
+    /// Откат: скачать указанные (старые) версии хранилищ (depot -> manifest ID).
+    Downgrade { appid: u32, name: String, library: PathBuf, overrides: HashMap<u32, u64> },
+    /// Ручная синхронизация облачных сохранений. remote — userdata/<аккаунт>/<appid>/remote,
+    /// dir — папка игры; direction: 0 скачать, 1 отправить, 2 в обе стороны; take: при
+    /// расхождении взять облачную (Some(true)) или свою (Some(false)) копию, None — только показать.
+    CloudSync { appid: u32, remote: PathBuf, dir: PathBuf, direction: u8, take: Option<bool> },
+    /// Таблица запуска игры для запуска без Steam.
+    DirectSpec(u32),
+    /// Настройки Aurelia: ограничение скорости загрузки (кбит/с, 0 — нет) и прокси.
+    AureliaConfig { limit_kbit: u64, proxy: Option<String> },
+    /// Добавить уже скачанную игру (файлы в library/steamapps/common/<папка>) и проверить файлы.
+    Import { appid: u32, name: String, library: PathBuf },
     Logout,
+}
+
+/// Итог Cmd::PinRefresh для главного окна.
+#[derive(Clone)]
+pub struct PinDone {
+    pub appid: u32,
+    pub launch: bool,
+    pub result: Result<(), String>,
 }
 
 /// Одно сообщение в переписке.
@@ -86,15 +114,37 @@ pub struct Conversation {
     pub typing_at: Option<Instant>,
     /// Что сейчас происходит (например, «Отправляю картинку...»).
     pub status: Option<String>,
+    /// Сообщение об успешном действии (например, «Приглашение отправлено»).
+    pub status_note: Option<String>,
 }
+
+/// Итог ручной синхронизации облака (для окна «Свойства»).
+#[derive(Clone, Default)]
+pub struct CloudOutcome {
+    pub downloaded: usize,
+    pub uploaded: usize,
+    /// Расходятся: (файл, размер у вас, размер в облаке).
+    pub conflicts: Vec<(String, u64, u64)>,
+    pub skipped: usize,
+    pub failed: Vec<String>,
+}
+
+/// Описание хранилища из данных Steam: имя, система (oslist), язык, DLC-appid.
+pub type DepotDesc = (Option<String>, Option<String>, Option<String>, Option<u32>);
 
 /// Данные окна «Свойства» одной игры; None — ещё грузится.
 #[derive(Clone, Default)]
 pub struct PropsData {
     pub languages: Option<Result<Vec<String>, String>>,
-    pub branches: Option<Result<Vec<String>, String>>,
+    /// Открытые ветки: (имя, описание от разработчика).
+    pub branches: Option<Result<Vec<(String, Option<String>)>, String>>,
     pub dlc: Option<Result<Vec<DlcRow>, String>>,
     pub cloud: Option<Result<Vec<CloudFile>, String>>,
+    /// Описания хранилищ: depot -> (имя, система, язык, DLC).
+    pub depots: Option<Result<HashMap<u32, DepotDesc>, String>>,
+    /// Итог последней ручной синхронизации облака; cloud_busy — идёт синхронизация.
+    pub cloud_sync: Option<Result<CloudOutcome, String>>,
+    pub cloud_busy: bool,
     /// Ошибка последнего действия (например, переключения DLC).
     pub error: Option<String>,
 }
@@ -163,10 +213,29 @@ pub struct NetState {
     pub emoticons: Option<(Vec<String>, Vec<String>)>,
     /// Данные окон «Свойства» по appid.
     pub props: HashMap<u32, PropsData>,
+    /// Закрепление версии: итог последней Cmd::PinRefresh (главное окно забирает).
+    pub pin_done: Option<PinDone>,
+    /// Откат закончился успешно — главное окно закрепляет эту игру.
+    pub pin_after: Option<u32>,
+    /// Таблица запуска для запуска без Steam: (appid, Ok(Some) — нашлась, Ok(None) — нет записи для Windows).
+    pub direct_spec: Option<(u32, Result<Option<crate::direct::LaunchSpec>, String>)>,
     /// Игры, которым нужно обновление (None — ещё не проверяли).
     pub updates: Option<std::collections::HashSet<u32>>,
+    /// SteamID64 вошедшего аккаунта.
+    pub my_id: Option<u64>,
+    /// Профили пользователей по SteamID64.
+    pub profiles: HashMap<u64, Result<aurelia::steam_client::UserProfile, String>>,
+    /// Результат последнего действия с друзьями (заявка, удаление).
+    pub friend_msg: Option<String>,
+    /// Мастерская (отдельно: списки бывают большими).
+    pub workshop: crate::social::SharedWorkshop,
+    /// Коллекции Steam (None — ещё не загружены).
+    pub collections: Option<Vec<crate::colls::Coll>>,
+    pub collections_error: Option<String>,
     /// Данные магазина (отдельно: их много, а NetState копируется каждый кадр).
     pub store: crate::store::SharedStore,
+    /// Инвентарь, кошелёк, торговая площадка (отдельно, как магазин).
+    pub inv: crate::invent::SharedInv,
 }
 
 pub type Shared = Arc<Mutex<NetState>>;
@@ -398,9 +467,15 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 upd(st, ctx, |s| s.chats.entry(to).or_default().status = None);
             }
         }
+        Cmd::Coll(cmd) => crate::colls::handle(client, cmd, st, ctx),
+        Cmd::Social(cmd) => crate::social::handle(client, cmd, st, ctx),
         Cmd::Store(cmd) => {
             let store = st.lock().unwrap().store.clone();
             crate::store::handle(client, cmd, &store, ctx);
+        }
+        Cmd::Inv(cmd) => {
+            let inv = st.lock().unwrap().inv.clone();
+            crate::invent::handle(client, cmd, &inv, ctx);
         }
         Cmd::SetPersona(state) => {
             let c = client.clone();
@@ -456,6 +531,140 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                     .await
                     .map_err(|e| format!("Не удалось начать перенос: {e:#}"))?;
                 drain_progress(rx, &abort, "Перенос отменён (исходные файлы на месте).", &st2, &ctx2).await
+            });
+        }
+        Cmd::PinRefresh { appid, path, branch, launch } => {
+            let (c, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let result = async {
+                    let (latest, buildid) = c
+                        .latest_depot_versions(appid, &branch)
+                        .await
+                        .map_err(|e| format!("Не удалось узнать последнюю версию игры: {e:#}"))?;
+                    // Только хранилища, которые реально стоят у игры.
+                    let installed = crate::local::installed_depots(&path);
+                    let target: std::collections::BTreeMap<u32, u64> = installed
+                        .keys()
+                        .filter_map(|d| latest.get(d).map(|m| (*d, *m)))
+                        .collect();
+                    if target.is_empty() {
+                        return Err("Steam не сообщил версии хранилищ этой игры.".to_string());
+                    }
+                    crate::local::write_depot_versions(&path, &target, buildid.as_deref(), 4)
+                }
+                .await;
+                upd(&st, &ctx, |s| s.pin_done = Some(PinDone { appid, launch, result }));
+            });
+        }
+        Cmd::Import { appid, name, library } => {
+            let c = client.clone();
+            let (st2, ctx2) = (st.clone(), ctx.clone());
+            start_op(appid, format!("Добавление: {name}"), "добавлена и проверена.", st, ctx, move |abort| async move {
+                c.import_install(appid, library, DepotPlatform::Windows)
+                    .await
+                    .map_err(|e| format!("Не удалось добавить игру: {e:#}"))?;
+                // Файлы могли быть старой версии — проверка докачает отличия.
+                let state = Arc::new(RwLock::new(DownloadState::default()));
+                if let Ok(mut s) = state.write() {
+                    s.abort_signal = abort.clone();
+                }
+                let rx = c
+                    .verify_game(appid, state)
+                    .await
+                    .map_err(|e| format!("Игра добавлена, но проверка не началась: {e:#}"))?;
+                drain_progress(rx, &abort, "Проверка отменена (игра добавлена).", &st2, &ctx2).await
+            });
+        }
+        Cmd::AureliaConfig { limit_kbit, proxy } => {
+            tokio::spawn(async move {
+                if let Ok(mut cfg) = aurelia::core::config::LauncherConfig::load().await {
+                    if cfg.download_limit_kbit != limit_kbit || cfg.proxy.url != proxy {
+                        cfg.download_limit_kbit = limit_kbit;
+                        cfg.proxy.url = proxy;
+                        let _ = cfg.save().await;
+                    }
+                }
+            });
+        }
+        Cmd::DirectSpec(appid) => {
+            let (c, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let r = c.fetch_launch_options(appid).await.map(|o| crate::direct::pick(&o)).map_err(es);
+                upd(&st, &ctx, |s| s.direct_spec = Some((appid, r)));
+            });
+        }
+        Cmd::CloudSync { appid, remote, dir, direction, take } => {
+            use aurelia::library::cloud_sync::{CloudPathResolver, ConflictPolicy, SyncDirection};
+            let (c, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            upd(&st, &ctx, |s| {
+                let p = s.props.entry(appid).or_default();
+                p.cloud_busy = true;
+                p.cloud_sync = None;
+            });
+            tokio::spawn(async move {
+                let res = async {
+                    let cloud = c.cloud_client().map_err(es)?;
+                    let resolver = CloudPathResolver::new(remote, Some(dir));
+                    let specs = c.fetch_ufs_save_specs(appid).await.unwrap_or_default();
+                    let direction = match direction {
+                        0 => SyncDirection::Down,
+                        1 => SyncDirection::Up,
+                        _ => SyncDirection::Both,
+                    };
+                    let policy = match take {
+                        Some(true) => ConflictPolicy::TakeCloud,
+                        Some(false) => ConflictPolicy::TakeLocal,
+                        None => ConflictPolicy::Detect,
+                    };
+                    let o = cloud.sync(appid, &resolver, &specs, direction, policy).await.map_err(es)?;
+                    Ok::<_, String>(CloudOutcome {
+                        downloaded: o.downloaded.len(),
+                        uploaded: o.uploaded.len(),
+                        conflicts: o.conflicts.iter().map(|x| (x.filename.clone(), x.local_size, x.cloud_size)).collect(),
+                        skipped: o.skipped.len(),
+                        failed: o.failed.iter().map(|f| format!("{}: {}", f.filename, f.error)).collect(),
+                    })
+                }
+                .await;
+                // Обновить список файлов в облаке после отправки.
+                let files = c.cloud_client().ok();
+                let list = match files {
+                    Some(cl) => Some(cl.get_file_list(appid).await),
+                    None => None,
+                };
+                upd(&st, &ctx, |s| {
+                    let p = s.props.entry(appid).or_default();
+                    p.cloud_busy = false;
+                    p.cloud_sync = Some(res);
+                    if let Some(Ok(l)) = list {
+                        p.cloud = Some(Ok(l
+                            .into_iter()
+                            .map(|f| CloudFile { name: f.filename, size: f.size, time: f.timestamp as u64 })
+                            .collect()));
+                    }
+                });
+            });
+        }
+        Cmd::Downgrade { appid, name, library, overrides } => {
+            let c = client.clone();
+            let (st2, ctx2) = (st.clone(), ctx.clone());
+            start_op(appid, format!("Откат версии: {name}"), "откачена и закреплена.", st, ctx, move |abort| async move {
+                let state = Arc::new(RwLock::new(DownloadState::default()));
+                if let Ok(mut s) = state.write() {
+                    s.abort_signal = abort.clone();
+                }
+                let opts = InstallOptions {
+                    library_override: Some(library.to_string_lossy().into_owned()),
+                    manifest_overrides: Some(overrides),
+                    ..Default::default()
+                };
+                let rx = c
+                    .install_game(appid, DepotPlatform::Windows, opts, state)
+                    .await
+                    .map_err(|e| format!("Не удалось начать откат: {e:#}"))?;
+                drain_progress(rx, &abort, "Откат отменён.", &st2, &ctx2).await?;
+                upd(&st2, &ctx2, |s| s.pin_after = Some(appid));
+                Ok(())
             });
         }
         Cmd::Uninstall { appid, name } => {
@@ -533,10 +742,12 @@ async fn logged_in(client: &mut SteamClient, session: SessionState, st: &Shared,
         .or(session.account_name.clone())
         .unwrap_or_else(|| "?".into());
     let roster = Arc::new(RwLock::new(Roster::new()));
+    let my_id = client.my_steam_id();
     upd(st, ctx, |s| {
         s.account = Some(name);
         s.need_login = false;
         s.roster = roster.clone();
+        s.my_id = my_id;
         s.chats.clear();
     });
     start_social(client, roster, st, ctx);
@@ -672,7 +883,7 @@ async fn load_owned(client: &mut SteamClient, st: &Shared, ctx: &egui::Context) 
     upd(st, ctx, |s| s.message = "Загружаю библиотеку...".into());
     match client.fetch_owned_games().await {
         Ok(games) => upd(st, ctx, |s| {
-            s.message = format!("Игр на аккаунте: {}", games.len());
+            s.message.clear();
             s.owned = games;
             s.busy = false;
         }),
@@ -713,6 +924,8 @@ async fn run_install(
     st: &Shared,
     ctx: &egui::Context,
 ) -> Result<(), String> {
+    // Если загрузку прятали от Steam (пауза/отмена) — вернуть appmanifest на место.
+    crate::local::unstash_manifest(&library, appid);
     set_install(st, ctx, |i| i.stage = "Узнаю размер игры...".into());
     let est = client
         .estimate_install_size(appid, DepotPlatform::Windows)
@@ -875,7 +1088,18 @@ fn load_props(client: &SteamClient, appid: u32, st: &Shared, ctx: &egui::Context
     {
         let (c, st, ctx) = (client.clone(), st.clone(), ctx.clone());
         tokio::spawn(async move {
-            let r = c.fetch_branches(appid).await.map_err(es);
+            // Закрытые (с паролем) Steam всё равно не показывает, пока их не открыли.
+            let r = c
+                .branches_detailed(appid)
+                .await
+                .map(|v| {
+                    let mut v: Vec<_> = v.into_iter().filter(|b| !b.2).map(|b| (b.0, b.1)).collect();
+                    if !v.iter().any(|b| b.0 == "public") {
+                        v.push(("public".into(), None));
+                    }
+                    v
+                })
+                .map_err(es);
             set(&st, &ctx, Box::new(move |p| p.branches = Some(r)));
         });
     }
@@ -884,6 +1108,13 @@ fn load_props(client: &SteamClient, appid: u32, st: &Shared, ctx: &egui::Context
         tokio::spawn(async move {
             let r = load_dlc(&c, appid).await;
             set(&st, &ctx, Box::new(move |p| p.dlc = Some(r)));
+        });
+    }
+    {
+        let (c, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+        tokio::spawn(async move {
+            let r = c.depot_descriptions(appid).await.map_err(es);
+            set(&st, &ctx, Box::new(move |p| p.depots = Some(r)));
         });
     }
     {
@@ -1009,6 +1240,52 @@ mod live_store {
             let http = aurelia::core::net::steam_web_client().unwrap();
             let news = aurelia::web::discovery::fetch_news(&http, 70, 3, 300).await.map(|n| n.iter().map(|x| x.title.clone()).collect::<Vec<_>>());
             println!("news {:?}", news.map_err(|e| e.to_string()));
+        });
+    }
+}
+
+#[cfg(test)]
+mod live_collections {
+    /// cargo test live_collections_pull -- --ignored --nocapture (из Steam только чтение)
+    #[test]
+    #[ignore]
+    fn live_collections_pull() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            let mut store = aurelia::library::collections::CollectionsStore::load().unwrap();
+            aurelia::library::collections::pull(&mut store, &c).await.unwrap();
+            for col in &store.collections {
+                println!("{} | {} | added {} | dynamic {} | builtin {}", col.id, col.name, col.added.len(), col.is_dynamic(), col.is_builtin());
+            }
+            println!("total {} version {}", store.collections.len(), store.namespace_version);
+        });
+    }
+}
+
+#[cfg(test)]
+mod live_social {
+    /// cargo test live_social_data -- --ignored --nocapture (только чтение)
+    #[test]
+    #[ignore]
+    fn live_social_data() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            let me = c.my_steam_id().unwrap();
+            match c.user_profile(me).await {
+                Ok(p) => println!("profile name {:?} url {} avatar {:?} vis {} created {:?} loc {:?} headline {:?} summary {:?} state {:?} game {:?} sources {:?}",
+                    p.persona_name, p.profile_url, p.avatar_url.is_some(), p.visibility, p.created, p.location, p.headline, p.summary.map(|s| s.chars().take(60).collect::<String>()), p.persona_state, p.game_name, p.sources),
+                Err(e) => println!("profile err {e:#}"),
+            }
+            let page = c.query_workshop_files(550, None, 0, "*", 5, &[]).await;
+            match page {
+                Ok(p) => println!("workshop total {} items {:?}", p.total, p.items.iter().map(|i| (i.id, i.title.clone(), i.file_size)).collect::<Vec<_>>()),
+                Err(e) => println!("workshop err {e:#}"),
+            }
+            println!("subscribed {:?}", c.fetch_subscribed_items(550).await.map(|v| v.len()).map_err(|e| e.to_string()));
         });
     }
 }

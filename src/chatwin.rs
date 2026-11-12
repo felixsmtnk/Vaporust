@@ -111,6 +111,9 @@ impl ChatWin {
             if let Some(e) = &conv.error {
                 ui.colored_label(egui::Color32::from_rgb(230, 110, 110), e);
             }
+            if let Some(n) = &conv.status_note {
+                ui.colored_label(egui::Color32::from_rgb(110, 200, 110), n);
+            }
             if self.picker_open {
                 if let Some(msg) = self.picker(ui, net) {
                     send = Some(msg);

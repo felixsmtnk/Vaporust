@@ -125,12 +125,51 @@ impl WebSession {
     /// common failure modes (rate limiting, an expired/invalid session) to clear,
     /// actionable errors.
     pub async fn get_text(&self, url: &str) -> Result<String> {
-        let request = self
-            .http
-            .get(url)
-            .header(reqwest::header::COOKIE, self.cookie.expose());
-        let resp = crate::core::net::send_with_retry(&self.http, request).await?;
-        read_checked(resp).await
+        // vaporust: Steam first bounces market/inventory pages through
+        // /market/eligibilitycheck/, which sets a `webTradeEligibility` cookie and
+        // redirects back (a browser does this silently). Follow those hops ourselves,
+        // carrying the cookies they set; only other redirects are treated as errors.
+        let mut url = url.to_string();
+        let mut extra: Vec<(String, String)> = Vec::new();
+        for _ in 0..6 {
+            let mut cookie = self.cookie.expose().to_string();
+            for (k, v) in &extra {
+                cookie.push_str(&format!("; {k}={v}"));
+            }
+            let request = self.http.get(&url).header(reqwest::header::COOKIE, cookie);
+            let resp = crate::core::net::send_with_retry(&self.http, request).await?;
+            if !resp.status().is_redirection() {
+                return read_checked(resp).await;
+            }
+            let location = resp
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            let same_site = location.starts_with('/') || location.contains("steamcommunity.com");
+            if location.contains("/login") || !same_site {
+                return read_checked(resp).await;
+            }
+            for sc in resp.headers().get_all(reqwest::header::SET_COOKIE) {
+                if let Some((k, v)) = sc
+                    .to_str()
+                    .ok()
+                    .and_then(|s| s.split(';').next())
+                    .and_then(|kv| kv.split_once('='))
+                {
+                    let (k, v) = (k.trim().to_string(), v.trim().to_string());
+                    extra.retain(|(n, _)| *n != k);
+                    extra.push((k, v));
+                }
+            }
+            url = if location.starts_with('/') {
+                format!("https://steamcommunity.com{location}")
+            } else {
+                location
+            };
+        }
+        bail!("too many redirects from Steam (eligibility check did not complete)")
     }
 }
 

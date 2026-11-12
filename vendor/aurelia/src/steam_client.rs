@@ -574,7 +574,7 @@ pub use collections::RemoteNamespace;
 pub use friends::{AddedFriend, Friend, Roster, WatcherEnd};
 pub use market::{
     InventoryItem, MarketPrice, MarketSearchResult, MyMarketState, WalletBalance, inventory_via,
-    market_price, market_search, my_listings_via, wallet_via,
+    inventory_via_lang, format_currency, market_price, market_search, my_listings_via, wallet_via,
 };
 
 /// Terminate the process with `pid` and any children it spawned.
