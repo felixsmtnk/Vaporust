@@ -48,7 +48,17 @@ jobs:
           "CFLAGS_i686_pc_windows_msvc=/std:c11" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Сборка
-        run: cargo build --release --locked --target ${{ matrix.target }}
+        shell: pwsh
+        run: |
+          cargo build --release --locked --target ${{ matrix.target }} 2>&1 | Tee-Object -Variable log
+          if ($LASTEXITCODE -ne 0) {
+            # Ошибки — в аннотации запуска (их видно и без входа в GitHub).
+            $log | ForEach-Object { "$_" } |
+              Select-String -Pattern 'error|NASM|nasm|panicked|C1189|LNK' |
+              Select-Object -First 30 |
+              ForEach-Object { "::error::$($_.Line)" }
+            exit 1
+          }
 
       - name: Тесты
         if: matrix.arch == 'x64'
