@@ -2,7 +2,7 @@
 //!
 //! Путь в файле: UserLocalConfigStore / Software / Valve / Steam / apps / <appid> / LaunchOptions.
 //! Steam перезаписывает этот файл при выходе, поэтому сохранять можно только при закрытом Steam.
-//! Файл правится построчно: всё, кроме одной нужной строки, остаётся байт в байт.
+//! Файл правится построчно: все, кроме одной нужной строки, остается байт в байт.
 
 use std::{
     fs,
@@ -59,14 +59,14 @@ fn escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-/// Где в файле лежит блок игры и её строка LaunchOptions.
+/// Где в файле лежит блок игры и ее строка LaunchOptions.
 #[derive(Default)]
 struct Found {
     /// Строка с закрывающей скобкой блока apps.
     apps_close: Option<usize>,
     /// Строка с закрывающей скобкой блока игры.
     app_close: Option<usize>,
-    /// Строка "LaunchOptions" внутри блока игры и её значение.
+    /// Строка "LaunchOptions" внутри блока игры и ее значение.
     launch: Option<(usize, String)>,
 }
 
@@ -111,7 +111,7 @@ fn locate(lines: &[&str], appid: u32) -> Found {
     found
 }
 
-/// Когда игры запускались последний раз (unix-время) — поле LastPlayed в том же разделе apps.
+/// Когда игры запускались последний раз (unix-время) - поле LastPlayed в том же разделе apps.
 pub fn read_last_played(localconfig: &Path) -> std::collections::HashMap<u32, u64> {
     let mut out = std::collections::HashMap::new();
     let Ok(text) = fs::read_to_string(localconfig) else {

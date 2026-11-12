@@ -5,7 +5,7 @@
 //!   [emoticon]steamhappy[/emoticon]
 //!   [sticker type="Buoyant Bobber" limit="0"][/sticker]
 //!   [img src=URL thumbnail_src=URL srcset="" width=275 height=212][url=URL]URL[/url][/img]
-//! Без BBCode смайлик выглядит как ːsteamhappyː, картинка — как голая ссылка.
+//! Без BBCode смайлик выглядит как ːsteamhappyː, картинка - как голая ссылка.
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Seg {
@@ -26,8 +26,8 @@ pub fn emoticon_url(name: &str) -> String {
     format!("{CDN}/emoticonlarge/{}", urlencode(name))
 }
 
-/// Уменьшенная копия картинки из чата (тот же адрес, что Steam даёт в thumbnail_src).
-/// Для не-Steam ссылок — исходный адрес.
+/// Уменьшенная копия картинки из чата (тот же адрес, что Steam дает в thumbnail_src).
+/// Для не-Steam ссылок - исходный адрес.
 pub fn thumbnail_url(url: &str) -> String {
     if url.contains("steamusercontent.com/ugc/") && !url.contains('?') {
         format!("{url}?imw=512&ima=fit&impolicy=Letterbox&imcolor=%23000000&letterbox=false")
@@ -56,7 +56,7 @@ fn attr(tag: &str, key: &str) -> Option<String> {
     while let Some(pos) = tag[from..].find(key) {
         let start = from + pos;
         from = start + key.len();
-        // Ключ должен начинаться с начала слова (иначе src найдётся внутри thumbnail_src).
+        // Ключ должен начинаться с начала слова (иначе src найдется внутри thumbnail_src).
         if start > 0 && !tag[..start].ends_with(' ') {
             continue;
         }
@@ -191,7 +191,7 @@ pub fn parse(msg: &str) -> Vec<Seg> {
             rest = body;
             continue;
         }
-        // Неизвестная скобка — оставляем как есть.
+        // Неизвестная скобка - оставляем как есть.
         text.push('[');
         rest = &after[1..];
     }

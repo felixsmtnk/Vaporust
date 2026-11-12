@@ -1,5 +1,5 @@
-//! Инвентарь, кошелёк и торговая площадка Steam (через веб-сессию Aurelia).
-//! Только просмотр: продажа и покупка — на сайте Steam в браузере.
+//! Инвентарь, кошелек и торговая площадка Steam (через веб-сессию Aurelia).
+//! Только просмотр: продажа и покупка - на сайте Steam в браузере.
 
 use aurelia::steam_client::{self as sc, InventoryItem, MarketPrice, SteamClient, WalletBalance};
 use eframe::egui;
@@ -35,13 +35,13 @@ pub struct InvState {
 pub type SharedInv = Arc<Mutex<InvState>>;
 
 pub enum InvCmd {
-    /// Список игр с предметами + кошелёк.
+    /// Список игр с предметами + кошелек.
     Apps,
     Items { appid: u32, ctx: u32 },
     Wallet,
     Listings,
     Price { appid: u32, name: String },
-    /// Поиск: запрос и с какого результата (Steam отдаёт по 10).
+    /// Поиск: запрос и с какого результата (Steam отдает по 10).
     Search { query: String, start: u32 },
 }
 
@@ -49,7 +49,7 @@ fn err<E: std::fmt::Display>(e: E) -> String {
     format!("{e:#}")
 }
 
-/// Steam: инвентарь «Steam» (карточки, фоны, смайлики) — это 753, раздел 6.
+/// Steam: инвентарь «Steam» (карточки, фоны, смайлики) - это 753, раздел 6.
 const STEAM_APP: u32 = 753;
 
 pub fn handle(client: &SteamClient, cmd: InvCmd, st: &SharedInv, ctx: &egui::Context) {
@@ -88,7 +88,7 @@ pub fn handle(client: &SteamClient, cmd: InvCmd, st: &SharedInv, ctx: &egui::Con
                     Ok(html) => parse_app_contexts(&html),
                     Err(e) => Err(err(e)),
                 };
-                // Если страницу разобрать не удалось — хотя бы инвентарь Steam.
+                // Если страницу разобрать не удалось - хотя бы инвентарь Steam.
                 let res = match res {
                     Ok(list) if !list.is_empty() => Ok(list),
                     Ok(_) => Ok(vec![steam_app()]),
@@ -123,7 +123,7 @@ pub fn handle(client: &SteamClient, cmd: InvCmd, st: &SharedInv, ctx: &egui::Con
                 st.lock().unwrap().prices.insert((appid, name), res);
             }
             InvCmd::Search { query, start } => {
-                // С нашей веб-сессией Steam отдаёт русские названия и цены в валюте кошелька.
+                // С нашей веб-сессией Steam отдает русские названия и цены в валюте кошелька.
                 let url = format!(
                     "https://steamcommunity.com/market/search/render/?norender=1&l=russian&start={start}&count=10&query={}",
                     url_encode(&query)
@@ -133,10 +133,10 @@ pub fn handle(client: &SteamClient, cmd: InvCmd, st: &SharedInv, ctx: &egui::Con
                     Err(e) => Err(err(e)),
                 };
                 let mut s = st.lock().unwrap();
-                // Пока искали, могли ввести новый запрос — оставляем только свежий.
+                // Пока искали, могли ввести новый запрос - оставляем только свежий.
                 if s.search.as_ref().is_some_and(|(t, _)| *t == query) {
                     let res = match (res, s.search.take()) {
-                        // «Показать ещё»: дописываем к уже загруженным.
+                        // «Показать еще»: дописываем к уже загруженным.
                         (Ok((total, more)), Some((_, Ok((_, mut have))))) if start > 0 => {
                             have.extend(more);
                             Ok((total, have))
@@ -156,7 +156,7 @@ fn steam_app() -> InvApp {
     InvApp { appid: STEAM_APP, name: "Steam".into(), icon: None, count: 0, contexts: vec![(6, "Сообщество".into(), 0)] }
 }
 
-/// Валюта кошелька (для цен площадки); пока неизвестна — доллары.
+/// Валюта кошелька (для цен площадки); пока неизвестна - доллары.
 fn currency(st: &SharedInv) -> u32 {
     match &st.lock().unwrap().wallet {
         Some(Ok(w)) if w.currency > 0 => w.currency,
@@ -255,7 +255,7 @@ pub fn parse_my_market(body: &str) -> Result<MyMarket, String> {
         let cur = num(x.get("currencyid")) as u32;
         Some(Lot {
             appid: num(a.get("appid")) as u32,
-            // market_name — с износом/качеством, как на площадке.
+            // market_name - с износом/качеством, как на площадке.
             name: Some(s(a.get("market_name"))).filter(|n| !n.is_empty()).unwrap_or_else(|| s(a.get("name"))),
             hash_name: s(a.get("market_hash_name")),
             icon: econ_icon(a.get("icon_url")),
@@ -316,7 +316,7 @@ pub fn parse_search(body: &str) -> Result<(u32, Vec<MarketHit>), String> {
     Ok((num(v.get("total_count")) as u32, hits))
 }
 
-/// Список игр с инвентарём со страницы профиля: `g_rgAppContextData = {...};`.
+/// Список игр с инвентарем со страницы профиля: `g_rgAppContextData = {...};`.
 pub fn parse_app_contexts(html: &str) -> Result<Vec<InvApp>, String> {
     let key = "g_rgAppContextData";
     let start = html.find(key).ok_or("на странице инвентаря нет списка игр")?;
@@ -361,7 +361,7 @@ pub fn parse_app_contexts(html: &str) -> Result<Vec<InvApp>, String> {
         })
         .filter(|a| !a.contexts.is_empty())
         .collect();
-    // Steam первым, остальные — по числу предметов.
+    // Steam первым, остальные - по числу предметов.
     apps.sort_by(|a, b| (b.appid == STEAM_APP).cmp(&(a.appid == STEAM_APP)).then(b.count.cmp(&a.count)));
     Ok(apps)
 }
@@ -447,7 +447,7 @@ mod tests {
         });
     }
 
-    /// Разбор сохранённых живым тестом ответов (папка VAPORUST_DUMP).
+    /// Разбор сохраненных живым тестом ответов (папка VAPORUST_DUMP).
     #[test]
     #[ignore]
     fn inv_parse_dump() {

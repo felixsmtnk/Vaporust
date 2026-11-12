@@ -1,9 +1,9 @@
 //! Закрепление версии игры и откат.
 //!
 //! Игры всегда запускает настоящий Steam, а он обновляет игру, если версии хранилищ в
-//! её appmanifest (InstalledDepots) отличаются от последних. Поэтому для закреплённой
+//! ее appmanifest (InstalledDepots) отличаются от последних. Поэтому для закрепленной
 //! игры Vaporust хранит НАСТОЯЩИЕ версии у себя (Settings.pinned), а в appmanifest
-//! записывает последние версии и номер сборки — Steam считает игру обновлённой и
+//! записывает последние версии и номер сборки - Steam считает игру обновленной и
 //! ничего не качает. Это повторяется перед каждым запуском (вдруг вышло обновление).
 //! Открепление возвращает настоящие версии, и Steam обновляет игру как обычно.
 
@@ -26,18 +26,18 @@ impl LauncherApp {
         self.tx.send(Cmd::PinRefresh { appid, path, branch, launch }).is_ok()
     }
 
-    /// Перед «Играть»: у закреплённой игры сначала обновить «маскировку» в appmanifest.
-    /// true — можно запускать сразу; false — запуск начнётся, когда маскировка готова.
+    /// Перед «Играть»: у закрепленной игры сначала обновить «маскировку» в appmanifest.
+    /// true - можно запускать сразу; false - запуск начнется, когда маскировка готова.
     pub(crate) fn pin_gate(&mut self, appid: u32, net: &NetState) -> bool {
         if !self.settings.pinned.contains_key(&appid) || self.pin_ok.remove(&appid) {
             return true;
         }
         let msg = if net.account.is_none() {
-            "Версия игры закреплена: войдите в аккаунт, иначе Steam может её обновить. Запуск отменён."
+            "Версия игры закреплена: войдите в аккаунт, иначе Steam может ее обновить. Запуск отменен."
         } else if self.pin_refresh(appid, true) {
-            "Проверяю закреплённую версию игры..."
+            "Проверяю закрепленную версию игры..."
         } else {
-            "Не удалось подготовить закреплённую версию."
+            "Не удалось подготовить закрепленную версию."
         };
         *self.launch_status.lock().unwrap() = msg.into();
         false
@@ -48,7 +48,7 @@ impl LauncherApp {
         let game = self.games.iter().find(|g| g.appid == appid).ok_or("Игра не установлена.")?;
         let real = local::installed_depots(&local::appmanifest_path(game));
         if real.is_empty() {
-            return Err("В файле игры нет списка хранилищ — закрепить нельзя.".into());
+            return Err("В файле игры нет списка хранилищ - закрепить нельзя.".into());
         }
         self.settings.pinned.insert(appid, real);
         self.pin_refresh(appid, false);
@@ -56,7 +56,7 @@ impl LauncherApp {
     }
 
     /// Открепить: вернуть в appmanifest настоящие версии. Если игра отстала от последней
-    /// версии, помечаем «нужно обновление» — Steam обновит её как обычно.
+    /// версии, помечаем «нужно обновление» - Steam обновит ее как обычно.
     pub(crate) fn unpin_game(&mut self, appid: u32) -> Result<String, String> {
         let game = self.games.iter().find(|g| g.appid == appid).ok_or("Игра не установлена.")?;
         let path = local::appmanifest_path(game);
@@ -66,7 +66,7 @@ impl LauncherApp {
         self.settings.pinned.remove(&appid);
         self.rescan();
         Ok(if outdated {
-            "Версия откреплена. Игра отстала от последней версии — нажмите «Обновить».".into()
+            "Версия откреплена. Игра отстала от последней версии - нажмите «Обновить».".into()
         } else {
             "Версия откреплена.".into()
         })
@@ -87,7 +87,7 @@ impl LauncherApp {
                 Ok(()) => {}
                 Err(e) => {
                     *self.launch_status.lock().unwrap() = if d.launch {
-                        format!("{e} Запуск отменён, чтобы Steam не обновил закреплённую игру.")
+                        format!("{e} Запуск отменен, чтобы Steam не обновил закрепленную игру.")
                     } else {
                         e
                     };
@@ -99,8 +99,8 @@ impl LauncherApp {
             self.rescan();
             let _ = self.pin_game(appid);
         }
-        // Закреплённые игры не показываем как «нужно обновление». Если Steam уже видит у
-        // них новую версию (маскировка устарела) — обновляем её, пока Steam закрыт.
+        // Закрепленные игры не показываем как «нужно обновление». Если Steam уже видит у
+        // них новую версию (маскировка устарела) - обновляем ее, пока Steam закрыт.
         if let Some(u) = net.updates.as_mut() {
             let stale: Vec<u32> = u.iter().copied().filter(|a| self.settings.pinned.contains_key(a)).collect();
             u.retain(|a| !self.settings.pinned.contains_key(a));

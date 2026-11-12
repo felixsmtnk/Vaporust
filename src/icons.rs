@@ -18,7 +18,7 @@ pub fn icon(kind: Kind) -> Arc<egui::IconData> {
     for y in 0..N {
         for x in 0..N {
             let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
-            // Фон: скруглённый квадрат с вертикальным градиентом (тёмно-синий -> синий).
+            // Фон: скругленный квадрат с вертикальным градиентом (темно-синий -> синий).
             let bg = rounded_rect(fx, fy, 2.0, 2.0, 62.0, 62.0, 14.0);
             let t = fy / N as f32;
             let base = [
@@ -59,7 +59,7 @@ pub fn icon(kind: Kind) -> Arc<egui::IconData> {
     Arc::new(egui::IconData { rgba, width: N as u32, height: N as u32 })
 }
 
-/// Покрытие (0..1) точки скруглённым прямоугольником, со сглаживанием краёв.
+/// Покрытие (0..1) точки скругленным прямоугольником, со сглаживанием краев.
 fn rounded_rect(x: f32, y: f32, x0: f32, y0: f32, x1: f32, y1: f32, r: f32) -> f32 {
     let cx = x.clamp(x0 + r, x1 - r);
     let cy = y.clamp(y0 + r, y1 - r);
@@ -75,7 +75,7 @@ fn triangle(x: f32, y: f32, a: (f32, f32), b: (f32, f32), c: (f32, f32)) -> f32 
         ((x - p.0) * dy - (y - p.1) * dx) / len
     };
     let (e1, e2, e3) = (edge(a, b), edge(b, c), edge(c, a));
-    // Ориентация треугольника может быть любой: берём ту, где все знаки совпадают.
+    // Ориентация треугольника может быть любой: берем ту, где все знаки совпадают.
     let inside = if e1 + e2 + e3 < 0.0 { -e1.max(e2).max(e3) } else { e1.min(e2).min(e3) };
     (inside + 0.5).clamp(0.0, 1.0)
 }

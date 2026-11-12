@@ -1,16 +1,16 @@
-//! Эффекты комнаты чата Steam ([roomeffect type="balloons"] и т.п.) — перенос из клиента Steam.
+//! Эффекты комнаты чата Steam ([roomeffect type="balloons"] и т.п.) - перенос из клиента Steam.
 //!
 //! Откуда что взято (Steam\steamui\sp.js и css\sp.css, модуль эффектов чата):
 //! - список эффектов и распродаж, к которым относятся их картинки (winter2019 / lny2020);
-//! - картинки — с того же CDN, что у Steam: assets/<распродажа>/roomeffects/<эффект>/<файл>;
-//! - траектории (CSS keyframes), длительности, количество частиц и их разброс — те же числа.
-//! В Steam каждый эффект — отдельная программа в коде клиента: новый эффект появляется только с
+//! - картинки - с того же CDN, что у Steam: assets/<распродажа>/roomeffects/<эффект>/<файл>;
+//! - траектории (CSS keyframes), длительности, количество частиц и их разброс - те же числа.
+//! В Steam каждый эффект - отдельная программа в коде клиента: новый эффект появляется только с
 //! обновлением клиента. Неизвестный нам эффект показываем значком и подписью без анимации.
 //!
-//! Отличия от Steam (ради лёгкости): кадры фейерверка уменьшены вдвое; «hue-rotate» (сдвиг цвета)
-//! у фейерверка и снежинок заменён подкраской; фигурные ленты конфетти — прямоугольниками.
+//! Отличия от Steam (ради легкости): кадры фейерверка уменьшены вдвое; «hue-rotate» (сдвиг цвета)
+//! у фейерверка и снежинок заменен подкраской; фигурные ленты конфетти - прямоугольниками.
 //! Картинки кэшируются на диске (папка данных Vaporust\roomeffects), текстуры живут, только пока
-//! идёт эффект. Кадр — не чаще 30 раз в секунду и только во время эффекта.
+//! идет эффект. Кадр - не чаще 30 раз в секунду и только во время эффекта.
 
 use eframe::egui::{self, Color32, Pos2, Rect, TextureHandle};
 use std::collections::{HashMap, HashSet};
@@ -41,7 +41,7 @@ fn sale_of(name: &str) -> &'static str {
     }
 }
 
-/// Значок эффекта (96 px) — как в панели эффектов Steam.
+/// Значок эффекта (96 px) - как в панели эффектов Steam.
 pub fn icon_url(name: &str) -> String {
     format!("{CDN}{}/roomeffects/96px/{}.png", sale_of(name), name.to_lowercase())
 }
@@ -109,7 +109,7 @@ pub fn label(name: &str, sender: &str) -> String {
     if sender != "Вы" {
         return text;
     }
-    // Steam пишет имя; у нас «Вы» — глагол во втором лице: «Вы запускаете конфетти!».
+    // Steam пишет имя; у нас «Вы» - глагол во втором лице: «Вы запускаете конфетти!».
     let mut text = text;
     for (a, b) in [("запускает", "запускаете"), ("пускает", "пускаете"), ("бросает", "бросаете")] {
         if text.contains(a) {
@@ -123,7 +123,7 @@ pub fn label(name: &str, sender: &str) -> String {
 /// Без имени отправителя: «воздушные шарики» и т.п. (для уведомлений и панели выбора).
 pub fn short_name(name: &str) -> String {
     if name.eq_ignore_ascii_case("snow") {
-        return "снегопад".into(); // у Steam «пускает снежок» — путается со «снежком» (snowball)
+        return "снегопад".into(); // у Steam «пускает снежок» - путается со «снежком» (snowball)
     }
     match labels().get(&name.to_lowercase()) {
         Some(t) => t
@@ -137,7 +137,7 @@ pub fn short_name(name: &str) -> String {
     }
 }
 
-// ---------- «Показать ещё раз» ----------
+// ---------- «Показать еще раз» ----------
 
 static REPLAY: Mutex<Option<String>> = Mutex::new(None);
 
@@ -166,7 +166,7 @@ fn cache_dir() -> Option<std::path::PathBuf> {
 }
 
 impl Assets {
-    /// Запросить картинку `rel` (путь после assets/). `scale` — во сколько раз уменьшить.
+    /// Запросить картинку `rel` (путь после assets/). `scale` - во сколько раз уменьшить.
     fn want(&mut self, ctx: &egui::Context, rel: &str, scale: f32) {
         if !self.requested.insert(rel.to_string()) {
             return;
@@ -257,7 +257,7 @@ impl Rng {
     }
 }
 
-/// Генератор снежинок Steam: frac(sin(seed++) * 1000) — тот же, что в клиенте.
+/// Генератор снежинок Steam: frac(sin(seed++) * 1000) - тот же, что в клиенте.
 struct SinRng(f64);
 
 impl SinRng {
@@ -283,7 +283,7 @@ pub struct Effect {
     sale: &'static str,
     kind: Option<Kind>,
     assets: Assets,
-    /// Время отсчёта: запускается, когда загружены картинки (как в Steam: пока не загрузились — не видно).
+    /// Время отсчета: запускается, когда загружены картинки (как в Steam: пока не загрузились - не видно).
     start: Option<Instant>,
     created: Instant,
     len: f32,
@@ -402,7 +402,7 @@ struct Flake {
     left: f32,
     dur: f32,
     delay: f32,
-    path: (f32, f32), // сдвиг X (px) и поворот (градусы) за всё падение
+    path: (f32, f32), // сдвиг X (px) и поворот (градусы) за все падение
     imgs: [(String, f32, f32, f32); 2], // картинка, размер, прозрачность, отступ
 }
 
@@ -448,7 +448,7 @@ fn tint_for_hue(deg: f32) -> Color32 {
 }
 
 impl Effect {
-    /// Эффект по имени из [roomeffect type=...]. None — неизвестный (анимации нет).
+    /// Эффект по имени из [roomeffect type=...]. None - неизвестный (анимации нет).
     pub fn new(name: &str) -> Option<Self> {
         let name = name.to_lowercase();
         let (len, known) = match name.as_str() {
@@ -556,7 +556,7 @@ impl Effect {
                     let t = hue(r);
                     v.push(Burst { kind: 0, x: (kx, 0.0), y: (vy, 0.0), delay, tint: tint_for_hue(t) });
                 };
-                // Порядок и паузы — как в CreateFireworks клиента Steam.
+                // Порядок и паузы - как в CreateFireworks клиента Steam.
                 cluster(&mut v, &mut delay, &mut r);
                 delay += 0.2;
                 long(&mut v, delay, &mut r);
@@ -649,14 +649,14 @@ impl Effect {
         self.kind = Some(kind);
     }
 
-    /// Нарисовать кадр поверх окна. false — эффект закончился.
+    /// Нарисовать кадр поверх окна. false - эффект закончился.
     pub fn draw(&mut self, ctx: &egui::Context) -> bool {
         let area = ctx.screen_rect();
         if self.kind.is_none() {
             self.setup(ctx, area);
         }
         self.assets.pump(ctx);
-        // Ждём картинки (первый раз качаются с CDN; не дольше 20 с), потом отсчёт времени эффекта.
+        // Ждем картинки (первый раз качаются с CDN; не дольше 20 с), потом отсчет времени эффекта.
         if self.start.is_none() {
             if self.assets.all_done() || self.created.elapsed() > Duration::from_secs(20) {
                 self.start = Some(Instant::now());
@@ -751,7 +751,7 @@ impl Effect {
             if lt < 0.0 || lt > f.dur {
                 continue;
             }
-            // ease-out (cubic-bezier(0, 0, 0.58, 1)) — приблизительно.
+            // ease-out (cubic-bezier(0, 0, 0.58, 1)) - приблизительно.
             let x = lt / f.dur;
             let e = 1.0 - (1.0 - x).powf(1.7);
             let dx = f.path.0 * e;
@@ -774,7 +774,7 @@ impl Effect {
         let left = a.left() + a.width() * sb.x / 100.0;
         let top = a.top() + a.height() * sb.y / 100.0;
         let center = Pos2::new(left + w / 2.0, top + w / 2.0);
-        // 0..1 с: снежок летит «на нас» — растёт из точки, вращается; путь — сдвиг снизу.
+        // 0..1 с: снежок летит «на нас» - растет из точки, вращается; путь - сдвиг снизу.
         if t < 1.0 {
             let e = cubic(t, 0.47, 0.0, 0.745, 0.715);
             let path = 1.0 - (1.0 - t).powi(2);
@@ -795,7 +795,7 @@ impl Effect {
             let tint = Color32::from_white_alpha((fade * 255.0) as u8);
             self.image(p, &base(&format!("splat{}", i + 1)), Rect::from_center_size(center, egui::Vec2::splat(w * 2.0 * 0.5)), *rot + sb.rot, tint);
         }
-        // Куски: (длительность, сдвиг X %, сдвиг Y %, поворот) — из keyframes snowball-chunk-1..4.
+        // Куски: (длительность, сдвиг X %, сдвиг Y %, поворот) - из keyframes snowball-chunk-1..4.
         let chunks = [(0.2, 100.0, 200.0, 360.0), (1.7, 200.0, 200.0, 120.0), (1.9, -120.0, 200.0, 60.0), (2.0, -420.0, 200.0, -420.0)];
         let cw = w * 0.3;
         for (i, (d, dx, dy, r)) in chunks.iter().enumerate() {
@@ -829,8 +829,8 @@ fn cubic(x: f32, x1: f32, y1: f32, x2: f32, y2: f32) -> f32 {
 /// Конфетти: 200 прямоугольников 10x5, вращаются в 3D (проекция без перспективы), как в Steam.
 fn draw_confetti(p: &egui::Painter, a: Rect, te: f32, list: &[Particle]) {
     let origin = Pos2::new(a.center().x, a.top());
-    // Все кусочки — одной сеткой треугольников без сглаживания: у повёрнутого «изнанкой»
-    // многоугольника сглаживание egui давало длинные полосы через всё окно.
+    // Все кусочки - одной сеткой треугольников без сглаживания: у повернутого «изнанкой»
+    // многоугольника сглаживание egui давало длинные полосы через все окно.
     let mut mesh = egui::Mesh::default();
     for q in list {
         let x = te * (q.x.1 - q.x.0) + q.x.0;

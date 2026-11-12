@@ -1,9 +1,9 @@
-//! Запуск игр без Steam — для игр без защиты Steam (DRM-free).
+//! Запуск игр без Steam - для игр без защиты Steam (DRM-free).
 //!
-//! Что запускать, берём из таблицы запуска Steam (PICS config/launch через Aurelia):
+//! Что запускать, берем из таблицы запуска Steam (PICS config/launch через Aurelia):
 //! exe, аргументы, рабочая папка, система. Таблица запоминается в настройках, чтобы
 //! игра запускалась и без интернета. Достижения, облако и время в игре без Steam
-//! не работают — об этом предупреждаем в «Свойствах».
+//! не работают - об этом предупреждаем в «Свойствах».
 
 use crate::net::{Cmd, NetState};
 use crate::{launchopts, LauncherApp};
@@ -17,14 +17,14 @@ pub struct LaunchSpec {
     /// exe относительно папки игры.
     pub exe: String,
     pub args: String,
-    /// Рабочая папка относительно папки игры (пусто — папка exe).
+    /// Рабочая папка относительно папки игры (пусто - папка exe).
     pub workdir: String,
 }
 
 /// Выбрать запись для Windows из таблицы запуска Steam (сначала основную «0»).
 pub fn pick(options: &[aurelia::steam_client::LaunchOptionInfo]) -> Option<LaunchSpec> {
     let mine = if cfg!(target_pointer_width = "64") { "64" } else { "32" };
-    // Чем меньше, тем лучше: своя разрядность, без указания, 32 бит; 64 бит на 32-битной — нельзя.
+    // Чем меньше, тем лучше: своя разрядность, без указания, 32 бит; 64 бит на 32-битной - нельзя.
     let arch_rank = |a: &str| match a {
         a if a == mine => Some(0),
         "" => Some(1),
@@ -39,7 +39,7 @@ pub fn pick(options: &[aurelia::steam_client::LaunchOptionInfo]) -> Option<Launc
                 && o.executable.to_lowercase().ends_with(".exe")
         })
         .filter_map(|o| arch_rank(&o.osarch).map(|r| (r, o)))
-        // Обычный запуск (type default/пусто) — раньше особых режимов; порядок Steam сохраняется.
+        // Обычный запуск (type default/пусто) - раньше особых режимов; порядок Steam сохраняется.
         .min_by_key(|(r, o)| (*r, !(o.launch_type.is_empty() || o.launch_type == "default")))
         .map(|(_, o)| o)?;
     Some(LaunchSpec { exe: best.executable.clone(), args: best.arguments.clone(), workdir: best.working_dir.clone() })
@@ -50,7 +50,7 @@ fn join(dir: &Path, rel: &str) -> PathBuf {
     rel.split(['\\', '/']).filter(|p| !p.is_empty()).fold(dir.to_path_buf(), |p, s| p.join(s))
 }
 
-/// Есть ли в папке игры steam_api(64).dll (на глубину до 4 папок) — тогда игре, скорее
+/// Есть ли в папке игры steam_api(64).dll (на глубину до 4 папок) - тогда игре, скорее
 /// всего, нужен Steam.
 pub fn uses_steam_api(dir: &Path) -> bool {
     fn walk(d: &Path, depth: u32) -> bool {
@@ -92,7 +92,7 @@ fn split_args(s: &str) -> Vec<String> {
 }
 
 /// Аргументы: из таблицы Steam плюс параметры запуска пользователя. «%command%»
-/// (форма Steam «что-то %command% ещё») — берём часть после него.
+/// (форма Steam «что-то %command% еще») - берем часть после него.
 pub fn build_args(spec_args: &str, user: &str) -> Vec<String> {
     let user = match user.split_once("%command%") {
         Some((_, after)) => after,
@@ -105,7 +105,7 @@ pub fn build_args(spec_args: &str, user: &str) -> Vec<String> {
 
 impl LauncherApp {
     /// «Играть» для игры с галочкой «без Steam»: спросить таблицу запуска (или взять
-    /// запомненную) — запуск продолжится в direct_tick.
+    /// запомненную) - запуск продолжится в direct_tick.
     pub(crate) fn direct_launch(&mut self, appid: u32, net: &NetState) {
         if self.launching.load(Ordering::Relaxed) {
             return;
@@ -143,7 +143,7 @@ impl LauncherApp {
         let args = build_args(&spec.args, &user);
         let mut cmd = std::process::Command::new(&exe);
         cmd.args(&args).current_dir(&cwd);
-        // Многие игры без Steam ищут steam_appid.txt; переменная — для тех, кто читает её.
+        // Многие игры без Steam ищут steam_appid.txt; переменная - для тех, кто читает ее.
         cmd.env("SteamAppId", appid.to_string()).env("SteamGameId", appid.to_string());
         match cmd.spawn() {
             Ok(mut child) => {
@@ -161,7 +161,7 @@ impl LauncherApp {
         }
     }
 
-    /// Раз в кадр: пришла таблица запуска — запомнить и запустить.
+    /// Раз в кадр: пришла таблица запуска - запомнить и запустить.
     pub(crate) fn direct_tick(&mut self) {
         let done = self.net.lock().unwrap().direct_spec.take();
         let Some((appid, res)) = done else { return };
@@ -170,14 +170,14 @@ impl LauncherApp {
                 self.settings.direct_specs.insert(appid, s.clone());
                 Some(s)
             }
-            // Нет связи — пробуем запомненную.
+            // Нет связи - пробуем запомненную.
             _ => self.settings.direct_specs.get(&appid).cloned(),
         };
         match spec {
             Some(s) => self.direct_run(appid, s),
             None => {
                 *self.launch_status.lock().unwrap() =
-                    "Steam не сообщил, какой файл запускать у этой игры. Запустите её через Steam.".into()
+                    "Steam не сообщил, какой файл запускать у этой игры. Запустите ее через Steam.".into()
             }
         }
     }
@@ -198,7 +198,7 @@ mod tests {
         let s = pick(&v).unwrap();
         let want = if cfg!(target_pointer_width = "64") { "bin\\win64\\game.exe" } else { "bin\\win32\\game.exe" };
         assert_eq!(s.exe, want);
-        // Без указания разрядности — берётся она.
+        // Без указания разрядности - берется она.
         assert_eq!(pick(&[opt("0", "hl.exe", "", "")]).unwrap().exe, "hl.exe");
         assert!(pick(&[opt("0", "game.sh", "linux", "")]).is_none());
     }

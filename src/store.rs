@@ -1,8 +1,8 @@
 //! Магазин Steam: данные и сетевые запросы (через Aurelia).
 //!
 //! Списки (поиск, скидки, список желаемого) хранят только appid; подробности об играх
-//! (`StoreAppInfo`: цена, описание, картинки…) подгружаются лениво — для тех игр, что
-//! видны в окне, порциями по 50. Всё лежит в отдельном Arc<Mutex<StoreState>>, а не в
+//! (`StoreAppInfo`: цена, описание, картинки…) подгружаются лениво - для тех игр, что
+//! видны в окне, порциями по 50. Все лежит в отдельном Arc<Mutex<StoreState>>, а не в
 //! NetState, который копируется на каждом кадре.
 
 use aurelia::steam_client::{DealsScope, SteamClient, StoreAppInfo};
@@ -44,7 +44,7 @@ pub struct Extras {
 pub struct Reviews {
     /// Порядок (номер в REVIEW_SORTS).
     pub sort: u8,
-    /// false — на русском, true — на всех языках.
+    /// false - на русском, true - на всех языках.
     pub all_langs: bool,
     pub pages: u32,
     pub list: Vec<Review>,
@@ -68,7 +68,7 @@ pub struct Review {
 
 #[derive(Default)]
 pub struct StoreState {
-    /// Страна цен; пусто — ещё не определена.
+    /// Страна цен; пусто - еще не определена.
     pub country: String,
     /// Подробности об играх по appid (для текущей страны).
     pub apps: HashMap<u32, StoreAppInfo>,
@@ -88,7 +88,7 @@ pub struct StoreState {
     pub error: Option<String>,
     /// Список желаемого друга: (SteamID, имя, список по приоритету).
     pub friend_wishlist: Option<(u64, String, Option<Result<Vec<u32>, String>>)>,
-    /// Скидки на игры из списка желаемого (для уведомлений); растёт sales_gen при каждой проверке.
+    /// Скидки на игры из списка желаемого (для уведомлений); растет sales_gen при каждой проверке.
     pub sales: Vec<Sale>,
     pub sales_gen: u64,
 }
@@ -101,7 +101,7 @@ pub struct Sale {
     pub pct: i32,
     /// Цена со скидкой (текстом, в валюте региона).
     pub price: String,
-    /// Конец скидки (unix), 0 — неизвестен.
+    /// Конец скидки (unix), 0 - неизвестен.
     pub end: u64,
 }
 
@@ -152,7 +152,7 @@ fn err<E: std::fmt::Display>(e: E) -> String {
     format!("{e:#}")
 }
 
-/// Определить страну цен, если ещё не задана (по IP подключения к Steam).
+/// Определить страну цен, если еще не задана (по IP подключения к Steam).
 fn country(client: &SteamClient, st: &SharedStore) -> String {
     let mut s = st.lock().unwrap();
     if s.country.is_empty() {
@@ -161,7 +161,7 @@ fn country(client: &SteamClient, st: &SharedStore) -> String {
     s.country.clone()
 }
 
-/// Загрузить подробности для игр, которых ещё нет в кэше (порциями по 50).
+/// Загрузить подробности для игр, которых еще нет в кэше (порциями по 50).
 async fn load_details(client: &SteamClient, ids: Vec<u32>, st: &SharedStore, ctx: &egui::Context) {
     let cc = country(client, st);
     let need: Vec<u32> = {
@@ -201,7 +201,7 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                     load_details(&c, ids.clone(), &st, &ctx).await;
                 }
                 let mut s = st.lock().unwrap();
-                // Пока искали, могли ввести новый запрос — оставляем только свежий.
+                // Пока искали, могли ввести новый запрос - оставляем только свежий.
                 if s.search.as_ref().is_some_and(|(t, _)| *t == term) {
                     s.search = Some((term, res));
                     s.searching = false;
@@ -304,13 +304,13 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                 }
                 // Отзывы отдельно не грузим: store.steampowered.com/appreviews сейчас отвечает
                 // перенаправлением на главную (проверено 2026-11-12). Итог по отзывам приходит
-                // в StoreAppInfo.review_summary, полные отзывы — по ссылке в браузере.
+                // в StoreAppInfo.review_summary, полные отзывы - по ссылке в браузере.
                 let news = match aurelia::core::net::steam_web_client() {
                     Ok(http) => aurelia::web::discovery::fetch_news(&http, appid, 5, 600).await.map_err(err),
                     Err(e) => Err(err(e)),
                 };
                 st.lock().unwrap().extras.entry(appid).or_default().news = Some(news);
-                // Системные требования — из открытого API магазина (api/appdetails), по-русски.
+                // Системные требования - из открытого API магазина (api/appdetails), по-русски.
                 if let Some(req) = fetch_requirements(appid).await {
                     st.lock().unwrap().extras.entry(appid).or_default().requirements = Some(req);
                 }
@@ -320,11 +320,11 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                 {
                     let mut s = st.lock().unwrap();
                     let r = s.extras.entry(appid).or_default().reviews.get_or_insert_with(Default::default);
-                    // Тот же запрос уже идёт (раздел открыт, ответа ещё нет) — не повторяем.
+                    // Тот же запрос уже идет (раздел открыт, ответа еще нет) - не повторяем.
                     if r.loading && r.sort == sort && r.all_langs == all_langs {
                         return;
                     }
-                    // Сменили порядок или язык — начинаем заново.
+                    // Сменили порядок или язык - начинаем заново.
                     if page == 1 || r.sort != sort || r.all_langs != all_langs {
                         *r = Reviews { sort, all_langs, ..Default::default() };
                     }
@@ -363,7 +363,7 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                             }
                         }
                     }
-                    Err(e) => s.error = Some(format!("Список желаемого не изменён: {}", err(e))),
+                    Err(e) => s.error = Some(format!("Список желаемого не изменен: {}", err(e))),
                 }
             }
             StoreCmd::Country(cc) => {
@@ -435,7 +435,7 @@ pub fn description_blocks(src: &str) -> Vec<Block> {
         let closing = tag.starts_with('/');
         let name = tag.trim_start_matches('/').split([' ', '=', '/']).next().unwrap_or("").to_lowercase();
         if !KNOWN.contains(&name.as_str()) {
-            // Не тег (например, «[18+]» в тексте) — оставляем как есть.
+            // Не тег (например, «[18+]» в тексте) - оставляем как есть.
             buf.push(open);
             rest = after;
             continue;
@@ -471,7 +471,7 @@ pub fn description_blocks(src: &str) -> Vec<Block> {
                     mode = Mode::Para;
                 }
             }
-            _ => {} // оформление (b, i, url...) — сам тег убираем, текст оставляем
+            _ => {} // оформление (b, i, url...) - сам тег убираем, текст оставляем
         }
     }
     flush(&mut buf, mode, &mut blocks);
@@ -582,7 +582,7 @@ async fn fetch_requirements(appid: u32) -> Option<(String, String)> {
     let text = http.get(url).send().await.ok()?.text().await.ok()?;
     let v: serde_json::Value = serde_json::from_str(&text).ok()?;
     let req = v.get(appid.to_string())?.get("data")?.get("pc_requirements")?;
-    // Нет требований — Steam присылает пустой массив вместо объекта.
+    // Нет требований - Steam присылает пустой массив вместо объекта.
     let get = |k: &str| req.get(k).and_then(|x| x.as_str()).map(plain_text).unwrap_or_default();
     let (min, rec) = (get("minimum"), get("recommended"));
     (!min.is_empty() || !rec.is_empty()).then_some((min, rec))
@@ -590,7 +590,7 @@ async fn fetch_requirements(appid: u32) -> Option<(String, String)> {
 
 /// Порядок отзывов, как на сайте Steam: (browsefilter, подпись).
 pub const REVIEW_SORTS: [(&str, &str); 7] = [
-    ("toprated", "Полезные за всё время"),
+    ("toprated", "Полезные за все время"),
     ("trendyear", "Полезные за год"),
     ("trendsixmonths", "Полезные за полгода"),
     ("trendthreemonths", "Полезные за 3 месяца"),
@@ -599,9 +599,9 @@ pub const REVIEW_SORTS: [(&str, &str); 7] = [
     ("mostrecent", "Новые"),
 ];
 
-/// Страница отзывов из сообщества Steam (как её подгружает сам сайт при прокрутке): по 10 отзывов.
-/// Следующие страницы — по курсору из формы MoreContentForm предыдущего ответа.
-/// «Полезные за всё время» без входа Steam не листает (всегда первые 10) — проверено.
+/// Страница отзывов из сообщества Steam (как ее подгружает сам сайт при прокрутке): по 10 отзывов.
+/// Следующие страницы - по курсору из формы MoreContentForm предыдущего ответа.
+/// «Полезные за все время» без входа Steam не листает (всегда первые 10) - проверено.
 async fn fetch_reviews(
     appid: u32,
     sort: u8,
@@ -702,7 +702,7 @@ pub fn parse_reviews(html: &str) -> Vec<Review> {
 
 #[cfg(test)]
 mod reviews_tests {
-    /// VAPORUST_DUMP=страница отзывов (сохранённая) — разбор карточек.
+    /// VAPORUST_DUMP=страница отзывов (сохраненная) - разбор карточек.
     #[test]
     #[ignore]
     fn parse_saved_reviews() {
@@ -717,7 +717,7 @@ mod reviews_tests {
 
 #[cfg(test)]
 mod reviews_live {
-    /// Три страницы «Полезные за год» (Half-Life) — отзывы не должны повторяться.
+    /// Три страницы «Полезные за год» (Half-Life) - отзывы не должны повторяться.
     #[test]
     #[ignore]
     fn reviews_paging_live() {
@@ -727,7 +727,7 @@ mod reviews_live {
             let mut seen = std::collections::HashSet::new();
             for page in 1..=3 {
                 let (v, next) = super::fetch_reviews(70, 1, false, page, cursor.clone()).await.unwrap();
-                println!("стр. {page}: {} отзывов, первый — {}", v.len(), v.first().map(|r| r.author.clone()).unwrap_or_default());
+                println!("стр. {page}: {} отзывов, первый - {}", v.len(), v.first().map(|r| r.author.clone()).unwrap_or_default());
                 for r in &v {
                     assert!(seen.insert(r.url.clone()), "повтор: {}", r.url);
                 }

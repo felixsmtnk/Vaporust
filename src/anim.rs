@@ -1,6 +1,6 @@
 //! Анимированные стикеры Steam (APNG). Загрузчик egui показывает у APNG только первый кадр,
-//! поэтому кадры раскладываем сами: байты берём через тот же http-загрузчик egui
-//! (ctx.try_load_bytes), декодируем image::codecs::png::ApngDecoder, кадры — в текстуры.
+//! поэтому кадры раскладываем сами: байты берем через тот же http-загрузчик egui
+//! (ctx.try_load_bytes), декодируем image::codecs::png::ApngDecoder, кадры - в текстуры.
 
 use eframe::egui;
 use std::collections::HashMap;
@@ -19,7 +19,7 @@ pub struct Anim {
 
 pub enum State {
     Ready(Anim),
-    /// Не анимация или не удалось разобрать — рисуем обычной картинкой.
+    /// Не анимация или не удалось разобрать - рисуем обычной картинкой.
     Static,
 }
 
@@ -93,7 +93,7 @@ fn decode(ctx: &egui::Context, url: &str, bytes: &[u8]) -> Option<Anim> {
     if raw.len() < 2 {
         return None;
     }
-    // Не больше KEEP_FRAMES кадров: пропущенные кадры прибавляют своё время к оставленному.
+    // Не больше KEEP_FRAMES кадров: пропущенные кадры прибавляют свое время к оставленному.
     let step = raw.len().div_ceil(KEEP_FRAMES);
     let mut frames = Vec::new();
     let mut total = 0.0;

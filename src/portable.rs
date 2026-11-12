@@ -13,7 +13,7 @@ pub fn exe_dir() -> Option<PathBuf> {
     std::env::current_exe().ok()?.parent().map(Path::to_path_buf)
 }
 
-/// Включён ли портативный режим (есть portable.txt рядом с exe).
+/// Включен ли портативный режим (есть portable.txt рядом с exe).
 pub fn enabled() -> bool {
     exe_dir().is_some_and(|d| d.join(MARKER).exists())
 }
@@ -37,7 +37,7 @@ pub fn init() -> Option<PathBuf> {
     let dir = data_dir()?;
     let aurelia = dir.join("aurelia");
     let _ = std::fs::create_dir_all(&aurelia);
-    // Переменная окружения читается Aurelia при каждом обращении к её папке.
+    // Переменная окружения читается Aurelia при каждом обращении к ее папке.
     std::env::set_var("AURELIA_CONFIG_DIR", &aurelia);
     Some(dir.join("app.ron"))
 }

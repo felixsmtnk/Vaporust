@@ -1,7 +1,7 @@
 //! Свои всплывающие уведомления Vaporust: небольшие карточки в правом нижнем углу экрана
 //! (над панелью задач), поверх всех окон, не забирают фокус. До 3 штук стопкой, каждая
-//! живёт 6 с (пока над ней мышь — не исчезает). Щелчок — действие (чат с другом, страница
-//! игры), крестик — закрыть. У каждого вида уведомления свой короткий звук (синтезируется в
+//! живет 6 с (пока над ней мышь - не исчезает). Щелчок - действие (чат с другом, страница
+//! игры), крестик - закрыть. У каждого вида уведомления свой короткий звук (синтезируется в
 //! памяти, без файлов).
 //!
 //! Добавлять можно из любого потока (`push`), рисует главный цикл (`LauncherApp::popups_ui`).
@@ -15,17 +15,17 @@ use std::time::{Duration, Instant};
 /// Что за уведомление и что делать по щелчку.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Kind {
-    /// Новое сообщение (SteamID друга) — открыть чат.
+    /// Новое сообщение (SteamID друга) - открыть чат.
     Message(u64),
-    /// Друг зашёл в игру — открыть чат.
+    /// Друг зашел в игру - открыть чат.
     FriendGame(u64),
-    /// Друг появился в сети — открыть чат.
+    /// Друг появился в сети - открыть чат.
     FriendOnline(u64),
-    /// Скидка на игру из желаемого — страница в магазине (0 — несколько игр: список желаемого).
+    /// Скидка на игру из желаемого - страница в магазине (0 - несколько игр: список желаемого).
     Sale(u32),
-    /// Игра скачана — страница игры в библиотеке.
+    /// Игра скачана - страница игры в библиотеке.
     Download(u32),
-    /// Просто сообщение (проверка) — открыть Vaporust.
+    /// Просто сообщение (проверка) - открыть Vaporust.
     Info,
 }
 
@@ -35,7 +35,7 @@ struct Popup {
     body: String,
     /// Картинка справа (смайлик или стикер из сообщения).
     image: Option<String>,
-    /// Цвет полоски и имени; None — по виду уведомления.
+    /// Цвет полоски и имени; None - по виду уведомления.
     accent: Option<egui::Color32>,
     /// Когда показали (сбрасывается, пока над карточкой мышь).
     shown: Instant,
@@ -50,7 +50,7 @@ const GAP: f32 = 8.0;
 static QUEUE: Mutex<Vec<Popup>> = Mutex::new(Vec::new());
 static CTX: OnceLock<egui::Context> = OnceLock::new();
 static SOUND: AtomicBool = AtomicBool::new(true);
-/// Щелчки по карточкам — забирает главный цикл.
+/// Щелчки по карточкам - забирает главный цикл.
 static CLICKED: Mutex<Vec<Kind>> = Mutex::new(Vec::new());
 
 pub fn init(ctx: &egui::Context) {
@@ -67,7 +67,7 @@ pub fn push(kind: Kind, title: impl Into<String>, body: impl Into<String>) {
     push_full(kind, title.into(), body.into(), None, None);
 }
 
-/// То же с картинкой и своим цветом (статус друга: в игре — зелёный, в сети — синий).
+/// То же с картинкой и своим цветом (статус друга: в игре - зеленый, в сети - синий).
 pub fn push_full(kind: Kind, title: String, body: String, image: Option<String>, accent: Option<egui::Color32>) {
     let p = Popup {
         kind,
@@ -159,7 +159,7 @@ impl LauncherApp {
                         let (rect, resp) = ui.allocate_exact_size(egui::vec2(W, H), egui::Sense::click());
                         let hovered = resp.hovered();
                         if hovered {
-                            p.shown = Instant::now(); // пока над карточкой мышь — не исчезает
+                            p.shown = Instant::now(); // пока над карточкой мышь - не исчезает
                         }
                         let painter = ui.painter_at(rect);
                         let bg = if hovered { egui::Color32::from_rgb(52, 58, 70) } else { egui::Color32::from_rgb(40, 44, 54) };
@@ -168,7 +168,7 @@ impl LauncherApp {
                         let accent_color = p.accent.unwrap_or_else(|| color(p.kind));
                         let accent = egui::Rect::from_min_size(rect.min, egui::vec2(4.0, H));
                         painter.rect_filled(accent, egui::Rounding { nw: 6.0, sw: 6.0, ne: 0.0, se: 0.0 }, accent_color);
-                        // Смайлик или стикер из сообщения — справа, перед крестиком.
+                        // Смайлик или стикер из сообщения - справа, перед крестиком.
                         let mut text_w = W - 44.0;
                         if let Some(url) = &p.image {
                             let img_rect = egui::Rect::from_min_size(
@@ -370,7 +370,7 @@ impl LauncherApp {
     }
 }
 
-/// Цвет статуса друга, как в списке друзей: в игре — зелёный, в сети — синий, отошёл — серо-синий.
+/// Цвет статуса друга, как в списке друзей: в игре - зеленый, в сети - синий, отошел - серо-синий.
 pub fn status_color(state: Option<u32>, in_game: bool) -> Option<egui::Color32> {
     Some(match (state.unwrap_or(0), in_game) {
         (_, true) => egui::Color32::from_rgb(140, 200, 80),

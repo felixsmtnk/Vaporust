@@ -1,5 +1,5 @@
-//! Окно «Инвентарь» (отдельное окно Windows): предметы по играм, кошелёк, свои лоты
-//! и поиск по торговой площадке. Продажа и покупка — на сайте Steam в браузере.
+//! Окно «Инвентарь» (отдельное окно Windows): предметы по играм, кошелек, свои лоты
+//! и поиск по торговой площадке. Продажа и покупка - на сайте Steam в браузере.
 
 use crate::invent::{self, InvCmd, InvState};
 use crate::net::{Cmd, NetState};
@@ -17,7 +17,7 @@ enum Tab {
 
 pub struct InvWin {
     tab: Tab,
-    /// Выбранная игра (все её разделы инвентаря показываются вместе).
+    /// Выбранная игра (все ее разделы инвентаря показываются вместе).
     app: Option<u32>,
     filter: String,
     /// Выбранный предмет (class_id).
@@ -27,7 +27,7 @@ pub struct InvWin {
     asked_prices: HashSet<(u32, String)>,
 }
 
-/// Одинаковые предметы (один class_id) — одной плиткой с общим количеством.
+/// Одинаковые предметы (один class_id) - одной плиткой с общим количеством.
 struct Stack<'a> {
     item: &'a InventoryItem,
     amount: u64,
@@ -54,7 +54,7 @@ fn stacks<'a>(parts: &[(u32, &'a [InventoryItem])], filter: &str) -> Vec<Stack<'
     out
 }
 
-/// Разделы инвентаря игры (из списка игр; пока его нет — пусто).
+/// Разделы инвентаря игры (из списка игр; пока его нет - пусто).
 fn app_ctxs(st: &InvState, appid: u32) -> Vec<u32> {
     match &st.apps {
         Some(Ok(apps)) => apps
@@ -89,7 +89,7 @@ impl LauncherApp {
                 query: String::new(),
                 asked_prices: HashSet::new(),
             });
-            // Кошелёк — первым: по нему выбирается валюта цен.
+            // Кошелек - первым: по нему выбирается валюта цен.
             for c in [InvCmd::Wallet, InvCmd::Apps, InvCmd::Listings] {
                 let _ = self.tx.send(Cmd::Inv(c));
             }
@@ -103,7 +103,7 @@ impl LauncherApp {
         let closed = ctx.show_viewport_immediate(
             egui::ViewportId::from_hash_of("vaporust_inventory"),
             egui::ViewportBuilder::default()
-                .with_title("Инвентарь — Vaporust")
+                .with_title("Инвентарь - Vaporust")
                 .with_inner_size([900.0, 620.0])
                 .with_min_inner_size([620.0, 400.0])
                 .with_icon(crate::icons::icon(crate::icons::Kind::Launcher)),
@@ -126,7 +126,7 @@ impl LauncherApp {
         let my_id = net.my_id.unwrap_or(0);
         let Some(w) = self.inv_win.as_mut() else { return };
 
-        // Первая игра выбирается сама, как только пришёл список.
+        // Первая игра выбирается сама, как только пришел список.
         if w.app.is_none() {
             if let Some(Ok(apps)) = &st.apps {
                 if let Some(a) = apps.first() {
@@ -154,13 +154,13 @@ impl LauncherApp {
                         ui.spinner();
                     }
                     Some(Ok(wl)) => {
-                        ui.label(format!("Кошелёк: {}", wl.formatted));
+                        ui.label(format!("Кошелек: {}", wl.formatted));
                     }
                     Some(Err(e)) => {
-                        ui.weak("Кошелёк: нет данных").on_hover_text(e);
+                        ui.weak("Кошелек: нет данных").on_hover_text(e);
                     }
                 }
-                if ui.small_button("Обновить").on_hover_text("Перечитать кошелёк, лоты и предметы").clicked() {
+                if ui.small_button("Обновить").on_hover_text("Перечитать кошелек, лоты и предметы").clicked() {
                     cmds.push(InvCmd::Wallet);
                     cmds.push(InvCmd::Listings);
                     if let Some(appid) = w.app {
@@ -188,7 +188,7 @@ impl LauncherApp {
                 }
                 InvCmd::Search { query, start } => {
                     s.searching = true;
-                    // Новый поиск — с чистого листа; «Показать ещё» оставляет загруженное.
+                    // Новый поиск - с чистого листа; «Показать еще» оставляет загруженное.
                     if *start == 0 {
                         s.search = Some((query.clone(), Ok((0, Vec::new()))));
                     }
@@ -201,7 +201,7 @@ impl LauncherApp {
 }
 
 fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds: &mut Vec<InvCmd>) {
-    // Слева — игры с предметами.
+    // Слева - игры с предметами.
     egui::SidePanel::left("inv_apps").resizable(true).default_width(200.0).show_inside(ui, |ui| {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match &st.apps {
             None => {
@@ -212,7 +212,7 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
             }
             Some(Ok(apps)) => {
                 for a in apps {
-                    // Разделы игры (у CS2 — обычные и «защищённые от обмена», у Steam —
+                    // Разделы игры (у CS2 - обычные и «защищенные от обмена», у Steam -
                     // подарки и предметы сообщества) показываем одним списком.
                     let count: u64 = a.contexts.iter().map(|c| c.2).sum();
                     let sel = w.app == Some(a.appid);
@@ -241,7 +241,7 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
         });
         return;
     };
-    // Предметы всех разделов игры; пока какой-то раздел грузится — крутится значок.
+    // Предметы всех разделов игры; пока какой-то раздел грузится - крутится значок.
     let mut parts: Vec<(u32, &[InventoryItem])> = Vec::new();
     let mut error: Option<&String> = None;
     let mut loading = false;
@@ -256,7 +256,7 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
         egui::CentralPanel::default().show_inside(ui, |ui| match error {
             Some(e) if !loading => {
                 ui.label(format!("Не удалось загрузить предметы: {e}"));
-                ui.weak("Steam ограничивает частые запросы инвентаря — попробуйте «Обновить» через минуту.");
+                ui.weak("Steam ограничивает частые запросы инвентаря - попробуйте «Обновить» через минуту.");
             }
             _ => {
                 ui.spinner();
@@ -267,7 +267,7 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
     let total: usize = parts.iter().map(|p| p.1.len()).sum();
     let list = stacks(&parts, &w.filter);
 
-    // Справа — выбранный предмет.
+    // Справа - выбранный предмет.
     let chosen = w.selected.as_ref().and_then(|id| list.iter().find(|s| &s.item.class_id == id));
     if let Some(s) = chosen {
         let it = s.item;
@@ -290,7 +290,7 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
                     ui.separator();
                     match st.prices.get(&key) {
                         None => {
-                            // Цену спрашиваем, когда известен кошелёк: в его валюте.
+                            // Цену спрашиваем, когда известен кошелек: в его валюте.
                             if st.wallet.is_some() && w.asked_prices.insert(key.clone()) {
                                 cmds.push(InvCmd::Price { appid, name: it.market_hash_name.clone() });
                             }
@@ -305,10 +305,10 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
                         Some(Ok(p)) => {
                             egui::Grid::new("price").num_columns(2).show(ui, |ui| {
                                 ui.weak("Самая низкая");
-                                ui.label(p.lowest_price.as_deref().unwrap_or("—"));
+                                ui.label(p.lowest_price.as_deref().unwrap_or("-"));
                                 ui.end_row();
                                 ui.weak("Средняя");
-                                ui.label(p.median_price.as_deref().unwrap_or("—"));
+                                ui.label(p.median_price.as_deref().unwrap_or("-"));
                                 ui.end_row();
                                 ui.weak("Продано за сутки");
                                 ui.label(p.volume.as_deref().unwrap_or("0"));
@@ -323,7 +323,7 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
                 ui.separator();
                 if ui
                     .button("Открыть в инвентаре Steam")
-                    .on_hover_text("Продать, обменять или использовать предмет — на сайте Steam")
+                    .on_hover_text("Продать, обменять или использовать предмет - на сайте Steam")
                     .clicked()
                 {
                     let url = format!("https://steamcommunity.com/profiles/{my_id}/inventory/#{appid}_{}_{}", s.ctx, it.asset_id);
@@ -478,7 +478,7 @@ fn market_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, cmds: &mut Vec<I
         ui.horizontal(|ui| {
             let edit = ui.add(
                 egui::TextEdit::singleline(&mut w.query)
-                    .hint_text("Название предмета, Enter — искать")
+                    .hint_text("Название предмета, Enter - искать")
                     .desired_width(300.0),
             );
             let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
@@ -489,9 +489,9 @@ fn market_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, cmds: &mut Vec<I
                 ui.spinner();
             }
         });
-        ui.weak("Цена — самая низкая на площадке сейчас. Купить — на странице предмета в браузере.")
+        ui.weak("Цена - самая низкая на площадке сейчас. Купить - на странице предмета в браузере.")
             .on_hover_text(
-                "Steam находит только то, что сейчас кто-то продаёт. Очень дорогие предметы \
+                "Steam находит только то, что сейчас кто-то продает. Очень дорогие предметы \
                  (дороже предела площадки, около 2000 $, например AWP | Dragon Lore) на ней не \
                  выставляют, поэтому их не найти.",
             );
@@ -506,7 +506,7 @@ fn market_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, cmds: &mut Vec<I
                     if !st.searching {
                         ui.weak("Ничего не найдено.");
                         ui.weak(
-                            "Steam ищет только предметы, которые сейчас кто-то продаёт. Очень дорогие \
+                            "Steam ищет только предметы, которые сейчас кто-то продает. Очень дорогие \
                              предметы (дороже предела площадки, около 2000 $) на ней не выставляют.",
                         );
                     }
@@ -527,7 +527,7 @@ fn market_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, cmds: &mut Vec<I
                 }
                 if (list.len() as u32) < *total {
                     ui.horizontal(|ui| {
-                        if ui.add_enabled(!st.searching, egui::Button::new("Показать ещё")).clicked() {
+                        if ui.add_enabled(!st.searching, egui::Button::new("Показать еще")).clicked() {
                             cmds.push(InvCmd::Search { query: query.clone(), start: list.len() as u32 });
                         }
                         if st.searching {

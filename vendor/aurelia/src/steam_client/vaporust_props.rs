@@ -49,7 +49,7 @@ impl SteamClient {
 
     /// vaporust: последние версии хранилищ ветки (depot -> manifest ID) и номер сборки.
     /// Нужно для закрепления версии: Vaporust записывает их в appmanifest, и
-    /// настоящий Steam считает игру обновлённой.
+    /// настоящий Steam считает игру обновленной.
     pub async fn latest_depot_versions(
         &self,
         appid: u32,
@@ -62,7 +62,7 @@ impl SteamClient {
     }
 
     /// vaporust: описание хранилищ игры из PICS: depot -> (имя, oslist, язык, DLC-appid).
-    /// Имени у многих хранилищ нет — тогда интерфейс описывает их по системе и языку.
+    /// Имени у многих хранилищ нет - тогда интерфейс описывает их по системе и языку.
     pub async fn depot_descriptions(
         &self,
         appid: u32,
@@ -89,7 +89,7 @@ impl SteamClient {
     }
 
     /// vaporust: языковые хранилища игры для смены языка без Steam: (depot, язык, oslist,
-    /// depotfromapp — хранилище принадлежит другой игре (общее), dlcappid, текущая версия на ветке `branch`).
+    /// depotfromapp - хранилище принадлежит другой игре (общее), dlcappid, текущая версия на ветке `branch`).
     pub async fn language_depots(
         &self,
         appid: u32,
@@ -164,8 +164,8 @@ impl SteamClient {
 
 impl SteamClient {
     /// vaporust: имена файлов хранилища в версии `manifest` (нижний регистр, разделитель "/").
-    /// В отличие от `fetch_manifest_files` (depot_browser создаёт клиент CDN без серверов и падает
-    /// с «no available cdn servers»), берёт серверы и ключ так же, как установка.
+    /// В отличие от `fetch_manifest_files` (depot_browser создает клиент CDN без серверов и падает
+    /// с «no available cdn servers»), берет серверы и ключ так же, как установка.
     pub async fn depot_file_names(&self, appid: u32, depot: u32, manifest: u64) -> Result<Vec<String>> {
         let connection = self.require_connection_owned()?;
         let hosts = self.get_content_servers(connection.cell_id()).await?;

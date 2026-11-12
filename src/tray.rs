@@ -18,7 +18,7 @@ static EXIT: AtomicBool = AtomicBool::new(false);
 /// Крестик окна прячет Vaporust в трей (галочка в меню трея).
 static CLOSE_TO_TRAY: AtomicBool = AtomicBool::new(false);
 
-/// Начальное значение галочки (из настроек) — до `start`.
+/// Начальное значение галочки (из настроек) - до `start`.
 pub fn set_close_to_tray(on: bool) {
     CLOSE_TO_TRAY.store(on, Ordering::Relaxed);
 }
@@ -36,7 +36,7 @@ pub fn request_exit() {
     EXIT.store(true, Ordering::Relaxed);
 }
 
-/// Показать красную точку на иконке (или убрать её).
+/// Показать красную точку на иконке (или убрать ее).
 pub fn set_unread(on: bool) {
     if UNREAD.swap(on, Ordering::Relaxed) == on {
         return;
@@ -55,7 +55,7 @@ fn send(cmd: TrayCmd) {
     }
 }
 
-/// Тип значения GetWindowLongPtrW: на 64-битной Windows isize, на 32-битной — i32
+/// Тип значения GetWindowLongPtrW: на 64-битной Windows isize, на 32-битной - i32
 /// (там это просто GetWindowLongW).
 #[cfg(all(windows, target_pointer_width = "64"))]
 type LongPtr = isize;
@@ -68,9 +68,9 @@ static SAVED_POS: Mutex<Option<(i32, i32)>> = Mutex::new(None);
 
 /// Спрятать главное окно в трей.
 ///
-/// Окно НЕ скрывается по-настоящему: скрытое окно eframe перестаёт обновляться, и вместе с ним
+/// Окно НЕ скрывается по-настоящему: скрытое окно eframe перестает обновляться, и вместе с ним
 /// засыпала бы вся программа (очередь, расписание, всплывающие уведомления). Вместо этого окно
-/// уезжает за пределы экрана и становится «инструментальным» — без кнопки на панели задач и в Alt+Tab.
+/// уезжает за пределы экрана и становится «инструментальным» - без кнопки на панели задач и в Alt+Tab.
 #[cfg(windows)]
 pub fn hide_main() {
     use windows_sys::Win32::Foundation::RECT;
@@ -153,7 +153,7 @@ pub fn start() {
         let (normal, unread) = (to_icon(crate::icons::Kind::Launcher), to_icon(crate::icons::Kind::LauncherUnread));
 
         unsafe {
-            // Создать очередь сообщений потока до того, как в неё начнут писать.
+            // Создать очередь сообщений потока до того, как в нее начнут писать.
             let mut msg: MSG = std::mem::zeroed();
             PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE);
             THREAD_ID.store(windows_sys::Win32::System::Threading::GetCurrentThreadId(), Ordering::Relaxed);
@@ -185,7 +185,7 @@ pub fn start() {
             if e.id == open_id {
                 show_main();
             } else if e.id == close_id {
-                // Галочку меню переключает сама Windows; здесь — только настройка.
+                // Галочку меню переключает сама Windows; здесь - только настройка.
                 CLOSE_TO_TRAY.fetch_xor(true, Ordering::Relaxed);
             } else if e.id == quit_id {
                 // Закрыть программу по-настоящему: окно получит обычный запрос закрытия.
@@ -219,7 +219,7 @@ pub fn start() {
                                 let icon = if on { unread.clone() } else { normal.clone() };
                                 let _ = tray.set_icon(icon);
                                 let _ = tray.set_tooltip(Some(if on {
-                                    "Vaporust — новые сообщения"
+                                    "Vaporust - новые сообщения"
                                 } else {
                                     "Vaporust"
                                 }));

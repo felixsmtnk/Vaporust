@@ -12,13 +12,13 @@ use eframe::egui;
 pub struct WsUi {
     pub appid: u32,
     pub text: String,
-    /// Тип запроса Steam: 0 популярные, 3 в тренде, 1 новые, 21 обновлённые, 9 по подпискам.
+    /// Тип запроса Steam: 0 популярные, 3 в тренде, 1 новые, 21 обновленные, 9 по подпискам.
     pub sort: u32,
     pub loaded: bool,
 }
 
 impl WsUi {
-    /// Для новой игры — сбросить поиск и один раз запросить подписки и популярное.
+    /// Для новой игры - сбросить поиск и один раз запросить подписки и популярное.
     pub fn ensure(&mut self, appid: u32, cmds: &mut Vec<Cmd>) {
         if self.appid != appid {
             *self = WsUi { appid, ..Default::default() };
@@ -47,7 +47,7 @@ fn item_info(ui: &mut egui::Ui, it: &WorkshopItem) {
         ui.weak(net::fmt_bytes(it.file_size));
     }
     if it.time_updated > 0 {
-        ui.weak(format!("обновлён {}", fmt_date(it.time_updated as u64)));
+        ui.weak(format!("обновлен {}", fmt_date(it.time_updated as u64)));
     }
 }
 
@@ -57,14 +57,14 @@ pub fn browse(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &mut Ve
     let subs = ws.sub_ids.get(&appid).cloned().unwrap_or_default();
     ui.horizontal_wrapped(|ui| {
         ui.strong("Мастерская");
-        ui.weak(format!("подписок: {} (включить/выключить — в «Свойствах»)", subs.len()));
+        ui.weak(format!("подписок: {} (включить/выключить - в «Свойствах»)", subs.len()));
     });
     if let Some(e) = &ws.error {
         ui.colored_label(egui::Color32::from_rgb(230, 110, 110), e);
     }
     ui.horizontal_wrapped(|ui| {
         let edit = ui.add(egui::TextEdit::singleline(&mut w.text).hint_text("Поиск модов").desired_width(220.0));
-        let sorts = [(0u32, "популярные"), (3, "в тренде"), (1, "новые"), (21, "обновлённые"), (9, "по подпискам")];
+        let sorts = [(0u32, "популярные"), (3, "в тренде"), (1, "новые"), (21, "обновленные"), (9, "по подпискам")];
         let before = w.sort;
         egui::ComboBox::from_id_salt("ws_sort")
             .selected_text(sorts.iter().find(|s| s.0 == w.sort).map_or("популярные", |s| s.1))
@@ -143,7 +143,7 @@ impl crate::LauncherApp {
         let closed = ctx.show_viewport_immediate(
             egui::ViewportId::from_hash_of("vaporust_workshop"),
             egui::ViewportBuilder::default()
-                .with_title(format!("Мастерская: {name} — Vaporust"))
+                .with_title(format!("Мастерская: {name} - Vaporust"))
                 .with_inner_size([720.0, 560.0])
                 .with_min_inner_size([480.0, 320.0])
                 .with_icon(crate::icons::icon(crate::icons::Kind::Launcher)),
@@ -159,11 +159,11 @@ impl crate::LauncherApp {
     }
 }
 
-/// Подписанные моды с галочками «включён» (вкладка свойств). Снятая галочка = отписка;
-/// мод остаётся в списке, пока окно открыто, чтобы его можно было включить обратно.
+/// Подписанные моды с галочками «включен» (вкладка свойств). Снятая галочка = отписка;
+/// мод остается в списке, пока окно открыто, чтобы его можно было включить обратно.
 pub fn subscriptions(ui: &mut egui::Ui, appid: u32, ws: &WorkshopState, cmds: &mut Vec<Cmd>) {
     let subs = ws.sub_ids.get(&appid).cloned().unwrap_or_default();
-    ui.weak("Включённые моды Steam скачает и обновит при следующем запуске игры. Найти новые — на странице игры в библиотеке.");
+    ui.weak("Включенные моды Steam скачает и обновит при следующем запуске игры. Найти новые - на странице игры в библиотеке.");
     if let Some(e) = &ws.error {
         ui.colored_label(egui::Color32::from_rgb(230, 110, 110), e);
     }

@@ -16,7 +16,7 @@ static DOWNLOAD_LIMITER: std::sync::LazyLock<Arc<steam_cdn::RateLimiter>> =
 const LIMIT_REFRESH: Duration = Duration::from_secs(5);
 
 /// vaporust: применить ограничение скорости сразу (без ожидания перечитывания
-/// config.json раз в 5 с). Значение в кбит/с, 0 — без ограничения.
+/// config.json раз в 5 с). Значение в кбит/с, 0 - без ограничения.
 pub fn set_download_limit_now(kbit: u64) {
     DOWNLOAD_LIMITER.set_rate(crate::core::config::kbit_to_bytes(kbit));
 }

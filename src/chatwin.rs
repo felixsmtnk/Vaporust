@@ -1,4 +1,4 @@
-//! Окно чата — отдельное окно Windows (отложенный viewport egui).
+//! Окно чата - отдельное окно Windows (отложенный viewport egui).
 //! Перерисовывается само по себе, не трогая главное окно: анимации стикеров и загрузка
 //! картинок не заставляют перерисовываться библиотеку.
 
@@ -81,7 +81,7 @@ pub fn show(ctx: &egui::Context, chat: &SharedChat, net: &Shared, tx: &Unbounded
             if ctx.input(|i| i.viewport().close_requested()) {
                 *guard = None;
                 crate::notify::set_open_chat(0);
-                // Картинки и кадры чата больше не нужны — освобождаем память.
+                // Картинки и кадры чата больше не нужны - освобождаем память.
                 ctx.forget_all_images();
                 ctx.request_repaint_of(egui::ViewportId::ROOT);
             }
@@ -94,7 +94,7 @@ impl ChatWin {
         let id = self.id;
         // Для уведомлений: со звуком не беспокоим, если активен чат именно с этим другом.
         crate::notify::set_open_chat(id);
-        // Окно открыто и активно — значит, всё прочитано.
+        // Окно открыто и активно - значит, все прочитано.
         if ctx.input(|i| i.focused) && net.chats.get(&id).is_some_and(|c| c.unread > 0) {
             if let Some(c) = shared.lock().unwrap().chats.get_mut(&id) {
                 c.unread = 0;
@@ -126,7 +126,7 @@ impl ChatWin {
             if let Some(n) = &conv.status_note {
                 ui.colored_label(egui::Color32::from_rgb(110, 200, 110), n);
             }
-            // Вкладка «Эффекты» открыта — перечитать свои эффекты (могли купить), не чаще раза в 20 с.
+            // Вкладка «Эффекты» открыта - перечитать свои эффекты (могли купить), не чаще раза в 20 с.
             if self.picker_open
                 && self.picker_tab == 2
                 && self.effects_asked.is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(20))
@@ -143,7 +143,7 @@ impl ChatWin {
             ui.horizontal(|ui| {
                 let edit = ui.add(
                     egui::TextEdit::singleline(&mut self.input)
-                        .hint_text("Сообщение, Enter — отправить")
+                        .hint_text("Сообщение, Enter - отправить")
                         .desired_width(ui.available_width() - 150.0),
                 );
                 if std::mem::take(&mut self.focus_input) {
@@ -203,7 +203,7 @@ impl ChatWin {
                     }
                     for l in &conv.lines {
                         if l.text.trim().is_empty() {
-                            continue; // пустые (например, эффект, которого нет у отправителя) — как в Steam, не показываем
+                            continue; // пустые (например, эффект, которого нет у отправителя) - как в Steam, не показываем
                         }
                         let who = if l.from_self { "Вы" } else { self.name.as_str() };
                         let color = if l.from_self {
@@ -228,7 +228,7 @@ impl ChatWin {
         if v_down && !self.v_was_down && ctx.input(|i| i.modifiers.command && i.focused) {
             match crate::clipboard_image_file() {
                 Ok(Some(path)) => send_image = Some(path),
-                Ok(None) => {} // в буфере текст — его вставит само поле ввода
+                Ok(None) => {} // в буфере текст - его вставит само поле ввода
                 Err(e) => {
                     if let Some(c) = shared.lock().unwrap().chats.get_mut(&id) {
                         c.error = Some(e);
@@ -237,11 +237,11 @@ impl ChatWin {
             }
         }
         self.v_was_down = v_down;
-        // Файл, перетащенный в окно чата, — отправляем как картинку.
+        // Файл, перетащенный в окно чата, - отправляем как картинку.
         if let Some(path) = ctx.input(|i| i.raw.dropped_files.iter().find_map(|f| f.path.clone())) {
             send_image = Some(path);
         }
-        // Эффект комнаты: свежий (не старше 20 с) из переписки или «показать ещё раз».
+        // Эффект комнаты: свежий (не старше 20 с) из переписки или «показать еще раз».
         let now = crate::net::now_unix();
         if let Some(l) = conv.lines.iter().rev().take(5).find(|l| l.text.contains("[roomeffect")) {
             if l.time > self.effect_seen && now.saturating_sub(l.time) <= 20 {
@@ -302,7 +302,7 @@ impl ChatWin {
                                 ui.hyperlink_to("Магазин очков Steam", "https://store.steampowered.com/points/shop/");
                             });
                         }
-                        // Значок не загрузился (сбой сети) — один раз забыть ошибку, чтобы egui попробовал снова.
+                        // Значок не загрузился (сбой сети) - один раз забыть ошибку, чтобы egui попробовал снова.
                         if !self.icons_retried {
                             self.icons_retried = true;
                             for name in &list {
@@ -317,10 +317,10 @@ impl ChatWin {
                                 .fit_to_exact_size(egui::vec2(48.0, 48.0));
                             if ui
                                 .add(egui::ImageButton::new(img))
-                                .on_hover_text(format!("{} — отправить", crate::effects::short_name(name)))
+                                .on_hover_text(format!("{} - отправить", crate::effects::short_name(name)))
                                 .clicked()
                             {
-                                // Как в клиенте Steam: команда /roomeffect, сервер превращает её в [roomeffect].
+                                // Как в клиенте Steam: команда /roomeffect, сервер превращает ее в [roomeffect].
                                 send = Some(format!("/roomeffect {name}"));
                                 self.picker_open = false;
                             }
@@ -353,10 +353,10 @@ impl ChatWin {
                                 .fit_to_exact_size(egui::vec2(72.0, 72.0));
                             if ui
                                 .add(egui::ImageButton::new(img))
-                                .on_hover_text(format!("{name} — отправить"))
+                                .on_hover_text(format!("{name} - отправить"))
                                 .clicked()
                             {
-                                // Стикер шлётся командой /sticker: сервер сам превращает её в [sticker type=...].
+                                // Стикер шлется командой /sticker: сервер сам превращает ее в [sticker type=...].
                                 // Готовый тег [sticker] сервер вырезает (получатель видит пустое сообщение).
                                 send = Some(format!("/sticker {name}"));
                                 self.picker_open = false;

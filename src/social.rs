@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 /// SteamID64 обычного аккаунта = эта база + номер аккаунта («код друга» в Steam).
 pub const STEAMID64_BASE: u64 = 76_561_197_960_265_728;
 
-/// Разобрать то, что ввёл пользователь: SteamID64, ссылку /profiles/<id> или код друга.
+/// Разобрать то, что ввел пользователь: SteamID64, ссылку /profiles/<id> или код друга.
 pub fn parse_friend_input(input: &str) -> Result<u64, String> {
     let q = input.trim().trim_end_matches('/');
     if q.is_empty() {
@@ -54,8 +54,8 @@ pub enum SocialCmd {
     Profile(u64),
     AddFriend(u64),
     RemoveFriend(u64),
-    /// Поиск в Мастерской игры: текст (пусто — без поиска) и тип сортировки Steam
-    /// (0 популярные, 3 в тренде, 1 новые, 21 обновлённые, 9 по подпискам, 12 по тексту).
+    /// Поиск в Мастерской игры: текст (пусто - без поиска) и тип сортировки Steam
+    /// (0 популярные, 3 в тренде, 1 новые, 21 обновленные, 9 по подпискам, 12 по тексту).
     WorkshopQuery { appid: u32, text: String, sort: u32 },
     WorkshopSubscribed(u32),
     WorkshopSubscribe { appid: u32, id: u64, on: bool },
@@ -137,7 +137,7 @@ pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx
                         if on {
                             set.insert(id);
                         } else {
-                            // Из списка подписок не убираем: в свойствах мод остаётся с
+                            // Из списка подписок не убираем: в свойствах мод остается с
                             // выключенной галочкой, чтобы его можно было включить обратно.
                             set.remove(&id);
                         }

@@ -73,7 +73,7 @@ fn state_label(state: Option<u32>, game: &Option<String>) -> String {
     match state.unwrap_or(0) {
         0 => "не в сети",
         2 => "не беспокоить",
-        3 | 4 => "отошёл",
+        3 | 4 => "отошел",
         7 => "невидимка",
         _ => "в сети",
     }
@@ -90,7 +90,7 @@ impl LauncherApp {
 
     /// Кнопки над списком друзей, заявки в друзья и сообщения о результатах.
     pub(crate) fn friends_header(&mut self, ui: &mut egui::Ui, net: &NetState) {
-        // «Мой профиль» — в меню «Аккаунт» в левом верхнем углу.
+        // «Мой профиль» - в меню «Аккаунт» в левом верхнем углу.
         ui.horizontal_wrapped(|ui| {
             if ui.small_button("Добавить друга").clicked() {
                 self.social_ui.add_open = true;
@@ -103,7 +103,7 @@ impl LauncherApp {
                 crate::popup::set_sound(self.settings.notify_sound);
             }
         });
-        // Заявки: входящие (2) — принять/отклонить; исходящие (4) — отменить.
+        // Заявки: входящие (2) - принять/отклонить; исходящие (4) - отменить.
         let (incoming, outgoing): (Vec<_>, Vec<_>) = {
             let roster = net.roster.read().unwrap();
             let pick = |rel: u32| {
@@ -115,7 +115,7 @@ impl LauncherApp {
             };
             (pick(2), pick(4))
         };
-        // Steam не присылает имена тех, кто в заявках: берём их из профиля (запрашиваем один раз).
+        // Steam не присылает имена тех, кто в заявках: берем их из профиля (запрашиваем один раз).
         let mut name_of = |id: u64, name: Option<String>| -> String {
             if let Some(n) = name {
                 return n;
@@ -133,7 +133,7 @@ impl LauncherApp {
         let incoming: Vec<(u64, String)> = incoming.into_iter().map(|(id, n)| (id, name_of(id, n))).collect();
         let outgoing: Vec<(u64, String)> = outgoing.into_iter().map(|(id, n)| (id, name_of(id, n))).collect();
         if !incoming.is_empty() {
-            // Свёрнуто по умолчанию, чтобы заявки не вытесняли список друзей.
+            // Свернуто по умолчанию, чтобы заявки не вытесняли список друзей.
             let title = egui::RichText::new(format!("Заявки в друзья: {}", incoming.len()))
                 .color(egui::Color32::from_rgb(240, 200, 80));
             egui::CollapsingHeader::new(title)
@@ -141,7 +141,7 @@ impl LauncherApp {
                 .default_open(false)
                 .show(ui, |ui| {
                     for (id, name) in incoming {
-                        // Имя отдельной строкой, кнопки под ним — чтобы не налезали друг на друга.
+                        // Имя отдельной строкой, кнопки под ним - чтобы не налезали друг на друга.
                         if ui.link(&name).on_hover_text("Профиль").clicked() {
                             self.open_profile(id, net);
                         }
@@ -198,7 +198,7 @@ impl LauncherApp {
             let tx = self.tx.clone();
             let closed = ctx.show_viewport_immediate(
                 egui::ViewportId::from_hash_of("vaporust_profile"),
-                viewport("Профиль — Vaporust", [440.0, 380.0], [360.0, 280.0]),
+                viewport("Профиль - Vaporust", [440.0, 380.0], [360.0, 280.0]),
                 |ctx, _| {
                 egui::CentralPanel::default().show(ctx, |ui| match net.profiles.get(&id) {
                     None => {
@@ -278,7 +278,7 @@ impl LauncherApp {
         if self.social_ui.add_open {
             let closed = ctx.show_viewport_immediate(
                 egui::ViewportId::from_hash_of("vaporust_add_friend"),
-                viewport("Добавить друга — Vaporust", [460.0, 300.0], [400.0, 240.0]),
+                viewport("Добавить друга - Vaporust", [460.0, 300.0], [400.0, 240.0]),
                 |ctx, _| {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     ui.label("Код друга, SteamID64 или ссылка вида steamcommunity.com/profiles/…");

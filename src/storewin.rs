@@ -1,6 +1,6 @@
 //! Окно «Магазин Steam» (отдельное окно Windows): поиск, скидки, список желаемого
 //! и страница игры (цена, описание, скриншоты, новости, отзывы, похожие игры).
-//! Покупка — на странице Steam в браузере: лаунчер платежи не проводит.
+//! Покупка - на странице Steam в браузере: лаунчер платежи не проводит.
 
 use crate::net::{Cmd, NetState};
 use crate::store::{self, StoreCmd};
@@ -37,7 +37,7 @@ impl Sort {
         match self {
             Sort::Default => "как в Steam",
             Sort::Name => "по названию",
-            Sort::PriceAsc => "сначала дешёвые",
+            Sort::PriceAsc => "сначала дешевые",
             Sort::PriceDesc => "сначала дорогие",
             Sort::Discount => "по размеру скидки",
             Sort::Reviews => "по отзывам",
@@ -56,7 +56,7 @@ fn review_pct(a: &StoreAppInfo) -> i32 {
         .unwrap_or(-1)
 }
 
-/// Цена для сортировки: бесплатные — 0, без цены — в конец.
+/// Цена для сортировки: бесплатные - 0, без цены - в конец.
 fn price_key(a: &StoreAppInfo) -> i64 {
     if a.is_free {
         0
@@ -72,7 +72,7 @@ pub struct StoreWin {
     hide_owned: bool,
     tab: Tab,
     query: String,
-    /// Открытые страницы игр (назад — снять последнюю).
+    /// Открытые страницы игр (назад - снять последнюю).
     pages: Vec<u32>,
     /// Уже попросили подробности (чтобы не слать команду каждый кадр).
     asked: HashSet<u32>,
@@ -102,7 +102,7 @@ fn fmt_date(unix: u64) -> String {
         .unwrap_or_default()
 }
 
-/// Цена с учётом скидки, бесплатности и «скоро выйдет».
+/// Цена с учетом скидки, бесплатности и «скоро выйдет».
 fn price_ui(ui: &mut egui::Ui, a: &StoreAppInfo) {
     if a.coming_soon {
         ui.weak(format!("Скоро{}", a.release_date.as_ref().map(|d| format!(": {d}")).unwrap_or_default()));
@@ -180,7 +180,7 @@ impl LauncherApp {
                 let _ = self.tx.send(Cmd::Store(StoreCmd::Page(appid)));
             }
         }
-        // Свой список желаемого — чтобы отмечать игры «в желаемом».
+        // Свой список желаемого - чтобы отмечать игры «в желаемом».
         let _ = self.tx.send(Cmd::Store(StoreCmd::Wishlist));
     }
 
@@ -192,7 +192,7 @@ impl LauncherApp {
         let closed = ctx.show_viewport_immediate(
             egui::ViewportId::from_hash_of("vaporust_store"),
             egui::ViewportBuilder::default()
-                .with_title("Магазин Steam — Vaporust")
+                .with_title("Магазин Steam - Vaporust")
                 .with_inner_size([900.0, 640.0])
                 .with_min_inner_size([600.0, 400.0])
                 .with_icon(crate::icons::icon(crate::icons::Kind::Launcher)),
@@ -211,7 +211,7 @@ impl LauncherApp {
     pub(crate) fn store_contents(&mut self, ui: &mut egui::Ui, net: &NetState) {
         let shared = net.store.clone();
         let mut st = shared.lock().unwrap();
-        // Регион цен: сохранённый в настройках, иначе определённый Steam по IP.
+        // Регион цен: сохраненный в настройках, иначе определенный Steam по IP.
         if st.country.is_empty() {
             if let Some(cc) = self.settings.store_country.clone() {
                 st.country = cc;
@@ -236,7 +236,7 @@ impl LauncherApp {
                 if !w.pages.is_empty() && ui.button("< Назад").clicked() {
                     w.pages.pop();
                 }
-                // «Скидки» — одна вкладка с двумя списками (Deals и Events), переключатель ниже.
+                // «Скидки» - одна вкладка с двумя списками (Deals и Events), переключатель ниже.
                 let in_deals = matches!(w.tab, Tab::Deals | Tab::Events);
                 for (tab, label) in [(Tab::Search, "Поиск"), (Tab::Deals, "Скидки"), (Tab::Wishlist, "Список желаемого")] {
                     let on = if tab == Tab::Deals { in_deals } else { w.tab == tab };
@@ -247,7 +247,7 @@ impl LauncherApp {
                         w.pages.clear();
                     }
                 }
-                // Желаемое друга — временная вкладка, пока открыта.
+                // Желаемое друга - временная вкладка, пока открыта.
                 if let Some((_, name, _)) = st.friend_wishlist.clone() {
                     if ui.selectable_label(w.tab == Tab::FriendWishlist && w.pages.is_empty(), format!("Желаемое: {name}")).clicked() {
                         w.tab = Tab::FriendWishlist;
@@ -281,13 +281,13 @@ impl LauncherApp {
                         }
                     })
                     .response
-                    .on_hover_text("В какой валюте показывать цены. По умолчанию — по стране, которую Steam определил по IP.");
+                    .on_hover_text("В какой валюте показывать цены. По умолчанию - по стране, которую Steam определил по IP.");
             });
             if w.pages.is_empty() && w.tab == Tab::Search {
                 ui.horizontal(|ui| {
                     let edit = ui.add(
                         egui::TextEdit::singleline(&mut w.query)
-                            .hint_text("Название игры, Enter — искать")
+                            .hint_text("Название игры, Enter - искать")
                             .desired_width(360.0),
                     );
                     let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
@@ -336,7 +336,7 @@ impl LauncherApp {
                 Tab::Deals => Some("Самые продаваемые игры в вашем регионе, на которые сейчас есть скидка."),
                 Tab::Events => Some(
                     "Что Steam сейчас продвигает на главной странице: скидка дня, скидки середины недели и \
-                     выходных, бесплатные выходные, новинки и обновления. Жёлтым — вид акции и до какого числа.",
+                     выходных, бесплатные выходные, новинки и обновления. Желтым - вид акции и до какого числа.",
                 ),
                 _ => None,
             };
@@ -395,7 +395,7 @@ impl LauncherApp {
                 Some(Ok(all)) => {
                     let mut missing = Vec::new();
                     // Фильтры и сортировка нужны по подробностям всех игр списка:
-                    // недостающие догружаем, а пока не пришли — игры не показываем.
+                    // недостающие догружаем, а пока не пришли - игры не показываем.
                     let filtering = w.sort != Sort::Default || w.only_discount || w.only_free || w.hide_owned;
                     let ids: Vec<u32> = if filtering {
                         let unknown: Vec<u32> =
@@ -488,7 +488,7 @@ impl LauncherApp {
     }
 }
 
-/// Маленькая картинка игры (120x45); если у игры её нет (у новых игр другие адреса) —
+/// Маленькая картинка игры (120x45); если у игры ее нет (у новых игр другие адреса) -
 /// шапка из данных магазина.
 fn capsule(ui: &egui::Ui, appid: u32, a: Option<&StoreAppInfo>) -> String {
     let small = store::small_capsule(appid);
@@ -500,7 +500,7 @@ fn capsule(ui: &egui::Ui, appid: u32, a: Option<&StoreAppInfo>) -> String {
     small
 }
 
-/// Строка списка: картинка, название, цена, отзывы. Возвращает true, если по ней щёлкнули.
+/// Строка списка: картинка, название, цена, отзывы. Возвращает true, если по ней щелкнули.
 fn list_row(ui: &mut egui::Ui, a: &StoreAppInfo, owned: bool, wished: bool, badge: Option<&str>) -> bool {
     let resp = ui
         .allocate_ui(egui::vec2(ui.available_width(), ROW_H), |ui| {
@@ -716,7 +716,7 @@ fn game_page(
             let rv = ex.and_then(|e| e.reviews.as_ref());
             let (sort, all_langs) = rv.map(|r| (r.sort, r.all_langs)).unwrap_or((0, false));
             if rv.is_none() {
-                // Раздел открыли — первая страница (полезные за всё время, на русском), как на сайте.
+                // Раздел открыли - первая страница (полезные за все время, на русском), как на сайте.
                 cmds.push(Cmd::Store(StoreCmd::Reviews { appid, sort: 0, all_langs: false, page: 1 }));
             }
             ui.horizontal(|ui| {
@@ -760,7 +760,7 @@ fn game_page(
                         ui.label(&r.author);
                         ui.weak(format!("· {} · {}", r.hours, r.date));
                     });
-                    // Очень длинные отзывы — начало и ссылка на полный текст.
+                    // Очень длинные отзывы - начало и ссылка на полный текст.
                     let long = r.text.chars().count() > 1200;
                     let text: String = if long { r.text.chars().take(1200).collect::<String>() + "…" } else { r.text.clone() };
                     ui.label(text);
@@ -776,10 +776,10 @@ fn game_page(
             }
             if rv.loading {
                 ui.spinner();
-            } else if rv.more && ui.button("Показать ещё").clicked() {
+            } else if rv.more && ui.button("Показать еще").clicked() {
                 cmds.push(Cmd::Store(StoreCmd::Reviews { appid, sort, all_langs, page: rv.pages + 1 }));
             } else if sort == 0 && rv.list.len() >= 10 {
-                ui.weak("За всё время Steam показывает только первые 10 отзывов. Больше — выберите период (например, «за год») или «Новые».");
+                ui.weak("За все время Steam показывает только первые 10 отзывов. Больше - выберите период (например, «за год») или «Новые».");
             }
         });
 

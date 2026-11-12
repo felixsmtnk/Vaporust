@@ -1,5 +1,5 @@
 //! Новые сообщения: всплывающее уведомление Vaporust со звуком (popup.rs), а когда ни одно
-//! окно Vaporust не активно — ещё мигание кнопки в панели задач и точка на иконке в трее.
+//! окно Vaporust не активно - еще мигание кнопки в панели задач и точка на иконке в трее.
 //! Вызывается прямо из сетевого потока.
 
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU64, Ordering};
@@ -52,7 +52,7 @@ pub fn app_focused() -> bool {
     true
 }
 
-/// С кем открыт чат (SteamID64; 0 — чат закрыт). Ставит окно чата.
+/// С кем открыт чат (SteamID64; 0 - чат закрыт). Ставит окно чата.
 static OPEN_CHAT: AtomicU64 = AtomicU64::new(0);
 
 pub fn set_open_chat(friend: u64) {
@@ -66,8 +66,8 @@ pub fn chat_open() -> bool {
 }
 
 /// Пришло новое входящее сообщение от `friend`.
-/// Уведомление со звуком — если не активен чат именно с ним (как в Steam);
-/// мигание в панели задач и точка в трее — если ни одно окно Vaporust не активно.
+/// Уведомление со звуком - если не активен чат именно с ним (как в Steam);
+/// мигание в панели задач и точка в трее - если ни одно окно Vaporust не активно.
 #[cfg(windows)]
 pub fn new_message(friend: u64, name: Option<String>, text: String, accent: Option<eframe::egui::Color32>) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{FlashWindowEx, FLASHWINFO, FLASHW_TIMERNOFG, FLASHW_TRAY};

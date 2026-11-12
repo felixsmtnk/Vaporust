@@ -5,7 +5,7 @@ use steam_vent_proto::steammessages_publishedfile_steamclient::{
     CPublishedFile_GetUserFiles_Request, CPublishedFile_GetUserFiles_Response,
 };
 
-/// Фильтр «скриншоты» (EPublishedFileInfoMatchingFileType = 4; 5 — коллекции, проверено).
+/// Фильтр «скриншоты» (EPublishedFileInfoMatchingFileType = 4; 5 - коллекции, проверено).
 const FILE_TYPE_SCREENSHOT: u32 = 4;
 
 /// Загруженный скриншот.
@@ -23,12 +23,12 @@ pub struct CloudScreenshot {
     pub width: u32,
     pub height: u32,
     pub time: u32,
-    /// 0 — для всех, 1 — для друзей, 2 — только я, 3 — скрыт.
+    /// 0 - для всех, 1 - для друзей, 2 - только я, 3 - скрыт.
     pub visibility: u32,
 }
 
 impl SteamClient {
-    /// Свои скриншоты в облаке Steam: игра `appid` (0 — все), страница `page` (с 1), по `per_page`.
+    /// Свои скриншоты в облаке Steam: игра `appid` (0 - все), страница `page` (с 1), по `per_page`.
     /// Возвращает (всего, скриншоты страницы).
     pub async fn my_cloud_screenshots(&self, appid: u32, page: u32, per_page: u32) -> Result<(u32, Vec<CloudScreenshot>)> {
         let connection = self.require_connection()?;

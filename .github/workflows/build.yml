@@ -53,7 +53,7 @@ jobs:
           $env:CARGO_TERM_COLOR = "never"
           cargo build --release --locked --target ${{ matrix.target }} 2>&1 | Tee-Object -Variable log
           if ($LASTEXITCODE -ne 0) {
-            # Ошибки — одной аннотацией запуска (их видно и без входа в GitHub).
+            # Ошибки - одной аннотацией запуска (их видно и без входа в GitHub).
             $lines = $log | ForEach-Object { "$_" } |
               Where-Object { $_ -match '^\s*error|NASM|panicked|fatal error|error C\d|LNK\d|failed to run|thread .main.' } |
               Select-Object -First 60
@@ -84,7 +84,7 @@ jobs:
             ${{ env.ZIP }}.sha256
 
   release:
-    # Черновик релиза с обоими архивами — только для меток v*.
+    # Черновик релиза с обоими архивами - только для меток v*.
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest

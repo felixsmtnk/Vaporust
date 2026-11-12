@@ -1,7 +1,7 @@
 //! Расписание загрузок: часы, в которые можно качать, и своя скорость в эти часы.
 //!
-//! Окно задаётся часами «с from:00 до to:00» и может переходить через полночь
-//! (с 23 до 7). from == to — круглые сутки.
+//! Окно задается часами «с from:00 до to:00» и может переходить через полночь
+//! (с 23 до 7). from == to - круглые сутки.
 
 use crate::settings::Settings;
 use crate::LauncherApp;
@@ -32,7 +32,7 @@ pub fn may_download(s: &Settings) -> bool {
     !s.sched_only || window_now(s)
 }
 
-/// Ограничение скорости, которое действует сейчас (КБ/с, 0 — без ограничения).
+/// Ограничение скорости, которое действует сейчас (КБ/с, 0 - без ограничения).
 pub fn effective_limit_kb(s: &Settings) -> u64 {
     if s.sched_limit_on && window_now(s) {
         s.sched_limit_kb
@@ -61,7 +61,7 @@ impl LauncherApp {
         if may_download(&self.settings) {
             return;
         }
-        // Вне окна: идущую установку — на паузу, но в очереди не помечаем паузой, чтобы
+        // Вне окна: идущую установку - на паузу, но в очереди не помечаем паузой, чтобы
         // в начале окна она продолжилась сама.
         if let Some(inst) = net.install.as_ref().filter(|i| i.active() && i.done_text == "установлена.") {
             inst.abort.store(true, std::sync::atomic::Ordering::Relaxed);

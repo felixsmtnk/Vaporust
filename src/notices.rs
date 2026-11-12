@@ -1,5 +1,5 @@
-//! Уведомления о событиях (кроме сообщений — их показывает сетевой поток, см. notify.rs):
-//! друг зашёл в игру / появился в сети, скидка на игру из списка желаемого, игра скачана.
+//! Уведомления о событиях (кроме сообщений - их показывает сетевой поток, см. notify.rs):
+//! друг зашел в игру / появился в сети, скидка на игру из списка желаемого, игра скачана.
 //! Проверка раз в 2 с из главного цикла; включаются галочками в «Настройки» -> «Уведомления».
 
 use crate::net::{Cmd, NetState};
@@ -8,7 +8,7 @@ use crate::{store, LauncherApp};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-/// Сначала Steam присылает статусы друзей пачкой — первые секунды после входа молчим.
+/// Сначала Steam присылает статусы друзей пачкой - первые секунды после входа молчим.
 const FRIENDS_QUIET: Duration = Duration::from_secs(30);
 /// Как часто проверять скидки в списке желаемого.
 const SALES_EVERY: Duration = Duration::from_secs(6 * 3600);
@@ -25,7 +25,7 @@ pub struct Notices {
     sales_gen: u64,
     /// Загрузка: (appid, уже закончилась).
     install: Option<(u32, bool)>,
-    /// Друг зашёл в игру, название которой ещё грузится: (друг, имя, игра, с какого момента ждём).
+    /// Друг зашел в игру, название которой еще грузится: (друг, имя, игра, с какого момента ждем).
     pending: Vec<(u64, String, u32, Instant)>,
 }
 
@@ -66,7 +66,7 @@ impl LauncherApp {
             let name = f.persona_name.clone().unwrap_or_else(|| "Друг".into());
             if let Some(game) = now.1.filter(|g| Some(*g) != was_game) {
                 if s.notify_friend_game {
-                    // Название игры: от Steam, из кэша или запросим и подождём (см. ниже).
+                    // Название игры: от Steam, из кэша или запросим и подождем (см. ниже).
                     if let Some(t) =
                         f.game_name.clone().filter(|t| !t.is_empty()).or_else(|| net.app_names.get(&game).cloned())
                     {
@@ -81,7 +81,7 @@ impl LauncherApp {
         }
     }
 
-    /// Друзья в играх, чьё название ещё не известно: запросить и показать, когда придёт (не дольше 15 с).
+    /// Друзья в играх, чье название еще не известно: запросить и показать, когда придет (не дольше 15 с).
     fn pending_games(&mut self, net: &NetState) {
         let mut ask = Vec::new();
         self.notices.pending.retain(|(id, name, game, since)| {
@@ -90,7 +90,7 @@ impl LauncherApp {
                 ask.push(*game);
                 return true;
             }
-            let body = title.map(|t| format!("играет в {t}")).unwrap_or_else(|| "зашёл в игру".into());
+            let body = title.map(|t| format!("играет в {t}")).unwrap_or_else(|| "зашел в игру".into());
             popup::push_full(Kind::FriendGame(*id), name.clone(), body, None, popup::status_color(Some(1), true));
             false
         });
@@ -137,7 +137,7 @@ impl LauncherApp {
             k => {
                 let names: Vec<String> =
                     fresh.iter().take(4).map(|s| format!("{} (-{}%)", s.name, s.pct)).collect();
-                let more = if k > 4 { format!(" и ещё {}", k - 4) } else { String::new() };
+                let more = if k > 4 { format!(" и еще {}", k - 4) } else { String::new() };
                 popup::push(Kind::Sale(0), format!("Скидки в списке желаемого: {k}"), format!("{}{more}", names.join(", ")));
             }
         }
@@ -161,7 +161,7 @@ impl LauncherApp {
             && self.settings.notify_download
             && !crate::notify::app_focused()
         {
-            popup::push(Kind::Download(i.appid), "Игра скачана", format!("{} — можно играть.", i.name));
+            popup::push(Kind::Download(i.appid), "Игра скачана", format!("{} - можно играть.", i.name));
         }
     }
 }

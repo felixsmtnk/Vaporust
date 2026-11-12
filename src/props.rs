@@ -3,7 +3,7 @@
 //!
 //! Язык и бета записываются в UserConfig файла игры (appmanifest); файлы под них докачивает
 //! сам Steam при следующем «Играть» (лаунчер показывает прогресс). Править файлы Steam можно
-//! только при закрытом Steam — иначе он перезапишет их при выходе.
+//! только при закрытом Steam - иначе он перезапишет их при выходе.
 
 use crate::net::{self, Cmd, NetState};
 use crate::{launchopts, local, LauncherApp};
@@ -28,7 +28,7 @@ pub struct PropsWin {
     launch_text: String,
     launch_saved: String,
     lc_path: Option<std::path::PathBuf>,
-    // Выбор в выпадающих списках (None — как в файле игры)
+    // Выбор в выпадающих списках (None - как в файле игры)
     lang_choice: Option<String>,
     beta_choice: Option<String>,
     move_idx: usize,
@@ -36,7 +36,7 @@ pub struct PropsWin {
     note: Option<String>,
     // Мастерская: подписки уже запрошены.
     ws_loaded: bool,
-    // Откат: введённые номера версий по хранилищам.
+    // Откат: введенные номера версий по хранилищам.
     dg_inputs: std::collections::BTreeMap<u32, String>,
 }
 
@@ -61,7 +61,7 @@ fn lang_name(key: &str) -> String {
         "turkish" => "Турецкий",
         "japanese" => "Японский",
         "koreana" => "Корейский",
-        "schinese" => "Китайский (упрощённый)",
+        "schinese" => "Китайский (упрощенный)",
         "tchinese" => "Китайский (традиционный)",
         "dutch" => "Нидерландский",
         "hungarian" => "Венгерский",
@@ -89,7 +89,7 @@ fn branch_name(key: &str) -> String {
     }
 }
 
-/// Понятное название хранилища: своё имя, DLC, язык, система или «основные файлы».
+/// Понятное название хранилища: свое имя, DLC, язык, система или «основные файлы».
 fn depot_desc(d: Option<&net::DepotDesc>) -> String {
     let Some((name, os, lang, dlc)) = d else { return "Файлы игры".into() };
     if let Some(n) = name {
@@ -180,7 +180,7 @@ impl LauncherApp {
         let mut do_update = false;
         // Смена беты: без Steam (как кнопка «Обновить» в библиотеке).
         let mut do_update_smart = false;
-        // Закрепить (true) или открепить (false) — выполняется после отрисовки.
+        // Закрепить (true) или открепить (false) - выполняется после отрисовки.
         let mut pin_action: Option<bool> = None;
         let pinned_real = self.settings.pinned.get(&appid).cloned();
         let logged_in = net.account.is_some();
@@ -281,13 +281,13 @@ impl LauncherApp {
                     if crate::direct::uses_steam_api(&game.dir) {
                         ui.colored_label(
                             YELLOW,
-                            "В папке игры есть steam_api.dll — игре, скорее всего, нужен Steam: без него она может \
+                            "В папке игры есть steam_api.dll - игре, скорее всего, нужен Steam: без него она может \
                              не запуститься.",
                         );
                     } else {
-                        ui.weak("Steam API в папке игры не найден — похоже, игра запустится и без Steam.");
+                        ui.weak("Steam API в папке игры не найден - похоже, игра запустится и без Steam.");
                     }
-                    ui.weak("Без Steam не работают достижения, облачные сохранения, оверлей и учёт времени в игре.");
+                    ui.weak("Без Steam не работают достижения, облачные сохранения, оверлей и учет времени в игре.");
 
                     ui.add_space(12.0);
                     ui.strong("Язык игры");
@@ -334,7 +334,7 @@ impl LauncherApp {
                             });
                             if !acf.mounted_language.is_empty() && acf.user_language != acf.mounted_language && !acf.user_language.is_empty() {
                                 ui.colored_label(YELLOW, format!(
-                                    "Сейчас установлен: {}. Переключение ждёт загрузки через Steam.",
+                                    "Сейчас установлен: {}. Переключение ждет загрузки через Steam.",
                                     lang_name(&acf.mounted_language)
                                 ));
                                 if ui
@@ -354,7 +354,7 @@ impl LauncherApp {
                     ui.label(format!("Установлена: {}", branch_name(&mounted)));
                     if acf.user_beta != mounted {
                         ui.colored_label(YELLOW, format!(
-                            "Выбрана: {}. Ждёт загрузки через Steam.",
+                            "Выбрана: {}. Ждет загрузки через Steam.",
                             branch_name(&acf.user_beta)
                         ));
                         if ui
@@ -380,7 +380,7 @@ impl LauncherApp {
                                 ui.horizontal(|ui| {
                                     ui.radio_value(choice, b.clone(), branch_name(b));
                                     if let Some(d) = desc {
-                                        ui.weak(format!("— {d}"));
+                                        ui.weak(format!("- {d}"));
                                     }
                                 });
                             }
@@ -392,7 +392,7 @@ impl LauncherApp {
                                 let key = if choice == "public" { "" } else { choice.as_str() };
                                 w.note = Some(match local::set_user_config(&acf_path, "BetaKey", key) {
                                     Ok(()) => format!(
-                                        "Выбрана {}. Нажмите «Обновить сейчас» (или Steam скачает её при следующем «Играть»).",
+                                        "Выбрана {}. Нажмите «Обновить сейчас» (или Steam скачает ее при следующем «Играть»).",
                                         branch_name(choice)
                                     ),
                                     Err(e) => e,
@@ -418,7 +418,7 @@ impl LauncherApp {
                         }
                         None => {
                             ui.weak(
-                                "Закрепление не даёт Steam обновлять игру — например, чтобы после \
+                                "Закрепление не дает Steam обновлять игру - например, чтобы после \
                                  обновления не сломались моды или сохранения.",
                             );
                             if ui
@@ -434,13 +434,13 @@ impl LauncherApp {
                     egui::CollapsingHeader::new("Откатить на старую версию").id_salt("downgrade").show(ui, |ui| {
                         ui.weak(
                             "Steam делит игру на части (хранилища): основные файлы, языки, файлы для \
-                             разных систем — у каждой своя история версий. Steam не хранит список старых \
+                             разных систем - у каждой своя история версий. Steam не хранит список старых \
                              версий, номер нужной (Manifest ID) есть на SteamDB: откройте ссылку, найдите \
                              дату и скопируйте число. Обычно хватает отката «Основных файлов игры». \
-                             Пустое поле — часть не меняется.",
+                             Пустое поле - часть не меняется.",
                         );
                         ui.add_space(4.0);
-                        // Настоящие версии: у закреплённой игры в файле записаны «маскировочные».
+                        // Настоящие версии: у закрепленной игры в файле записаны «маскировочные».
                         let current = pinned_real.clone().unwrap_or_else(|| local::installed_depots(&acf_path));
                         if current.is_empty() {
                             ui.weak("В файле игры нет списка хранилищ.");
@@ -475,7 +475,7 @@ impl LauncherApp {
                             .collect();
                         let bad = w.dg_inputs.values().any(|s| !s.trim().is_empty() && s.trim().parse::<u64>().is_err());
                         if bad {
-                            ui.colored_label(YELLOW, "Номер версии — это только цифры.");
+                            ui.colored_label(YELLOW, "Номер версии - это только цифры.");
                         }
                         ui.add_space(4.0);
                         if ui
@@ -483,7 +483,7 @@ impl LauncherApp {
                                 !locked && logged_in && !bad && !overrides.is_empty(),
                                 egui::Button::new("Скачать выбранную версию"),
                             )
-                            .on_hover_text("Ход загрузки — внизу главного окна. После отката версия закрепится.")
+                            .on_hover_text("Ход загрузки - внизу главного окна. После отката версия закрепится.")
                             .clicked()
                         {
                             let library = game
@@ -495,7 +495,7 @@ impl LauncherApp {
                                 .unwrap_or_default();
                             cmds.push(Cmd::Downgrade { appid, name: w.name.clone(), library, overrides });
                             w.dg_inputs.clear();
-                            w.note = Some("Откат начат — ход загрузки внизу главного окна.".into());
+                            w.note = Some("Откат начат - ход загрузки внизу главного окна.".into());
                         }
                     });
                 }
@@ -512,7 +512,7 @@ impl LauncherApp {
                         ui.label(format!("Обновлена: {}", fmt_date(acf.last_updated)));
                     }
                     if acf.updating() {
-                        ui.colored_label(YELLOW, "Игре нужно обновление (или смена языка/беты ждёт загрузки).");
+                        ui.colored_label(YELLOW, "Игре нужно обновление (или смена языка/беты ждет загрузки).");
                     }
                     if ui
                         .add_enabled(!locked && pinned_real.is_none(), egui::Button::new("Обновить через Steam"))
@@ -525,7 +525,7 @@ impl LauncherApp {
 
                     if ui
                         .add_enabled(!locked && pinned_real.is_none(), egui::Button::new("Проверить целостность файлов"))
-                        .on_hover_text("Сравнить файлы с серверами Steam и докачать испорченные. Ход проверки — внизу главного окна.")
+                        .on_hover_text("Сравнить файлы с серверами Steam и докачать испорченные. Ход проверки - внизу главного окна.")
                         .clicked()
                     {
                         cmds.push(Cmd::Verify { appid: w.appid, name: w.name.clone() });
@@ -631,7 +631,7 @@ impl LauncherApp {
                                     }
                                 } else {
                                     ui.weak(&name);
-                                    ui.weak("— не куплено");
+                                    ui.weak("- не куплено");
                                 }
                             });
                         }
@@ -646,7 +646,7 @@ impl LauncherApp {
                 },
 
                 Tab::Workshop => {
-                    // Только включение/выключение подписанных модов; поиск — на странице игры.
+                    // Только включение/выключение подписанных модов; поиск - на странице игры.
                     if !w.ws_loaded {
                         w.ws_loaded = true;
                         cmds.push(Cmd::Social(crate::social::SocialCmd::WorkshopSubscribed(w.appid)));
@@ -664,8 +664,8 @@ impl LauncherApp {
                          ниже, над списком файлов).",
                     );
                     ui.weak(
-                        "«Скачать из облака» — заменить файлы на ПК облачными (например, после переустановки \
-                         Windows или игры). «Отправить в облако» — наоборот. «Синхронизировать» — новые файлы \
+                        "«Скачать из облака» - заменить файлы на ПК облачными (например, после переустановки \
+                         Windows или игры). «Отправить в облако» - наоборот. «Синхронизировать» - новые файлы \
                          в обе стороны.",
                     );
                     let remote = match (&steam_dir, my_id) {
@@ -685,7 +685,7 @@ impl LauncherApp {
                         }
                         if ui
                             .add_enabled(can, egui::Button::new("Синхронизировать"))
-                            .on_hover_text("Новое из облака — сюда, новое с диска — в облако")
+                            .on_hover_text("Новое из облака - сюда, новое с диска - в облако")
                             .clicked()
                         {
                             go = Some((2, None));
@@ -697,7 +697,7 @@ impl LauncherApp {
                     match &data.cloud_sync {
                         Some(Ok(o)) => {
                             if o.downloaded == 0 && o.uploaded == 0 && o.conflicts.is_empty() && o.failed.is_empty() {
-                                ui.colored_label(GREEN, "Всё уже совпадает: сохранения на ПК и в облаке одинаковые.");
+                                ui.colored_label(GREEN, "Все уже совпадает: сохранения на ПК и в облаке одинаковые.");
                             } else {
                                 ui.colored_label(
                                     GREEN,
@@ -815,7 +815,7 @@ impl LauncherApp {
             self.close_steam(ctx);
         }
         if do_update {
-            // «Обновить через Steam» и смена языка (нужны другие хранилища) — через Steam.
+            // «Обновить через Steam» и смена языка (нужны другие хранилища) - через Steam.
             self.start_update_steam(appid, ctx);
         }
         if do_update_smart {

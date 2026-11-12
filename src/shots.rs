@@ -1,7 +1,7 @@
 //! Скриншоты Steam: «На этом ПК» (папка Steam userdata\<аккаунт>\760\remote\<игра>\screenshots)
-//! и «В облаке Steam» (загруженные скриншоты — PublishedFile.GetUserFiles, фильтр 4).
-//! Плитка уменьшенных копий (у локальных — thumbnails Steam), щелчок — полный размер,
-//! правый щелчок — показать в папке / страница в Steam / скачать на компьютер.
+//! и «В облаке Steam» (загруженные скриншоты - PublishedFile.GetUserFiles, фильтр 4).
+//! Плитка уменьшенных копий (у локальных - thumbnails Steam), щелчок - полный размер,
+//! правый щелчок - показать в папке / страница в Steam / скачать на компьютер.
 
 use crate::net::{Cmd, NetState};
 use crate::LauncherApp;
@@ -20,21 +20,21 @@ pub struct LocalShot {
     pub thumb: Option<PathBuf>,
     /// Время изменения файла (unix).
     pub time: u64,
-    /// Скачан из облака Vaporust (ИзображенияVaporust<игра>): название игры — по имени папки.
+    /// Скачан из облака Vaporust (ИзображенияVaporust<игра>): название игры - по имени папки.
     pub game: Option<String>,
 }
 
 pub struct ShotsWin {
-    /// 0 — на этом ПК, 1 — в облаке Steam.
+    /// 0 - на этом ПК, 1 - в облаке Steam.
     pub tab: u8,
-    /// Только эта игра (None — все).
+    /// Только эта игра (None - все).
     pub filter: Option<u32>,
     local: Option<Vec<LocalShot>>,
     /// Для какого фильтра уже просили облачные (чтобы не просить каждый кадр).
     cloud_asked: Option<u32>,
     /// Ход скачивания на компьютер.
     status: Arc<Mutex<String>>,
-    /// Скачивание закончилось — перечитать «На этом ПК».
+    /// Скачивание закончилось - перечитать «На этом ПК».
     rescan: Arc<std::sync::atomic::AtomicBool>,
     /// Игры, встречавшиеся в облачных скриншотах (для фильтра).
     cloud_games: std::collections::BTreeMap<u32, String>,
@@ -54,7 +54,7 @@ impl ShotsWin {
     }
 }
 
-/// Папка пользователя Steam (userdata\<аккаунт>) — того, чей localconfig.vdf свежее.
+/// Папка пользователя Steam (userdata\<аккаунт>) - того, чей localconfig.vdf свежее.
 fn user_dir(steam_dir: &Path) -> Option<PathBuf> {
     crate::launchopts::find_localconfig(steam_dir)?.parent()?.parent().map(Path::to_path_buf)
 }
@@ -144,7 +144,7 @@ fn open_file(p: &Path) {
 
 /// Показать файл в Проводнике (выделенным).
 fn show_in_folder(p: &Path) {
-    // Проводник понимает только /select,"путь" — с кавычками вокруг пути, а не всего аргумента,
+    // Проводник понимает только /select,"путь" - с кавычками вокруг пути, а не всего аргумента,
     // поэтому собираем строку сами (иначе путь с пробелами открывает «Документы»).
     let mut cmd = std::process::Command::new("explorer.exe");
     #[cfg(windows)]
@@ -195,7 +195,7 @@ impl LauncherApp {
             v.sort_by(|a, b| b.time.cmp(&a.time));
             w.local = Some(v);
         }
-        // Игры из облачных скриншотов — в фильтр (запоминаем, пока открыт раздел).
+        // Игры из облачных скриншотов - в фильтр (запоминаем, пока открыт раздел).
         if let Some(Ok((_, _, list))) = &net.cloud_shots {
             for s in list {
                 let name = if s.app_name.is_empty() { self.game_name(s.appid as u64, net) } else { s.app_name.clone() };
@@ -268,7 +268,7 @@ impl LauncherApp {
             if local.is_empty() {
                 ui.weak(
                     "Скриншотов на этом ПК нет. Steam сохраняет их по клавише F12 в игре (папка Steam\\userdata\\…\\760). \
-                     Загруженные в облако — на вкладке «В облаке Steam»; скачанные оттуда появятся и здесь.",
+                     Загруженные в облако - на вкладке «В облаке Steam»; скачанные оттуда появятся и здесь.",
                 );
             } else {
                 self.shots_grid(ui, local.len(), |app, ui, i| {
@@ -345,7 +345,7 @@ impl LauncherApp {
                         });
                         if (list.len() as u32) < *total {
                             ui.horizontal(|ui| {
-                                if ui.add_enabled(!net.cloud_shots_busy, egui::Button::new("Показать ещё")).clicked() {
+                                if ui.add_enabled(!net.cloud_shots_busy, egui::Button::new("Показать еще")).clicked() {
                                     let page = list.len() as u32 / 50 + 1;
                                     let _ = self.tx.send(Cmd::CloudShots { appid: w.filter.unwrap_or(0), page });
                                 }
@@ -399,9 +399,9 @@ fn download(
     *status.lock().unwrap() = "Скачиваю...".into();
     std::thread::spawn(move || {
         let dir = download_dir(if s.app_name.is_empty() { "Steam" } else { &s.app_name });
-        // <appid>_<id>.jpg — чтобы на вкладке «На этом ПК» знать игру.
+        // <appid>_<id>.jpg - чтобы на вкладке «На этом ПК» знать игру.
         let file = dir.join(format!("{}_{}.jpg", s.appid, s.id));
-        // Уменьшенная копия для плитки — в папку данных Vaporust.
+        // Уменьшенная копия для плитки - в папку данных Vaporust.
         if let Some(td) = thumbs_dir() {
             if let Ok(r) = ehttp::fetch_blocking(&ehttp::Request::get(&s.preview_url)) {
                 if r.ok && std::fs::create_dir_all(&td).is_ok() {

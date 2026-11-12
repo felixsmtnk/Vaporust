@@ -18,7 +18,7 @@ fn success_of(v: &serde_json::Value) -> i64 {
 impl SteamClient {
     /// Свои смайлики и стикеры (имена без двоеточий), самые часто используемые первыми.
     ///
-    /// Смайлики — Player.GetEmoticonList; стикеров в этом ответе нет (проверено), они в инвентаре.
+    /// Смайлики - Player.GetEmoticonList; стикеров в этом ответе нет (проверено), они в инвентаре.
     pub async fn fetch_emoticons_and_stickers(&self) -> Result<(Vec<String>, Vec<String>)> {
         let connection = self.require_connection()?;
         let resp: CPlayer_GetEmoticonList_Response = connection
@@ -34,7 +34,7 @@ impl SteamClient {
             .collect();
         emoticons.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
 
-        // Стикеры — предметы сообщества в инвентаре (app 753, context 6) с типом «... Sticker».
+        // Стикеры - предметы сообщества в инвентаре (app 753, context 6) с типом «... Sticker».
         // Их имя и есть тип стикера для [sticker type="..."] (проверено: Buoyant Bobber).
         let stickers_res: Result<Vec<String>> = async {
             let web = self.web_session().await?;
@@ -46,7 +46,7 @@ impl SteamClient {
                 .collect())
         }
         .await;
-        // Без стикеров смайлики всё равно полезны: ошибку инвентаря не считаем фатальной.
+        // Без стикеров смайлики все равно полезны: ошибку инвентаря не считаем фатальной.
         let mut stickers = stickers_res.unwrap_or_default();
         stickers.sort();
         stickers.dedup();
@@ -54,7 +54,7 @@ impl SteamClient {
     }
 
     /// Загрузить картинку в чат с другом. Возвращает адрес картинки на серверах Steam.
-    /// `ext` — "png" / "jpeg" / "gif" / "webp"; `width`/`height` — размеры картинки.
+    /// `ext` - "png" / "jpeg" / "gif" / "webp"; `width`/`height` - размеры картинки.
     pub async fn upload_chat_image(
         &self,
         friend: u64,

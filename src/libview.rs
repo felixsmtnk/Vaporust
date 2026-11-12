@@ -27,7 +27,7 @@ pub enum Action {
     Workshop(u32, String),
     /// Скриншоты этой игры.
     Shots(u32),
-    /// Игра уже скачана — указать папку с файлами.
+    /// Игра уже скачана - указать папку с файлами.
     Import(u32, String),
 }
 
@@ -60,7 +60,7 @@ fn main_button(ui: &mut egui::Ui, r: &Row, c: &Ctx, out: &mut Option<Action>) {
     if r.ready {
         let play = ui
             .add_enabled(!c.launching && !c.installing, egui::Button::new("Играть"))
-            .on_disabled_hover_text("Недоступно, пока идёт запуск или установка");
+            .on_disabled_hover_text("Недоступно, пока идет запуск или установка");
         if play.clicked() {
             *out = Some(Action::Play(r.appid));
         }
@@ -91,7 +91,7 @@ fn main_button(ui: &mut egui::Ui, r: &Row, c: &Ctx, out: &mut Option<Action>) {
         let btn = ui
             .add_enabled(c.logged_in && !c.launching && !queued, egui::Button::new(text))
             .on_hover_text(if c.installing {
-                "Сейчас идёт другая загрузка — игра встанет в очередь"
+                "Сейчас идет другая загрузка - игра встанет в очередь"
             } else {
                 "Скачать игру"
             })
@@ -102,7 +102,7 @@ fn main_button(ui: &mut egui::Ui, r: &Row, c: &Ctx, out: &mut Option<Action>) {
     }
 }
 
-/// Компактный список — как в прошлых версиях.
+/// Компактный список - как в прошлых версиях.
 pub fn list(ui: &mut egui::Ui, rows: &[Row], c: &Ctx) -> Option<Action> {
     let mut out = None;
     let row_h = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
@@ -194,7 +194,7 @@ fn tile_ui(ui: &mut egui::Ui, r: &Row, c: &Ctx, covers: &Covers, tile: egui::Vec
             painter.image(tex.id(), rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), tint);
         }
         cover => {
-            // Пока грузится или обложки нет — тёмная карточка с названием.
+            // Пока грузится или обложки нет - темная карточка с названием.
             painter.rect_filled(rect, 4.0, egui::Color32::from_gray(40));
             painter.text(
                 rect.center(),
@@ -225,7 +225,7 @@ fn tile_ui(ui: &mut egui::Ui, r: &Row, c: &Ctx, covers: &Covers, tile: egui::Vec
     {
         *out = Some(Action::Page(r.appid));
     }
-    // Название в одну строку (обрезается), под ним — кнопки.
+    // Название в одну строку (обрезается), под ним - кнопки.
     ui.add(egui::Label::new(egui::RichText::new(&r.name).small()).truncate());
     ui.horizontal(|ui| {
         main_button(ui, r, c, out);
@@ -241,20 +241,20 @@ fn collections_menu(resp: &egui::Response, r: &Row, c: &Ctx, out: &mut Option<Ac
         ui.label(egui::RichText::new(&r.name).strong());
         ui.separator();
         if c.collections.is_empty() {
-            ui.weak("Коллекции ещё загружаются…");
+            ui.weak("Коллекции еще загружаются…");
         }
         for coll in c.collections {
             let mut inside = coll.apps.contains(&r.appid);
             let resp = ui.add_enabled(!coll.dynamic, egui::Checkbox::new(&mut inside, &coll.name));
             if coll.dynamic {
-                resp.on_disabled_hover_text("Динамическая коллекция (по фильтру) — меняется только в Steam");
+                resp.on_disabled_hover_text("Динамическая коллекция (по фильтру) - меняется только в Steam");
             } else if resp.changed() {
                 *out = Some(Action::Collection { id: coll.id.clone(), appid: r.appid, add: inside });
                 ui.close_menu();
             }
         }
         ui.separator();
-        // Поле для имени новой коллекции живёт во временной памяти egui.
+        // Поле для имени новой коллекции живет во временной памяти egui.
         let id = egui::Id::new("new_collection_name");
         let mut name = ui.data_mut(|d| d.get_temp::<String>(id)).unwrap_or_default();
         ui.horizontal(|ui| {
@@ -455,7 +455,7 @@ pub fn page(
     out
 }
 
-/// «Семейная библиотека (владелец: имя)» — имя берём из списка друзей, если владелец там есть.
+/// «Семейная библиотека (владелец: имя)» - имя берем из списка друзей, если владелец там есть.
 fn family_text(r: &Row, c: &Ctx) -> String {
     let name = r.owner.and_then(|id| {
         let roster = c.net.roster.read().ok()?;

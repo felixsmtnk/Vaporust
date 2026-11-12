@@ -2,7 +2,7 @@
 //! через урезанный Steam.
 //!
 //! Версия 0.3: Steam и игра определяются по процессам, а не по реестру
-//! (ActiveUser и RunningAppID в реестре оказались ненадёжными).
+//! (ActiveUser и RunningAppID в реестре оказались ненадежными).
 
 use std::{
     fs,
@@ -46,7 +46,7 @@ pub struct LaunchOptions {
     /// Эксперимент: замораживать steamwebhelper во время игры.
     /// Закрывать его бесполезно: Steam сразу запускает его заново (проверено в 0.3).
     pub freeze_webhelper: bool,
-    /// Флаги запуска скрытого Steam; пусто — DEFAULT_STEAM_ARGS.
+    /// Флаги запуска скрытого Steam; пусто - DEFAULT_STEAM_ARGS.
     pub steam_args: String,
 }
 
@@ -186,7 +186,7 @@ pub fn steam_running() -> bool {
     v
 }
 
-/// Есть ли процесс с таким именем. Снимок ToolHelp — только имена, без путей к exe (sysinfo для
+/// Есть ли процесс с таким именем. Снимок ToolHelp - только имена, без путей к exe (sysinfo для
 /// этого спрашивал путь у каждого процесса: ~10 мс против ~1 мс).
 #[cfg(windows)]
 pub fn process_named(name: &str) -> bool {
@@ -311,7 +311,7 @@ pub struct AcfInfo {
     pub bytes_to_download: u64,
     pub bytes_downloaded: u64,
     pub last_updated: u64,
-    /// UserConfig — что выбрал пользователь; MountedConfig — что сейчас установлено.
+    /// UserConfig - что выбрал пользователь; MountedConfig - что сейчас установлено.
     pub user_language: String,
     pub user_beta: String,
     pub mounted_language: String,
@@ -372,13 +372,13 @@ pub fn read_acf(path: &Path) -> AcfInfo {
     info
 }
 
-/// Записать UserConfig.<key> (пустое значение — удалить ключ) и пометить игру как
+/// Записать UserConfig.<key> (пустое значение - удалить ключ) и пометить игру как
 /// требующую обновления: Steam докачает нужное при следующем запуске. Только при закрытом Steam.
 pub fn set_user_config(path: &Path, key: &str, value: &str) -> Result<(), String> {
     set_config_block(path, "UserConfig", key, value, true)
 }
 
-/// То же в MountedConfig («что установлено сейчас») — без пометки «нужно обновление».
+/// То же в MountedConfig («что установлено сейчас») - без пометки «нужно обновление».
 /// Нужно после смены беты без Steam: файлы новой ветки уже скачаны.
 pub fn set_mounted_config(path: &Path, key: &str, value: &str) -> Result<(), String> {
     set_config_block(path, "MountedConfig", key, value, false)
@@ -408,7 +408,7 @@ fn set_config_block(path: &Path, block: &str, key: &str, value: &str, mark_updat
                 in_user = false;
             }
             if depth == 1 && !user_seen && !value.is_empty() {
-                // Блока нет — добавляем перед концом файла.
+                // Блока нет - добавляем перед концом файла.
                 out.push(format!("\t\"{block}\""));
                 out.push("\t{".into());
                 out.push(format!("\t\t\"{key}\"\t\t\"{value}\""));
@@ -451,7 +451,7 @@ fn set_config_block(path: &Path, block: &str, key: &str, value: &str, mark_updat
 
 /// Игры, установленные сразу в нескольких библиотеках Steam: (appid, название, папки
 /// библиотек). Из-за таких дублей Steam видит два разных файла игры и может без конца
-/// её «обновлять».
+/// ее «обновлять».
 pub fn find_duplicates(steam_dir: &Path) -> Vec<(u32, String, Vec<PathBuf>)> {
     let mut map: std::collections::BTreeMap<u32, (String, Vec<PathBuf>)> = Default::default();
     for lib in library_dirs(steam_dir) {
@@ -528,9 +528,9 @@ pub fn installed_depot_sizes(path: &Path) -> std::collections::BTreeMap<u32, u64
 }
 
 /// Записать в appmanifest версии хранилищ (manifest ID в InstalledDepots), номер сборки
-/// (buildid/TargetBuildID, если задан) и StateFlags. Остальное — байт в байт.
+/// (buildid/TargetBuildID, если задан) и StateFlags. Остальное - байт в байт.
 /// Нужно для закрепления версии: Steam сверяет эти номера с последними и, если они
-/// совпадают, ничего не обновляет. Резервная копия — один раз, *.acf.vaporust-pin.bak.
+/// совпадают, ничего не обновляет. Резервная копия - один раз, *.acf.vaporust-pin.bak.
 pub fn write_depot_versions(
     path: &Path,
     manifests: &std::collections::BTreeMap<u32, u64>,
@@ -663,7 +663,7 @@ impl Procs {
 // ---------- Заморозка процессов ----------
 
 /// Приостановка процесса целиком (NtSuspendProcess) и сброс его памяти в файл подкачки.
-/// Процесс остаётся жив, поэтому Steam не перезапускает его.
+/// Процесс остается жив, поэтому Steam не перезапускает его.
 #[cfg(windows)]
 mod freeze {
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
@@ -716,8 +716,8 @@ mod freeze {
     }
 }
 
-/// Список замороженных процессов. Размораживает всё при выходе из run_chain
-/// любым путём (конец игры, ошибка, «Перестать ждать»).
+/// Список замороженных процессов. Размораживает все при выходе из run_chain
+/// любым путем (конец игры, ошибка, «Перестать ждать»).
 #[derive(Default)]
 struct Frozen(Vec<u32>);
 
@@ -745,7 +745,7 @@ impl Drop for Frozen {
 
 // ---------- Запуск игры через урезанный Steam ----------
 
-/// Ждёт условия; false при тайм-ауте или отмене.
+/// Ждет условия; false при тайм-ауте или отмене.
 fn wait_until(timeout: Duration, cancel: &AtomicBool, mut cond: impl FnMut() -> bool) -> bool {
     let start = Instant::now();
     while start.elapsed() < timeout {
@@ -778,8 +778,8 @@ pub fn close_steam(steam: &SteamInfo, set: &dyn Fn(&str)) {
     shutdown_steam(steam, &mut procs, set);
 }
 
-/// Поднять Steam в урезанном режиме и дождаться входа. Ok(Some(true)) — Steam запустили мы
-/// (значит, и закрываем мы), Ok(Some(false)) — он уже был открыт пользователем, Ok(None) — отмена.
+/// Поднять Steam в урезанном режиме и дождаться входа. Ok(Some(true)) - Steam запустили мы
+/// (значит, и закрываем мы), Ok(Some(false)) - он уже был открыт пользователем, Ok(None) - отмена.
 fn start_hidden_steam(
     steam: &SteamInfo,
     args: &str,
@@ -827,7 +827,7 @@ pub fn update_via_steam(
         None => return Ok(CANCEL_MSG.into()),
     };
 
-    set("Жду, пока Steam начнёт обновление...");
+    set("Жду, пока Steam начнет обновление...");
     let started = Instant::now();
     let mut nudged = false;
     let mut done_since: Option<Instant> = None;
@@ -855,10 +855,10 @@ pub fn update_via_steam(
                 "Steam обновляет игру...".into()
             });
             // Сам Steam может не начать загрузку (например, если в его настройках «обновлять
-            // только при запуске») — через 45 с просим проверить файлы игры, это докачает недостающее.
+            // только при запуске») - через 45 с просим проверить файлы игры, это докачает недостающее.
             if !nudged && started.elapsed() > Duration::from_secs(45) && info.bytes_downloaded == 0 {
                 nudged = true;
-                set("Steam не начал обновление сам — запускаю проверку файлов игры...");
+                set("Steam не начал обновление сам - запускаю проверку файлов игры...");
                 let _ = Command::new(&steam.exe)
                     .arg(format!("steam://validate/{}", game.appid))
                     .spawn();
@@ -873,7 +873,7 @@ pub fn update_via_steam(
                 "Игра обновлена.".to_string()
             });
         }
-        // Пока качает, steamwebhelper не нужен — замораживаем, как во время игры.
+        // Пока качает, steamwebhelper не нужен - замораживаем, как во время игры.
         if opts.freeze_webhelper
             && started.elapsed() >= Duration::from_secs(20)
             && last_freeze.map_or(true, |t| t.elapsed() >= Duration::from_secs(10))
@@ -908,7 +908,7 @@ pub fn run_chain(
     };
     let cancelled = || cancel.load(Ordering::Relaxed);
     const CANCEL_MSG: &str =
-        "Лаунчер больше не следит за игрой. Steam останется открытым — закройте его кнопкой «Закрыть Steam».";
+        "Лаунчер больше не следит за игрой. Steam останется открытым - закройте его кнопкой «Закрыть Steam».";
 
     let we_started = match start_hidden_steam(steam, &opts.steam_args, &mut procs, cancel, set)? {
         Some(w) => w,
@@ -921,7 +921,7 @@ pub fn run_chain(
         .spawn()
         .map_err(|e| format!("Не удалось отправить команду запуска: {e}"))?;
 
-    // Ждём процесс игры. Если Steam сначала обновляет игру (новая версия, сменили язык или
+    // Ждем процесс игры. Если Steam сначала обновляет игру (новая версия, сменили язык или
     // бету), показываем прогресс из appmanifest и не считаем это зависанием.
     let acf = appmanifest_path(game);
     let mut deadline = Instant::now() + Duration::from_secs(120);
@@ -1145,7 +1145,7 @@ fn installed_entry(d: u32, m: u64, s: u64) -> Vec<String> {
     ]
 }
 
-/// Поправить InstalledDepots и SharedDepots, остальное — байт в байт. Нет блока — создаётся.
+/// Поправить InstalledDepots и SharedDepots, остальное - байт в байт. Нет блока - создается.
 pub fn edit_depot_lists(path: &Path, e: &DepotEdit) -> Result<(), String> {
     let text = fs::read_to_string(path).map_err(|err| format!("Не удалось прочитать файл игры: {err}"))?;
     let mut out: Vec<String> = Vec::new();
@@ -1263,7 +1263,7 @@ mod depot_edit_tests {
         assert_eq!(installed_depots(&p).into_iter().collect::<Vec<_>>(), vec![(61, 1), (63, 3)]);
         assert_eq!(shared_depots(&p).into_iter().collect::<Vec<_>>(), vec![(73, 70), (228988, 228980)]);
         assert_eq!(read_acf(&p).user_language, "french");
-        // Блоков нет — создаются.
+        // Блоков нет - создаются.
         fs::write(&p, "\"AppState\"\n{\n\t\"appid\"\t\t\"60\"\n}\n").unwrap();
         edit_depot_lists(&p, &DepotEdit { add_installed: vec![(62, 2, 20)], add_shared: vec![(141, 70)], ..Default::default() })
             .unwrap();

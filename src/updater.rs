@@ -3,7 +3,7 @@
 //! Раз при запуске (если включено в настройках) спрашиваем GitHub API о релизах,
 //! находим новее текущей версии и архив под нашу разрядность (windows-x64 / windows-x86).
 //! «Обновить»: скачиваем zip, распаковываем встроенным tar.exe Windows, переименовываем
-//! работающий vaporust.exe в vaporust.exe.old (Windows это позволяет), кладём новый и
+//! работающий vaporust.exe в vaporust.exe.old (Windows это позволяет), кладем новый и
 //! перезапускаемся. Старый файл удаляется при следующем запуске.
 
 use serde_json::Value;
@@ -40,7 +40,7 @@ pub enum State {
     UpToDate,
     Available(Release),
     Downloading(String),
-    /// Новая версия на месте — нужен перезапуск.
+    /// Новая версия на месте - нужен перезапуск.
     Ready,
     Failed(String),
 }
@@ -48,7 +48,7 @@ pub enum State {
 pub type Shared = Arc<Mutex<State>>;
 
 /// Сравнить версии вида 0.2.0-alpha, 0.1.0-alpha.3, 1.0.0. Версия без «-…» новее
-/// такой же с «-…»; части после «-» сравниваются по точкам (числа — как числа).
+/// такой же с «-…»; части после «-» сравниваются по точкам (числа - как числа).
 pub fn compare(a: &str, b: &str) -> Ordering {
     fn split(v: &str) -> (Vec<u64>, Option<Vec<String>>) {
         let v = v.trim().trim_start_matches('v');
@@ -266,7 +266,7 @@ impl crate::LauncherApp {
                             install(r.clone(), &self.upd, ui.ctx());
                         }
                     } else {
-                        ui.weak("(архива для этой Windows в релизе нет — скачайте со страницы)");
+                        ui.weak("(архива для этой Windows в релизе нет - скачайте со страницы)");
                     }
                     if ui.button("Позже").clicked() {
                         self.upd_hidden = true;
