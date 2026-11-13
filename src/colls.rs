@@ -62,33 +62,25 @@ fn es<E: std::fmt::Display>(e: E) -> String {
 }
 
 async fn run(client: &SteamClient, cmd: CollCmd) -> Result<Vec<Coll>, String> {
-    let mut store = CollectionsStore::load().map_err(es)?;
-    collections::pull(&mut store, client).await.map_err(es)?;
-    match cmd {
-        CollCmd::Load => {}
-        CollCmd::Toggle { id, appid, add } => {
-            if add {
-                store.add(&id, &[appid]).map_err(es)?;
-            } else {
-                store.remove(&id, &[appid]).map_err(es)?;
-            }
-            collections::push(&mut store, client).await.map_err(es)?;
-        }
-        CollCmd::Rename { id, name } => {
-            store.rename(&id, &name).map_err(es)?;
-            collections::push(&mut store, client).await.map_err(es)?;
-        }
-        CollCmd::Delete { id } => {
-            store.delete(&id).map_err(es)?;
-            collections::push(&mut store, client).await.map_err(es)?;
-        }
-        CollCmd::Create { name, appid } => {
-            let id = store.create(&name).map_err(es)?;
+    // Aurelia 0.2.5: pull скачивает коллекции Steam и сохраняет их локально; правки делаются
+    // в сохраненном хранилище (CollectionsStore::edit), push отправляет его в Steam.
+    let mut store = collections::pull(client).await.map_err(es)?;
+    let edit: Option<Box<dyn FnOnce(&mut CollectionsStore) -> anyhow::Result<()> + Send>> = match cmd {
+        CollCmd::Load => None,
+        CollCmd::Toggle { id, appid, add } => Some(Box::new(move |s| if add { s.add(&id, &[appid]) } else { s.remove(&id, &[appid]) })),
+        CollCmd::Rename { id, name } => Some(Box::new(move |s| s.rename(&id, &name))),
+        CollCmd::Delete { id } => Some(Box::new(move |s| s.delete(&id))),
+        CollCmd::Create { name, appid } => Some(Box::new(move |s| {
+            let id = s.create(&name)?;
             if let Some(a) = appid {
-                store.add(&id, &[a]).map_err(es)?;
+                s.add(&id, &[a])?;
             }
-            collections::push(&mut store, client).await.map_err(es)?;
-        }
+            Ok(())
+        })),
+    };
+    if let Some(f) = edit {
+        CollectionsStore::edit(f).map_err(es)?;
+        store = collections::push(client, false).await.map_err(es)?;
     }
     Ok(visible(&store))
 }

@@ -34,7 +34,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_Storage_FileSystem", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_Media_Audio", "Win32_UI_Shell", "Win32_System_Memory", "Win32_Security"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_Storage_FileSystem", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_Media_Audio", "Win32_UI_Shell", "Win32_System_Memory", "Win32_Security", "Win32_System_LibraryLoader"] }
 
 [build-dependencies]
 # Значок exe (ресурс Windows из assets/vaporust.rc).
@@ -42,7 +42,7 @@ embed-resource = "2"
 
 [dev-dependencies]
 # Только для живых тестов протокола (те же версии, что у Aurelia).
-steam-vent = { package = "aurelia-steam-vent", version = "0.7.1" }
+steam-vent = { package = "aurelia-steam-vent", version = "0.7.2" }
 steam-vent-proto = "=0.5.2"
 
 [profile.release]

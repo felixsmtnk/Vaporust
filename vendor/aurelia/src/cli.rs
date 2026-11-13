@@ -322,14 +322,14 @@ pub(crate) enum Command {
     Enable {
         app_id: u32,
         /// Stop Steam while applying the change, then restart it, so the running
-        /// client picks it up (Windows). Steam reads DLC state only at startup.
+        /// client picks it up (Windows and Linux). Steam reads DLC state only at startup.
         #[arg(short = 'r', long)]
         restart_steam: bool,
     },
     /// Disable a DLC for its base game.
     Disable {
         app_id: u32,
-        /// Stop Steam while applying the change, then restart it (Windows).
+        /// Stop Steam while applying the change, then restart it (Windows and Linux).
         #[arg(short = 'r', long)]
         restart_steam: bool,
     },
@@ -816,6 +816,9 @@ pub(crate) enum CollectionsCommand {
         /// Skip the confirmation prompt. Required in `--json` mode.
         #[arg(short, long)]
         yes: bool,
+        /// Push even if never pulled.
+        #[arg(long)]
+        force: bool,
     },
     /// Pull then push — reconcile local and Steam collections (needs login).
     /// This changes your real Steam library — confirm or pass `--yes`.
@@ -1027,7 +1030,7 @@ pub(crate) struct InstallArgs {
     #[arg(short, long)]
     pub(crate) platform: Option<PlatformArg>,
     /// When installing a DLC, restart the Steam client afterward so the running
-    /// client picks up the change (Windows). Without this it only warns.
+    /// client picks up the change (Windows and Linux). Without this it only warns.
     #[arg(short = 'r', long)]
     pub(crate) restart_steam: bool,
     /// Don't install — just report the estimated download and on-disk size

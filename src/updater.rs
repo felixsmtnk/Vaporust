@@ -8,7 +8,7 @@
 
 use serde_json::Value;
 use std::cmp::Ordering;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 const API: &str = "https://api.github.com/repos/felixsmtnk/Vaporust/releases?per_page=10";
@@ -335,7 +335,7 @@ mod tests {
     #[test]
     #[ignore]
     fn replace_live() {
-        let dir = PathBuf::from(std::env::var("VAPORUST_DUMP").unwrap());
+        let dir = std::path::PathBuf::from(std::env::var("VAPORUST_DUMP").unwrap());
         let exe = dir.join("vaporust.exe");
         std::fs::write(&exe, b"old exe").unwrap();
         let rel = parse_latest(&get(API).unwrap(), "0.0.1").unwrap().unwrap();

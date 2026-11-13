@@ -24,8 +24,8 @@ pub struct WebSession {
     /// The `sessionid` CSRF token. Steam only checks that this cookie matches the
     /// `sessionid` form field on POSTs, so a client-generated value is accepted.
     sessionid: String,
-    /// Pre-rendered `Cookie:` header value.
-    cookie: crate::core::secret::Secret,
+    /// `Cookie:` header; gains server cookies.
+    cookie: std::sync::Arc<std::sync::Mutex<crate::core::secret::Secret>>,
 }
 
 impl WebSession {
@@ -57,7 +57,7 @@ impl WebSession {
             http,
             steam_id,
             sessionid,
-            cookie: cookie.into(),
+            cookie: std::sync::Arc::new(std::sync::Mutex::new(cookie.into())),
         })
     }
 
@@ -97,7 +97,7 @@ impl WebSession {
         let resp = self
             .http
             .post(url)
-            .header(reqwest::header::COOKIE, self.cookie.expose())
+            .header(reqwest::header::COOKIE, self.cookie_header().expose())
             .header(reqwest::header::REFERER, referer)
             .header(
                 reqwest::header::CONTENT_TYPE,
@@ -125,52 +125,125 @@ impl WebSession {
     /// common failure modes (rate limiting, an expired/invalid session) to clear,
     /// actionable errors.
     pub async fn get_text(&self, url: &str) -> Result<String> {
-        // vaporust: Steam first bounces market/inventory pages through
-        // /market/eligibilitycheck/, which sets a `webTradeEligibility` cookie and
-        // redirects back (a browser does this silently). Follow those hops ourselves,
-        // carrying the cookies they set; only other redirects are treated as errors.
-        let mut url = url.to_string();
-        let mut extra: Vec<(String, String)> = Vec::new();
-        for _ in 0..6 {
-            let mut cookie = self.cookie.expose().to_string();
-            for (k, v) in &extra {
-                cookie.push_str(&format!("; {k}={v}"));
-            }
-            let request = self.http.get(&url).header(reqwest::header::COOKIE, cookie);
-            let resp = crate::core::net::send_with_retry(&self.http, request).await?;
-            if !resp.status().is_redirection() {
-                return read_checked(resp).await;
-            }
-            let location = resp
-                .headers()
-                .get(reqwest::header::LOCATION)
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or_default()
-                .to_string();
-            let same_site = location.starts_with('/') || location.contains("steamcommunity.com");
-            if location.contains("/login") || !same_site {
-                return read_checked(resp).await;
-            }
-            for sc in resp.headers().get_all(reqwest::header::SET_COOKIE) {
-                if let Some((k, v)) = sc
-                    .to_str()
-                    .ok()
-                    .and_then(|s| s.split(';').next())
-                    .and_then(|kv| kv.split_once('='))
-                {
-                    let (k, v) = (k.trim().to_string(), v.trim().to_string());
-                    extra.retain(|(n, _)| *n != k);
-                    extra.push((k, v));
-                }
-            }
-            url = if location.starts_with('/') {
-                format!("https://steamcommunity.com{location}")
-            } else {
-                location
-            };
+        let mut resp = self.send_get(url).await?;
+        if let Some(check) = eligibility_redirect(&resp) {
+            self.pass_eligibility_check(&check).await?;
+            // Retry once with new cookies.
+            resp = self.send_get(url).await?;
         }
-        bail!("too many redirects from Steam (eligibility check did not complete)")
+        read_checked(resp).await
     }
+
+    /// GET with the current cookies.
+    async fn send_get(&self, url: &str) -> Result<reqwest::Response> {
+        let cookie = self.cookie_header();
+        let request = self
+            .http
+            .get(url)
+            .header(reqwest::header::COOKIE, cookie.expose());
+        crate::core::net::send_with_retry(&self.http, request).await
+    }
+
+    /// Snapshot of the cookie header.
+    fn cookie_header(&self) -> crate::core::secret::Secret {
+        let guard = self.cookie.lock().unwrap_or_else(|e| e.into_inner());
+        guard.expose().into()
+    }
+
+    /// Visit check once, keep cookies.
+    async fn pass_eligibility_check(&self, check_url: &str) -> Result<()> {
+        tracing::debug!("following Steam market eligibility check");
+        let resp = self.send_get(check_url).await?;
+        if redirect_location(&resp).is_some_and(|l| l.contains("/login")) {
+            bail!(
+                "the Steam web session was rejected (redirected to login). Run \
+                 `aurelia login --reconnect`."
+            );
+        }
+        let set: Vec<(String, String)> = resp
+            .headers()
+            .get_all(reqwest::header::SET_COOKIE)
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .filter_map(parse_set_cookie)
+            .collect();
+        if set.is_empty() {
+            return Err(ineligible_error());
+        }
+        let mut guard = self.cookie.lock().unwrap_or_else(|e| e.into_inner());
+        let merged = merge_cookies(guard.expose(), &set);
+        *guard = merged.into();
+        Ok(())
+    }
+}
+
+/// A redirect's `Location` header, if any.
+fn redirect_location(resp: &reqwest::Response) -> Option<String> {
+    if !resp.status().is_redirection() {
+        return None;
+    }
+    resp.headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
+}
+
+/// Absolute eligibility-check URL, if redirected there.
+fn eligibility_redirect(resp: &reqwest::Response) -> Option<String> {
+    let location = redirect_location(resp)?;
+    if !location.contains("eligibilitycheck") {
+        return None;
+    }
+    resp.url().join(&location).ok().map(|u| u.to_string())
+}
+
+/// Typed "market not available" error.
+fn ineligible_error() -> anyhow::Error {
+    TypedError::new(
+        ErrorKind::AccessDenied,
+        "this account cannot use the Steam Community Market yet. Steam requires the \
+         Steam Guard Mobile Authenticator enabled for 15+ days (and no recent new-device \
+         holds) before market and wallet features become available.",
+    )
+    .into()
+}
+
+/// `Set-Cookie` header's name and value.
+fn parse_set_cookie(header: &str) -> Option<(String, String)> {
+    let pair = header.split(';').next()?.trim();
+    let (name, value) = pair.split_once('=')?;
+    let name = name.trim();
+    if name.is_empty() {
+        return None;
+    }
+    Some((name.to_string(), value.trim().to_string()))
+}
+
+/// Merge cookies; existing auth cookies win.
+fn merge_cookies(existing: &str, new: &[(String, String)]) -> String {
+    // Never let the server replace these.
+    const KEEP: &[&str] = &["steamLoginSecure", "sessionid"];
+    let mut pairs: Vec<(String, String)> = existing
+        .split(';')
+        .filter_map(|p| {
+            let (n, v) = p.trim().split_once('=')?;
+            Some((n.to_string(), v.to_string()))
+        })
+        .collect();
+    for (name, value) in new {
+        if KEEP.contains(&name.as_str()) {
+            continue;
+        }
+        match pairs.iter_mut().find(|(n, _)| n == name) {
+            Some(slot) => slot.1 = value.clone(),
+            None => pairs.push((name.clone(), value.clone())),
+        }
+    }
+    pairs
+        .iter()
+        .map(|(n, v)| format!("{n}={v}"))
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 /// Map HTTP status to an error or the body text.
@@ -204,11 +277,7 @@ async fn read_checked(resp: reqwest::Response) -> Result<String> {
         // Steam redirects authenticated-but-ineligible accounts to an eligibility
         // check; an actually-rejected session goes to the login page. Distinguish them.
         if location.contains("eligibilitycheck") {
-            bail!(
-                "this account cannot use the Steam Community Market yet. Steam requires the \
-                 Steam Guard Mobile Authenticator enabled for 15+ days (and no recent new-device \
-                 holds) before market and wallet features become available."
-            );
+            return Err(ineligible_error());
         }
         if location.contains("/login") {
             bail!(
@@ -234,3 +303,7 @@ fn random_sessionid() -> String {
         .map(|_| char::from_digit(rng.random_range(0..16), 16).unwrap())
         .collect()
 }
+
+#[cfg(test)]
+#[path = "web_session_tests.rs"]
+mod tests;

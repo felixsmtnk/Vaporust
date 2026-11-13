@@ -1,12 +1,16 @@
-# Изменения Vaporust в Aurelia 0.2.4
+# Изменения Vaporust в Aurelia 0.2.5
 
-Этот каталог - копия [Aurelia](https://github.com/Drackrath/Aurelia) версии 0.2.4
+Этот каталог - копия [Aurelia](https://github.com/Drackrath/Aurelia) версии 0.2.5
 (crate `aurelia-steam`, автор - Drackrath, лицензия GPL-3.0-or-later, см. `LICENSE`).
 Проект Vaporust использует ее как библиотеку и внес следующие изменения
 (ноябрь 2026). Остальные файлы не менялись.
 
 В ноябре 2026 копия обновлена с 0.2.3 до 0.2.4 слиянием изменений автора (git merge тега v0.2.4):
 конфликтов с правками Vaporust не было.
+Затем до 0.2.5 (git merge тега v0.2.5). Единственный конфликт - `web/web_session.rs`: автор сам
+сделал проход через проверку допуска к торговой площадке (eligibilitycheck), поэтому вместо нашей
+версии `get_text` взята авторская; наши `post_form` и `put_bytes` переведены на его хранение cookie
+(`cookie_header()`).
 
 ## Измененные файлы
 
@@ -20,9 +24,8 @@
 - `src/steam_client/install.rs` - добавлена `set_download_limit_now` (ограничение скорости
   применяется сразу, а не через 5 с при перечитывании config.json); вынесена в `pub use`.
 - `src/web/web_session.rs` - добавлены методы `post_form` (POST формы с куками
-  веб-сессии) и `put_bytes` (PUT файла на сервер загрузки). `get_text` проходит
-  перенаправления Steam через `/market/eligibilitycheck/` (как браузер: с cookie,
-  которые ставит эта страница), а не считает их отказом в доступе к площадке.
+  веб-сессии) и `put_bytes` (PUT файла на сервер загрузки). Проход через
+  `/market/eligibilitycheck/` с 0.2.5 делает сам автор в `get_text`, наша версия убрана.
 - `src/steam_client/content.rs` - `fetch_achievements` вынесена в `fetch_achievements_for(appid,
   язык, steam_id)`: достижения любого пользователя (сравнение с другом).
 

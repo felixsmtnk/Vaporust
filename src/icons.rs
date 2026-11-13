@@ -532,3 +532,29 @@ mod variants {
         }
     }
 }
+
+/// Большой значок окна (панель задач, Alt+Tab) - из ресурсов самого exe. eframe задает окну
+/// только маленький значок, и Windows брала большой из своего кэша иконок, где мог остаться
+/// старый логотип этого же файла.
+#[cfg(windows)]
+pub fn set_taskbar_icon(hwnd: isize) {
+    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, LoadImageW, SendMessageW, ICON_BIG, ICON_SMALL, IMAGE_ICON, LR_DEFAULTCOLOR, SM_CXICON, SM_CXSMICON,
+        SM_CYICON, SM_CYSMICON, WM_SETICON,
+    };
+    unsafe {
+        let module = GetModuleHandleW(std::ptr::null());
+        // Ресурс значка №1 (см. build.rs).
+        let id = 1usize as *const u16;
+        for (kind, cx, cy) in [(ICON_BIG, SM_CXICON, SM_CYICON), (ICON_SMALL, SM_CXSMICON, SM_CYSMICON)] {
+            let icon = LoadImageW(module, id, IMAGE_ICON, GetSystemMetrics(cx), GetSystemMetrics(cy), LR_DEFAULTCOLOR);
+            if !icon.is_null() {
+                SendMessageW(hwnd as _, WM_SETICON, kind as usize, icon as isize);
+            }
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub fn set_taskbar_icon(_hwnd: isize) {}

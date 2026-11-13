@@ -346,6 +346,7 @@ impl LauncherApp {
             if let Ok(h) = cc.window_handle() {
                 if let RawWindowHandle::Win32(w) = h.as_raw() {
                     notify::init(w.hwnd.get());
+                    icons::set_taskbar_icon(w.hwnd.get());
                 }
             }
         }

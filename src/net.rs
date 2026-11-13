@@ -488,7 +488,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 s.busy = true;
                 s.message = "Вход... Если включен мобильный аутентификатор, подтвердите вход в приложении Steam.".into();
             });
-            match client.login(user, Secret::new(pass), code, false).await {
+            match client.login(user, Secret::new(pass), code, None).await {
                 Ok(session) => logged_in(client, session, st, ctx).await,
                 Err(e) => {
                     let needs_code = !client.pending_confirmations().is_empty();
@@ -863,8 +863,12 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             tokio::spawn(async move {
                 let res = async {
                     let cloud = c.cloud_client().map_err(es)?;
-                    let resolver = CloudPathResolver::new(remote, Some(dir));
-                    let specs = c.fetch_ufs_save_specs(appid).await.unwrap_or_default();
+                    // Aurelia 0.2.5: правила облака (UFS) с переопределениями корней для Windows и SteamID.
+                    let ufs = c.fetch_ufs_config(appid).await.unwrap_or_default();
+                    let resolver = CloudPathResolver::new(remote, Some(dir))
+                        .with_root_overrides(&ufs.root_overrides, "windows")
+                        .with_steam_id(cloud.steam_id());
+                    let specs = ufs.savefiles;
                     let direction = match direction {
                         0 => SyncDirection::Down,
                         1 => SyncDirection::Up,
@@ -2046,8 +2050,7 @@ mod live_collections {
         rt.block_on(async {
             let mut c = aurelia::steam_client::SteamClient::new().unwrap();
             c.restore_session().await.unwrap();
-            let mut store = aurelia::library::collections::CollectionsStore::load().unwrap();
-            aurelia::library::collections::pull(&mut store, &c).await.unwrap();
+            let store = aurelia::library::collections::pull(&c).await.unwrap();
             for col in &store.collections {
                 println!("{} | {} | added {} | dynamic {} | builtin {}", col.id, col.name, col.added.len(), col.is_dynamic(), col.is_builtin());
             }

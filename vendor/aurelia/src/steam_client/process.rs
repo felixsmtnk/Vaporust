@@ -73,7 +73,12 @@ impl SteamClient {
         tracing::info!("host Steam logged on; proceeding with launch");
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
+    pub fn steam_is_running() -> bool {
+        crate::core::utils::is_steam_running()
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     pub fn steam_is_running() -> bool {
         false
     }
@@ -115,14 +120,40 @@ impl SteamClient {
         Ok(())
     }
 
-    #[cfg(not(target_os = "windows"))]
+    /// Stop host Steam and wait (Linux).
+    #[cfg(target_os = "linux")]
     pub fn shutdown_steam() -> Result<()> {
-        bail!("automatic Steam control is only supported on Windows")
+        // `-shutdown` would start a stopped Steam.
+        if !SteamClient::steam_is_running() {
+            return Ok(());
+        }
+        crate::core::utils::start_steam_detached(&["-shutdown"])
+            .context("failed to signal Steam shutdown")?;
+        let stopped = crate::core::utils::wait_until(
+            || !SteamClient::steam_is_running(),
+            std::time::Duration::from_secs(30),
+            std::time::Duration::from_millis(250),
+        );
+        if !stopped {
+            bail!("Steam did not shut down within 30s");
+        }
+        Ok(())
     }
 
-    #[cfg(not(target_os = "windows"))]
+    /// Start host Steam silently (Linux).
+    #[cfg(target_os = "linux")]
     pub fn start_steam() -> Result<()> {
-        bail!("automatic Steam control is only supported on Windows")
+        crate::core::utils::start_steam_detached(&["-silent"]).context("failed to start Steam")
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    pub fn shutdown_steam() -> Result<()> {
+        bail!("automatic Steam control is only supported on Windows and Linux")
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    pub fn start_steam() -> Result<()> {
+        bail!("automatic Steam control is only supported on Windows and Linux")
     }
 
     /// Stop a game previously launched by `aurelia play`. Looks up the launch
@@ -430,14 +461,13 @@ NoSavePersonalInfo=1
         app: &LibraryGame,
         launch_info: &LaunchInfo,
         user_config: Option<&crate::core::models::UserAppConfig>,
-    ) -> Result<std::process::Child> {
+    ) -> Result<crate::launch::game_process::GameProcess> {
         let (_install_dir, executable, args, game_working_dir) = self
             .resolve_exec_plan(app, launch_info, user_config)
             .await?;
 
         // Standard Steam identity fallback so the game can resolve its app id.
-        let app_id_path = game_working_dir.join("steam_appid.txt");
-        std::fs::write(&app_id_path, app.app_id.to_string()).unwrap_or_default();
+        crate::core::utils::ensure_steam_appid_logged(&game_working_dir, app.app_id);
 
         let mut cmd = Command::new(&executable);
         cmd.args(&args);
@@ -458,9 +488,51 @@ NoSavePersonalInfo=1
             executable,
             args
         );
-        cmd.spawn()
-            .map(crate::infra::logging::relay::attach)
-            .with_context(|| format!("failed to spawn windows game {}", executable.display()))
+        match cmd.spawn() {
+            Ok(child) => Ok(crate::infra::logging::relay::attach(child).into()),
+            #[cfg(windows)]
+            Err(e) if crate::launch::game_process::needs_elevation(&e) => {
+                self.spawn_windows_elevated(app, executable, args, game_working_dir, user_config)
+                    .await
+            }
+            Err(e) => Err(e)
+                .with_context(|| format!("failed to spawn windows game {}", executable.display())),
+        }
+    }
+
+    /// Retry through UAC, like Steam.
+    #[cfg(windows)]
+    async fn spawn_windows_elevated(
+        &self,
+        app: &LibraryGame,
+        executable: PathBuf,
+        args: Vec<String>,
+        game_working_dir: PathBuf,
+        user_config: Option<&crate::core::models::UserAppConfig>,
+    ) -> Result<crate::launch::game_process::GameProcess> {
+        tracing::info!(
+            appid = app.app_id,
+            "{} requires administrator rights; requesting elevation (UAC prompt)",
+            executable.display()
+        );
+        let custom_env = user_config.is_some_and(|c| !c.env_variables.is_empty());
+        let dropped = if custom_env {
+            "SteamAppId and per-game environment variables"
+        } else {
+            "SteamAppId"
+        };
+        tracing::warn!(
+            appid = app.app_id,
+            "Elevated launch: {dropped} do not reach the game; it relies on steam_appid.txt"
+        );
+        let exe = executable.clone();
+        let process = tokio::task::spawn_blocking(move || {
+            crate::launch::game_process::elevated::spawn(&exe, &args, &game_working_dir)
+        })
+        .await
+        .context("elevated launch task failed")?
+        .with_context(|| format!("failed to launch {} as administrator", executable.display()))?;
+        Ok(crate::launch::game_process::GameProcess::Elevated(process))
     }
 
     pub(crate) async fn spawn_game_process(
@@ -522,12 +594,10 @@ NoSavePersonalInfo=1
         let (install_dir, executable, args, game_working_dir) = self
             .resolve_exec_plan(app, launch_info, user_config)
             .await?;
-        let app_id_str = app.app_id.to_string();
 
         match launch_info.target {
             LaunchTarget::NativeLinux => {
-                let app_id_path = game_working_dir.join("steam_appid.txt");
-                std::fs::write(&app_id_path, &app_id_str).unwrap_or_default();
+                crate::core::utils::ensure_steam_appid_logged(&game_working_dir, app.app_id);
 
                 #[cfg(unix)]
                 {
