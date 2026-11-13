@@ -1,11 +1,10 @@
 //! Резервные копии сохранений игр: файлы облака Steam игры (там, где они лежат на этом ПК)
 //! складываются в zip в «Документы\Vaporust\Сохранения\<игра>\<дата>.zip». В архиве - список
 //! исходных путей (vaporust_backup.txt), по нему копия восстанавливается на место.
-//! Архивы делает встроенный в Windows 10 tar.exe (умеет zip).
+//! Архивы делает сама программа (библиотека zip), без внешних программ.
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 const MANIFEST: &str = "vaporust_backup.txt";
 
@@ -26,44 +25,38 @@ pub fn game_dir(game: &str) -> PathBuf {
     root().join(safe(game))
 }
 
-fn tar(args: &[&std::ffi::OsStr], cwd: &Path) -> Result<(), String> {
-    // Именно tar.exe Windows (bsdtar, умеет zip), а не другой tar из PATH.
-    let sys = std::env::var_os("SystemRoot").map(|r| PathBuf::from(r).join("System32").join("tar.exe")).filter(|p| p.is_file());
-    let mut c = Command::new(sys.unwrap_or_else(|| PathBuf::from("tar")));
-    c.args(args).current_dir(cwd);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        c.creation_flags(0x0800_0000); // без окна консоли
-    }
-    let st = c.status().map_err(|e| format!("tar не запустился: {e}"))?;
-    if st.success() {
-        Ok(())
-    } else {
-        Err(format!("tar завершился с кодом {}", st.code().unwrap_or(-1)))
-    }
-}
-
 /// Сделать копию: только существующие файлы. Возвращает путь к архиву и число файлов.
+/// Архив пишет сама программа (библиотека zip): системный tar.exe терял русские и другие
+/// не-латинские буквы в путях на Windows с другим языком.
 pub fn backup_to(dir: &Path, files: &[PathBuf]) -> Result<(PathBuf, usize), String> {
+    use std::io::Write;
     let files: Vec<&PathBuf> = files.iter().filter(|f| f.is_file()).collect();
     if files.is_empty() {
         return Err("Файлов сохранений на этом ПК нет - копировать нечего.".into());
     }
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let stamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
-    let stage = std::env::temp_dir().join(format!("vaporust_backup_{}_{stamp}", std::process::id()));
-    fs::create_dir_all(stage.join("files")).map_err(|e| e.to_string())?;
-    let mut manifest = String::new();
-    for (i, f) in files.iter().enumerate() {
-        let name = format!("{i}_{}", f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
-        fs::copy(f, stage.join("files").join(&name)).map_err(|e| format!("Не скопирован {}: {e}", f.display()))?;
-        manifest.push_str(&format!("{name}\t{}\n", f.display()));
-    }
-    fs::write(stage.join(MANIFEST), manifest).map_err(|e| e.to_string())?;
     let out = dir.join(format!("{stamp}.zip"));
-    let r = tar(&["-a".as_ref(), "-c".as_ref(), "-f".as_ref(), out.as_os_str(), MANIFEST.as_ref(), "files".as_ref()], &stage);
-    let _ = fs::remove_dir_all(&stage);
+    let r = (|| -> Result<(), String> {
+        let file = fs::File::create(&out).map_err(|e| format!("Архив не создан: {e}"))?;
+        let mut z = zip::ZipWriter::new(file);
+        let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let mut manifest = String::new();
+        for (i, f) in files.iter().enumerate() {
+            let name = format!("{i}_{}", f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
+            let data = fs::read(f).map_err(|e| format!("Не прочитан {}: {e}", f.display()))?;
+            z.start_file(format!("files/{name}"), opts).map_err(|e| e.to_string())?;
+            z.write_all(&data).map_err(|e| e.to_string())?;
+            manifest.push_str(&format!("{name}\t{}\n", f.display()));
+        }
+        z.start_file(MANIFEST, opts).map_err(|e| e.to_string())?;
+        z.write_all(manifest.as_bytes()).map_err(|e| e.to_string())?;
+        z.finish().map_err(|e| e.to_string())?;
+        Ok(())
+    })();
+    if r.is_err() {
+        let _ = fs::remove_file(&out);
+    }
     r.map(|_| (out, files.len()))
 }
 
@@ -88,27 +81,31 @@ pub fn list(game: &str) -> Vec<(PathBuf, std::time::SystemTime, u64)> {
 }
 
 /// Вернуть файлы из копии на их места (перезаписывая). Возвращает число файлов.
-pub fn restore(zip: &Path) -> Result<usize, String> {
-    let stage = std::env::temp_dir().join(format!("vaporust_restore_{}", std::process::id()));
-    let _ = fs::remove_dir_all(&stage);
-    fs::create_dir_all(&stage).map_err(|e| e.to_string())?;
-    let r = (|| {
-        tar(&["-x".as_ref(), "-f".as_ref(), zip.as_os_str()], &stage)?;
-        let manifest = fs::read_to_string(stage.join(MANIFEST)).map_err(|_| "В архиве нет списка файлов - это не копия Vaporust.".to_string())?;
-        let mut n = 0;
-        for line in manifest.lines() {
-            let Some((name, dest)) = line.split_once('\t') else { continue };
-            let dest = PathBuf::from(dest);
-            if let Some(parent) = dest.parent() {
-                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-            }
-            fs::copy(stage.join("files").join(name), &dest).map_err(|e| format!("Не восстановлен {}: {e}", dest.display()))?;
-            n += 1;
+pub fn restore(zip_path: &Path) -> Result<usize, String> {
+    use std::io::Read;
+    let file = fs::File::open(zip_path).map_err(|e| format!("Архив не открыт: {e}"))?;
+    let mut z = zip::ZipArchive::new(file).map_err(|e| format!("Это не zip-архив: {e}"))?;
+    let mut manifest = String::new();
+    z.by_name(MANIFEST)
+        .map_err(|_| "В архиве нет списка файлов - это не копия Vaporust.".to_string())?
+        .read_to_string(&mut manifest)
+        .map_err(|e| e.to_string())?;
+    let mut n = 0;
+    for line in manifest.lines() {
+        let Some((name, dest)) = line.split_once('\t') else { continue };
+        let dest = PathBuf::from(dest);
+        let mut data = Vec::new();
+        z.by_name(&format!("files/{name}"))
+            .map_err(|e| format!("В архиве нет {name}: {e}"))?
+            .read_to_end(&mut data)
+            .map_err(|e| e.to_string())?;
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        Ok(n)
-    })();
-    let _ = fs::remove_dir_all(&stage);
-    r
+        fs::write(&dest, data).map_err(|e| format!("Не восстановлен {}: {e}", dest.display()))?;
+        n += 1;
+    }
+    Ok(n)
 }
 
 #[cfg(test)]

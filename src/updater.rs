@@ -2,7 +2,7 @@
 //!
 //! Раз при запуске (если включено в настройках) спрашиваем GitHub API о релизах,
 //! находим новее текущей версии и архив под нашу разрядность (windows-x64 / windows-x86).
-//! «Обновить»: скачиваем zip, распаковываем встроенным tar.exe Windows, переименовываем
+//! «Обновить»: скачиваем zip, распаковываем сами (библиотека zip), переименовываем
 //! работающий vaporust.exe в vaporust.exe.old (Windows это позволяет), кладем новый и
 //! перезапускаемся. Старый файл удаляется при следующем запуске.
 
@@ -183,25 +183,23 @@ pub fn install(release: Release, state: &Shared, ctx: &eframe::egui::Context) {
 
 /// Распаковать архив и заменить exe (работающий файл переименовываем в .old).
 pub fn replace_exe(exe: &Path, zip: &[u8]) -> Result<(), String> {
+    use std::io::Read;
+    // Распаковываем сами (библиотека zip): системный tar.exe не понимает не-латинские буквы в
+    // путях (например, «C:\Users\Иван\...») на Windows с другим языком.
+    let mut z = zip::ZipArchive::new(std::io::Cursor::new(zip)).map_err(|e| format!("не удалось открыть архив: {e}"))?;
+    let idx = (0..z.len())
+        .find(|&i| z.by_index(i).map(|f| f.name().to_ascii_lowercase().ends_with("vaporust.exe")).unwrap_or(false))
+        .ok_or("в архиве нет vaporust.exe")?;
+    let mut data = Vec::new();
+    z.by_index(idx)
+        .map_err(|e| format!("не удалось распаковать архив: {e}"))?
+        .read_to_end(&mut data)
+        .map_err(|e| format!("не удалось распаковать архив: {e}"))?;
     let tmp = std::env::temp_dir().join(format!("vaporust-update-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
-    let zip_path = tmp.join("update.zip");
-    std::fs::write(&zip_path, zip).map_err(|e| e.to_string())?;
-    let out = tmp.join("files");
-    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
-    // tar.exe есть в Windows 10 с 2018 года и понимает zip.
-    let status = std::process::Command::new("tar")
-        .arg("-xf")
-        .arg(&zip_path)
-        .arg("-C")
-        .arg(&out)
-        .status()
-        .map_err(|e| format!("не удалось распаковать архив: {e}"))?;
-    if !status.success() {
-        return Err("не удалось распаковать архив".into());
-    }
-    let new_exe = find_exe(&out).ok_or("в архиве нет vaporust.exe")?;
+    let new_exe = tmp.join("vaporust.exe");
+    std::fs::write(&new_exe, data).map_err(|e| e.to_string())?;
     let old = exe.with_extension("exe.old");
     let _ = std::fs::remove_file(&old);
     std::fs::rename(exe, &old).map_err(|e| format!("не удалось заменить программу (папка доступна для записи?): {e}"))?;
@@ -212,20 +210,6 @@ pub fn replace_exe(exe: &Path, zip: &[u8]) -> Result<(), String> {
     }
     let _ = std::fs::remove_dir_all(&tmp);
     Ok(())
-}
-
-fn find_exe(dir: &Path) -> Option<PathBuf> {
-    for e in std::fs::read_dir(dir).ok()?.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            if let Some(f) = find_exe(&p) {
-                return Some(f);
-            }
-        } else if p.file_name().is_some_and(|n| n.eq_ignore_ascii_case("vaporust.exe")) {
-            return Some(p);
-        }
-    }
-    None
 }
 
 /// При запуске: убрать файл старой версии, оставшийся после обновления.
