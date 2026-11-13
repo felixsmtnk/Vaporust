@@ -63,7 +63,18 @@ jobs:
 
       - name: Тесты
         if: matrix.arch == 'x64'
-        run: cargo test --release --locked --target ${{ matrix.target }}
+        shell: pwsh
+        run: |
+          $env:CARGO_TERM_COLOR = "never"
+          cargo test --release --locked --target ${{ matrix.target }} 2>&1 | Tee-Object -Variable log
+          if ($LASTEXITCODE -ne 0) {
+            # Упавшие тесты и причины - аннотацией (видно и без входа в GitHub).
+            $lines = $log | ForEach-Object { "$_" } |
+              Where-Object { $_ -match 'FAILED|panicked|assertion|left:|right:|^error|failures:' } |
+              Select-Object -First 60
+            "::error::$($lines -join '%0A')"
+            exit 1
+          }
 
       - name: Архив
         shell: pwsh
