@@ -17,3 +17,6 @@
 # Портативный режим, если запускать программу прямо из папки проекта
 /VaporustData
 /portable.txt
+
+# Варианты логотипа (черновики; итоговый - assets/logo.png и assets/vaporust.ico)
+/assets/logo_variants

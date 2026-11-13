@@ -29,6 +29,10 @@ pub struct Cache(HashMap<String, State>);
 impl Cache {
     /// Нарисовать картинку по адресу размером `size`, с анимацией, если это APNG.
     pub fn show(&mut self, ui: &mut egui::Ui, url: &str, size: egui::Vec2) -> egui::Response {
+        // Анимации выключены в настройках: первый кадр, без раскодирования всех кадров.
+        if !crate::imgload::animations() {
+            return ui.add(egui::Image::new(url).fit_to_exact_size(size));
+        }
         if !self.0.contains_key(url) {
             match ui.ctx().try_load_bytes(url) {
                 Ok(egui::load::BytesPoll::Ready { bytes, .. }) => {
@@ -37,7 +41,7 @@ impl Cache {
                 }
                 Ok(egui::load::BytesPoll::Pending { .. }) => {
                     let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::hover());
-                    egui::Spinner::new().paint_at(ui, rect.shrink(size.x * 0.3));
+                    ui.painter().circle_stroke(rect.center(), size.x * 0.15, ui.visuals().widgets.noninteractive.fg_stroke);
                     // Загрузчик будит только главное окно, поэтому окно чата проверяет сам.
                     ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
                     return resp;

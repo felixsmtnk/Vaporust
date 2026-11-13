@@ -30,8 +30,10 @@ pub struct ShotsWin {
     /// Только эта игра (None - все).
     pub filter: Option<u32>,
     local: Option<Vec<LocalShot>>,
-    /// Для какого фильтра уже просили облачные (чтобы не просить каждый кадр).
-    cloud_asked: Option<u32>,
+    /// Для какого фильтра уже просили облачные: (чьи, игра) - чтобы не просить каждый кадр.
+    cloud_asked: Option<(u64, u32)>,
+    /// Скриншоты друга (SteamID64, имя); None - свои.
+    pub user: Option<(u64, String)>,
     /// Ход скачивания на компьютер.
     status: Arc<Mutex<String>>,
     /// Скачивание закончилось - перечитать «На этом ПК».
@@ -47,6 +49,7 @@ impl ShotsWin {
             filter,
             local: None,
             cloud_asked: None,
+            user: None,
             status: Default::default(),
             rescan: Default::default(),
             cloud_games: Default::default(),
@@ -158,8 +161,23 @@ fn show_in_folder(p: &Path) {
 impl LauncherApp {
     /// Открыть «Скриншоты» (с фильтром по игре, если задан).
     pub(crate) fn open_shots(&mut self, filter: Option<u32>) {
+        self.close_extras(crate::View::Screenshots);
+        // Были открыты скриншоты друга - начинаем заново со своих.
+        if self.shots_win.as_ref().is_some_and(|w| w.user.is_some()) {
+            self.shots_win = None;
+        }
         let w = self.shots_win.get_or_insert_with(|| ShotsWin::new(filter));
         w.filter = filter;
+        self.view = crate::View::Screenshots;
+    }
+
+    /// Скриншоты друга (те, что он показывает вам).
+    pub(crate) fn open_friend_shots(&mut self, id: u64, name: String) {
+        self.close_extras(crate::View::Screenshots);
+        let mut w = ShotsWin::new(None);
+        w.user = Some((id, name));
+        w.tab = 1;
+        self.shots_win = Some(w);
         self.view = crate::View::Screenshots;
     }
 
@@ -202,9 +220,13 @@ impl LauncherApp {
                 w.cloud_games.entry(s.appid).or_insert(name);
             }
         }
-        if w.tab == 1 && net.account.is_some() && w.cloud_asked != Some(w.filter.unwrap_or(0)) {
-            w.cloud_asked = Some(w.filter.unwrap_or(0));
-            let _ = self.tx.send(Cmd::CloudShots { appid: w.filter.unwrap_or(0), page: 1 });
+        let uid = w.user.as_ref().map_or(0, |u| u.0);
+        if uid != 0 {
+            w.tab = 1; // у друга - только облако
+        }
+        if w.tab == 1 && net.account.is_some() && w.cloud_asked != Some((uid, w.filter.unwrap_or(0))) {
+            w.cloud_asked = Some((uid, w.filter.unwrap_or(0)));
+            let _ = self.tx.send(Cmd::CloudShots { user: uid, appid: w.filter.unwrap_or(0), page: 1 });
         }
         let local: Vec<LocalShot> = w
             .local
@@ -215,19 +237,26 @@ impl LauncherApp {
             .cloned()
             .collect();
         let cloud_all = match &net.cloud_shots {
-            Some(Ok((a, total, v))) if *a == w.filter.unwrap_or(0) => Some((*total, v.clone())),
+            Some(Ok((a, total, v))) if *a == w.filter.unwrap_or(0) && net.cloud_shots_user == uid => Some((*total, v.clone())),
             _ => None,
         };
 
         ui.horizontal(|ui| {
-            ui.heading("Скриншоты");
-            ui.separator();
-            ui.selectable_value(&mut w.tab, 0, format!("На этом ПК ({})", local.len()));
-            let cloud_label = match &cloud_all {
-                Some((total, _)) => format!("В облаке Steam ({total})"),
-                None => "В облаке Steam".to_string(),
-            };
-            ui.selectable_value(&mut w.tab, 1, cloud_label);
+            if let Some((_, name)) = &w.user {
+                ui.heading(format!("Скриншоты: {name}"));
+                if let Some((total, _)) = &cloud_all {
+                    ui.weak(format!("({total})"));
+                }
+            } else {
+                ui.heading("Скриншоты");
+                ui.separator();
+                ui.selectable_value(&mut w.tab, 0, format!("На этом ПК ({})", local.len()));
+                let cloud_label = match &cloud_all {
+                    Some((total, _)) => format!("В облаке Steam ({total})"),
+                    None => "В облаке Steam".to_string(),
+                };
+                ui.selectable_value(&mut w.tab, 1, cloud_label);
+            }
             ui.separator();
             // Фильтр по игре: игры, у которых есть скриншоты на ПК, плюс текущий фильтр.
             let mut games: Vec<(u32, String)> = w
@@ -300,7 +329,11 @@ impl LauncherApp {
             match (&net.cloud_shots, &cloud_all) {
                 (_, Some((total, list))) => {
                     if list.is_empty() {
-                        ui.weak("В облаке Steam нет загруженных скриншотов. Загрузить можно в самом Steam (менеджер скриншотов).");
+                        ui.weak(if uid != 0 {
+                            "У друга нет скриншотов, которые он показывает вам."
+                        } else {
+                            "В облаке Steam нет загруженных скриншотов. Загрузить можно в самом Steam (менеджер скриншотов)."
+                        });
                     } else {
                         let list = list.clone();
                         let status = w.status.clone();
@@ -308,7 +341,7 @@ impl LauncherApp {
                         self.shots_grid(ui, list.len(), |app, ui, i| {
                             let s = &list[i];
                             let resp = ui.add(
-                                egui::Image::new(&s.preview_url).fit_to_exact_size(TILE).sense(egui::Sense::click()),
+                                egui::Image::new(if s.preview_url.is_empty() { &s.file_url } else { &s.preview_url }).fit_to_exact_size(TILE).sense(egui::Sense::click()),
                             );
                             let resp = resp
                                 .on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -330,6 +363,11 @@ impl LauncherApp {
                                     download(s.clone(), status.clone(), rescan.clone(), ui.ctx().clone());
                                     ui.close_menu();
                                 }
+                                if ui.button("Комментарии и оценка").clicked() {
+                                    let owner = if uid != 0 { uid } else { net.my_id.unwrap_or(0) };
+                                    app.open_shot_comments(owner, s.id, s.caption.clone(), s.preview_url.clone());
+                                    ui.close_menu();
+                                }
                             });
                             let name = if s.app_name.is_empty() { app.game_name(s.appid as u64, net) } else { s.app_name.clone() };
                             let vis = match s.visibility {
@@ -338,8 +376,14 @@ impl LauncherApp {
                                 3 => " · скрыт",
                                 _ => "",
                             };
+                            let social = match (s.votes_up, s.comments) {
+                                (0, 0) => String::new(),
+                                (v, 0) => format!(" · оценок {v}"),
+                                (0, c) => format!(" · комм. {c}"),
+                                (v, c) => format!(" · оценок {v}, комм. {c}"),
+                            };
                             ui.add(
-                                egui::Label::new(egui::RichText::new(format!("{name} · {}{vis}", crate::fmt_day(s.time as u64))).small())
+                                egui::Label::new(egui::RichText::new(format!("{name} · {}{vis}{social}", crate::fmt_day(s.time as u64))).small())
                                     .truncate(),
                             );
                         });
@@ -347,7 +391,7 @@ impl LauncherApp {
                             ui.horizontal(|ui| {
                                 if ui.add_enabled(!net.cloud_shots_busy, egui::Button::new("Показать еще")).clicked() {
                                     let page = list.len() as u32 / 50 + 1;
-                                    let _ = self.tx.send(Cmd::CloudShots { appid: w.filter.unwrap_or(0), page });
+                                    let _ = self.tx.send(Cmd::CloudShots { user: uid, appid: w.filter.unwrap_or(0), page });
                                 }
                             });
                         }
@@ -360,7 +404,7 @@ impl LauncherApp {
                     ui.weak("Нужен вход в аккаунт.");
                 }
                 _ => {
-                    ui.spinner();
+                    crate::spin::spinner(ui);
                 }
             }
         }
@@ -444,5 +488,31 @@ mod tests {
         assert_eq!(v.len(), 1);
         assert_eq!(v[0].appid, 70);
         assert!(v[0].thumb.is_some());
+    }
+}
+
+#[cfg(test)]
+mod friend_live {
+    /// Живой тест (только чтение): сколько скриншотов показывают несколько друзей. Печатает только числа.
+    #[test]
+    #[ignore]
+    fn friend_shots_live() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            let friends = c.collect_friends(std::time::Duration::from_secs(5)).await.unwrap();
+            let mut any = false;
+            for f in friends.iter().filter(|f| f.relationship == 3).take(8) {
+                match c.user_screenshots(f.steam_id, 0, 1, 50).await {
+                    Ok((total, v)) => {
+                        any |= !v.is_empty();
+                        println!("друг: всего {total}, на странице {}, с картинкой {}", v.len(), v.iter().filter(|s| !s.preview_url.is_empty()).count());
+                    }
+                    Err(e) => println!("друг: ошибка {e:#}"),
+                }
+            }
+            assert!(any, "ни у кого из друзей нет видимых скриншотов");
+        });
     }
 }

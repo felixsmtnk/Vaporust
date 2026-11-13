@@ -38,6 +38,10 @@ pub struct PropsWin {
     ws_loaded: bool,
     // Откат: введенные номера версий по хранилищам.
     dg_inputs: std::collections::BTreeMap<u32, String>,
+    // Проверка защиты для запуска без Steam (идет в фоновом потоке).
+    drm: Option<std::sync::Arc<std::sync::Mutex<Option<crate::direct::DrmReport>>>>,
+    // Какую резервную копию сохранений подтверждаем восстановить.
+    restore_confirm: Option<std::path::PathBuf>,
 }
 
 const YELLOW: egui::Color32 = egui::Color32::from_rgb(230, 170, 60);
@@ -120,6 +124,10 @@ fn fmt_date(unix: u64) -> String {
 
 impl LauncherApp {
     pub(crate) fn open_props(&mut self, appid: u32, name: String) {
+        if crate::custom::is_custom(appid) {
+            self.edit_custom(appid);
+            return;
+        }
         let lc_path = self.steam.as_ref().and_then(|s| launchopts::find_localconfig(&s.dir));
         let (launch, note) = match &lc_path {
             None => (String::new(), Some("Не найден файл настроек Steam (localconfig.vdf).".to_string())),
@@ -142,6 +150,8 @@ impl LauncherApp {
             note,
             ws_loaded: false,
             dg_inputs: Default::default(),
+            drm: None,
+            restore_confirm: None,
         });
         let _ = self.tx.send(Cmd::LoadProps(appid));
     }
@@ -156,8 +166,10 @@ impl LauncherApp {
                 .with_title(title)
                 .with_inner_size([680.0, 500.0])
                 .with_min_inner_size([520.0, 360.0])
-                .with_icon(crate::icons::icon(crate::icons::Kind::Launcher)),
+                .with_icon(crate::icons::icon(crate::icons::Kind::Launcher))
+                .with_decorations(crate::winframe::system()),
             |ctx, _class| {
+                crate::winframe::title_bar_auto(ctx);
                 self.props_contents(ctx, net);
                 ctx.input(|i| i.viewport().close_requested())
             },
@@ -278,22 +290,89 @@ impl LauncherApp {
                             self.settings.no_steam.remove(&appid);
                         }
                     }
-                    if crate::direct::uses_steam_api(&game.dir) {
-                        ui.colored_label(
-                            YELLOW,
-                            "В папке игры есть steam_api.dll - игре, скорее всего, нужен Steam: без него она может \
-                             не запуститься.",
-                        );
-                    } else {
-                        ui.weak("Steam API в папке игры не найден - похоже, игра запустится и без Steam.");
+                    // Проверка защиты: файлы игры (SteamStub, steam_api) и пометки магазина.
+                    let slot = w
+                        .drm
+                        .get_or_insert_with(|| {
+                            let slot = std::sync::Arc::new(std::sync::Mutex::new(None));
+                            let (s, dir, ctx2) = (slot.clone(), game.dir.clone(), ui.ctx().clone());
+                            std::thread::spawn(move || {
+                                let r = crate::direct::check_drm(appid, &dir);
+                                *s.lock().unwrap() = Some(r);
+                                ctx2.request_repaint();
+                            });
+                            slot
+                        })
+                        .clone();
+                    let report = slot.lock().unwrap().clone();
+                    match report {
+                        None => {
+                            ui.horizontal(|ui| {
+                                crate::spin::spinner(ui);
+                                ui.weak("Проверяю защиту игры...");
+                            });
+                        }
+                        Some(r) => {
+                            let (ok, text) = r.verdict();
+                            let color = match ok {
+                                Some(true) => GREEN,
+                                Some(false) => egui::Color32::from_rgb(230, 110, 110),
+                                None => YELLOW,
+                            };
+                            ui.colored_label(color, text);
+                            if !r.steamstub.is_empty() {
+                                ui.weak(format!("Защищенные файлы: {}", r.steamstub.join(", ")));
+                            }
+                            if let Some(n) = &r.drm_notice {
+                                ui.weak(format!("Магазин Steam: защита {n}"));
+                            }
+                            if let Some(n) = &r.account_notice {
+                                ui.weak(format!("Магазин Steam: нужен {n}"));
+                            }
+                            if direct && ok == Some(false) {
+                                ui.colored_label(YELLOW, "Галочку лучше снять: игра будет запускаться через Steam.");
+                            }
+                            if ui.small_button("Проверить еще раз").clicked() {
+                                w.drm = None;
+                            }
+                        }
                     }
                     ui.weak("Без Steam не работают достижения, облачные сохранения, оверлей и учет времени в игре.");
+
+                    ui.add_space(12.0);
+                    ui.strong("Скрипты запуска");
+                    let mut sc = self.settings.scripts.get(&appid).cloned().unwrap_or_default();
+                    let before = sc.clone();
+                    egui::Grid::new("scripts").num_columns(2).show(ui, |ui| {
+                        ui.label("Перед запуском");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut sc.before)
+                                .desired_width(380.0)
+                                .hint_text("например: start \"\" \"C:\\Tools\\mod.exe\""),
+                        );
+                        ui.end_row();
+                        ui.label("После выхода");
+                        ui.add(egui::TextEdit::singleline(&mut sc.after).desired_width(380.0));
+                        ui.end_row();
+                    });
+                    ui.weak(
+                        "Команды как в cmd.exe, выполняются в папке игры. Игра запускается, когда команда «перед \
+                         запуском» закончится (не дольше 2 минут). Есть переменные %VAPORUST_APPID%, \
+                         %VAPORUST_GAME_NAME%, %VAPORUST_GAME_DIR%.",
+                    );
+                    if sc != before {
+                        if sc.is_empty() {
+                            self.settings.scripts.remove(&appid);
+                        } else {
+                            self.settings.scripts.insert(appid, sc);
+                        }
+                    }
 
                     ui.add_space(12.0);
                     ui.strong("Язык игры");
                     match &data.languages {
                         None => {
-                            ui.spinner();
+                            crate::spin::spinner(ui);
                         }
                         Some(Err(e)) => {
                             ui.label(format!("Не удалось узнать языки: {e}"));
@@ -368,7 +447,7 @@ impl LauncherApp {
                     ui.add_space(6.0);
                     match &data.branches {
                         None => {
-                            ui.spinner();
+                            crate::spin::spinner(ui);
                         }
                         Some(Err(e)) => {
                             ui.label(format!("Не удалось получить ветки: {e}"));
@@ -564,6 +643,31 @@ impl LauncherApp {
                         });
                     }
 
+                    // Перепривязка: файлы игры уже лежат в другой библиотеке (перенесли вручную).
+                    if let Some(steam) = self.steam.clone() {
+                        for lib in local::relink_candidates(&steam.dir, &game) {
+                            ui.add_space(6.0);
+                            ui.weak(format!("Папка этой игры есть и в библиотеке {}.", lib.display()));
+                            if ui
+                                .add_enabled(!locked, egui::Button::new("Привязать игру к этой библиотеке"))
+                                .on_hover_text(
+                                    "Если вы перенесли файлы игры вручную: Steam и Vaporust будут брать игру\n\
+                                     оттуда. Файлы не копируются и не удаляются, переносится только запись\n\
+                                     об установке. Старую папку потом можно удалить вручную.",
+                                )
+                                .clicked()
+                            {
+                                w.note = Some(match local::relink_game(&steam.dir, &game, &lib) {
+                                    Ok(p) => {
+                                        self.rescan_needed.store(true, std::sync::atomic::Ordering::Relaxed);
+                                        format!("Готово: игра теперь в {}.", p.display())
+                                    }
+                                    Err(e) => format!("Не получилось: {e}"),
+                                });
+                            }
+                        }
+                    }
+
                     ui.add_space(14.0);
                     if !w.confirm_uninstall {
                         if ui.add_enabled(!locked, egui::Button::new("Удалить игру...")).clicked() {
@@ -589,7 +693,7 @@ impl LauncherApp {
 
                 Tab::Dlc => match &data.dlc {
                     None => {
-                        ui.spinner();
+                        crate::spin::spinner(ui);
                     }
                     Some(Err(e)) => {
                         ui.label(format!("Не удалось получить DLC: {e}"));
@@ -691,7 +795,7 @@ impl LauncherApp {
                             go = Some((2, None));
                         }
                         if data.cloud_busy {
-                            ui.spinner();
+                            crate::spin::spinner(ui);
                         }
                     });
                     match &data.cloud_sync {
@@ -747,7 +851,7 @@ impl LauncherApp {
                     ui.separator();
                     match &data.cloud {
                     None => {
-                        ui.spinner();
+                        crate::spin::spinner(ui);
                     }
                     Some(Err(e)) => {
                         ui.label(format!("Не удалось получить список: {e}"));
@@ -776,6 +880,60 @@ impl LauncherApp {
                                 }
                             });
                         }
+                        // Резервные копии сохранений (zip в Документы\Vaporust\Сохранения).
+                        ui.horizontal_wrapped(|ui| {
+                            ui.strong("Резервные копии");
+                            if ui
+                                .button("Сделать копию")
+                                .on_hover_text("Сложить сохранения с этого ПК в zip-архив (Документы\\Vaporust\\Сохранения)")
+                                .clicked()
+                            {
+                                let paths: Vec<std::path::PathBuf> = local.iter().flatten().cloned().collect();
+                                w.note = Some(match crate::backup::backup(&w.name, &paths) {
+                                    Ok((p, n)) => format!("Копия сделана: {} (файлов: {n}).", p.display()),
+                                    Err(e) => e,
+                                });
+                            }
+                            if ui.small_button("Открыть папку копий").clicked() {
+                                let d = crate::backup::game_dir(&w.name);
+                                let _ = std::fs::create_dir_all(&d);
+                                local::open_folder(&d);
+                            }
+                        });
+                        for (zip, time, size) in crate::backup::list(&w.name).into_iter().take(8) {
+                            ui.horizontal(|ui| {
+                                let when: chrono::DateTime<chrono::Local> = time.into();
+                                ui.label(when.format("%d.%m.%Y %H:%M").to_string());
+                                ui.weak(net::fmt_bytes(size));
+                                if w.restore_confirm.as_ref() == Some(&zip) {
+                                    ui.colored_label(YELLOW, "Текущие сохранения будут заменены. Восстановить?");
+                                    if ui.add_enabled(!locked, egui::Button::new("Да")).clicked() {
+                                        // Сначала - копия текущего состояния, чтобы можно было вернуться.
+                                        let paths: Vec<std::path::PathBuf> = local.iter().flatten().cloned().collect();
+                                        let _ = crate::backup::backup(&w.name, &paths);
+                                        w.note = Some(match crate::backup::restore(&zip) {
+                                            Ok(n) => format!("Восстановлено файлов: {n}. Прежние сохранения - в новой копии сверху."),
+                                            Err(e) => e,
+                                        });
+                                        w.restore_confirm = None;
+                                    }
+                                    if ui.button("Нет").clicked() {
+                                        w.restore_confirm = None;
+                                    }
+                                } else if ui
+                                    .add_enabled(!locked, egui::Button::new("Восстановить..."))
+                                    .on_disabled_hover_text("Сначала закройте Steam и игру")
+                                    .clicked()
+                                {
+                                    w.restore_confirm = Some(zip.clone());
+                                }
+                            });
+                        }
+                        ui.weak(
+                            "Steam при запуске игры может сам заменить файлы версией из облака. Чтобы оставить \
+                             восстановленные, после восстановления нажмите выше «Отправить в облако».",
+                        );
+                        ui.separator();
                         ui.label(format!("Файлов в облаке: {}, всего {}", files.len(), net::fmt_bytes(total)));
                         ui.separator();
                         egui::Grid::new("cloud").striped(true).num_columns(4).show(ui, |ui| {

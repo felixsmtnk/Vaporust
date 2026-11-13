@@ -50,28 +50,8 @@ fn join(dir: &Path, rel: &str) -> PathBuf {
     rel.split(['\\', '/']).filter(|p| !p.is_empty()).fold(dir.to_path_buf(), |p, s| p.join(s))
 }
 
-/// Есть ли в папке игры steam_api(64).dll (на глубину до 4 папок) - тогда игре, скорее
-/// всего, нужен Steam.
-pub fn uses_steam_api(dir: &Path) -> bool {
-    fn walk(d: &Path, depth: u32) -> bool {
-        let Ok(rd) = std::fs::read_dir(d) else { return false };
-        for e in rd.flatten() {
-            let p = e.path();
-            let name = e.file_name().to_string_lossy().to_lowercase();
-            if name == "steam_api.dll" || name == "steam_api64.dll" {
-                return true;
-            }
-            if depth < 4 && p.is_dir() && walk(&p, depth + 1) {
-                return true;
-            }
-        }
-        false
-    }
-    walk(dir, 0)
-}
-
 /// Разбить строку аргументов (кавычки учитываем).
-fn split_args(s: &str) -> Vec<String> {
+pub(crate) fn split_args(s: &str) -> Vec<String> {
     let mut out = Vec::new();
     let (mut cur, mut quoted) = (String::new(), false);
     for c in s.chars() {
@@ -101,6 +81,116 @@ pub fn build_args(spec_args: &str, user: &str) -> Vec<String> {
     let mut v = split_args(spec_args);
     v.extend(split_args(user));
     v
+}
+
+// ---------- Проверка защиты (можно ли запускать без Steam) ----------
+
+/// Что нашлось в файлах игры и на странице магазина.
+#[derive(Clone, Debug, Default)]
+pub struct DrmReport {
+    /// exe, обернутые защитой Steam (SteamStub: секция «.bind» в файле) - без Steam не запустятся.
+    pub steamstub: Vec<String>,
+    /// В папке есть steam_api(64).dll: игра обращается к Steam (может перезапуститься через
+    /// него, работать без достижений или не запуститься).
+    pub steam_api: bool,
+    /// Сколько exe проверено.
+    pub exes: usize,
+    /// Пометка магазина о сторонней защите (Denuvo и т.п.).
+    pub drm_notice: Option<String>,
+    /// Нужен сторонний аккаунт (EA, Ubisoft...).
+    pub account_notice: Option<String>,
+}
+
+impl DrmReport {
+    /// Итог одной строкой и можно ли без Steam (Some(true) - да, Some(false) - нет, None - как повезет).
+    pub fn verdict(&self) -> (Option<bool>, String) {
+        if !self.steamstub.is_empty() {
+            return (Some(false), "Защита Steam (SteamStub): без Steam игра не запустится.".into());
+        }
+        if self.drm_notice.is_some() {
+            return (Some(false), "Сторонняя защита: она проверяет покупку через Steam, без Steam игра не запустится.".into());
+        }
+        if self.account_notice.is_some() {
+            return (None, "Игре нужен сторонний аккаунт или лаунчер: без Steam может не запуститься. Попробуйте.".into());
+        }
+        if self.steam_api {
+            return (
+                None,
+                "Защиты Steam нет, но игра обращается к Steam (steam_api.dll): может перезапуститься \
+                 через Steam, запуститься без достижений или не запуститься. Попробуйте."
+                    .into(),
+            );
+        }
+        (Some(true), "Защиты не найдено: игра должна запускаться без Steam.".into())
+    }
+}
+
+/// Есть ли в exe секция «.bind» (обертка SteamStub). Читается только заголовок файла.
+pub fn has_steamstub(exe: &Path) -> bool {
+    use std::io::Read;
+    let Ok(mut f) = std::fs::File::open(exe) else { return false };
+    let mut buf = vec![0u8; 8192];
+    let Ok(n) = f.read(&mut buf) else { return false };
+    let b = &buf[..n];
+    let u16_at = |o: usize| b.get(o..o + 2).map(|s| u16::from_le_bytes([s[0], s[1]]) as usize);
+    let u32_at = |o: usize| b.get(o..o + 4).map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]) as usize);
+    if b.get(0..2) != Some(b"MZ") {
+        return false;
+    }
+    let Some(pe) = u32_at(0x3C) else { return false };
+    if b.get(pe..pe + 4) != Some(b"PE\0\0") {
+        return false;
+    }
+    let (Some(count), Some(opt)) = (u16_at(pe + 6), u16_at(pe + 20)) else { return false };
+    let table = pe + 24 + opt;
+    (0..count.min(96)).any(|i| b.get(table + i * 40..table + i * 40 + 8).is_some_and(|name| name.starts_with(b".bind")))
+}
+
+/// Проверить файлы игры: все exe на глубину до 4 папок и steam_api.
+pub fn scan_drm(dir: &Path) -> DrmReport {
+    fn walk(base: &Path, d: &Path, depth: u32, r: &mut DrmReport) {
+        let Ok(rd) = std::fs::read_dir(d) else { return };
+        for e in rd.flatten() {
+            let p = e.path();
+            let name = e.file_name().to_string_lossy().to_lowercase();
+            if p.is_dir() {
+                if depth < 4 {
+                    walk(base, &p, depth + 1, r);
+                }
+            } else if name == "steam_api.dll" || name == "steam_api64.dll" {
+                r.steam_api = true;
+            } else if name.ends_with(".exe") && r.exes < 400 {
+                r.exes += 1;
+                if has_steamstub(&p) {
+                    r.steamstub.push(p.strip_prefix(base).unwrap_or(&p).display().to_string());
+                }
+            }
+        }
+    }
+    let mut r = DrmReport::default();
+    walk(dir, dir, 0, &mut r);
+    r
+}
+
+/// Пометки магазина о защите: (сторонняя защита, сторонний аккаунт). Открытый API магазина.
+pub fn store_drm_notes(appid: u32) -> (Option<String>, Option<String>) {
+    let url = format!("https://store.steampowered.com/api/appdetails?appids={appid}&l=russian&filters=basic");
+    let Ok(resp) = ehttp::fetch_blocking(&ehttp::Request::get(url)) else { return (None, None) };
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(&resp.bytes) else { return (None, None) };
+    let data = v.get(appid.to_string()).and_then(|x| x.get("data"));
+    let get = |k: &str| {
+        data.and_then(|d| d.get(k)).and_then(|x| x.as_str()).map(crate::store::plain_text).filter(|s| !s.trim().is_empty())
+    };
+    (get("drm_notice"), get("ext_user_account_notice"))
+}
+
+/// Проверка целиком (файлы и магазин) - для фонового потока.
+pub fn check_drm(appid: u32, dir: &Path) -> DrmReport {
+    let mut r = scan_drm(dir);
+    let (drm, acc) = store_drm_notes(appid);
+    r.drm_notice = drm;
+    r.account_notice = acc;
+    r
 }
 
 impl LauncherApp {
@@ -145,20 +235,38 @@ impl LauncherApp {
         cmd.args(&args).current_dir(&cwd);
         // Многие игры без Steam ищут steam_appid.txt; переменная - для тех, кто читает ее.
         cmd.env("SteamAppId", appid.to_string()).env("SteamGameId", appid.to_string());
-        match cmd.spawn() {
-            Ok(mut child) => {
-                let (status, launching, rescan) = (self.launch_status.clone(), self.launching.clone(), self.rescan_needed.clone());
-                launching.store(true, Ordering::Relaxed);
-                *status.lock().unwrap() = format!("Игра запущена без Steam: {}", game.name);
-                std::thread::spawn(move || {
-                    let _ = child.wait();
-                    *status.lock().unwrap() = "Готово.".into();
-                    launching.store(false, Ordering::Relaxed);
-                    rescan.store(true, Ordering::Relaxed);
-                });
+        let script = self.settings.scripts.get(&appid).cloned().unwrap_or_default();
+        let (status, launching, rescan) = (self.launch_status.clone(), self.launching.clone(), self.rescan_needed.clone());
+        launching.store(true, Ordering::Relaxed);
+        // В отдельном потоке: команда перед запуском может идти долго.
+        std::thread::spawn(move || {
+            if !script.before.trim().is_empty() {
+                *status.lock().unwrap() = "Выполняю команду перед запуском...".into();
             }
-            Err(e) => *self.launch_status.lock().unwrap() = format!("Не удалось запустить игру: {e}"),
-        }
+            let warn = crate::scripts::run_before(&script, appid, &game.name, &game.dir);
+            match cmd.spawn() {
+                Ok(mut child) => {
+                    *status.lock().unwrap() = format!("Игра запущена без Steam: {}", game.name);
+                    {
+                        let _running = crate::local::RunningGuard::set(appid, &game.name, &game.dir);
+                        let _ = child.wait();
+                        // exe мог быть лаунчером и запустить саму игру: ждем, пока в папке игры
+                        // не останется процессов.
+                        while crate::local::game_alive(&game.dir) {
+                            std::thread::sleep(std::time::Duration::from_secs(2));
+                        }
+                    }
+                    let after = crate::scripts::run_after(&script, appid, &game.name, &game.dir);
+                    *status.lock().unwrap() = match warn.or(after) {
+                        Some(w) => format!("Готово. {w}"),
+                        None => "Готово.".into(),
+                    };
+                }
+                Err(e) => *status.lock().unwrap() = format!("Не удалось запустить игру: {e}"),
+            }
+            launching.store(false, Ordering::Relaxed);
+            rescan.store(true, Ordering::Relaxed);
+        });
     }
 
     /// Раз в кадр: пришла таблица запуска - запомнить и запустить.
@@ -226,8 +334,22 @@ mod live {
             for g in games.iter().filter(|g| g.ready) {
                 let spec = c.fetch_launch_options(g.appid).await.ok().and_then(|o| super::pick(&o));
                 let exists = spec.as_ref().map(|s| super::join(&g.dir, &s.exe).exists());
-                println!("{} | steam_api: {} | {:?} | exe exists: {:?}", g.name, super::uses_steam_api(&g.dir), spec.map(|s| s.exe), exists);
+                println!("{} | steam_api: {} | {:?} | exe exists: {:?}", g.name, super::scan_drm(&g.dir).steam_api, spec.map(|s| s.exe), exists);
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod drm_live {
+    /// Живой тест (только чтение): защита у установленных игр.
+    #[test]
+    #[ignore]
+    fn drm_scan_live() {
+        let steam = crate::local::find_steam().unwrap();
+        for g in crate::local::scan_games(&steam.dir).iter().filter(|g| g.ready) {
+            let r = super::check_drm(g.appid, &g.dir);
+            println!("{} | exe {} | stub {:?} | api {} | {:?} | {:?} | {}", g.name, r.exes, r.steamstub, r.steam_api, r.drm_notice, r.account_notice, r.verdict().1);
+        }
     }
 }

@@ -29,6 +29,8 @@ pub enum Cmd {
     LoginQr,
     RefreshLibrary,
     Achievements(u32),
+    /// Достижения друга в игре (appid, SteamID64) - для сравнения.
+    FriendAchievements(u32, u64),
     /// Установить игру в указанную библиотеку Steam.
     Install {
         appid: u32,
@@ -51,7 +53,63 @@ pub enum Cmd {
     /// Свои эффекты комнаты (из инвентаря Steam) - перечитываются при открытии вкладки «Эффекты».
     LoadChatEffects,
     /// Свои скриншоты в облаке Steam: игра (0 - все), страница (с 1).
-    CloudShots { appid: u32, page: u32 },
+    /// Скриншоты в облаке Steam: чьи (0 - свои), игра (0 - все), страница.
+    CloudShots { user: u64, appid: u32, page: u32 },
+    /// Сведения об аккаунте (страна по IP, SteamID).
+    AccountInfo,
+    /// Уведомления Steam (колокольчик) и «прочитать все».
+    SteamNotifs,
+    SteamNotifsRead,
+    /// Картинки предметов из уведомлений: загрузить инвентари (инвентарь, раздел).
+    NotifIcons(Vec<(u32, u32)>),
+    /// Уровень, значки, карточки; создать значок из набора.
+    Badges,
+    CraftBadge { appid: u32, foil: bool },
+    /// Очки Steam: баланс, страница каталога, покупка.
+    PointsBalance,
+    PointsQuery { class: u32, search: String, cursor: Option<String> },
+    PointsRedeem(crate::points::RewardItem),
+    PointsOwned,
+    /// Семья Steam: участники и игры.
+    Family,
+    /// Недавние игры друзей.
+    Activity(Vec<(u64, String)>),
+    /// Свои игры за две недели (для «Статистики»).
+    MyRecent,
+    /// Профиль целиком (уровень, рамка, игры, группы, комментарии) и комментарий в профиль.
+    ProfileExtra(u64),
+    PostComment { id: u64, text: String },
+    /// Удалить комментарий из профиля (id - чей профиль).
+    DeleteComment { id: u64, gid: String },
+    /// Подгрузить комментарии профиля начиная с start.
+    MoreComments { id: u64, start: u32 },
+    /// Скриншот: комментарии, свой комментарий, оценка.
+    ShotComments { owner: u64, id: u64 },
+    ShotComment { owner: u64, id: u64, text: String },
+    ShotVote { id: u64, up: bool },
+    /// Сообщество игры: темы обсуждений (страница), тема, ответ, руководства.
+    CommTopics { appid: u32, page: u32 },
+    CommTopic(String),
+    CommReply { topic: Box<crate::community::TopicView>, text: String },
+    CommGuides { appid: u32, search: String },
+    /// Открыть руководство в программе.
+    CommGuide(u64),
+    /// Групповые чаты: список, сообщения канала, отправка.
+    /// Лента событий друзей: с какого времени (0 - заново).
+    Feed { start: u64 },
+    /// Лицензии аккаунта (даты покупок) - для подсказки о возврате.
+    Licenses,
+    /// Где выполнен вход в аккаунт.
+    Sessions,
+    /// Подгрузить более раннюю переписку с другом.
+    OlderChat(u64),
+    ChatGroups,
+    GroupMessages { group: u64, chat: u64 },
+    GroupSend { group: u64, chat: u64, text: String },
+    /// Лента новостей этих игр (appid, название).
+    NewsFeed(Vec<(u32, String)>),
+    /// Активировать ключ продукта Steam.
+    ActivateKey(String),
     /// Отправить картинку из файла.
     SendImage { to: u64, path: PathBuf },
     /// Профили, заявки в друзья, приглашение в игру, Мастерская.
@@ -125,6 +183,10 @@ pub struct Conversation {
     pub status: Option<String>,
     /// Сообщение об успешном действии (например, «Приглашение отправлено»).
     pub status_note: Option<String>,
+    /// Самое старое загруженное сообщение (время, ordinal) и есть ли еще более старые.
+    pub oldest: Option<(u32, u32)>,
+    pub more_history: bool,
+    pub loading_older: bool,
 }
 
 /// Итог ручной синхронизации облака (для окна «Свойства»).
@@ -202,6 +264,10 @@ pub struct NetState {
     pub account: Option<String>,
     /// Показать форму входа.
     pub need_login: bool,
+    /// Нет связи со Steam (вход сохранен): автономный режим, библиотека из кэша.
+    pub offline: bool,
+    /// Текст ошибки, из-за которой включен автономный режим (для подсказки).
+    pub offline_reason: String,
     pub busy: bool,
     pub message: String,
     pub qr_url: Option<String>,
@@ -210,6 +276,8 @@ pub struct NetState {
     /// Игры семейной группы Steam (чужие, не купленные этим аккаунтом).
     pub family: Vec<aurelia::steam_client::SharedApp>,
     pub achievements: HashMap<u32, Result<Vec<GameAchievement>, String>>,
+    /// Достижения друзей: (appid, SteamID64).
+    pub friend_achievements: HashMap<(u32, u64), Result<Vec<GameAchievement>, String>>,
     /// Текущая или последняя установка.
     pub install: Option<Install>,
     /// Растет, когда на диске что-то поменялось и библиотеку надо пересканировать.
@@ -227,6 +295,49 @@ pub struct NetState {
     /// Скриншоты в облаке Steam: (игра-фильтр, всего, загруженные страницы); None - не загружали.
     pub cloud_shots: Option<Result<(u32, u32, Vec<aurelia::steam_client::CloudScreenshot>), String>>,
     pub cloud_shots_busy: bool,
+    /// Чьи скриншоты в cloud_shots (0 - свои).
+    pub cloud_shots_user: u64,
+    /// Сведения об аккаунте из Aurelia (вкладка «Настройки» -> «Аккаунт»).
+    pub account_data: Option<aurelia::steam_client::AccountData>,
+    /// Активация ключа: идет / итог.
+    pub key_busy: bool,
+    /// Уведомления Steam.
+    pub steam_notifs: Option<Result<crate::steamnotif::Notifs, String>>,
+    /// Картинки предметов для уведомлений: номер предмета -> адрес картинки.
+    pub notif_icons: HashMap<String, String>,
+    pub badges: Option<Result<crate::badges::Badges, String>>,
+    pub badges_msg: Option<String>,
+    pub points_balance: Option<u64>,
+    pub points_page: Option<Result<crate::points::Page, String>>,
+    pub points_busy: bool,
+    pub points_msg: Option<String>,
+    pub points_owned: Option<crate::points::Owned>,
+    /// Эффекты чата, купленные в этом сеансе (инвентарь Steam отдает их с задержкой).
+    pub bought_effects: Vec<String>,
+    pub family_group: Option<Result<crate::family::Family, String>>,
+    pub activity: Option<Result<Vec<crate::activity::FriendRecent>, String>>,
+    pub activity_busy: bool,
+    pub my_recent: Option<Result<Vec<crate::activity::Recent>, String>>,
+    pub profile_extra: HashMap<u64, Result<crate::profile_extra::ProfileExtra, String>>,
+    pub comment_msg: Option<String>,
+    pub shot_comments: HashMap<u64, Result<(u32, Vec<crate::profile_extra::Comment>), String>>,
+    pub shot_msg: Option<String>,
+    pub comm_topics: Option<Result<(u32, u32, Vec<crate::community::Topic>), String>>,
+    pub comm_topic: Option<Result<crate::community::TopicView, String>>,
+    pub comm_guides: Option<Result<(u32, Vec<crate::community::Guide>), String>>,
+    pub comm_msg: Option<String>,
+    pub comm_guide: Option<Result<crate::community::GuideView, String>>,
+    pub chat_groups: Option<Result<Vec<aurelia::steam_client::ChatGroup>, String>>,
+    pub group_messages: HashMap<(u64, u64), Result<Vec<aurelia::steam_client::GroupMessage>, String>>,
+    pub group_error: Option<String>,
+    pub feed: Option<Result<crate::feed::FeedPage, String>>,
+    pub feed_busy: bool,
+    pub licenses: Option<Vec<crate::refund::License>>,
+    pub sessions: Option<Result<Vec<crate::sessions::Session>, String>>,
+    /// Лента новостей своих игр.
+    pub news_feed: Option<Result<Vec<crate::newsfeed::FeedItem>, String>>,
+    pub news_busy: bool,
+    pub key_result: Option<crate::keys::KeyResult>,
     /// Данные окон «Свойства» по appid.
     pub props: HashMap<u32, PropsData>,
     /// Закрепление версии: итог последней Cmd::PinRefresh (главное окно забирает).
@@ -241,6 +352,8 @@ pub struct NetState {
     pub my_id: Option<u64>,
     /// Профили пользователей по SteamID64.
     pub profiles: HashMap<u64, Result<aurelia::steam_client::UserProfile, String>>,
+    /// Ссылки /id/<имя> -> SteamID64 (окно «Добавить друга»).
+    pub vanity: HashMap<String, Result<u64, String>>,
     /// Результат последнего действия с друзьями (заявка, удаление).
     pub friend_msg: Option<String>,
     /// Мастерская (отдельно: списки бывают большими).
@@ -254,7 +367,47 @@ pub struct NetState {
     pub inv: crate::invent::SharedInv,
 }
 
-pub type Shared = Arc<Mutex<NetState>>;
+pub type Shared = Arc<SharedNet>;
+
+/// Сетевое состояние под замком со счетчиком изменений: каждая запись (DerefMut) увеличивает
+/// счетчик, и интерфейс копирует состояние к себе только когда оно поменялось, а не каждый кадр
+/// (в нем переписки, новости, достижения - копировать на каждом кадре дорого).
+#[derive(Default)]
+pub struct SharedNet {
+    inner: Mutex<NetState>,
+    gen: std::sync::atomic::AtomicU64,
+}
+
+pub struct NetGuard<'a> {
+    g: std::sync::MutexGuard<'a, NetState>,
+    gen: &'a std::sync::atomic::AtomicU64,
+}
+
+impl std::ops::Deref for NetGuard<'_> {
+    type Target = NetState;
+    fn deref(&self) -> &NetState {
+        &self.g
+    }
+}
+
+impl std::ops::DerefMut for NetGuard<'_> {
+    fn deref_mut(&mut self) -> &mut NetState {
+        self.gen.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        &mut self.g
+    }
+}
+
+impl SharedNet {
+    /// Как у Mutex: `.lock().unwrap()` (ошибки не бывает - отравленный замок просто берем).
+    pub fn lock(&self) -> Result<NetGuard<'_>, std::convert::Infallible> {
+        Ok(NetGuard { g: self.inner.lock().unwrap_or_else(|e| e.into_inner()), gen: &self.gen })
+    }
+
+    /// Номер изменения: меняется при каждой записи.
+    pub fn gen(&self) -> u64 {
+        self.gen.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
 
 fn upd(st: &Shared, ctx: &egui::Context, f: impl FnOnce(&mut NetState)) {
     f(&mut st.lock().unwrap());
@@ -305,8 +458,26 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             });
             match client.restore_session().await {
                 Ok(session) => logged_in(client, session, st, ctx).await,
+                // Нет связи со Steam, но вход сохранен: автономный режим - библиотека из кэша Aurelia
+                // (список игр и время в игре на момент последнего входа); UI сам пробует переподключиться.
+                Err(e) if client.is_offline() || network_failure(&e).await => {
+                    let cached = aurelia::core::config::load_library_cache().await.unwrap_or_default();
+                    let why = format!("{e:#}");
+                crate::errlog::write("сеть", &format!("нет связи со Steam: {why}"));
+                    upd(st, ctx, |s| {
+                        s.busy = false;
+                        s.offline = true;
+                        s.offline_reason = why;
+                        s.need_login = false;
+                        s.message.clear();
+                        if s.owned.is_empty() {
+                            s.owned = cached;
+                        }
+                    });
+                }
                 Err(_) => upd(st, ctx, |s| {
                     s.busy = false;
+                    s.offline = false;
                     s.need_login = true;
                     s.message.clear();
                 }),
@@ -366,6 +537,15 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             upd(st, ctx, |s| s.busy = true);
             load_owned(client, st, ctx).await;
         }
+        Cmd::FriendAchievements(appid, who) => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let res = client.fetch_achievements_for(appid, "russian", who).await.map_err(|e| format!("{e:#}"));
+                upd(&st, &ctx, |s| {
+                    s.friend_achievements.insert((appid, who), res);
+                });
+            });
+        }
         Cmd::Achievements(appid) => {
             let res = client
                 .fetch_achievements(appid, "russian")
@@ -415,12 +595,14 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             });
         }
         Cmd::OpenChat(friend) => {
-            let res = client.recent_chat_messages(friend, 50).await;
+            let res = client.chat_history(friend, 50, None).await;
             upd(st, ctx, |s| {
                 let conv = s.chats.entry(friend).or_default();
                 conv.unread = 0;
                 match res {
-                    Ok(msgs) => {
+                    Ok((msgs, more)) => {
+                        conv.oldest = msgs.iter().map(|m| (m.timestamp, m.ordinal)).min();
+                        conv.more_history = more;
                         // Steam отдает от новых к старым; живые сообщения, пришедшие
                         // до загрузки истории, уже входят в нее.
                         conv.lines = msgs
@@ -757,17 +939,482 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 upd(&st, &ctx, |s| s.emoticons = Some(lists));
             });
         }
-        Cmd::CloudShots { appid, page } => {
+        Cmd::ActivateKey(key) => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            upd(&st, &ctx, |s| {
+                s.key_busy = true;
+                s.key_result = None;
+            });
+            tokio::spawn(async move {
+                let r = crate::keys::activate(&client, &key).await;
+                upd(&st, &ctx, |s| {
+                    s.key_busy = false;
+                    s.key_result = Some(r);
+                });
+            });
+        }
+        Cmd::NewsFeed(games) => {
+            let (st, ctx) = (st.clone(), ctx.clone());
+            upd(&st, &ctx, |s| s.news_busy = true);
+            tokio::spawn(async move {
+                let r = crate::newsfeed::load(games).await;
+                upd(&st, &ctx, |s| {
+                    s.news_busy = false;
+                    s.news_feed = Some(r);
+                });
+            });
+        }
+        Cmd::NotifIcons(invs) => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let Ok(web) = crate::webapi::web_session(&client).await else { return };
+                let mut icons = HashMap::new();
+                for (app, cx) in invs {
+                    if let Ok(items) = aurelia::steam_client::inventory_via_lang(&web, app, cx, "english").await {
+                        for i in items {
+                            if let Some(u) = i.icon_url.filter(|u| !u.is_empty()) {
+                                let url = if u.starts_with("http") { u } else { format!("{}{u}", aurelia::web::web_session::ECON_IMAGE_BASE) };
+                                icons.insert(i.asset_id, format!("{url}/96fx96f"));
+                            }
+                        }
+                    }
+                }
+                upd(&st, &ctx, |s| s.notif_icons.extend(icons));
+            });
+        }
+        Cmd::SteamNotifs | Cmd::SteamNotifsRead => {
+            let mark = matches!(cmd, Cmd::SteamNotifsRead);
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                if mark {
+                    if let Err(e) = crate::steamnotif::mark_all_read(&client).await {
+                        upd(&st, &ctx, |s| s.steam_notifs = Some(Err(format!("Не отмечены: {e}"))));
+                    }
+                }
+                let r = crate::steamnotif::load(&client).await;
+                // Ошибку сети не показываем поверх уже загруженного списка.
+                upd(&st, &ctx, |s| {
+                    if r.is_ok() || !matches!(s.steam_notifs, Some(Ok(_))) {
+                        s.steam_notifs = Some(r);
+                    }
+                });
+            });
+        }
+        Cmd::Badges => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let Some(me) = client.my_steam_id() else { return };
+                let r = crate::badges::load(&client, me).await;
+                upd(&st, &ctx, |s| s.badges = Some(r));
+            });
+        }
+        Cmd::CraftBadge { appid, foil } => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let Some(me) = client.my_steam_id() else { return };
+                let r = crate::badges::craft(&client, me, appid, foil).await;
+                let msg = match r {
+                    Ok(()) => "Значок создан.".to_string(),
+                    Err(e) => e,
+                };
+                let fresh = crate::badges::load(&client, me).await;
+                upd(&st, &ctx, |s| {
+                    s.badges_msg = Some(msg);
+                    s.badges = Some(fresh);
+                });
+            });
+        }
+        Cmd::PointsBalance => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let Some(me) = client.my_steam_id() else { return };
+                if let Ok(b) = crate::points::balance(&client, me).await {
+                    upd(&st, &ctx, |s| s.points_balance = Some(b));
+                }
+            });
+        }
+        Cmd::PointsQuery { class, search, cursor } => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            upd(&st, &ctx, |s| s.points_busy = true);
+            tokio::spawn(async move {
+                let more = cursor.is_some();
+                let r = crate::points::query(&client, class, &search, cursor.as_deref()).await;
+                upd(&st, &ctx, |s| {
+                    s.points_busy = false;
+                    match (r, s.points_page.take()) {
+                        // «Показать еще» - дописать к той же странице.
+                        (Ok(mut p), Some(Ok(mut old))) if more && old.class == p.class && old.search == p.search => {
+                            old.items.append(&mut p.items);
+                            old.cursor = p.cursor;
+                            s.points_page = Some(Ok(old));
+                        }
+                        (r, _) => s.points_page = Some(r),
+                    }
+                });
+            });
+        }
+        Cmd::PointsOwned => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                if let Ok(mut o) = crate::points::owned(&client).await {
+                    upd(&st, &ctx, |s| {
+                        // Купленное в этом сеансе Steam может еще не отдавать - не терять.
+                        if let Some(prev) = &s.points_owned {
+                            o.profile.extend(prev.profile.iter().copied());
+                            o.names.extend(prev.names.iter().cloned());
+                        }
+                        s.points_owned = Some(o);
+                    });
+                }
+            });
+        }
+        Cmd::PointsRedeem(item) => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let r = crate::points::redeem(&client, item.defid).await;
+                let bal = match client.my_steam_id() {
+                    Some(me) => crate::points::balance(&client, me).await.ok(),
+                    None => None,
+                };
+                let ok = r.is_ok();
+                upd(&st, &ctx, |s| {
+                    s.points_msg = Some(match r {
+                        Ok(()) => format!("Куплено: {}.", item.title),
+                        Err(e) => e,
+                    });
+                    if bal.is_some() {
+                        s.points_balance = bal;
+                    }
+                    if ok {
+                        s.points_owned.get_or_insert_with(Default::default).add(&item);
+                        // Сразу в панель чата: инвентарь Steam обновляется с задержкой.
+                        match item.class {
+                            12 => {
+                                let e = crate::effects::from_item_name(&item.name);
+                                s.bought_effects.push(e.clone());
+                                let list = s.chat_effects.get_or_insert_with(Vec::new);
+                                if !list.contains(&e) {
+                                    list.push(e);
+                                    list.sort();
+                                }
+                            }
+                            11 | 4 => {
+                                let (emo, stick) = s.emoticons.get_or_insert_with(Default::default);
+                                let (list, name) = if item.class == 11 {
+                                    (stick, item.name.clone())
+                                } else {
+                                    (emo, item.name.trim_matches(':').to_string())
+                                };
+                                if !list.contains(&name) {
+                                    list.insert(0, name);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                });
+            });
+        }
+        Cmd::Family => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let Some(me) = client.my_steam_id() else { return };
+                let r = crate::family::load(&client, me).await;
+                upd(&st, &ctx, |s| s.family_group = Some(r));
+            });
+        }
+        Cmd::Activity(friends) => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            upd(&st, &ctx, |s| s.activity_busy = true);
+            tokio::spawn(async move {
+                let r = crate::activity::load(&client, friends).await;
+                upd(&st, &ctx, |s| {
+                    s.activity_busy = false;
+                    s.activity = Some(r);
+                });
+            });
+        }
+        Cmd::MyRecent => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let Some(me) = client.my_steam_id() else { return };
+                let r = crate::webapi::get(&client, "IPlayerService/GetRecentlyPlayedGames/v1", &[("steamid", me.to_string())])
+                    .await
+                    .map(|v| crate::activity::parse_recent(&v));
+                upd(&st, &ctx, |s| s.my_recent = Some(r));
+            });
+        }
+        Cmd::ProfileExtra(id) => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let r = crate::profile_extra::load(&client, id).await;
+                upd(&st, &ctx, |s| {
+                    s.profile_extra.insert(id, r);
+                });
+            });
+        }
+        Cmd::DeleteComment { id, gid } => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            upd(&st, &ctx, |s| s.comment_msg = Some("Удаляю...".into()));
+            tokio::spawn(async move {
+                let r = crate::profile_extra::delete_comment(&client, id, &gid).await;
+                let fresh = crate::profile_extra::load(&client, id).await;
+                upd(&st, &ctx, |s| {
+                    s.comment_msg = Some(match r {
+                        Ok(()) => "Комментарий удален.".into(),
+                        Err(e) => e,
+                    });
+                    s.profile_extra.insert(id, fresh);
+                });
+            });
+        }
+        Cmd::MoreComments { id, start } => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                if let Ok((total, more)) = crate::profile_extra::load_comments(&client, id, start).await {
+                    upd(&st, &ctx, |s| {
+                        // Страница комментариев (по 10), как в Steam.
+                        if let Some(Ok(x)) = s.profile_extra.get_mut(&id) {
+                            x.comments_total = total;
+                            x.comments = more;
+                        }
+                    });
+                }
+            });
+        }
+        Cmd::PostComment { id, text } => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            upd(&st, &ctx, |s| s.comment_msg = Some("Отправляю...".into()));
+            tokio::spawn(async move {
+                let r = crate::profile_extra::post_comment(&client, id, &text).await;
+                let fresh = crate::profile_extra::load(&client, id).await;
+                upd(&st, &ctx, |s| {
+                    s.comment_msg = Some(match r {
+                        Ok(()) => "Комментарий опубликован.".into(),
+                        Err(e) => e,
+                    });
+                    s.profile_extra.insert(id, fresh);
+                });
+            });
+        }
+        Cmd::ShotComments { owner, id } => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let r = crate::shotcomments::load(&client, owner, id).await;
+                upd(&st, &ctx, |s| {
+                    s.shot_comments.insert(id, r);
+                });
+            });
+        }
+        Cmd::ShotComment { owner, id, text } => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            upd(&st, &ctx, |s| s.shot_msg = Some("Отправляю...".into()));
+            tokio::spawn(async move {
+                let r = crate::shotcomments::post(&client, owner, id, &text).await;
+                let fresh = crate::shotcomments::load(&client, owner, id).await;
+                upd(&st, &ctx, |s| {
+                    s.shot_msg = Some(match r {
+                        Ok(()) => "Комментарий опубликован.".into(),
+                        Err(e) => e,
+                    });
+                    s.shot_comments.insert(id, fresh);
+                });
+            });
+        }
+        Cmd::ShotVote { id, up } => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let r = crate::shotcomments::vote(&client, id, up).await;
+                upd(&st, &ctx, |s| {
+                    s.shot_msg = Some(match r {
+                        Ok(()) => "Оценка поставлена.".into(),
+                        Err(e) => e,
+                    });
+                });
+            });
+        }
+        Cmd::CommTopics { appid, page } => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            upd(&st, &ctx, |s| s.comm_topics = None);
+            tokio::spawn(async move {
+                let r = crate::community::load_topics(&client, appid, page).await.map(|v| (appid, page, v));
+                upd(&st, &ctx, |s| s.comm_topics = Some(r));
+            });
+        }
+        Cmd::CommTopic(url) => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            upd(&st, &ctx, |s| s.comm_msg = Some("Открываю тему...".into()));
+            tokio::spawn(async move {
+                let r = crate::community::load_topic(&client, &url).await;
+                upd(&st, &ctx, |s| {
+                    s.comm_msg = None;
+                    s.comm_topic = Some(r);
+                });
+            });
+        }
+        Cmd::CommReply { topic, text } => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            upd(&st, &ctx, |s| s.comm_msg = Some("Отправляю ответ...".into()));
+            tokio::spawn(async move {
+                let r = crate::community::reply(&client, &topic, &text).await;
+                let fresh = crate::community::load_topic(&client, &topic.url).await;
+                upd(&st, &ctx, |s| {
+                    s.comm_msg = Some(match r {
+                        Ok(()) => "Ответ опубликован.".into(),
+                        Err(e) => e,
+                    });
+                    s.comm_topic = Some(fresh);
+                });
+            });
+        }
+        Cmd::CommGuide(id) => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            upd(&st, &ctx, |s| s.comm_msg = Some("Открываю руководство...".into()));
+            tokio::spawn(async move {
+                let r = crate::community::load_guide(&client, id).await;
+                upd(&st, &ctx, |s| {
+                    s.comm_msg = None;
+                    s.comm_guide = Some(r);
+                });
+            });
+        }
+        Cmd::CommGuides { appid, search } => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            upd(&st, &ctx, |s| s.comm_guides = None);
+            tokio::spawn(async move {
+                let r = crate::community::load_guides(&client, appid, &search).await.map(|v| (appid, v));
+                upd(&st, &ctx, |s| s.comm_guides = Some(r));
+            });
+        }
+        Cmd::Feed { start } => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            upd(&st, &ctx, |s| s.feed_busy = true);
+            tokio::spawn(async move {
+                let Some(me) = client.my_steam_id() else { return };
+                let r = crate::feed::load_days(&client, me, start, 20).await;
+                upd(&st, &ctx, |s| {
+                    s.feed_busy = false;
+                    match (r, s.feed.take()) {
+                        // «Показать раньше» - дописать.
+                        (Ok(mut p), Some(Ok(mut old))) if start > 0 => {
+                            old.entries.append(&mut p.entries);
+                            old.next = p.next;
+                            s.feed = Some(Ok(old));
+                        }
+                        (r, _) => s.feed = Some(r),
+                    }
+                });
+            });
+        }
+        Cmd::OlderChat(friend) => {
+            let before = st.lock().unwrap().chats.get(&friend).and_then(|c| c.oldest);
+            let Some(before) = before else { return };
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            upd(&st, &ctx, |s| s.chats.entry(friend).or_default().loading_older = true);
+            tokio::spawn(async move {
+                let r = client.chat_history(friend, 50, Some(before)).await;
+                upd(&st, &ctx, |s| {
+                    let conv = s.chats.entry(friend).or_default();
+                    conv.loading_older = false;
+                    match r {
+                        Ok((msgs, more)) => {
+                            if let Some(o) = msgs.iter().map(|m| (m.timestamp, m.ordinal)).min() {
+                                conv.oldest = Some(o);
+                            }
+                            conv.more_history = more && !msgs.is_empty();
+                            // Пришли от новых к старым - в начало переписки, по порядку.
+                            let older: Vec<ChatLine> = msgs
+                                .into_iter()
+                                .rev()
+                                .map(|m| ChatLine { from_self: m.from_self, text: m.message, time: m.timestamp as u64 })
+                                .collect();
+                            conv.lines.splice(0..0, older);
+                        }
+                        Err(e) => conv.error = Some(format!("Не удалось загрузить: {e:#}")),
+                    }
+                });
+            });
+        }
+        Cmd::Sessions => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let r = crate::sessions::load(&client).await;
+                upd(&st, &ctx, |s| s.sessions = Some(r));
+            });
+        }
+        Cmd::Licenses => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                if let Ok(v) = crate::refund::load(&client).await {
+                    upd(&st, &ctx, |s| s.licenses = Some(v));
+                }
+            });
+        }
+        Cmd::ChatGroups => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let r = client.my_chat_groups().await.map_err(|e| format!("{e:#}"));
+                // Как открытое окно чата в Steam: иначе история каналов может не отдаваться.
+                if let Ok(g) = &r {
+                    let _ = client.activate_chat_groups(&g.iter().map(|x| x.group_id).collect::<Vec<_>>()).await;
+                }
+                upd(&st, &ctx, |s| s.chat_groups = Some(r));
+            });
+        }
+        Cmd::GroupMessages { group, chat } => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let r = client.group_messages(group, chat, 60).await.map_err(|e| format!("{e:#}"));
+                upd(&st, &ctx, |s| {
+                    // Сбой обновления не стирает уже показанные сообщения.
+                    if r.is_ok() || !matches!(s.group_messages.get(&(group, chat)), Some(Ok(_))) {
+                        s.group_messages.insert((group, chat), r);
+                    }
+                });
+            });
+        }
+        Cmd::GroupSend { group, chat, text } => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let r = client.send_group_message(group, chat, &text).await;
+                let fresh = client.group_messages(group, chat, 60).await.map_err(|e| format!("{e:#}"));
+                upd(&st, &ctx, |s| {
+                    s.group_error = r.err().map(|e| format!("Не отправлено: {e:#}"));
+                    if fresh.is_ok() {
+                        s.group_messages.insert((group, chat), fresh);
+                    }
+                });
+            });
+        }
+        Cmd::AccountInfo => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let d = client.get_account_data().await;
+                upd(&st, &ctx, |s| s.account_data = Some(d));
+            });
+        }
+        Cmd::CloudShots { user, appid, page } => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             upd(&st, &ctx, |s| s.cloud_shots_busy = true);
             tokio::spawn(async move {
-                let r = client.my_cloud_screenshots(appid, page, 50).await.map_err(es);
+                let r = if user == 0 {
+                    client.my_cloud_screenshots(appid, page, 50).await
+                } else {
+                    client.user_screenshots(user, appid, page, 50).await
+                }
+                .map_err(|e| {
+                    let t = es(e);
+                    // Закрытый профиль Steam отвечает InvalidParam.
+                    if user != 0 && t.contains("InvalidParam") { "профиль или скриншоты скрыты настройками приватности".to_string() } else { t }
+                });
                 upd(&st, &ctx, |s| {
                     s.cloud_shots_busy = false;
+                    let same_user = s.cloud_shots_user == user;
+                    s.cloud_shots_user = user;
                     s.cloud_shots = Some(match r {
                         // Следующая страница того же фильтра - дописываем.
                         Ok((total, v)) => match s.cloud_shots.take() {
-                            Some(Ok((a, _, mut old))) if a == appid && page > 1 => {
+                            Some(Ok((a, _, mut old))) if a == appid && page > 1 && same_user => {
                                 old.extend(v);
                                 Ok((appid, total, old))
                             }
@@ -783,7 +1430,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             // инвентаре (753/6), как стикеры: тип «Winter Sale Event 2019 Chat Effect», имя «Confetti».
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             tokio::spawn(async move {
-                let Ok(web) = client.web_session().await else { return };
+                let Ok(web) = crate::webapi::web_session(&client).await else { return };
                 let Ok(items) = aurelia::steam_client::inventory_via_lang(&web, 753, 6, "english").await else {
                     return;
                 };
@@ -794,7 +1441,15 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                     .collect();
                 v.sort();
                 v.dedup();
-                upd(&st, &ctx, |s| s.chat_effects = Some(v));
+                upd(&st, &ctx, |s| {
+                    for e in &s.bought_effects {
+                        if !v.contains(e) {
+                            v.push(e.clone());
+                        }
+                    }
+                    v.sort();
+                    s.chat_effects = Some(v);
+                });
             });
         }
         Cmd::SendImage { to, path } => {
@@ -863,6 +1518,7 @@ async fn logged_in(client: &mut SteamClient, session: SessionState, st: &Shared,
     upd(st, ctx, |s| {
         s.account = Some(name);
         s.need_login = false;
+        s.offline = false;
         s.roster = roster.clone();
         s.my_id = my_id;
         s.chats.clear();
@@ -2060,6 +2716,89 @@ mod installed_langs_live {
                         "{} ({}, {} МБ): свои языки {:?}, общих {}; сейчас язык «{}»",
                         g.name, g.appid, g.size / 1_000_000, own, shared, acf.mounted_language
                     );
+                }
+            }
+        });
+    }
+}
+
+#[cfg(test)]
+mod offline_live {
+    /// «Нет сети» без отключения интернета: копия настроек Aurelia во временной папке и все запросы
+    /// через несуществующий прокси. Ожидаем: вход не удался именно как «офлайн», кэш библиотеки есть.
+    #[test]
+    #[ignore]
+    fn offline_live() {
+        let dir = std::env::temp_dir().join(format!("vaporust_offline_cfg_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let real = std::path::PathBuf::from(std::env::var("USERPROFILE").unwrap()).join(".config").join("Aurelia");
+        for f in ["session.json", "library_cache.json"] {
+            let _ = std::fs::copy(real.join(f), dir.join(f));
+        }
+        std::env::set_var("AURELIA_CONFIG_DIR", &dir);
+        for v in ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"] {
+            std::env::set_var(v, "http://127.0.0.1:9");
+        }
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            let t = std::time::Instant::now();
+            let r = c.restore_session().await;
+            let cached = aurelia::core::config::load_library_cache().await.unwrap_or_default();
+            if let Err(e) = &r {
+                println!("Vaporust считает это сетью: {}", super::network_failure(e).await);
+            }
+            println!(
+                "вход: {}; вид ошибки: {:?}; офлайн: {}; игр в кэше: {}; {:.1} с",
+                r.as_ref().map(|_| "удался".to_string()).unwrap_or_else(|e| format!("ошибка ({e:#})")),
+                r.as_ref().err().map(|e| aurelia::core::error::classify(e).kind),
+                c.is_offline(),
+                cached.len(),
+                t.elapsed().as_secs_f32()
+            );
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// Вход не удался из-за сети, а не из-за самого входа? Aurelia не всегда это различает
+/// (без интернета у нее есть запасной список серверов, и ошибка бывает «таймаут» вида Unknown).
+/// Считаем сетевой любую ошибку при сохраненном входе, если это не отказ во входе.
+async fn network_failure(e: &anyhow::Error) -> bool {
+    use aurelia::core::error::ErrorKind as K;
+    let kind = aurelia::core::error::classify(e).kind;
+    if matches!(kind, K::Offline | K::NetworkTimeout | K::Timeout) {
+        return true;
+    }
+    if matches!(kind, K::AuthRequired | K::LoginDenied | K::LoginExpired | K::AccessDenied) {
+        return false;
+    }
+    let has_session = aurelia::core::config::load_session()
+        .await
+        .is_ok_and(|s| s.account_name.is_some() && s.refresh_token.is_some());
+    let text = format!("{e:#}").to_lowercase();
+    let auth_text = ["invalid", "expired", "revoked", "denied", "access", "no persisted"].iter().any(|w| text.contains(w));
+    has_session && !auth_text
+}
+
+#[cfg(test)]
+mod ach_live {
+    /// Живой тест (только чтение): свои достижения L4D2 и у нескольких друзей. Печатает только числа.
+    #[test]
+    #[ignore]
+    fn friend_achievements_live() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            let mine = c.fetch_achievements(550, "russian").await.unwrap();
+            let icons = mine.iter().filter(|a| !a.icon_unlocked.is_empty()).count();
+            println!("мои: {} из {}, иконок {icons}", mine.iter().filter(|a| a.unlocked).count(), mine.len());
+            let friends = c.collect_friends(std::time::Duration::from_secs(5)).await.unwrap();
+            for f in friends.iter().filter(|f| f.relationship == 3).take(6) {
+                match c.fetch_achievements_for(550, "russian", f.steam_id).await {
+                    Ok(v) => println!("друг: {} из {}", v.iter().filter(|a| a.unlocked).count(), v.len()),
+                    Err(e) => println!("друг: ошибка {e:#}"),
                 }
             }
         });

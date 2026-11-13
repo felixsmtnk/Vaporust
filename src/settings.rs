@@ -71,17 +71,26 @@ pub struct Settings {
     pub notify_friend_online: bool,
     pub notify_wishlist: bool,
     pub notify_download: bool,
+    /// Новые уведомления Steam (подарки, предметы, обмены, комментарии).
+    pub notify_steam: bool,
     /// Скидки из списка желаемого, о которых уже сообщили: appid -> конец скидки (unix).
     pub notified_sales: std::collections::BTreeMap<u32, u64>,
     /// Свои эффекты комнаты (последний известный список - чтобы панель открывалась сразу).
     pub chat_effects: Vec<String>,
     /// Обновлять игры через скрытый Steam (по умолчанию - без Steam, загрузчиком Vaporust).
     pub update_via_steam: bool,
+    /// Vaporust включил Steam автономный режим (loginusers.vdf) - снять, когда Steam закроется.
+    pub steam_offline_set: bool,
     /// Очередь установок; сохраняется между запусками.
     pub downloads: Vec<QueueItem>,
     /// Старый формат очереди (alpha.2 до правки): только читаем и переносим в `downloads`.
     #[serde(skip_serializing)]
     pub queue: Vec<(u32, String)>,
+    /// Загрузка, которая шла в момент закрытия Vaporust (или сбоя): при следующем запуске
+    /// встает первой в очередь.
+    pub current_download: Option<QueueItem>,
+    /// Прерванные загрузки продолжаются сами (иначе встают в очередь на паузе).
+    pub resume_downloads: bool,
     /// Вся очередь придержана кнопкой «Пауза очереди».
     pub queue_paused: bool,
     /// Регион цен в магазине (код страны); None - по IP подключения к Steam.
@@ -114,6 +123,25 @@ pub struct Settings {
     pub download_limit_kb: u64,
     /// Прокси для запросов Aurelia (http://хост:порт или socks5://…), пусто - без прокси.
     pub proxy: String,
+    /// Команды перед запуском и после выхода для каждой игры (свойства игры -> «Общие»).
+    pub scripts: std::collections::BTreeMap<u32, crate::scripts::GameScripts>,
+    /// Избранные друзья (наверху списка) и свои заметки о друзьях.
+    /// Кнопка «Во что поиграть?» над библиотекой.
+    pub random_button: bool,
+    /// Обычная рамка окон Windows вместо своей.
+    pub system_frame: bool,
+    /// Производительность: анимации (стикеры, GIF, эффекты чата, значки загрузки).
+    pub animations: bool,
+    /// Обложки и фоны игр в библиотеке.
+    pub covers: bool,
+    /// Экономия памяти: картинки мельче, кэш картинок меньше.
+    pub economy: bool,
+    /// Отдавать память системе, когда окно в трее или идет игра.
+    pub trim_memory: bool,
+    pub fav_friends: std::collections::BTreeSet<u64>,
+    pub friend_notes: std::collections::BTreeMap<u64, String>,
+    /// Сторонние игры (не из Steam), добавленные кнопкой «Добавить игру».
+    pub custom_games: Vec<crate::custom::CustomGame>,
 }
 
 /// Игра в очереди установки.
@@ -129,6 +157,13 @@ pub struct QueueItem {
 impl Settings {
     /// Перенести очередь старого формата.
     pub fn migrate(&mut self) {
+        // Прошлый запуск закрылся посреди загрузки - продолжить ее первой.
+        if let Some(mut c) = self.current_download.take() {
+            if !self.downloads.iter().any(|q| q.appid == c.appid) {
+                c.paused = !self.resume_downloads;
+                self.downloads.insert(0, c);
+            }
+        }
         for (appid, name) in std::mem::take(&mut self.queue) {
             if !self.downloads.iter().any(|q| q.appid == appid) {
                 self.downloads.push(QueueItem { appid, name, paused: false });
@@ -155,12 +190,16 @@ impl Default for Settings {
             notify_friend_online: false,
             notify_wishlist: true,
             notify_download: true,
+            notify_steam: true,
             notified_sales: Default::default(),
             chat_effects: Vec::new(),
             update_via_steam: false,
+            steam_offline_set: false,
             downloads: Vec::new(),
             queue: Vec::new(),
             queue_paused: false,
+            current_download: None,
+            resume_downloads: true,
             store_country: None,
             view: View::Grid,
             holding: Vec::new(),
@@ -176,8 +215,37 @@ impl Default for Settings {
             direct_specs: Default::default(),
             download_limit_kb: 0,
             proxy: String::new(),
+            scripts: Default::default(),
+            random_button: true,
+            system_frame: false,
+            animations: true,
+            covers: true,
+            economy: false,
+            trim_memory: true,
+            fav_friends: Default::default(),
+            friend_notes: Default::default(),
+            custom_games: Vec::new(),
         }
     }
 }
 
 pub const KEY: &str = "vaporust_settings";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn interrupted_download_resumes() {
+        let mut s = Settings::default();
+        s.downloads.push(QueueItem { appid: 2, name: "b".into(), paused: false });
+        s.current_download = Some(QueueItem { appid: 1, name: "a".into(), paused: false });
+        s.migrate();
+        assert_eq!(s.downloads.iter().map(|q| q.appid).collect::<Vec<_>>(), vec![1, 2]);
+        assert!(!s.downloads[0].paused && s.current_download.is_none());
+        let mut s = Settings { resume_downloads: false, ..Default::default() };
+        s.current_download = Some(QueueItem { appid: 1, name: "a".into(), paused: false });
+        s.migrate();
+        assert!(s.downloads[0].paused, "без галочки - на паузе");
+    }
+}

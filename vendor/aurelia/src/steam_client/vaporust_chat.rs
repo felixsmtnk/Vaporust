@@ -161,3 +161,52 @@ impl SteamClient {
             .ok_or_else(|| anyhow!("commitfileupload: no image url in answer"))
     }
 }
+
+/// vaporust: сообщение истории переписки с номером (ordinal) - для подгрузки более старых.
+#[derive(Debug, Clone)]
+pub struct HistoryMessage {
+    pub from_self: bool,
+    pub message: String,
+    pub timestamp: u32,
+    pub ordinal: u32,
+}
+
+impl SteamClient {
+    /// vaporust: история переписки. `before` = Some((время, ordinal)) самого старого уже
+    /// загруженного сообщения - тогда вернутся сообщения до него. Возвращает (сообщения от новых
+    /// к старым, есть ли еще более старые).
+    pub async fn chat_history(&self, target: u64, count: u32, before: Option<(u32, u32)>) -> Result<(Vec<HistoryMessage>, bool)> {
+        use steam_vent_proto::steammessages_friendmessages_steamclient::{
+            CFriendMessages_GetRecentMessages_Request, CFriendMessages_GetRecentMessages_Response,
+        };
+        let connection = self.require_connection()?;
+        let me = u64::from(connection.steam_id());
+        let me_account = (me & 0xFFFF_FFFF) as u32;
+        let mut req = CFriendMessages_GetRecentMessages_Request::new();
+        req.set_steamid1(me);
+        req.set_steamid2(target);
+        req.set_count(count);
+        req.set_most_recent_conversation(false);
+        req.set_bbcode_format(true);
+        if let Some((t, o)) = before {
+            req.set_time_last(t);
+            req.set_ordinal_last(o);
+        }
+        let resp: CFriendMessages_GetRecentMessages_Response =
+            connection.service_method(req).await.map_err(|e| anyhow!("failed to fetch chat history: {e}"))?;
+        let more = resp.more_available();
+        let v = resp
+            .messages
+            .iter()
+            .map(|m| HistoryMessage {
+                from_self: m.accountid() == me_account,
+                message: m.message().to_string(),
+                timestamp: m.timestamp(),
+                ordinal: m.ordinal(),
+            })
+            // Сообщение-граница приходит повторно - отбрасываем.
+            .filter(|m| before.is_none_or(|(t, o)| (m.timestamp, m.ordinal) < (t, o)))
+            .collect();
+        Ok((v, more))
+    }
+}

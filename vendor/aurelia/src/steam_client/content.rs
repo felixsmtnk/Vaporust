@@ -382,10 +382,21 @@ impl SteamClient {
         appid: u32,
         language: &str,
     ) -> Result<Vec<GameAchievement>> {
-        let connection = self.require_connection()?;
         let steam_id = self
             .steam_id()
             .context("not logged in — achievements need an authenticated session")?;
+        self.fetch_achievements_for(appid, language, steam_id).await
+    }
+
+    /// vaporust: the same for any user (friend comparison). Steam returns no unlock
+    /// blocks when that user never played or hides game details.
+    pub async fn fetch_achievements_for(
+        &self,
+        appid: u32,
+        language: &str,
+        steam_id: u64,
+    ) -> Result<Vec<GameAchievement>> {
+        let connection = self.require_connection()?;
 
         // 1. Definitions + global rarity (localized).
         let mut def_req = CPlayer_GetGameAchievements_Request::new();

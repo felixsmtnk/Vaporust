@@ -106,8 +106,10 @@ impl LauncherApp {
                 .with_title("Инвентарь - Vaporust")
                 .with_inner_size([900.0, 620.0])
                 .with_min_inner_size([620.0, 400.0])
-                .with_icon(crate::icons::icon(crate::icons::Kind::Launcher)),
+                .with_icon(crate::icons::icon(crate::icons::Kind::Launcher))
+                .with_decorations(crate::winframe::system()),
             |ctx, _| {
+                crate::winframe::title_bar_auto(ctx);
                 egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| self.inventory_contents(ui, net));
                 ctx.input(|i| i.viewport().close_requested())
             },
@@ -151,10 +153,10 @@ impl LauncherApp {
                 ui.separator();
                 match &st.wallet {
                     None => {
-                        ui.spinner();
+                        crate::spin::spinner(ui);
                     }
                     Some(Ok(wl)) => {
-                        ui.label(format!("Кошелек: {}", wl.formatted));
+                        ui.label(format!("Кошелек: {}", crate::invent::money(wl.balance_cents, wl.currency)));
                     }
                     Some(Err(e)) => {
                         ui.weak("Кошелек: нет данных").on_hover_text(e);
@@ -205,7 +207,7 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
     egui::SidePanel::left("inv_apps").resizable(true).default_width(200.0).show_inside(ui, |ui| {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match &st.apps {
             None => {
-                ui.spinner();
+                crate::spin::spinner(ui);
             }
             Some(Err(e)) => {
                 ui.label(format!("Не удалось загрузить: {e}"));
@@ -237,7 +239,7 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
 
     let Some(appid) = w.app else {
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            ui.spinner();
+            crate::spin::spinner(ui);
         });
         return;
     };
@@ -259,7 +261,7 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
                 ui.weak("Steam ограничивает частые запросы инвентаря - попробуйте «Обновить» через минуту.");
             }
             _ => {
-                ui.spinner();
+                crate::spin::spinner(ui);
             }
         });
         return;
@@ -295,7 +297,7 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
                                 cmds.push(InvCmd::Price { appid, name: it.market_hash_name.clone() });
                             }
                             ui.horizontal(|ui| {
-                                ui.spinner();
+                                crate::spin::spinner(ui);
                                 ui.weak("Узнаю цену...");
                             });
                         }
@@ -338,7 +340,7 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
             ui.add(egui::TextEdit::singleline(&mut w.filter).hint_text("Поиск по предметам").desired_width(220.0));
             ui.weak(format!("Предметов: {}", list.len()));
             if loading {
-                ui.spinner();
+                crate::spin::spinner(ui);
             }
         });
         ui.add_space(4.0);
@@ -423,7 +425,7 @@ fn listings_tab(ui: &mut egui::Ui, st: &InvState) {
         ui.add_space(6.0);
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match &st.listings {
             None => {
-                ui.spinner();
+                crate::spin::spinner(ui);
             }
             Some(Err(e)) => {
                 ui.label(format!("Не удалось загрузить: {e}"));
@@ -486,7 +488,7 @@ fn market_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, cmds: &mut Vec<I
                 cmds.push(InvCmd::Search { query: w.query.trim().to_string(), start: 0 });
             }
             if st.searching {
-                ui.spinner();
+                crate::spin::spinner(ui);
             }
         });
         ui.weak("Цена - самая низкая на площадке сейчас. Купить - на странице предмета в браузере.")
@@ -531,7 +533,7 @@ fn market_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, cmds: &mut Vec<I
                             cmds.push(InvCmd::Search { query: query.clone(), start: list.len() as u32 });
                         }
                         if st.searching {
-                            ui.spinner();
+                            crate::spin::spinner(ui);
                         }
                     });
                 }

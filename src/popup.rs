@@ -43,8 +43,8 @@ struct Popup {
 
 const LIFE: Duration = Duration::from_secs(6);
 const MAX: usize = 3;
-const W: f32 = 300.0;
-const H: f32 = 64.0;
+const W: f32 = 330.0;
+const H: f32 = 72.0;
 const GAP: f32 = 8.0;
 
 static QUEUE: Mutex<Vec<Popup>> = Mutex::new(Vec::new());
@@ -131,6 +131,15 @@ impl LauncherApp {
             return;
         }
         ctx.request_repaint_after(Duration::from_millis(500));
+        // Аватары друзей из уведомлений - из списка друзей.
+        let avatars: std::collections::HashMap<u64, String> = {
+            let roster = self.net.lock().unwrap().roster.clone();
+            let roster = roster.read().unwrap();
+            roster
+                .values()
+                .filter_map(|f| f.avatar_hash.as_ref().map(|h| (f.steam_id, format!("https://avatars.fastly.steamstatic.com/{h}_medium.jpg"))))
+                .collect()
+        };
         let ppp = ctx.pixels_per_point();
         let size = egui::vec2(W, n as f32 * (H + GAP) - GAP);
         let mut builder = egui::ViewportBuilder::default()
@@ -148,7 +157,7 @@ impl LauncherApp {
         }
         ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("vaporust_popups"), builder, |ctx, _| {
             egui::CentralPanel::default()
-                .frame(egui::Frame::none().fill(egui::Color32::from_rgb(24, 26, 31)))
+                .frame(egui::Frame::none().fill(crate::theme::TOP))
                 .show(ctx, |ui| {
                     let mut q = QUEUE.lock().unwrap();
                     let mut close = None;
@@ -162,14 +171,41 @@ impl LauncherApp {
                             p.shown = Instant::now(); // пока над карточкой мышь - не исчезает
                         }
                         let painter = ui.painter_at(rect);
-                        let bg = if hovered { egui::Color32::from_rgb(52, 58, 70) } else { egui::Color32::from_rgb(40, 44, 54) };
-                        painter.rect_filled(rect, 6.0, bg);
-                        // Цветная полоска слева: статус друга или вид уведомления.
+                        // Карточка в цветах программы: темная, тонкая рамка, при наведении светлее.
+                        let bg = if hovered { egui::Color32::from_rgb(50, 58, 72) } else { crate::theme::CARD };
+                        painter.rect_filled(rect, 4.0, bg);
+                        painter.rect_stroke(rect, 4.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(62, 72, 88)));
                         let accent_color = p.accent.unwrap_or_else(|| color(p.kind));
-                        let accent = egui::Rect::from_min_size(rect.min, egui::vec2(4.0, H));
-                        painter.rect_filled(accent, egui::Rounding { nw: 6.0, sw: 6.0, ne: 0.0, se: 0.0 }, accent_color);
+                        // Слева, как в Steam: аватар друга в рамке цвета статуса или картинка игры.
+                        let icon = egui::Rect::from_min_size(egui::pos2(rect.left() + 12.0, rect.top() + (H - 48.0) / 2.0), egui::vec2(48.0, 48.0));
+                        match p.kind {
+                            Kind::Message(id) | Kind::FriendGame(id) | Kind::FriendOnline(id) => {
+                                match avatars.get(&id) {
+                                    Some(u) => {
+                                        egui::Image::new(u.as_str()).rounding(3.0).paint_at(ui, icon);
+                                    }
+                                    None => {
+                                        painter.rect_filled(icon, 3.0, crate::theme::SIDEBAR);
+                                    }
+                                }
+                                painter.rect_stroke(icon.expand(1.0), 3.0, egui::Stroke::new(2.0, accent_color));
+                            }
+                            Kind::Sale(a) | Kind::Download(a) if a != 0 => {
+                                // Квадрат из середины шапки игры (460x215).
+                                let url = format!("https://shared.steamstatic.com/store_item_assets/steam/apps/{a}/header.jpg");
+                                let k = 215.0 / 460.0;
+                                egui::Image::new(url)
+                                    .uv(egui::Rect::from_min_max(egui::pos2(0.5 - k / 2.0, 0.0), egui::pos2(0.5 + k / 2.0, 1.0)))
+                                    .rounding(3.0)
+                                    .paint_at(ui, icon);
+                            }
+                            _ => {
+                                painter.rect_filled(icon, 3.0, crate::theme::SIDEBAR);
+                                painter.circle_filled(icon.center(), 9.0, accent_color);
+                            }
+                        }
                         // Смайлик или стикер из сообщения - справа, перед крестиком.
-                        let mut text_w = W - 44.0;
+                        let mut text_w = W - 72.0 - 30.0;
                         if let Some(url) = &p.image {
                             let img_rect = egui::Rect::from_min_size(
                                 egui::pos2(rect.right() - 30.0 - 52.0, rect.top() + (H - 52.0) / 2.0),
@@ -179,11 +215,14 @@ impl LauncherApp {
                             text_w -= 58.0;
                         }
                         let title_color = if p.accent.is_some() { accent_color } else { egui::Color32::WHITE };
-                        let title = text(ui, &p.title, 14.0, title_color, text_w, 1);
-                        let body = text(ui, &p.body, 12.5, egui::Color32::from_gray(185), text_w, 2);
-                        let x = rect.left() + 14.0;
-                        painter.galley(egui::pos2(x, rect.top() + 9.0), title, title_color);
-                        painter.galley(egui::pos2(x, rect.top() + 29.0), body, egui::Color32::from_gray(185));
+                        let title = text(ui, &p.title, 14.5, title_color, text_w, 1);
+                        let body = text(ui, &p.body, 12.5, crate::theme::TEXT, text_w, 2);
+                        let x = rect.left() + 72.0;
+                        let th = title.size().y + 3.0 + body.size().y;
+                        let y = rect.center().y - th / 2.0;
+                        let title_h = title.size().y;
+                        painter.galley(egui::pos2(x, y), title, title_color);
+                        painter.galley(egui::pos2(x, y + title_h + 3.0), body, crate::theme::TEXT);
                         // Крестик.
                         let xr = egui::Rect::from_center_size(egui::pos2(rect.right() - 14.0, rect.top() + 14.0), egui::vec2(18.0, 18.0));
                         let over_x = ui.input(|i| i.pointer.hover_pos()).is_some_and(|h| xr.contains(h));

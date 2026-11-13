@@ -25,6 +25,10 @@ pub enum CollCmd {
     Toggle { id: String, appid: u32, add: bool },
     /// Создать коллекцию и сразу добавить в нее игру (если есть).
     Create { name: String, appid: Option<u32> },
+    /// Переименовать свою коллекцию.
+    Rename { id: String, name: String },
+    /// Удалить свою коллекцию (игры остаются в библиотеке).
+    Delete { id: String },
 }
 
 fn visible(store: &CollectionsStore) -> Vec<Coll> {
@@ -70,6 +74,14 @@ async fn run(client: &SteamClient, cmd: CollCmd) -> Result<Vec<Coll>, String> {
             }
             collections::push(&mut store, client).await.map_err(es)?;
         }
+        CollCmd::Rename { id, name } => {
+            store.rename(&id, &name).map_err(es)?;
+            collections::push(&mut store, client).await.map_err(es)?;
+        }
+        CollCmd::Delete { id } => {
+            store.delete(&id).map_err(es)?;
+            collections::push(&mut store, client).await.map_err(es)?;
+        }
         CollCmd::Create { name, appid } => {
             let id = store.create(&name).map_err(es)?;
             if let Some(a) = appid {
@@ -96,4 +108,33 @@ pub fn handle(client: &SteamClient, cmd: CollCmd, st: &crate::net::Shared, ctx: 
         drop(s);
         ctx.request_repaint();
     });
+}
+
+#[cfg(test)]
+mod live {
+    use super::*;
+
+    /// Живой тест на аккаунте: временная коллекция создается, переименовывается и удаляется.
+    /// Остальные коллекции не меняются.
+    #[test]
+    #[ignore]
+    fn rename_delete_live() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            let before = run(&c, CollCmd::Load).await.unwrap();
+            let names = |v: &[Coll]| v.iter().map(|c| (c.id.clone(), c.name.clone(), c.apps.len())).collect::<Vec<_>>();
+            let list = run(&c, CollCmd::Create { name: "Vaporust test".into(), appid: Some(70) }).await.unwrap();
+            let t = list.iter().find(|c| c.name == "Vaporust test").expect("создана").id.clone();
+            let list = run(&c, CollCmd::Rename { id: t.clone(), name: "Vaporust test 2".into() }).await.unwrap();
+            assert!(list.iter().any(|c| c.id == t && c.name == "Vaporust test 2"), "переименована");
+            let list = run(&c, CollCmd::Delete { id: t.clone() }).await.unwrap();
+            assert!(!list.iter().any(|c| c.id == t), "удалена");
+            // Повторная загрузка из облака: временной нет, остальные как были.
+            let after = run(&c, CollCmd::Load).await.unwrap();
+            assert_eq!(names(&before), names(&after));
+            println!("коллекций: {}, все на месте", after.len());
+        });
+    }
 }

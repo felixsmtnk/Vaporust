@@ -273,7 +273,7 @@ impl crate::LauncherApp {
                     }
                 }
                 State::Downloading(t) => {
-                    ui.spinner();
+                    crate::spin::spinner(ui);
                     ui.label(t);
                 }
                 State::Ready => {

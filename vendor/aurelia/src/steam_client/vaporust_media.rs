@@ -25,15 +25,24 @@ pub struct CloudScreenshot {
     pub time: u32,
     /// 0 - для всех, 1 - для друзей, 2 - только я, 3 - скрыт.
     pub visibility: u32,
+    /// vaporust: оценок «нравится» и комментариев.
+    pub votes_up: u32,
+    pub comments: u32,
 }
 
 impl SteamClient {
     /// Свои скриншоты в облаке Steam: игра `appid` (0 - все), страница `page` (с 1), по `per_page`.
     /// Возвращает (всего, скриншоты страницы).
     pub async fn my_cloud_screenshots(&self, appid: u32, page: u32, per_page: u32) -> Result<(u32, Vec<CloudScreenshot>)> {
+        let me = u64::from(self.require_connection()?.steam_id());
+        self.user_screenshots(me, appid, page, per_page).await
+    }
+
+    /// Скриншоты любого пользователя (у чужих - только те, что он показывает вам).
+    pub async fn user_screenshots(&self, steam_id: u64, appid: u32, page: u32, per_page: u32) -> Result<(u32, Vec<CloudScreenshot>)> {
         let connection = self.require_connection()?;
         let mut req = CPublishedFile_GetUserFiles_Request::new();
-        req.set_steamid(u64::from(connection.steam_id()));
+        req.set_steamid(steam_id);
         req.set_appid(appid);
         req.set_page(page.max(1));
         req.set_numperpage(per_page);
@@ -41,6 +50,7 @@ impl SteamClient {
         req.set_filetype(FILE_TYPE_SCREENSHOT);
         req.set_sortmethod("newestfirst".to_string());
         req.set_return_short_description(true);
+        req.set_return_vote_data(true);
         let resp: CPublishedFile_GetUserFiles_Response = connection
             .service_method(req)
             .await
@@ -59,6 +69,8 @@ impl SteamClient {
                 height: d.image_height(),
                 time: d.time_created(),
                 visibility: d.visibility(),
+                votes_up: d.vote_data.as_ref().map_or(0, |v| v.votes_up()),
+                comments: d.num_comments_public().max(0) as u32,
             })
             .collect();
         Ok((resp.total(), shots))

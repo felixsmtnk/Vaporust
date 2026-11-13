@@ -1,9 +1,12 @@
-# Изменения Vaporust в Aurelia 0.2.3
+# Изменения Vaporust в Aurelia 0.2.4
 
-Этот каталог - копия [Aurelia](https://github.com/Drackrath/Aurelia) версии 0.2.3
+Этот каталог - копия [Aurelia](https://github.com/Drackrath/Aurelia) версии 0.2.4
 (crate `aurelia-steam`, автор - Drackrath, лицензия GPL-3.0-or-later, см. `LICENSE`).
 Проект Vaporust использует ее как библиотеку и внес следующие изменения
 (ноябрь 2026). Остальные файлы не менялись.
+
+В ноябре 2026 копия обновлена с 0.2.3 до 0.2.4 слиянием изменений автора (git merge тега v0.2.4):
+конфликтов с правками Vaporust не было.
 
 ## Измененные файлы
 
@@ -20,6 +23,8 @@
   веб-сессии) и `put_bytes` (PUT файла на сервер загрузки). `get_text` проходит
   перенаправления Steam через `/market/eligibilitycheck/` (как браузер: с cookie,
   которые ставит эта страница), а не считает их отказом в доступе к площадке.
+- `src/steam_client/content.rs` - `fetch_achievements` вынесена в `fetch_achievements_for(appid,
+  язык, steam_id)`: достижения любого пользователя (сравнение с другом).
 
 ## Новые файлы
 
@@ -35,7 +40,21 @@
   файлов хранилища (`depot_file_names` - серверы CDN и ключ как у установки; `fetch_manifest_files` из
   depot_browser не работает: «no available cdn servers») - для смены языка без Steam.
 - `src/steam_client/vaporust_media.rs` - свои скриншоты в облаке Steam (`my_cloud_screenshots`:
-  PublishedFile.GetUserFiles, type "myfiles", filetype 4 - скриншоты; 5 - коллекции).
+  PublishedFile.GetUserFiles, type "myfiles", filetype 4 - скриншоты; 5 - коллекции). Скриншоты
+  любого пользователя (`user_screenshots`, для друзей).
+- `src/steam_client/vaporust_store.rs` - очередь открытий магазина (`discovery_queue`, `discovery_skip`);
+  веб-токен доступа для методов Web API Steam (`web_access_token`).
+- `src/steam_client/vaporust_groups.rs` - групповые чаты: свои группы с каналами (`my_chat_groups`),
+  история канала (`group_messages`), отправка (`send_group_message`), активные группы сеанса
+  (`activate_chat_groups`).
+- `src/steam_client/vaporust_chat.rs` (дополнение) - история переписки порциями (`chat_history`: time_last/
+  ordinal_last самого старого загруженного сообщения, признак more_available).
+- `src/core/models.rs`, `src/steam_client/workshop.rs` - у `WorkshopItem` добавлены картинка, подписчики и
+  оценки (`preview_url`, `subscriptions`, `votes_up`, `votes_down`), запрос модов просит оценки.
 - `VAPORUST_CHANGES.md` - этот файл.
 
 Все изменения в коде помечены комментарием `vaporust`.
+- `src/steam_client/vaporust_groups.rs`: `ChatGroup.top_members` (несколько участников - для названия группы
+  без имени); адрес значка группы `{sha}_64.jpg` (как в клиенте Steam; `_medium.jpg` давал 404).
+- `steam_client/friends.rs`: поле `Friend.avatar_hash` (хэш аватара в hex) из `CMsgClientPersonaState`
+  - для аватарок в списке друзей.

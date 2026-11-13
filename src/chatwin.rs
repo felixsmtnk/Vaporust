@@ -34,6 +34,14 @@ pub struct ChatWin {
     /// Идущий эффект комнаты и время последнего показанного (чтобы не повторять).
     effect: Option<crate::effects::Effect>,
     effect_seen: u64,
+    /// Поиск по переписке (пусто - показывать все).
+    search: String,
+    /// Строка поиска открыта (лупа или Ctrl+F) и в нее надо поставить курсор.
+    search_open: bool,
+    focus_search: bool,
+    /// Копия сетевого состояния и номер изменения, с которого она снята (не копировать каждый кадр).
+    snap: Option<NetState>,
+    snap_gen: u64,
 }
 
 impl ChatWin {
@@ -52,6 +60,11 @@ impl ChatWin {
             focus_input: true,
             effect: None,
             effect_seen: 0,
+            search: String::new(),
+            search_open: false,
+            focus_search: false,
+            snap: None,
+            snap_gen: u64::MAX,
         }
     }
 }
@@ -71,18 +84,26 @@ pub fn show(ctx: &egui::Context, chat: &SharedChat, net: &Shared, tx: &Unbounded
             .with_title(title)
             .with_inner_size([520.0, 580.0])
             .with_min_inner_size([360.0, 320.0])
-            .with_icon(crate::icons::icon(crate::icons::Kind::Chat)),
+            .with_icon(crate::icons::icon(crate::icons::Kind::Chat))
+            .with_decorations(crate::winframe::system()),
         move |ctx, _class| {
+            crate::winframe::title_bar_auto(ctx);
             let mut guard = chat.lock().unwrap();
             let Some(win) = guard.as_mut() else { return };
-            // Снимок сетевого состояния на кадр.
-            let snapshot = net.lock().unwrap().clone();
+            // Снимок сетевого состояния: копируем заново, только когда оно поменялось.
+            let gen = net.gen();
+            if win.snap.is_none() || win.snap_gen != gen {
+                win.snap = Some(net.lock().unwrap().clone());
+                win.snap_gen = gen;
+            }
+            let snapshot = win.snap.take().unwrap_or_default();
             win.frame(ctx, &snapshot, &net, &tx);
+            win.snap = Some(snapshot);
             if ctx.input(|i| i.viewport().close_requested()) {
                 *guard = None;
                 crate::notify::set_open_chat(0);
-                // Картинки и кадры чата больше не нужны - освобождаем память.
-                ctx.forget_all_images();
+                // Крупные картинки чата больше не нужны (аватары остаются для главного окна).
+                crate::imgload::forget_large(ctx);
                 ctx.request_repaint_of(egui::ViewportId::ROOT);
             }
         },
@@ -116,7 +137,7 @@ impl ChatWin {
             }
             if let Some(s) = &conv.status {
                 ui.horizontal(|ui| {
-                    ui.spinner();
+                    crate::spin::spinner(ui);
                     ui.weak(s);
                 });
             }
@@ -186,7 +207,88 @@ impl ChatWin {
             ui.add_space(4.0);
         });
 
-        // Переписка.
+        // Шапка, как в Steam: аватар друга, имя и статус; справа - лупа (поиск, Ctrl+F).
+        let friend = net.roster.read().unwrap().get(&id).cloned();
+        let friend_avatar = friend
+            .as_ref()
+            .and_then(|f| f.avatar_hash.as_ref())
+            .map(|h| format!("https://avatars.fastly.steamstatic.com/{h}_medium.jpg"));
+        let my_avatar = net.my_id.and_then(|m| net.profiles.get(&m)).and_then(|p| p.as_ref().ok()).and_then(|p| p.avatar_url.clone());
+        let (status, status_color) = match friend.as_ref() {
+            Some(f) if f.game_name.as_ref().is_some_and(|g| !g.is_empty()) => {
+                (format!("В игре: {}", f.game_name.clone().unwrap_or_default()), egui::Color32::from_rgb(140, 200, 80))
+            }
+            Some(f) if f.persona_state.unwrap_or(0) == 0 => ("не в сети".to_string(), egui::Color32::GRAY),
+            Some(f) if matches!(f.persona_state, Some(3 | 4)) => ("отошел".to_string(), egui::Color32::from_rgb(110, 140, 170)),
+            Some(_) => ("в сети".to_string(), egui::Color32::from_rgb(90, 170, 230)),
+            None => (String::new(), egui::Color32::GRAY),
+        };
+        // Ctrl+F - поиск, Esc - закрыть поиск.
+        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F)) {
+            self.search_open = true;
+            self.focus_search = true;
+        }
+        if self.search_open && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.search_open = false;
+            self.search.clear();
+            self.focus_input = true;
+        }
+        egui::TopBottomPanel::top("chat_head").show(ctx, |ui| {
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                let (ar, _) = ui.allocate_exact_size(egui::vec2(36.0, 36.0), egui::Sense::hover());
+                match &friend_avatar {
+                    Some(u) => {
+                        egui::Image::new(u.as_str()).rounding(3.0).paint_at(ui, ar);
+                    }
+                    None => {
+                        ui.painter().rect_filled(ar, 3.0, crate::theme::CARD);
+                    }
+                }
+                ui.painter().rect_stroke(ar.expand(1.0), 3.0, egui::Stroke::new(1.5, status_color));
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    ui.label(egui::RichText::new(crate::richtext::fix(ui, &self.name)).size(15.0).strong());
+                    ui.add(egui::Label::new(egui::RichText::new(&status).size(12.0).color(status_color)).truncate());
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let r = ui
+                        .add(egui::Button::new("").frame(self.search_open).min_size(egui::vec2(30.0, 26.0)))
+                        .on_hover_text("Поиск в переписке (Ctrl+F)");
+                    draw_magnifier(ui.painter(), r.rect, if r.hovered() { egui::Color32::WHITE } else { crate::theme::TEXT });
+                    if r.clicked() {
+                        self.search_open = !self.search_open;
+                        if self.search_open {
+                            self.focus_search = true;
+                        } else {
+                            self.search.clear();
+                        }
+                    }
+                    if conv.loading_older {
+                        crate::spin::spinner(ui);
+                    }
+                });
+            });
+            if self.search_open {
+                ui.horizontal(|ui| {
+                    let edit = ui.add(
+                        egui::TextEdit::singleline(&mut self.search)
+                            .hint_text("Поиск в переписке, Esc - закрыть")
+                            .desired_width(ui.available_width() - 30.0),
+                    );
+                    if std::mem::take(&mut self.focus_search) {
+                        edit.request_focus();
+                    }
+                    if ui.small_button("✖").on_hover_text("Закрыть поиск").clicked() {
+                        self.search_open = false;
+                        self.search.clear();
+                    }
+                });
+            }
+            ui.add_space(4.0);
+        });
+        let query = self.search.trim().to_lowercase();
+        // Переписка: сообщения группами по отправителю (аватар, имя, время), между днями - разделитель.
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical()
                 .stick_to_bottom(true)
@@ -194,30 +296,73 @@ impl ChatWin {
                 .show(ui, |ui| {
                     if !conv.history_loaded && conv.error.is_none() {
                         ui.horizontal(|ui| {
-                            ui.spinner();
+                            crate::spin::spinner(ui);
                             ui.weak("Загружаю переписку...");
                         });
                     }
                     if conv.history_loaded && conv.lines.is_empty() {
-                        ui.weak("Сообщений пока нет.");
+                        ui.add_space(20.0);
+                        ui.vertical_centered(|ui| ui.weak("Переписки пока нет. Напишите первым."));
                     }
+                    if conv.more_history && ui.add_enabled(!conv.loading_older, egui::Button::new("Показать более ранние сообщения")).clicked() {
+                        let _ = tx.send(Cmd::OlderChat(id));
+                    }
+                    if !query.is_empty() {
+                        let n = conv.lines.iter().filter(|l| l.text.to_lowercase().contains(&query)).count();
+                        ui.weak(format!("Найдено: {n} (среди загруженных {} сообщений)", conv.lines.len()));
+                    }
+                    let mut last_day = String::new();
+                    let mut last: Option<(bool, u64)> = None;
                     for l in &conv.lines {
+                        if !query.is_empty() && !l.text.to_lowercase().contains(&query) {
+                            continue;
+                        }
                         if l.text.trim().is_empty() {
                             continue; // пустые (например, эффект, которого нет у отправителя) - как в Steam, не показываем
                         }
+                        let day = crate::fmt_day(l.time);
+                        if day != last_day {
+                            last_day = day.clone();
+                            last = None;
+                            ui.add_space(6.0);
+                            ui.vertical_centered(|ui| ui.label(egui::RichText::new(&day).size(11.5).color(crate::theme::WEAK)));
+                            ui.add_space(2.0);
+                        }
                         let who = if l.from_self { "Вы" } else { self.name.as_str() };
-                        let color = if l.from_self {
-                            egui::Color32::from_rgb(120, 170, 230)
-                        } else {
-                            egui::Color32::from_rgb(140, 200, 80)
-                        };
-                        ui.horizontal_wrapped(|ui| {
-                            ui.weak(crate::fmt_time(l.time));
-                            ui.colored_label(color, format!("{who}:"));
-                            for seg in chatfmt::parse(&l.text) {
-                                crate::draw_seg(ui, seg, &mut self.anims, who);
+                        // Новая группа: другой отправитель или перерыв больше 5 минут.
+                        let new_group = last.is_none_or(|(s, t)| s != l.from_self || l.time.saturating_sub(t) > 300);
+                        last = Some((l.from_self, l.time));
+                        let avatar = if l.from_self { my_avatar.as_ref() } else { friend_avatar.as_ref() };
+                        let color = if l.from_self { egui::Color32::from_rgb(120, 170, 230) } else { egui::Color32::from_rgb(140, 200, 80) };
+                        ui.horizontal_top(|ui| {
+                            let (ar, _) = ui.allocate_exact_size(egui::vec2(32.0, if new_group { 32.0 } else { 1.0 }), egui::Sense::hover());
+                            if new_group {
+                                match avatar {
+                                    Some(u) => {
+                                        egui::Image::new(u.as_str()).rounding(3.0).paint_at(ui, ar);
+                                    }
+                                    None => {
+                                        ui.painter().rect_filled(ar, 3.0, crate::theme::CARD);
+                                    }
+                                }
                             }
+                            ui.vertical(|ui| {
+                                if new_group {
+                                    ui.horizontal(|ui| {
+                                        ui.label(egui::RichText::new(crate::richtext::fix(ui, who)).color(color).strong());
+                                        ui.label(egui::RichText::new(crate::fmt_time(l.time)).size(11.0).color(crate::theme::WEAK));
+                                    });
+                                }
+                                ui.horizontal_wrapped(|ui| {
+                                    for seg in chatfmt::parse(&l.text) {
+                                        crate::draw_seg(ui, seg, &mut self.anims, who);
+                                    }
+                                });
+                            });
                         });
+                        if new_group {
+                            ui.add_space(2.0);
+                        }
                     }
                 });
         });
@@ -249,7 +394,10 @@ impl ChatWin {
                 if let Some(chatfmt::Seg::RoomEffect(kind)) =
                     chatfmt::parse(&l.text).into_iter().find(|s| matches!(s, chatfmt::Seg::RoomEffect(_)))
                 {
-                    self.effect = crate::effects::Effect::new(&kind);
+                    // Без анимаций (настройка) эффект сам не запускается; «Повторить эффект» работает.
+                    if crate::imgload::animations() {
+                        self.effect = crate::effects::Effect::new(&kind);
+                    }
                 }
             }
         }
@@ -278,7 +426,7 @@ impl ChatWin {
         });
         let Some((emoticons, stickers)) = &net.emoticons else {
             ui.horizontal(|ui| {
-                ui.spinner();
+                crate::spin::spinner(ui);
                 ui.weak("Загружаю ваши смайлики и стикеры...");
             });
             return None;
@@ -292,7 +440,7 @@ impl ChatWin {
                     if self.picker_tab == 2 {
                         // Только купленные эффекты (из инвентаря Steam; перечитываются при открытии вкладки).
                         let Some(list) = net.chat_effects.clone() else {
-                            ui.spinner();
+                            crate::spin::spinner(ui);
                             ui.weak("Загружаю ваши эффекты...");
                             return;
                         };
@@ -367,4 +515,40 @@ impl ChatWin {
             });
         send
     }
+}
+
+#[cfg(test)]
+mod history_live {
+    /// Живой тест (только чтение): подгрузка более старой переписки. Печатает только числа.
+    #[test]
+    #[ignore]
+    fn older_history_live() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            let friends = c.collect_friends(std::time::Duration::from_secs(5)).await.unwrap();
+            for f in friends.iter().filter(|f| f.relationship == 3) {
+                let (first, more) = c.chat_history(f.steam_id, 50, None).await.unwrap();
+                if first.len() < 50 || !more {
+                    continue;
+                }
+                let oldest = first.iter().min_by_key(|m| (m.timestamp, m.ordinal)).unwrap();
+                let (older, more2) = c.chat_history(f.steam_id, 50, Some((oldest.timestamp, oldest.ordinal))).await.unwrap();
+                let newest_older = older.iter().map(|m| (m.timestamp, m.ordinal)).max();
+                println!("первая порция {}, еще {}, следующая {} (все старше: {}), еще {}", first.len(), more, older.len(), newest_older.is_some_and(|n| n < (oldest.timestamp, oldest.ordinal)), more2);
+                assert!(!older.is_empty());
+                return;
+            }
+            println!("нет переписки длиннее 50 сообщений");
+        });
+    }
+}
+
+/// Значок лупы (рисуется линиями, без шрифта).
+fn draw_magnifier(p: &egui::Painter, r: egui::Rect, color: egui::Color32) {
+    let c = r.center() + egui::vec2(-2.0, -2.0);
+    let s = egui::Stroke::new(1.6, color);
+    p.circle_stroke(c, 5.0, s);
+    p.line_segment([c + egui::vec2(3.6, 3.6), c + egui::vec2(8.0, 8.0)], egui::Stroke::new(2.0, color));
 }

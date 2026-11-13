@@ -66,6 +66,8 @@ pub struct Friend {
     pub game_app_id: Option<u32>,
     /// Name of the game the friend is currently playing, if known.
     pub game_name: Option<String>,
+    /// vaporust: avatar hash (hex) for avatars.fastly.steamstatic.com/<hash>.jpg.
+    pub avatar_hash: Option<String>,
 }
 
 impl Friend {
@@ -78,6 +80,7 @@ impl Friend {
             persona_name: None,
             persona_state: None,
             game_app_id: None,
+            avatar_hash: None,
             game_name: None,
         }
     }
@@ -196,6 +199,11 @@ pub fn apply_persona_state(roster: &mut Roster, msg: &CMsgClientPersonaState) {
         }
         if fr.has_game_name() && entry.game_app_id.is_some() {
             entry.game_name = nonempty(fr.game_name());
+        }
+        // vaporust: avatar hash (all-zero hash = no avatar set).
+        let hash = fr.avatar_hash();
+        if !hash.is_empty() && hash.iter().any(|b| *b != 0) {
+            entry.avatar_hash = Some(hash.iter().map(|b| format!("{b:02x}")).collect());
         }
     }
 }

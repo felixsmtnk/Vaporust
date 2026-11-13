@@ -28,6 +28,8 @@ pub enum Cover {
 enum Kind {
     Cover,
     Hero,
+    /// Маленький значок игры для списка слева (32x32 в кэше Steam).
+    Icon,
 }
 
 pub struct Covers {
@@ -55,6 +57,23 @@ impl Covers {
         match map.get(&(kind, appid)) {
             Some(c) => c.clone(),
             None => {
+                // Фоны крупные (~1 МБ в памяти): держим только последние открытые.
+                if kind == Kind::Hero {
+                    let heroes: Vec<u32> = map.keys().filter(|(k, _)| *k == Kind::Hero).map(|(_, a)| *a).collect();
+                    if heroes.len() >= 3 {
+                        for a in heroes {
+                            map.remove(&(Kind::Hero, a));
+                        }
+                    }
+                }
+                // Обложки: держим не больше предела (в режиме экономии меньше), видимые
+                // тут же загрузятся снова с диска.
+                if kind == Kind::Cover {
+                    let limit = if crate::imgload::ECONOMY.load(std::sync::atomic::Ordering::Relaxed) { 48 } else { 120 };
+                    if map.keys().filter(|(k, _)| *k == Kind::Cover).count() >= limit {
+                        map.retain(|(k, _), _| *k != Kind::Cover);
+                    }
+                }
                 map.insert((kind, appid), Cover::Loading);
                 let _ = self.tx.send((kind, appid));
                 Cover::Loading
@@ -70,6 +89,16 @@ impl Covers {
     /// Широкий фон для страницы игры.
     pub fn hero(&self, appid: u32) -> Cover {
         self.get_kind(Kind::Hero, appid)
+    }
+
+    /// Значок игры для списка (только из кэша Steam, без интернета).
+    pub fn icon(&self, appid: u32) -> Cover {
+        self.get_kind(Kind::Icon, appid)
+    }
+
+    /// Забыть все картинки (освободить память; видимое загрузится снова).
+    pub fn clear(&self) {
+        self.map.lock().unwrap().retain(|_, c| matches!(c, Cover::Loading));
     }
 }
 
@@ -97,19 +126,54 @@ fn cdn_file(appid: u32, file: &str) -> Option<Vec<u8>> {
     (resp.ok && !resp.bytes.is_empty()).then_some(resp.bytes)
 }
 
+/// Значок игры в кэше Steam: файл с именем-хэшем (40 шестнадцатеричных знаков).jpg.
+fn local_icon(steam_dir: &Path, appid: u32) -> Option<Vec<u8>> {
+    let dir = steam_dir.join("appcache").join("librarycache").join(appid.to_string());
+    let is_icon = |p: &Path| {
+        p.extension().is_some_and(|e| e == "jpg")
+            && p.file_stem().and_then(|s| s.to_str()).is_some_and(|s| s.len() == 40 && s.bytes().all(|b| b.is_ascii_hexdigit()))
+    };
+    let mut dirs = vec![dir.clone()];
+    dirs.extend(std::fs::read_dir(&dir).ok()?.flatten().map(|e| e.path()).filter(|p| p.is_dir()));
+    for d in dirs {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            let p = e.path();
+            if is_icon(&p) {
+                return std::fs::read(p).ok();
+            }
+        }
+    }
+    None
+}
+
 fn load(ctx: &egui::Context, steam_dir: Option<&Path>, kind: Kind, appid: u32) -> Cover {
+    // Сторонняя игра (не из Steam): картинок в Steam нет.
+    if crate::custom::is_custom(appid) {
+        return Cover::Missing;
+    }
+    if kind == Kind::Icon {
+        let Some(bytes) = steam_dir.and_then(|d| local_icon(d, appid)) else { return Cover::Missing };
+        let Ok(img) = image::load_from_memory(&bytes) else { return Cover::Missing };
+        let small = image::imageops::resize(&img.to_rgba8(), 32, 32, image::imageops::FilterType::Triangle);
+        let color = egui::ColorImage::from_rgba_unmultiplied([32, 32], small.as_raw());
+        return Cover::Ready(ctx.load_texture(format!("icon{appid}"), color, egui::TextureOptions::LINEAR));
+    }
     let file = match kind {
         Kind::Cover => "library_600x900.jpg",
-        Kind::Hero => "library_hero.jpg",
+        _ => "library_hero.jpg",
     };
     let bytes = steam_dir.and_then(|d| local_file(d, appid, file)).or_else(|| cdn_file(appid, file));
     let Some(bytes) = bytes else { return Cover::Missing };
     let Ok(img) = image::load_from_memory(&bytes) else { return Cover::Missing };
     let rgba = img.to_rgba8();
     let (w, h) = match kind {
-        Kind::Cover => (W, H),
-        Kind::Hero => {
-            let w = HERO_W.min(rgba.width());
+        Kind::Cover => {
+            // Плитка тянется по ширине окна (до ~200 точек): обложка 180x270, в режиме экономии 140x210.
+            if crate::imgload::ECONOMY.load(std::sync::atomic::Ordering::Relaxed) { (W, H) } else { (180, 270) }
+        }
+        _ => {
+            let hw = if crate::imgload::ECONOMY.load(std::sync::atomic::Ordering::Relaxed) { 640 } else { HERO_W };
+            let w = hw.min(rgba.width());
             (w, (rgba.height() as f32 * w as f32 / rgba.width() as f32) as u32)
         }
     };

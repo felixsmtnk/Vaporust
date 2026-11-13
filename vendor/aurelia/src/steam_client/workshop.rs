@@ -61,6 +61,11 @@ fn detail_to_workshop_item(detail: &PublishedFileDetails, fallback_app_id: u32) 
         time_updated: i64::from(detail.time_updated()),
         kind,
         children,
+        // vaporust: картинка, подписчики, оценки - для плитки модов.
+        preview_url: detail.preview_url().to_string(),
+        subscriptions: u64::from(detail.subscriptions()),
+        votes_up: detail.vote_data.as_ref().map_or(0, |v| v.votes_up()),
+        votes_down: detail.vote_data.as_ref().map_or(0, |v| v.votes_down()),
     }
 }
 
@@ -138,6 +143,7 @@ impl SteamClient {
         // collection children so results map to complete `WorkshopItem`s.
         request.set_return_details(true);
         request.set_return_children(true);
+        request.set_return_vote_data(true); // vaporust: оценки для плитки модов
 
         let response: CPublishedFile_QueryFiles_Response = connection
             .service_method(request)

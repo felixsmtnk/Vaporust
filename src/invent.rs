@@ -55,7 +55,7 @@ const STEAM_APP: u32 = 753;
 pub fn handle(client: &SteamClient, cmd: InvCmd, st: &SharedInv, ctx: &egui::Context) {
     let (c, st, ctx) = (client.clone(), st.clone(), ctx.clone());
     tokio::spawn(async move {
-        let web = match c.web_session().await {
+        let web = match crate::webapi::web_session(&c).await {
             Ok(w) => w,
             Err(e) => {
                 let e = format!("Нет доступа к сайту Steam: {}", err(e));
@@ -479,3 +479,4 @@ mod tests {
         assert_eq!(url_encode("Mann Co. Key"), "Mann%20Co.%20Key");
     }
 }
+

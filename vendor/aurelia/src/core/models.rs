@@ -532,6 +532,11 @@ pub struct WorkshopItem {
     pub kind: WorkshopItemKind,
     /// Collection member ids (empty for plain items).
     pub children: Vec<u64>,
+    /// vaporust: preview image, subscriber count and votes (for the mod grid).
+    pub preview_url: String,
+    pub subscriptions: u64,
+    pub votes_up: u32,
+    pub votes_down: u32,
 }
 
 /// A Workshop item recorded as installed in `appworkshop_<appid>.acf` (local

@@ -8,7 +8,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{atomic::{AtomicBool, Ordering}, Mutex},
     thread,
     time::{Duration, Instant},
 };
@@ -109,6 +109,11 @@ fn kv(line: &str) -> Option<(String, String)> {
     let k = parts.next()?;
     let v = parts.next()?;
     Some((k.to_string(), v.replace("\\\\", "\\")))
+}
+
+/// Строка «ключ» «значение» из VDF (для других модулей).
+pub fn kv_pub(line: &str) -> Option<(String, String)> {
+    kv(line)
 }
 
 /// Библиотеки Steam без повторов (главная папка Steam первой).
@@ -587,7 +592,10 @@ pub fn write_depot_versions(
 
 /// Открыть папку в Проводнике.
 pub fn open_folder(dir: &Path) {
-    let _ = Command::new("explorer.exe").arg(dir).spawn();
+    // Проводник не понимает путей с «/» (так Steam пишет свою папку в реестр) и открывает
+    // вместо них «Документы» - приводим к обратным слэшам.
+    let p = PathBuf::from(dir.to_string_lossy().replace('/', "\\"));
+    let _ = Command::new("explorer.exe").arg(p).spawn();
 }
 
 // ---------- Процессы ----------
@@ -955,6 +963,7 @@ pub fn run_chain(
         thread::sleep(Duration::from_secs(1));
     }
 
+    let _running = RunningGuard::set(game.appid, &game.name, &game.dir);
     set("Игра запущена, жду выхода...");
     let started = Instant::now();
     let mut gone_since: Option<Instant> = None;
@@ -1270,5 +1279,393 @@ mod depot_edit_tests {
         assert_eq!(installed_depots(&p).into_iter().collect::<Vec<_>>(), vec![(62, 2)]);
         assert_eq!(shared_depots(&p).into_iter().collect::<Vec<_>>(), vec![(141, 70)]);
         let _ = fs::remove_file(&p);
+    }
+}
+
+/// Автономный режим Steam: в config\loginusers.vdf у аккаунта, под которым Steam входит сам
+/// (AutoLogin "1", иначе MostRecent "1"), поставить WantsOfflineMode и SkipOfflineModeWarning.
+/// Тогда Steam без сети сразу стартует автономно, без окна «Не удалось подключиться».
+/// Это та же настройка, что ставит сам Steam кнопкой «Перейти в автономный режим».
+/// Только при закрытом Steam (на выходе он перезаписывает файл). Ok(true) - файл изменен.
+pub fn set_steam_offline(steam_dir: &Path, on: bool) -> Result<bool, String> {
+    let path = steam_dir.join("config").join("loginusers.vdf");
+    let text = fs::read_to_string(&path).map_err(|e| format!("Не удалось прочитать loginusers.vdf: {e}"))?;
+    let lines: Vec<&str> = text.lines().collect();
+    // Блоки аккаунтов: (строка начала "{", строка конца "}", AutoLogin, MostRecent).
+    let mut blocks: Vec<(usize, usize, bool, bool)> = Vec::new();
+    let (mut depth, mut start) = (0, 0);
+    let (mut auto, mut recent) = (false, false);
+    for (i, l) in lines.iter().enumerate() {
+        let t = l.trim();
+        if t == "{" {
+            depth += 1;
+            if depth == 2 {
+                start = i;
+                auto = false;
+                recent = false;
+            }
+        } else if t == "}" {
+            if depth == 2 {
+                blocks.push((start, i, auto, recent));
+            }
+            depth -= 1;
+        } else if depth == 2 {
+            if let Some((k, v)) = kv(t) {
+                auto |= k.eq_ignore_ascii_case("AutoLogin") && v == "1";
+                recent |= k.eq_ignore_ascii_case("MostRecent") && v == "1";
+            }
+        }
+    }
+    let Some(&(s, e, _, _)) = blocks.iter().find(|b| b.2).or_else(|| blocks.iter().find(|b| b.3)).or(blocks.first())
+    else {
+        return Err("В loginusers.vdf нет аккаунтов".into());
+    };
+    let want = if on { "1" } else { "0" };
+    let mut out: Vec<String> = Vec::with_capacity(lines.len() + 2);
+    let (mut seen_want, mut seen_skip, mut changed) = (false, false, false);
+    for (i, l) in lines.iter().enumerate() {
+        if i > s && i < e {
+            if let Some((k, v)) = kv(l.trim()) {
+                let indent: String = l.chars().take_while(|c| c.is_whitespace()).collect();
+                if k.eq_ignore_ascii_case("WantsOfflineMode") || k.eq_ignore_ascii_case("SkipOfflineModeWarning") {
+                    seen_want |= k.eq_ignore_ascii_case("WantsOfflineMode");
+                    seen_skip |= k.eq_ignore_ascii_case("SkipOfflineModeWarning");
+                    changed |= v != want;
+                    out.push(format!("{indent}\"{k}\"\t\t\"{want}\""));
+                    continue;
+                }
+            }
+        }
+        if i == e && on {
+            // Ключей не было - добавить перед концом блока аккаунта.
+            if !seen_want {
+                out.push(format!("\t\t\"WantsOfflineMode\"\t\t\"{want}\""));
+                changed = true;
+            }
+            if !seen_skip {
+                out.push(format!("\t\t\"SkipOfflineModeWarning\"\t\t\"{want}\""));
+                changed = true;
+            }
+        }
+        out.push(l.to_string());
+    }
+    if !changed {
+        return Ok(false);
+    }
+    let backup = path.with_extension("vdf.vaporust.bak");
+    if !backup.exists() {
+        let _ = fs::copy(&path, &backup);
+    }
+    let mut body = out.join("\n");
+    body.push('\n');
+    let tmp = path.with_extension("vdf.tmp");
+    fs::write(&tmp, body).map_err(|e| format!("Не удалось записать loginusers.vdf: {e}"))?;
+    fs::rename(&tmp, &path).map_err(|e| format!("Не удалось записать loginusers.vdf: {e}"))?;
+    Ok(true)
+}
+
+#[cfg(test)]
+mod offline_tests {
+    use super::*;
+
+    #[test]
+    fn steam_offline_flags() {
+        let dir = std::env::temp_dir().join(format!("vaporust_offline_{}", std::process::id()));
+        fs::create_dir_all(dir.join("config")).unwrap();
+        let p = dir.join("config").join("loginusers.vdf");
+        let body = "\"users\"\n{\n\t\"1\"\n\t{\n\t\t\"AccountName\"\t\t\"a\"\n\t\t\"WantsOfflineMode\"\t\t\"0\"\n\t\t\"SkipOfflineModeWarning\"\t\t\"0\"\n\t\t\"AutoLogin\"\t\t\"0\"\n\t}\n\t\"2\"\n\t{\n\t\t\"AccountName\"\t\t\"b\"\n\t\t\"AutoLogin\"\t\t\"1\"\n\t}\n}\n";
+        fs::write(&p, body).unwrap();
+        assert!(set_steam_offline(&dir, true).unwrap());
+        let t = fs::read_to_string(&p).unwrap();
+        // Изменен только аккаунт с автовходом (b): ключи добавлены в его блок.
+        let b = t.split("\"2\"").nth(1).unwrap();
+        assert!(b.contains("\"WantsOfflineMode\"\t\t\"1\"") && b.contains("\"SkipOfflineModeWarning\"\t\t\"1\""));
+        assert!(t.split("\"2\"").next().unwrap().contains("\"WantsOfflineMode\"\t\t\"0\""));
+        assert!(!set_steam_offline(&dir, true).unwrap(), "повторно - без изменений");
+        assert!(set_steam_offline(&dir, false).unwrap());
+        assert!(!fs::read_to_string(&p).unwrap().contains("\"1\"\n\t\t\"SkipOfflineModeWarning\"\t\t\"1\""));
+        let _ = fs::remove_dir_all(&dir);
+    }
+}
+
+// ---------- Остановка игры ----------
+
+/// Запущенная игра (appid, название, папка): ставится, когда Vaporust увидел процесс игры,
+/// и снимается после ее выхода. По ней работают кнопки «Закрыть игру».
+pub static RUNNING: Mutex<Option<(u32, String, PathBuf)>> = Mutex::new(None);
+
+/// Снимает RUNNING при выходе из run_chain или из потока запуска без Steam.
+pub struct RunningGuard;
+
+impl RunningGuard {
+    pub fn set(appid: u32, name: &str, dir: &Path) -> Self {
+        *RUNNING.lock().unwrap() = Some((appid, name.to_string(), dir.to_path_buf()));
+        RunningGuard
+    }
+}
+
+impl Drop for RunningGuard {
+    fn drop(&mut self) {
+        *RUNNING.lock().unwrap() = None;
+    }
+}
+
+/// Процессы, чей exe лежит в папке игры.
+fn game_pids(dir: &Path) -> Vec<u32> {
+    let mut d = norm(dir);
+    if !d.ends_with('\\') {
+        d.push('\\');
+    }
+    let mut procs = Procs::new();
+    procs.refresh();
+    let me = std::process::id();
+    procs
+        .sys
+        .processes()
+        .values()
+        .filter(|p| p.pid().as_u32() != me && p.exe().is_some_and(|e| norm(e).starts_with(&d)))
+        .map(|p| p.pid().as_u32())
+        .collect()
+}
+
+/// Остановить игру. Мягко: окнам игры отправляется WM_CLOSE (как крестик окна или
+/// Alt+F4), игра может сохраниться и выйти сама. Принудительно: процессы завершаются
+/// сразу (несохраненное пропадет). Возвращает число процессов игры.
+pub fn stop_game(dir: &Path, force: bool) -> usize {
+    let pids = game_pids(dir);
+    if pids.is_empty() {
+        return 0;
+    }
+    if force {
+        let mut procs = Procs::new();
+        procs.refresh();
+        for pid in &pids {
+            if let Some(p) = procs.sys.process(sysinfo::Pid::from_u32(*pid)) {
+                p.kill();
+            }
+        }
+    } else {
+        close_windows_of(&pids);
+    }
+    pids.len()
+}
+
+/// Игра еще работает (есть процессы в ее папке).
+pub fn game_alive(dir: &Path) -> bool {
+    !game_pids(dir).is_empty()
+}
+
+#[cfg(windows)]
+fn close_windows_of(pids: &[u32]) {
+    use windows_sys::Win32::Foundation::{BOOL, HWND, LPARAM};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, WM_CLOSE,
+    };
+    unsafe extern "system" fn each(hwnd: HWND, l: LPARAM) -> BOOL {
+        let pids = &*(l as *const Vec<u32>);
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        if pids.contains(&pid) && IsWindowVisible(hwnd) != 0 {
+            PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        }
+        1
+    }
+    let v: Vec<u32> = pids.to_vec();
+    unsafe {
+        EnumWindows(Some(each), &v as *const Vec<u32> as LPARAM);
+    }
+}
+
+#[cfg(not(windows))]
+fn close_windows_of(_pids: &[u32]) {}
+
+#[cfg(test)]
+mod stop_tests {
+    use super::*;
+
+    /// Живой тест: копия Блокнота закрывается мягко, копия cmd (окна своего нет) - только
+    /// принудительно.
+    #[test]
+    #[ignore]
+    fn stop_game_live() {
+        let dir = std::env::temp_dir().join(format!("vaporust_stop_{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let sys = PathBuf::from(std::env::var("SystemRoot").unwrap()).join("System32");
+        fs::copy(sys.join("notepad.exe"), dir.join("notepad.exe")).unwrap();
+        fs::copy(sys.join("cmd.exe"), dir.join("cmd.exe")).unwrap();
+        for lang in ["en-US", "ru-RU"] {
+            if sys.join(lang).join("notepad.exe.mui").exists() {
+                fs::create_dir_all(dir.join(lang)).unwrap();
+                for f in ["notepad.exe.mui", "cmd.exe.mui"] {
+                    let _ = fs::copy(sys.join(lang).join(f), dir.join(lang).join(f));
+                }
+            }
+        }
+        let mut a = Command::new(dir.join("notepad.exe")).spawn().unwrap();
+        thread::sleep(Duration::from_secs(2));
+        assert_eq!(stop_game(&dir, false), 1);
+        thread::sleep(Duration::from_secs(2));
+        assert!(a.try_wait().unwrap().is_some(), "Блокнот закрылся мягко");
+        let mut b = {
+            use std::os::windows::process::CommandExt;
+            // CREATE_NO_WINDOW: у процесса нет ни одного окна.
+            Command::new(dir.join("cmd.exe")).args(["/c", "ping -n 60 127.0.0.1 >nul"]).creation_flags(0x0800_0000).spawn().unwrap()
+        };
+        thread::sleep(Duration::from_secs(2));
+        stop_game(&dir, false);
+        thread::sleep(Duration::from_secs(2));
+        assert!(b.try_wait().unwrap().is_none(), "у cmd нет окна, мягко не закрывается");
+        assert_eq!(stop_game(&dir, true), 1);
+        thread::sleep(Duration::from_secs(1));
+        assert!(b.try_wait().unwrap().is_some(), "закрыт принудительно");
+        assert!(game_pids(&dir).is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+}
+
+// ---------- Перепривязка (relink) ----------
+
+/// Другие библиотеки, где уже лежит папка этой игры (steamapps\common\<папка>): например,
+/// файлы перенесли вручную или переустановили Windows.
+pub fn relink_candidates(steam_dir: &Path, game: &Game) -> Vec<PathBuf> {
+    let Some(installdir) = game.dir.file_name() else { return Vec::new() };
+    library_dirs(steam_dir)
+        .into_iter()
+        .filter(|l| !game.dir.starts_with(l))
+        .filter(|l| l.join("steamapps").join("common").join(installdir).is_dir())
+        .collect()
+}
+
+/// Привязать игру к другой библиотеке, где ее файлы уже лежат: перенести appmanifest и
+/// запись в libraryfolders.vdf. Файлы игры не трогаются. Только при закрытом Steam.
+pub fn relink_game(steam_dir: &Path, game: &Game, dest_lib: &Path) -> Result<PathBuf, String> {
+    let installdir = game.dir.file_name().ok_or("Не удалось определить папку игры.")?;
+    let dest_common = dest_lib.join("steamapps").join("common").join(installdir);
+    if !dest_common.is_dir() {
+        return Err(format!("В {} нет папки игры.", dest_lib.display()));
+    }
+    let src = appmanifest_path(game);
+    if !src.exists() {
+        return Err("Не найден appmanifest игры (загрузка на паузе? продолжите ее сначала).".into());
+    }
+    let dest = dest_lib.join("steamapps").join(format!("appmanifest_{}.acf", game.appid));
+    if dest.exists() {
+        return Err("В той библиотеке у игры уже есть свой appmanifest.".into());
+    }
+    let tmp = dest.with_extension("acf.tmp");
+    fs::copy(&src, &tmp).map_err(|e| format!("Не удалось записать appmanifest: {e}"))?;
+    fs::rename(&tmp, &dest).map_err(|e| format!("Не удалось записать appmanifest: {e}"))?;
+    fs::remove_file(&src).map_err(|e| format!("Не удалось убрать старый appmanifest: {e}"))?;
+    // Список игр библиотек: Steam все равно пересчитает его сам, но пусть сразу будет верным.
+    let _ = move_app_in_libraryfolders(steam_dir, game.appid, dest_lib);
+    Ok(dest_common)
+}
+
+/// В libraryfolders.vdf перенести строку игры в блок "apps" библиотеки dest_lib.
+fn move_app_in_libraryfolders(steam_dir: &Path, appid: u32, dest_lib: &Path) -> Result<(), String> {
+    let path = steam_dir.join("steamapps").join("libraryfolders.vdf");
+    let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let lines: Vec<&str> = text.lines().collect();
+    let want = norm(dest_lib);
+    let want = want.trim_end_matches('\\');
+    let key = appid.to_string();
+    // Проход: глубина, путь текущей библиотеки, внутри ли блока "apps".
+    let (mut depth, mut lib_path, mut in_apps, mut pending_apps) = (0, String::new(), false, false);
+    let mut size = "0".to_string();
+    let mut dest_apps_open: Option<usize> = None;
+    let mut remove: Option<usize> = None;
+    for (i, l) in lines.iter().enumerate() {
+        let t = l.trim();
+        if t == "{" {
+            depth += 1;
+            in_apps = pending_apps && depth == 3;
+            if in_apps && norm(Path::new(&lib_path)).trim_end_matches('\\') == want {
+                dest_apps_open = Some(i);
+            }
+            pending_apps = false;
+        } else if t == "}" {
+            if depth == 3 {
+                in_apps = false;
+            }
+            depth -= 1;
+        } else if let Some((k, v)) = kv(t) {
+            if depth == 2 && k == "path" {
+                lib_path = v;
+            } else if in_apps && k == key {
+                size = v;
+                remove = Some(i);
+            }
+        } else if depth == 2 && t.trim_matches('"').eq_ignore_ascii_case("apps") {
+            pending_apps = true;
+        }
+    }
+    let open = dest_apps_open.ok_or("библиотеки нет в libraryfolders.vdf")?;
+    let mut out: Vec<String> = Vec::with_capacity(lines.len() + 1);
+    for (i, l) in lines.iter().enumerate() {
+        if Some(i) != remove {
+            out.push(l.to_string());
+        }
+        if i == open {
+            out.push(format!("\t\t\t\"{appid}\"\t\t\"{size}\""));
+        }
+    }
+    let backup = path.with_extension("vdf.vaporust.bak");
+    if !backup.exists() {
+        let _ = fs::copy(&path, &backup);
+    }
+    let tmp = path.with_extension("vdf.tmp");
+    fs::write(&tmp, out.join("\n") + "\n").map_err(|e| e.to_string())?;
+    fs::rename(&tmp, &path).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod relink_tests {
+    use super::*;
+
+    #[test]
+    fn relink_moves_manifest_and_entry() {
+        let root = std::env::temp_dir().join(format!("vaporust_relink_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (a, b) = (root.join("A"), root.join("B"));
+        for l in [&a, &b] {
+            fs::create_dir_all(l.join("steamapps").join("common").join("Game")).unwrap();
+        }
+        let vdf = format!(
+            "\"libraryfolders\"\n{{\n\t\"0\"\n\t{{\n\t\t\"path\"\t\t\"{}\"\n\t\t\"apps\"\n\t\t{{\n\t\t\t\"70\"\t\t\"555\"\n\t\t\t\"10\"\t\t\"1\"\n\t\t}}\n\t}}\n\t\"1\"\n\t{{\n\t\t\"path\"\t\t\"{}\"\n\t\t\"apps\"\n\t\t{{\n\t\t}}\n\t}}\n}}\n",
+            a.display().to_string().replace('\\', "\\\\"),
+            b.display().to_string().replace('\\', "\\\\")
+        );
+        fs::write(a.join("steamapps").join("libraryfolders.vdf"), vdf).unwrap();
+        fs::write(a.join("steamapps").join("appmanifest_70.acf"), "\"AppState\"\n{\n}\n").unwrap();
+        let game = Game {
+            appid: 70,
+            name: "HL".into(),
+            dir: a.join("steamapps").join("common").join("Game"),
+            ready: true,
+            needs_update: false,
+            size: 0,
+            stashed: false,
+        };
+        assert_eq!(relink_candidates(&a, &game), vec![b.clone()]);
+        relink_game(&a, &game, &b).unwrap();
+        assert!(!a.join("steamapps").join("appmanifest_70.acf").exists());
+        assert!(b.join("steamapps").join("appmanifest_70.acf").exists());
+        let t = fs::read_to_string(a.join("steamapps").join("libraryfolders.vdf")).unwrap();
+        let (first, second) = t.split_once("\"1\"").unwrap();
+        assert!(!first.contains("\"70\"") && first.contains("\"10\""));
+        assert!(second.contains("\"70\"\t\t\"555\""));
+        let _ = fs::remove_dir_all(&root);
+    }
+}
+
+/// Путь для показа: как он записан на диске (Steam хранит свою папку строчными буквами
+/// и с «/»: «c:/program files (x86)/steam» -> «C:\Program Files (x86)\Steam»).
+pub fn pretty_path(p: &std::path::Path) -> String {
+    match std::fs::canonicalize(p) {
+        Ok(c) => {
+            let s = c.display().to_string();
+            s.strip_prefix(r"\?\").map(str::to_string).unwrap_or(s)
+        }
+        Err(_) => p.display().to_string().replace('/', "\\"),
     }
 }

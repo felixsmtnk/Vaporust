@@ -10,7 +10,30 @@ use std::sync::{Arc, Mutex};
 /// SteamID64 обычного аккаунта = эта база + номер аккаунта («код друга» в Steam).
 pub const STEAMID64_BASE: u64 = 76_561_197_960_265_728;
 
-/// Разобрать то, что ввел пользователь: SteamID64, ссылку /profiles/<id> или код друга.
+/// Короткое имя профиля из ссылки steamcommunity.com/id/<имя> (или «id/имя»).
+pub fn vanity_name(input: &str) -> Option<String> {
+    let q = input.trim().trim_end_matches('/');
+    let pos = q.find("/id/").map(|p| p + 4).or_else(|| q.starts_with("id/").then_some(3))?;
+    let name: String =
+        q[pos..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-').collect();
+    (!name.is_empty()).then_some(name)
+}
+
+/// SteamID64 по короткому имени: страница профиля в виде XML (обычный открытый запрос).
+pub async fn resolve_vanity(name: &str) -> Result<u64, String> {
+    let http = aurelia::core::net::steam_web_client().map_err(err)?;
+    let url = format!("https://steamcommunity.com/id/{name}/?xml=1");
+    let body = http.get(&url).send().await.map_err(err)?.text().await.map_err(err)?;
+    let id = body.split("<steamID64>").nth(1).and_then(|s| s.split("</steamID64>").next());
+    match id.and_then(|s| s.trim().parse::<u64>().ok()) {
+        Some(id) => Ok(id),
+        None if body.contains("could not be found") => Err(format!("Профиль «{name}» не найден.")),
+        None => Err("Steam не ответил, попробуйте еще раз.".into()),
+    }
+}
+
+/// Разобрать то, что ввел пользователь: SteamID64, ссылку /profiles/<id> или код друга
+/// (ссылки /id/<имя> - через vanity_name и resolve_vanity).
 pub fn parse_friend_input(input: &str) -> Result<u64, String> {
     let q = input.trim().trim_end_matches('/');
     if q.is_empty() {
@@ -20,11 +43,6 @@ pub fn parse_friend_input(input: &str) -> Result<u64, String> {
         let id = &q[pos + "/profiles/".len()..];
         let id: String = id.chars().take_while(|c| c.is_ascii_digit()).collect();
         return id.parse().map_err(|_| "Не удалось прочитать номер из ссылки.".to_string());
-    }
-    if q.contains("/id/") {
-        return Err("Короткие ссылки вида steamcommunity.com/id/имя не поддерживаются. Попросите \
-                    у друга код друга (Steam → Друзья → Добавить друга) или ссылку /profiles/…"
-            .into());
     }
     let n: u64 = q.parse().map_err(|_| "Это не похоже на SteamID, ссылку или код друга.".to_string())?;
     if n >= STEAMID64_BASE {
@@ -45,6 +63,8 @@ pub struct WorkshopState {
     /// Свои подписки по игре (id предметов) и их данные.
     pub subscribed: HashMap<u32, Result<Vec<WorkshopItem>, String>>,
     pub sub_ids: HashMap<u32, HashSet<u64>>,
+    /// Страницы модов, открытые внутри программы (по id мода).
+    pub details: HashMap<u64, Result<crate::workshopui::Detail, String>>,
     pub error: Option<String>,
 }
 
@@ -52,6 +72,8 @@ pub type SharedWorkshop = Arc<Mutex<WorkshopState>>;
 
 pub enum SocialCmd {
     Profile(u64),
+    /// Узнать SteamID64 по ссылке /id/<имя>.
+    ResolveVanity(String),
     AddFriend(u64),
     RemoveFriend(u64),
     /// Поиск в Мастерской игры: текст (пусто - без поиска) и тип сортировки Steam
@@ -59,6 +81,8 @@ pub enum SocialCmd {
     WorkshopQuery { appid: u32, text: String, sort: u32 },
     WorkshopSubscribed(u32),
     WorkshopSubscribe { appid: u32, id: u64, on: bool },
+    /// Подробности мода для его страницы внутри программы.
+    WorkshopDetail(u64),
 }
 
 fn err<E: std::fmt::Display>(e: E) -> String {
@@ -69,6 +93,16 @@ pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx
     let (c, st, ctx) = (client.clone(), st.clone(), ctx.clone());
     tokio::spawn(async move {
         match cmd {
+            SocialCmd::ResolveVanity(name) => {
+                st.lock().unwrap().vanity.remove(&name);
+                let res = resolve_vanity(&name).await;
+                if let Ok(id) = res {
+                    let p = c.user_profile(id).await.map_err(err);
+                    st.lock().unwrap().profiles.insert(id, p);
+                }
+                st.lock().unwrap().vanity.insert(name, res);
+                ctx.request_repaint();
+            }
             SocialCmd::Profile(id) => {
                 let res = c.user_profile(id).await.map_err(err);
                 st.lock().unwrap().profiles.insert(id, res);
@@ -92,6 +126,11 @@ pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx
                 });
                 // Убрать из списка сразу, не дожидаясь обновления от Steam.
                 s.roster.write().unwrap().remove(&id);
+            }
+            SocialCmd::WorkshopDetail(id) => {
+                let ws = st.lock().unwrap().workshop.clone();
+                let res = crate::workshopui::load_detail(&c, id).await;
+                ws.lock().unwrap().details.insert(id, res);
             }
             SocialCmd::WorkshopQuery { appid, text, sort } => {
                 let ws = st.lock().unwrap().workshop.clone();
@@ -162,7 +201,23 @@ mod tests {
         assert_eq!(parse_friend_input("76561198000000000"), Ok(76561198000000000));
         assert_eq!(parse_friend_input("https://steamcommunity.com/profiles/76561198000000000/"), Ok(76561198000000000));
         assert_eq!(parse_friend_input("39734272"), Ok(76561198000000000)); // код друга
-        assert!(parse_friend_input("https://steamcommunity.com/id/someone").is_err());
+        assert_eq!(vanity_name("https://steamcommunity.com/id/some_one-2/"), Some("some_one-2".into()));
+        assert_eq!(vanity_name("id/abc"), Some("abc".into()));
+        assert_eq!(vanity_name("39734272"), None);
         assert!(parse_friend_input("abc").is_err());
+    }
+}
+
+#[cfg(test)]
+mod live {
+    /// Живой тест: ссылка /id/<имя> известного открытого профиля Valve.
+    #[test]
+    #[ignore]
+    fn vanity_live() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            assert_eq!(super::resolve_vanity("gabelogannewell").await, Ok(76561197960287930));
+            assert!(super::resolve_vanity("zzzz_no_such_vanity_qq123").await.unwrap_err().contains("не найден"));
+        });
     }
 }
