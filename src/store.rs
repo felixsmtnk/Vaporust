@@ -714,11 +714,11 @@ mod events_live {
 
 /// Сведения из открытого API магазина (store.steampowered.com/api/appdetails), по-русски.
 #[derive(Default)]
-struct AppDetails {
-    requirements: Option<(String, String)>,
-    trailer: Option<String>,
-    genres: Vec<String>,
-    support: Option<String>,
+pub(crate) struct AppDetails {
+    pub(crate) requirements: Option<(String, String)>,
+    pub(crate) trailer: Option<String>,
+    pub(crate) genres: Vec<String>,
+    pub(crate) support: Option<String>,
 }
 
 async fn fetch_appdetails(appid: u32) -> Option<AppDetails> {
@@ -729,7 +729,7 @@ async fn fetch_appdetails(appid: u32) -> Option<AppDetails> {
     Some(parse_appdetails(&v, appid))
 }
 
-fn parse_appdetails(v: &serde_json::Value, appid: u32) -> AppDetails {
+pub(crate) fn parse_appdetails(v: &serde_json::Value, appid: u32) -> AppDetails {
     let Some(data) = v.get(appid.to_string()).and_then(|a| a.get("data")) else { return AppDetails::default() };
     // Системные требования для Windows. Нет требований - Steam присылает пустой массив вместо объекта.
     let req = &data["pc_requirements"];
@@ -821,11 +821,16 @@ async fn fetch_reviews(
 pub async fn review_page(client: &SteamClient, url: &str) -> Result<(String, u64, String), String> {
     let web = crate::webapi::web_session(client).await?;
     let html = web.get_text(&format!("{}?l=russian", url.trim_end_matches('/'))).await.map_err(err)?;
-    let text = between(&html, "id=\"ReviewText\">", "</div>").map(strip_html).unwrap_or_default();
-    let id = between(&html, "RecommendationVoteUpBtn", "\"")
+    parse_review_page(&html)
+}
+
+/// Разбор страницы отзыва: (полный текст, номер отзыва, часы на момент отзыва).
+pub fn parse_review_page(html: &str) -> Result<(String, u64, String), String> {
+    let text = between(html, "id=\"ReviewText\">", "</div>").map(strip_html).unwrap_or_default();
+    let id = between(html, "RecommendationVoteUpBtn", "\"")
         .and_then(|n| n.parse().ok())
         .ok_or("Steam не дал номер отзыва")?;
-    Ok((text, id, hours_at_review(&html)))
+    Ok((text, id, hours_at_review(html)))
 }
 
 /// «(42.0 ч. в момент написания)» со страницы отзыва -> «42.0 ч. на момент отзыва».

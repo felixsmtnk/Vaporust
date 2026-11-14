@@ -132,6 +132,9 @@ pub struct Settings {
     pub whats_new: bool,
     /// Обычная рамка окон Windows вместо своей.
     pub system_frame: bool,
+    /// Запоминать размер и положение главного окна (и сами размер/положение).
+    pub remember_window: bool,
+    pub window: Option<crate::winpos::WinPos>,
     /// Производительность: анимации (стикеры, GIF, эффекты чата, значки загрузки).
     pub animations: bool,
     /// Обложки и фоны игр в библиотеке.
@@ -255,6 +258,8 @@ impl Default for Settings {
             random_button: true,
             whats_new: true,
             system_frame: false,
+            remember_window: true,
+            window: None,
             animations: true,
             covers: true,
             economy: false,

@@ -38,12 +38,33 @@ pub struct MarketUi {
     pub offer_confirm: Option<(String, u8)>,
 }
 
-/// «12,34» / «12.34» / «12» -> минимальные единицы.
+/// Цена из поля ввода, в копейках/центах. Строго: только цифры и не больше одного
+/// разделителя («,» или «.») с 1-2 знаками после него, например «12», «12,5», «0.99».
+/// Любой другой текст («1.2.3», «12,345», «10р», «-5») - None, а не догадка.
 fn parse_money(s: &str) -> Option<i64> {
-    let t = s.trim().replace(',', ".");
-    let t: String = t.chars().filter(|c| c.is_ascii_digit() || *c == '.').collect();
-    let v: f64 = t.parse().ok()?;
-    (v > 0.0).then(|| (v * 100.0).round() as i64)
+    let t = s.trim();
+    let (int, frac) = match t.find([',', '.']) {
+        Some(i) => (&t[..i], &t[i + 1..]),
+        None => (t, ""),
+    };
+    let digits = |x: &str| x.chars().all(|c| c.is_ascii_digit());
+    if !digits(int) || !digits(frac) || int.len() > 9 || frac.len() > 2 {
+        return None;
+    }
+    if int.is_empty() && frac.is_empty() {
+        return None;
+    }
+    if t.contains([',', '.']) && frac.is_empty() {
+        return None; // «12,» - недописанная цена
+    }
+    let whole: i64 = if int.is_empty() { 0 } else { int.parse().ok()? };
+    let cents: i64 = match frac.len() {
+        0 => 0,
+        1 => frac.parse::<i64>().ok()? * 10,
+        _ => frac.parse().ok()?,
+    };
+    let v = whole * 100 + cents;
+    (v > 0).then_some(v)
 }
 
 fn fmt_plain(cents: i64) -> String {
@@ -156,14 +177,24 @@ fn sell_window(ctx: &egui::Context, mk: &mut MarketUi, st: &crate::invent::InvSt
             ui.horizontal(|ui| {
                 ui.label("Покупатель заплатит:");
                 if ui.add(egui::TextEdit::singleline(&mut d.pay_text).desired_width(80.0)).changed() {
-                    if let Some(p) = parse_money(&d.pay_text) {
-                        d.pay = p;
-                        d.mode = 0;
-                    }
+                    d.mode = 0; // своя цена: уже не «быстрая» и не «мгновенная»
                 }
             });
-            let receive = receive_for(d.pay);
-            ui.label(format!("Вы получите: {} (комиссия Steam и игры: {})", m(receive), m(d.pay - receive)));
+            // Цена каждый кадр берется из того, что написано в поле сейчас: при ошибке не
+            // остается прежнее число, а продажа выключена.
+            let parsed = parse_money(&d.pay_text);
+            if let Some(p) = parsed {
+                d.pay = p;
+            }
+            let receive = parsed.map(receive_for).unwrap_or(0);
+            match parsed {
+                Some(pay) => {
+                    ui.label(format!("Вы получите: {} (комиссия Steam и игры: {})", m(receive), m(pay - receive)));
+                }
+                None => {
+                    ui.colored_label(egui::Color32::from_rgb(230, 90, 80), "Неверная цена: только цифры и до двух знаков после запятой, например 12,50.");
+                }
+            }
             if d.max_amount > 1 {
                 ui.horizontal(|ui| {
                     ui.label("Сколько штук:");
@@ -175,8 +206,12 @@ fn sell_window(ctx: &egui::Context, mk: &mut MarketUi, st: &crate::invent::InvSt
             }
             ui.weak("После выставления Steam попросит подтвердить продажу в мобильном приложении. Деньги придут в кошелек Steam.");
             ui.horizontal(|ui| {
-                let ok = receive >= 1 && !st.trade.busy;
-                if ui.add_enabled(ok, egui::Button::new(format!("Выставить за {}", m(d.pay)))).clicked() {
+                let ok = parsed.is_some() && receive >= 1 && !st.trade.busy;
+                let text = match parsed {
+                    Some(pay) => format!("Выставить за {}", m(pay)),
+                    None => "Выставить".to_string(),
+                };
+                if ui.add_enabled(ok, egui::Button::new(text)).clicked() {
                     req(MarketCmd::Sell {
                         appid: d.appid,
                         ctx: d.ctx,
@@ -381,4 +416,20 @@ pub fn offers_tab(ui: &mut egui::Ui, st: &crate::invent::InvState, mk: &mut Mark
             }
         });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_money;
+
+    #[test]
+    fn strict_price() {
+        assert_eq!(parse_money("12"), Some(1200));
+        assert_eq!(parse_money(" 12,5 "), Some(1250));
+        assert_eq!(parse_money("0.99"), Some(99));
+        assert_eq!(parse_money(",5"), Some(50));
+        for bad in ["", "0", "0,00", "1.2.3", "12,345", "12,", "10р", "-5", "1 000", "abc", "1e3"] {
+            assert_eq!(parse_money(bad), None, "{bad}");
+        }
+    }
 }

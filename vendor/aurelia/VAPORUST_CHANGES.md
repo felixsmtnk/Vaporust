@@ -72,3 +72,5 @@
 - `steam_client/content.rs`: `CELL_OVERRIDE` (регион загрузки, выбранный пользователем; 0 - как назначил Steam),
   вынесен в `pub use`.
 - `steam_client/vaporust_chat.rs`: `HistoryMessage.reactions` (реакции на сообщения из истории переписки).
+- `steam_client/ident_tests.rs`: в тестовом `Friend` добавлены поля `nickname` и `rich_status` (иначе тесты Aurelia не
+  собирались после нашей доработки друзей).

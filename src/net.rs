@@ -325,6 +325,9 @@ pub struct NetState {
     pub offline: bool,
     /// Текст ошибки, из-за которой включен автономный режим (для подсказки).
     pub offline_reason: String,
+    /// Как хранится сохраненный вход: Some(true) - зашифрован ключом Windows, Some(false) -
+    /// хранилище ключей недоступно и файл остался открытым, None - еще не проверено.
+    pub session_secure: Option<bool>,
     pub busy: bool,
     pub message: String,
     pub qr_url: Option<String>,
@@ -1702,6 +1705,8 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::Logout => {
             PROBE_GEN.fetch_add(1, Ordering::Relaxed); // проверка связи прошлого входа больше не нужна
+            SESSION_GEN.fetch_add(1, Ordering::Relaxed); // задачи прошлого входа больше ничего не пишут
+            crate::webapi::clear_token();
             let _ = client.logout().await;
             upd(st, ctx, |s| {
                 *s = NetState {
@@ -1722,6 +1727,7 @@ async fn logged_in(client: &mut SteamClient, session: SessionState, st: &Shared,
         .unwrap_or_else(|| "?".into());
     let roster = Arc::new(RwLock::new(Roster::new()));
     let my_id = client.my_steam_id();
+    crate::webapi::clear_token();
     upd(st, ctx, |s| {
         s.account = Some(name);
         s.need_login = false;
@@ -1730,13 +1736,54 @@ async fn logged_in(client: &mut SteamClient, session: SessionState, st: &Shared,
         s.my_id = my_id;
         s.chats.clear();
     });
+    let secure = match secure_session().await {
+        Ok(v) => v,
+        Err(e) => {
+            crate::errlog::write("вход", &format!("не удалось зашифровать сохраненный вход: {e:#}"));
+            false
+        }
+    };
+    upd(st, ctx, |s| s.session_secure = Some(secure));
     start_social(client, roster, st, ctx);
     start_link_probe(st, ctx);
     load_owned(client, st, ctx).await;
 }
 
+/// Сохраненный вход (session.json Aurelia) держать зашифрованным: в нем ключ, по которому
+/// Steam пускает без пароля. Aurelia по умолчанию пишет его открытым текстом (шифрование
+/// включает только ее консольная команда secure-session), поэтому после каждого входа
+/// включаем encrypt_session и пересохраняем файл. Ключ лежит в диспетчере учетных данных
+/// Windows (только для этого пользователя Windows). Ok(false) - хранилище ключей недоступно
+/// (или отключено AURELIA_DISABLE_KEYRING), файл остался открытым.
+async fn secure_session() -> anyhow::Result<bool> {
+    use aurelia::core::config::{load_launcher_config, load_session, save_launcher_config, save_session, session_path};
+    use aurelia::core::session_crypto::{keyring_secret_or_create, EncryptedSession};
+    let key = tokio::task::spawn_blocking(keyring_secret_or_create).await.ok().flatten();
+    if key.is_none() {
+        return Ok(false);
+    }
+    let mut cfg = load_launcher_config().await?;
+    if !cfg.encrypt_session {
+        cfg.encrypt_session = true;
+        save_launcher_config(&cfg).await?;
+    }
+    let path = session_path()?;
+    let raw = tokio::fs::read_to_string(&path).await.unwrap_or_default();
+    if raw.is_empty() || EncryptedSession::from_json(&raw).is_some() {
+        return Ok(true);
+    }
+    let session = load_session().await?;
+    save_session(&session).await?;
+    let raw = tokio::fs::read_to_string(&path).await.unwrap_or_default();
+    Ok(EncryptedSession::from_json(&raw).is_some())
+}
+
 /// Номер сеанса проверки связи: новый вход останавливает проверку прошлого сеанса.
 static PROBE_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Номер входа: фоновые задачи прошлого входа (сообщения чата) после выхода или нового входа
+/// больше ничего не записывают.
+static SESSION_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Раз в 20 с проверять, есть ли связь со Steam (соединение с steamcommunity.com:443). Две
 /// неудачи подряд - автономный режим, как при запуске без сети: полоса «Нет связи со Steam»,
@@ -2051,12 +2098,16 @@ fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st: &Shared, 
     let Ok(chat) = client.chat_client() else {
         return;
     };
+    let gen = SESSION_GEN.fetch_add(1, Ordering::Relaxed) + 1;
     let (st, ctx) = (st.clone(), ctx.clone());
     tokio::spawn(async move {
         use steam_vent_chat::ChatEvent;
         use tokio_stream::StreamExt;
         let mut events = std::pin::pin!(chat.listen());
         while let Some(ev) = events.next().await {
+            if SESSION_GEN.load(Ordering::Relaxed) != gen {
+                break;
+            }
             let Ok(ev) = ev else { continue }; // пропущенные уведомления - слушаем дальше
             let (from_self, m) = match ev {
                 ChatEvent::Message(m) => (false, m),
@@ -2151,6 +2202,14 @@ pub fn fmt_bytes(b: u64) -> String {
     }
 }
 
+/// Хватит ли места: игре нужно `disk_size`, уже скачано `already` (продолжение установки места
+/// не требует), свободно `free` (None - узнать не удалось, не мешаем).
+pub(crate) fn space_error(disk_size: u64, already: u64, free: Option<u64>) -> Option<String> {
+    let free = free?;
+    let need = disk_size.saturating_sub(already);
+    (need > free).then(|| format!("Не хватает места на диске: нужно {}, свободно {}.", fmt_bytes(need), fmt_bytes(free)))
+}
+
 const CANCELLED: &str = "Установка отменена. Скачанное сохранено, ее можно продолжить.";
 
 async fn run_install(
@@ -2170,15 +2229,8 @@ async fn run_install(
         .map_err(|e| format!("Не удалось узнать размер игры: {e:#}"))?;
     // Уже скачанное (продолжение установки) место не требует.
     let game_files = crate::local::installed_size(&library, appid);
-    if let Some(free) = crate::local::free_space(&library) {
-        let need = est.disk_size.saturating_sub(game_files);
-        if need > free {
-            return Err(format!(
-                "Не хватает места на диске: нужно {}, свободно {}.",
-                fmt_bytes(need),
-                fmt_bytes(free)
-            ));
-        }
+    if let Some(e) = space_error(est.disk_size, game_files, crate::local::free_space(&library)) {
+        return Err(e);
     }
     set_install(st, ctx, |i| i.total = est.disk_size);
     if abort.load(Ordering::Relaxed) {

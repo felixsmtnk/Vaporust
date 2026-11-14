@@ -937,11 +937,18 @@ impl LauncherApp {
                                     ui.colored_label(YELLOW, "Текущие сохранения будут заменены. Восстановить?");
                                     if ui.add_enabled(!locked, egui::Button::new("Да")).clicked() {
                                         // Сначала - копия текущего состояния, чтобы можно было вернуться.
+                                        // Если копия не получилась (нет места, нет доступа) - ничего не
+                                        // заменяем: иначе текущие сохранения пропали бы без возврата.
                                         let paths: Vec<std::path::PathBuf> = local.iter().flatten().cloned().collect();
-                                        let _ = crate::backup::backup(&w.name, &paths);
-                                        w.note = Some(match crate::backup::restore(&zip) {
-                                            Ok(n) => format!("Восстановлено файлов: {n}. Прежние сохранения - в новой копии сверху."),
-                                            Err(e) => e,
+                                        let has_current = paths.iter().any(|p| p.is_file());
+                                        let safety = if has_current { crate::backup::backup(&w.name, &paths).map(|_| true) } else { Ok(false) };
+                                        w.note = Some(match safety {
+                                            Err(e) => format!("Не восстановлено: не удалось сначала сохранить копию текущих сохранений ({e}). Файлы игры не тронуты."),
+                                            Ok(saved) => match crate::backup::restore(&zip) {
+                                                Ok(n) if saved => format!("Восстановлено файлов: {n}. Прежние сохранения - в новой копии сверху."),
+                                                Ok(n) => format!("Восстановлено файлов: {n}."),
+                                                Err(e) => e,
+                                            },
                                         });
                                         w.restore_confirm = None;
                                     }

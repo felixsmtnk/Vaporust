@@ -165,6 +165,17 @@ impl LauncherApp {
                             ui.ctx().copy_text(me.to_string());
                         }
                     });
+                    match net.session_secure {
+                        Some(true) => row(ui, "Сохраненный вход", |ui| {
+                            ui.label("зашифрован")
+                                .on_hover_text("Ключ шифрования хранится в диспетчере учетных данных Windows и доступен только вашему пользователю Windows.");
+                        }),
+                        Some(false) => row(ui, "Сохраненный вход", |ui| {
+                            ui.colored_label(egui::Color32::from_rgb(230, 170, 60), "не зашифрован")
+                                .on_hover_text("Хранилище ключей Windows недоступно, поэтому файл входа лежит открытым текстом. Не передавайте папку данных Vaporust другим людям.");
+                        }),
+                        None => {}
+                    }
                     let code = me.saturating_sub(crate::social::STEAMID64_BASE);
                     row(ui, "Код друга", |ui| {
                         ui.label(code.to_string());
@@ -694,6 +705,11 @@ impl LauncherApp {
                     ui.radio_value(&mut self.settings.system_frame, true, "Обычная Windows");
                 });
                 note(ui, "Своя рамка - темный заголовок в стиле программы. Обычная - стандартная рамка Windows. Меняется сразу.");
+
+                row(ui, "Размер и положение", |ui| {
+                    ui.checkbox(&mut self.settings.remember_window, "Запоминать");
+                });
+                note(ui, "Окно откроется там же и такого же размера, как при закрытии. Если тот монитор отключен или окно не помещается, - обычное окно посередине экрана.");
 
                 row(ui, "Крестик окна", |ui| {
                     let mut tray_on = tray::close_to_tray();

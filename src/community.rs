@@ -115,6 +115,10 @@ pub fn parse_topic(html: &str, url: &str) -> TopicView {
         }
     }
     v.can_reply = html.contains("\"can_reply\":1") && !v.owner.is_empty();
+    // Первая страница ответов уже на странице темы.
+    if let Some(area) = html.split("commentthread_area").nth(1) {
+        v.replies = parse_comments(area);
+    }
     v
 }
 
@@ -131,10 +135,6 @@ pub async fn load_topic(client: &SteamClient, url: &str) -> Result<TopicView, St
     let web = webapi::web_session(client).await?;
     let html = web.get_text(&format!("{url}?l=english")).await.map_err(|e| format!("{e:#}"))?;
     let mut v = parse_topic(&html, url);
-    // Первая страница ответов уже на странице темы.
-    if let Some(area) = html.split("commentthread_area").nth(1) {
-        v.replies = parse_comments(area);
-    }
     // Остальные - как их догружает сайт (POST render с данными ветки).
     if !v.owner.is_empty() && (v.replies.len() as u32) < v.total {
         let fields = [

@@ -19,6 +19,8 @@ mod gamemisc;
 mod export;
 mod family;
 mod feed;
+mod failtests;
+mod fixtures;
 mod coplay;
 mod shortcuts;
 mod grouppage;
@@ -37,6 +39,7 @@ mod icons;
 mod fonts;
 mod imgload;
 mod winframe;
+mod winpos;
 mod invent;
 mod invwin;
 mod launchopts;
@@ -327,6 +330,8 @@ struct LauncherApp {
     groups_ui: groupchat::GroupsUi,
     /// Запуск с --tray: спрятать окно в трей, как только оно появится.
     start_hidden: bool,
+    /// Окно уже поставлено на сохраненное место.
+    window_placed: bool,
     /// Автозапуск с Windows (кэш значения из реестра для галочки).
     autostart_on: Option<bool>,
     /// Итог экспорта списка игр.
@@ -530,6 +535,7 @@ impl LauncherApp {
             community_ui: Default::default(),
             groups_ui: Default::default(),
             start_hidden: autostart::started_in_tray(),
+            window_placed: false,
             autostart_on: None,
             export_note: None,
             licenses_asked: false,
@@ -781,7 +787,7 @@ impl LauncherApp {
             crate::errlog::write("загрузка", &format!("{}: {e}", cur.name));
         }
         match res {
-            Err(e) if !user_stop && network_error(e) && self.resume_tries < 3 => {
+            Err(e) if should_resume(e, user_stop, self.resume_tries) => {
                 self.resume_tries += 1;
                 if !self.settings.downloads.iter().any(|q| q.appid == cur.appid) {
                     self.settings.downloads.insert(0, cur.clone());
@@ -2256,6 +2262,11 @@ impl eframe::App for LauncherApp {
 
     /// eframe вызывает при выходе и периодически (раз в 30 с).
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        self.settings.window = if self.settings.remember_window {
+            winpos::read(self.settings.window).or(self.settings.window)
+        } else {
+            None
+        };
         self.settings.freeze_webhelper = self.freeze_webhelper;
         self.settings.only_installed = self.only_installed;
         self.settings.show_friends = self.show_friends;
@@ -2302,6 +2313,15 @@ impl eframe::App for LauncherApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
             if unread == 0 {
                 tray::set_unread(false);
+            }
+        }
+        // Размер и положение окна из прошлого запуска (до ухода в трей при автозапуске).
+        if !self.window_placed && notify::main_hwnd() != 0 {
+            self.window_placed = true;
+            if let Some(p) = self.settings.window.filter(|_| self.settings.remember_window) {
+                if winpos::apply(p) {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+                }
             }
         }
         // Автозапуск с Windows (--tray): окно сразу в трей, как только у него появился HWND.
@@ -2769,8 +2789,9 @@ fn main() -> eframe::Result<()> {
             // Своя рамка (winframe); обычная Windows включается в настройках с первого кадра.
             .with_decorations(false)
             .with_icon(icons::icon(icons::Kind::Launcher)),
-        // Всегда открываться обычным окном 960x600 посередине экрана: размер и положение
-        // из прошлого запуска не восстанавливаем (окно открывалось то крошечным, то на весь экран).
+        // Сначала - обычное окно посередине; сохраненные размер и положение ставит winpos (с
+        // проверкой, что окно помещается на монитор). Встроенное запоминание eframe выключено: окно
+        // открывалось то крошечным, то на весь экран.
         persist_window: false,
         centered: true,
         ..Default::default()
@@ -2780,6 +2801,11 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(|cc| Ok(Box::new(LauncherApp::new(cc)))),
     )
+}
+
+/// Продолжить ли оборвавшуюся загрузку самой: не «Отмена»/«Пауза», ошибка сети, не больше 3 раз подряд.
+fn should_resume(err: &str, user_stop: bool, tries: u8) -> bool {
+    !user_stop && network_error(err) && tries < 3
 }
 
 /// Ошибка загрузки похожа на обрыв связи (а не на нехватку места, доступ и т.п.).

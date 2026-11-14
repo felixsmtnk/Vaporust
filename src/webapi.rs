@@ -5,15 +5,23 @@ use aurelia::steam_client::SteamClient;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-static TOKEN: Mutex<Option<(String, Instant)>> = Mutex::new(None);
+/// Токен вместе с SteamID аккаунта, для которого он выдан: после выхода или входа в другой
+/// аккаунт чужой токен не используется.
+static TOKEN: Mutex<Option<(u64, String, Instant)>> = Mutex::new(None);
+
+/// Забыть токен (выход из аккаунта, новый вход).
+pub fn clear_token() {
+    *TOKEN.lock().unwrap() = None;
+}
 
 fn err<E: std::fmt::Display>(e: E) -> String {
     format!("{e:#}")
 }
 
 async fn token(client: &SteamClient) -> Result<String, String> {
-    if let Some((t, at)) = TOKEN.lock().unwrap().clone() {
-        if at.elapsed() < Duration::from_secs(3600) {
+    let me = client.my_steam_id().ok_or_else(|| "Нет входа в Steam.".to_string())?;
+    if let Some((id, t, at)) = TOKEN.lock().unwrap().clone() {
+        if id == me && at.elapsed() < Duration::from_secs(3600) {
             return Ok(t);
         }
     }
@@ -25,7 +33,7 @@ async fn token(client: &SteamClient) -> Result<String, String> {
             client.web_access_token().await.map_err(err)?
         }
     };
-    *TOKEN.lock().unwrap() = Some((t.clone(), Instant::now()));
+    *TOKEN.lock().unwrap() = Some((me, t.clone(), Instant::now()));
     Ok(t)
 }
 

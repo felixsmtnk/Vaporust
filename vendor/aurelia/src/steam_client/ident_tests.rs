@@ -11,6 +11,8 @@ fn friend(id: u64, name: &str) -> Friend {
         game_app_id: None,
         game_name: None,
         avatar_hash: None,
+        nickname: None,    // vaporust: поля ника и подробного статуса
+        rich_status: None,
     }
 }
 

@@ -30,6 +30,8 @@ pub struct Release {
     pub page: String,
     pub asset_url: Option<String>,
     pub asset_size: u64,
+    /// Файл «<архив>.sha256» из того же релиза (его собирает GitHub Actions вместе с архивом).
+    pub sha_url: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -121,14 +123,18 @@ pub fn parse_latest(json: &[u8], current: &str) -> Result<Option<Release>, Strin
         if best.as_ref().is_some_and(|b| compare(&ver, &b.version) != Ordering::Greater) {
             continue;
         }
-        let asset = r
-            .get("assets")
-            .and_then(Value::as_array)
-            .and_then(|a| {
-                a.iter().find(|x| {
-                    x.get("name").and_then(Value::as_str).is_some_and(|n| n.ends_with(asset_suffix()))
-                })
-            });
+        let assets = r.get("assets").and_then(Value::as_array);
+        let name_of = |x: &Value| x.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
+        let asset = assets.and_then(|a| a.iter().find(|x| name_of(x).ends_with(asset_suffix())));
+        let sha_url = asset.and_then(|asset| {
+            let want = format!("{}.sha256", name_of(asset));
+            assets?
+                .iter()
+                .find(|x| name_of(x) == want)
+                .and_then(|x| x.get("browser_download_url"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        });
         best = Some(Release {
             version: ver,
             notes: r.get("body").and_then(Value::as_str).unwrap_or_default().to_string(),
@@ -138,6 +144,7 @@ pub fn parse_latest(json: &[u8], current: &str) -> Result<Option<Release>, Strin
                 .and_then(Value::as_str)
                 .map(str::to_string),
             asset_size: asset.and_then(|a| a.get("size")).and_then(Value::as_u64).unwrap_or(0),
+            sha_url,
         });
     }
     Ok(best)
@@ -169,7 +176,13 @@ pub fn install(release: Release, state: &Shared, ctx: &eframe::egui::Context) {
         set(State::Downloading(format!("Скачиваю Vaporust {}...", release.version)));
         let res = (|| -> Result<(), String> {
             let url = release.asset_url.clone().ok_or("в релизе нет архива для этой Windows")?;
+            let sha_url = release
+                .sha_url
+                .clone()
+                .ok_or("в релизе нет контрольной суммы архива (.sha256) - скачайте новую версию со страницы релиза вручную")?;
+            let expected = parse_sha(&get(&sha_url)?)?;
             let bytes = get(&url)?;
+            verify_sha(&bytes, &expected)?;
             set(State::Downloading("Устанавливаю...".into()));
             let exe = std::env::current_exe().map_err(|e| e.to_string())?;
             replace_exe(&exe, &bytes)
@@ -179,6 +192,46 @@ pub fn install(release: Release, state: &Shared, ctx: &eframe::egui::Context) {
             Err(e) => State::Failed(format!("Обновление не удалось: {e}")),
         });
     });
+}
+
+/// Содержимое файла .sha256: 64 шестнадцатеричных знака (регистр любой, пробелы и имя файла
+/// после суммы допускаются, как у sha256sum).
+fn parse_sha(text: &[u8]) -> Result<String, String> {
+    let text = String::from_utf8_lossy(text);
+    let first = text.split_whitespace().next().unwrap_or_default().trim_start_matches('\u{feff}');
+    if first.len() == 64 && first.chars().all(|c| c.is_ascii_hexdigit()) {
+        Ok(first.to_ascii_lowercase())
+    } else {
+        Err("непонятный файл контрольной суммы".into())
+    }
+}
+
+/// Сравнить SHA-256 скачанного архива с опубликованной суммой. Не совпало - архив поврежден
+/// или подменен, ставить нельзя.
+fn verify_sha(data: &[u8], expected: &str) -> Result<(), String> {
+    use sha2::{Digest, Sha256};
+    let got: String = Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect();
+    if got.eq_ignore_ascii_case(expected) {
+        Ok(())
+    } else {
+        Err("контрольная сумма архива не совпала (архив поврежден при скачивании или подменен), обновление не установлено".into())
+    }
+}
+
+/// Разрядность exe по заголовку PE: Some(true) - 64 бит (x64), Some(false) - 32 бит (x86).
+fn pe_is_64(data: &[u8]) -> Option<bool> {
+    if data.get(..2)? != b"MZ" {
+        return None;
+    }
+    let pe = u32::from_le_bytes(data.get(0x3c..0x40)?.try_into().ok()?) as usize;
+    if data.get(pe..pe + 4)? != b"PE\0\0" {
+        return None;
+    }
+    match u16::from_le_bytes(data.get(pe + 4..pe + 6)?.try_into().ok()?) {
+        0x8664 => Some(true),
+        0x014c => Some(false),
+        _ => None,
+    }
 }
 
 /// Распаковать архив и заменить exe (работающий файл переименовываем в .old).
@@ -195,7 +248,12 @@ pub fn replace_exe(exe: &Path, zip: &[u8]) -> Result<(), String> {
         .map_err(|e| format!("не удалось распаковать архив: {e}"))?
         .read_to_end(&mut data)
         .map_err(|e| format!("не удалось распаковать архив: {e}"))?;
-    let tmp = std::env::temp_dir().join(format!("vaporust-update-{}", std::process::id()));
+    match pe_is_64(&data) {
+        Some(is64) if is64 == cfg!(target_pointer_width = "64") => {}
+        Some(_) => return Err("в архиве программа другой разрядности (x64/x86), обновление не установлено".into()),
+        None => return Err("в архиве не программа Windows, обновление не установлено".into()),
+    }
+    let tmp =std::env::temp_dir().join(format!("vaporust-update-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
     let new_exe = tmp.join("vaporust.exe");
@@ -314,12 +372,36 @@ mod tests {
         let json = br#"[
           {"tag_name":"v0.1.0-alpha.3","draft":false,"body":"old","html_url":"u3","assets":[{"name":"Vaporust-0.1.0-alpha.3-windows-x64.zip","browser_download_url":"d3","size":10}]},
           {"tag_name":"v0.3.0-alpha","draft":true,"assets":[]},
-          {"tag_name":"v0.2.1-alpha","draft":false,"body":"new","html_url":"u21","assets":[{"name":"Vaporust-0.2.1-alpha-windows-x64.zip","browser_download_url":"d21","size":20},{"name":"Vaporust-0.2.1-alpha-windows-x86.zip","browser_download_url":"d21x86","size":19}]}
+          {"tag_name":"v0.2.1-alpha","draft":false,"body":"new","html_url":"u21","assets":[{"name":"Vaporust-0.2.1-alpha-windows-x64.zip","browser_download_url":"d21","size":20},{"name":"Vaporust-0.2.1-alpha-windows-x86.zip","browser_download_url":"d21x86","size":19},{"name":"Vaporust-0.2.1-alpha-windows-x64.zip.sha256","browser_download_url":"s21","size":66},{"name":"Vaporust-0.2.1-alpha-windows-x86.zip.sha256","browser_download_url":"s21x86","size":66}]}
         ]"#;
         let r = parse_latest(json, "0.2.0-alpha").unwrap().unwrap();
         assert_eq!(r.version, "0.2.1-alpha");
-        assert_eq!(r.asset_url.as_deref(), Some(if cfg!(target_pointer_width = "64") { "d21" } else { "d21x86" }));
+        let x64 = cfg!(target_pointer_width = "64");
+        assert_eq!(r.asset_url.as_deref(), Some(if x64 { "d21" } else { "d21x86" }));
+        assert_eq!(r.sha_url.as_deref(), Some(if x64 { "s21" } else { "s21x86" }));
         assert!(parse_latest(json, "0.2.1-alpha").unwrap().is_none());
+        // Старые релизы без .sha256 - суммы нет (установка откажется).
+        let r = parse_latest(json, "0.0.1").unwrap().unwrap();
+        assert_eq!(r.version, "0.2.1-alpha");
+    }
+
+    #[test]
+    fn checksum() {
+        // SHA-256 строки "abc".
+        let sum = "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD";
+        let parsed = parse_sha(format!("{sum}\r\n").as_bytes()).unwrap();
+        assert!(verify_sha(b"abc", &parsed).is_ok());
+        assert!(verify_sha(b"abd", &parsed).is_err());
+        assert!(parse_sha(format!("\u{feff}{}  file.zip", sum.to_lowercase()).as_bytes()).is_ok());
+        assert!(parse_sha(b"not a sum").is_err());
+        assert!(parse_sha(b"").is_err());
+    }
+
+    #[test]
+    fn exe_arch() {
+        let me = std::fs::read(std::env::current_exe().unwrap()).unwrap();
+        assert_eq!(pe_is_64(&me), Some(cfg!(target_pointer_width = "64")));
+        assert_eq!(pe_is_64(b"old exe"), None);
     }
 
     /// Живой тест: запрос к GitHub (только чтение).
