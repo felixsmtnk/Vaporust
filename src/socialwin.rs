@@ -27,8 +27,16 @@ pub struct SocialUi {
     pub comment_page: u32,
     /// Редактируемая заметка о друге: (SteamID64, имя, текст).
     pub note_edit: Option<(u64, String, String)>,
+    /// Свой ник для друга: (кто, имя, ник).
+    pub nick_edit: Option<(u64, String, String)>,
+    /// Награда за очки: (тип цели 1 обзор / 2 работа / 3 профиль, цель, что награждаем).
+    pub award: Option<(u32, String, String)>,
+    /// Новый групповой чат: название и кого пригласить.
+    pub group_create: Option<(String, std::collections::BTreeSet<u64>)>,
     /// Друг, которого подтверждаем удалить.
     pub confirm_remove: Option<u64>,
+    /// Подтверждение блокировки: (кого, заблокировать или разблокировать).
+    pub confirm_block: Option<(u64, bool)>,
     /// Профили, уже запрошенные ради имени в заявках (чтобы не слать запрос каждый кадр).
     pub requested: std::collections::HashSet<u64>,
 }
@@ -38,6 +46,7 @@ pub enum FriendAction {
     Profile(u64),
     Chat(u64, String),
     Remove(u64),
+    Block(u64),
     /// Список желаемого друга (в магазине).
     Wishlist(u64, String),
     /// Скриншоты друга.
@@ -46,6 +55,8 @@ pub enum FriendAction {
     Favorite(u64),
     /// Своя заметка о друге (видна только вам).
     Note(u64, String),
+    /// Свой ник для друга.
+    Nick(u64, String),
 }
 
 /// Меню по правому щелчку на друге.
@@ -55,6 +66,10 @@ pub fn friend_menu(resp: &egui::Response, id: u64, name: &str, fav: bool, out: &
         ui.separator();
         if ui.button(if fav { "Убрать из избранных" } else { "В избранные" }).clicked() {
             *out = Some(FriendAction::Favorite(id));
+            ui.close_menu();
+        }
+        if ui.button("Задать ник...").on_hover_text("Ваш ник для друга (виден только вам, как в Steam)").clicked() {
+            *out = Some(FriendAction::Nick(id, name.to_string()));
             ui.close_menu();
         }
         if ui.button("Заметка...").clicked() {
@@ -80,6 +95,10 @@ pub fn friend_menu(resp: &egui::Response, id: u64, name: &str, fav: bool, out: &
         ui.separator();
         if ui.button("Удалить из друзей…").clicked() {
             *out = Some(FriendAction::Remove(id));
+            ui.close_menu();
+        }
+        if ui.button("Заблокировать...").clicked() {
+            *out = Some(FriendAction::Block(id));
             ui.close_menu();
         }
     });
@@ -231,6 +250,10 @@ impl LauncherApp {
                         open_page = Some(0);
                         ui.close_menu();
                     }
+                    if ui.button("Недавние игроки").on_hover_text("С кем вы недавно играли в сетевых играх").clicked() {
+                        open_page = Some(3);
+                        ui.close_menu();
+                    }
                     ui.separator();
                     if ui.button("Активность друзей").on_hover_text("Лента событий и во что играли за две недели").clicked() {
                         self.open_activity();
@@ -238,6 +261,11 @@ impl LauncherApp {
                     }
                     if ui.button("Групповые чаты").clicked() {
                         self.open_groups();
+                        ui.close_menu();
+                    }
+                    if ui.button("Создать групповой чат...").clicked() {
+                        self.net.lock().unwrap().action_msg = None;
+                        self.social_ui.group_create = Some((String::new(), Default::default()));
                         ui.close_menu();
                     }
                 });
@@ -276,12 +304,17 @@ impl LauncherApp {
             FriendAction::Profile(id) => self.open_profile(id, net),
             FriendAction::Chat(id, name) => self.open_chat(ctx, id, name, net),
             FriendAction::Remove(id) => self.social_ui.confirm_remove = Some(id),
+            FriendAction::Block(id) => self.social_ui.confirm_block = Some((id, true)),
             FriendAction::Wishlist(id, name) => self.open_friend_wishlist(id, name),
             FriendAction::Shots(id, name) => self.open_friend_shots(id, name),
             FriendAction::Favorite(id) => {
                 if !self.settings.fav_friends.remove(&id) {
                     self.settings.fav_friends.insert(id);
                 }
+            }
+            FriendAction::Nick(id, name) => {
+                let nick = net.roster.read().unwrap().get(&id).and_then(|f| f.nickname.clone()).unwrap_or_default();
+                self.social_ui.nick_edit = Some((id, name, nick));
             }
             FriendAction::Note(id, name) => {
                 let text = self.settings.friend_notes.get(&id).cloned().unwrap_or_default();
@@ -344,7 +377,7 @@ impl LauncherApp {
                 // ---- Шапка ----
                 egui::Frame::none()
                     .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 90))
-                    .inner_margin(egui::Margin::same(18.0))
+                    .inner_margin(egui::Margin::same(14.0))
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.horizontal_top(|ui| {
@@ -356,7 +389,7 @@ impl LauncherApp {
                             ui.add_space(14.0);
                             let right_w = 270.0;
                             ui.vertical(|ui| {
-                                ui.set_width((ui.available_width() - right_w - 16.0).max(200.0));
+                                ui.set_width((ui.available_width() - right_w - 2.0 * ui.spacing().item_spacing.x).max(200.0));
                                 ui.add_space(8.0);
                                 ui.label(egui::RichText::new(crate::richtext::fix(ui, &name)).size(26.0).color(egui::Color32::WHITE));
                                 let place = [p.real_name.clone(), p.location.clone()].into_iter().flatten().collect::<Vec<_>>().join(" · ");
@@ -393,8 +426,8 @@ impl LauncherApp {
                                 }
                                 ui.add_space(10.0);
                                 if is_me {
-                                    if ui.button("Редактировать профиль").on_hover_text("Откроется в браузере").clicked() {
-                                        act = Some(ProfileAct::Url(format!("https://steamcommunity.com/profiles/{id}/edit/info")));
+                                    if ui.button("Редактировать профиль").clicked() {
+                                        act = Some(ProfileAct::Edit);
                                     }
                                 } else {
                                     ui.horizontal_wrapped(|ui| {
@@ -413,6 +446,19 @@ impl LauncherApp {
                                                 act = Some(ProfileAct::Url(p.profile_url.clone()));
                                                 ui.close_menu();
                                             }
+                                            if ui.button("Наградить...").on_hover_text("Наградить профиль очками Steam").clicked() {
+                                                self.net.lock().unwrap().action_msg = None;
+                                                self.social_ui.award = Some((3, id.to_string(), "этот профиль".into()));
+                                                ui.close_menu();
+                                            }
+                                            ui.separator();
+                                            // Заблокирован: по Steam (1 - заблокирован, 5/6 - игнорируется) или в этом сеансе.
+                                            let rel = net.roster.read().unwrap().get(&id).map(|f| f.relationship).unwrap_or(0);
+                                            let blocked = net.blocked.contains(&id) || matches!(rel, 1 | 5 | 6);
+                                            if ui.button(if blocked { "Разблокировать..." } else { "Заблокировать..." }).clicked() {
+                                                self.social_ui.confirm_block = Some((id, !blocked));
+                                                ui.close_menu();
+                                            }
                                         });
                                     });
                                 }
@@ -420,6 +466,8 @@ impl LauncherApp {
                         });
                     });
 
+                // Шапка и колонки - вплотную, без полосы фона между ними.
+                ui.add_space(-ui.spacing().item_spacing.y);
                 // ---- Две колонки ----
                 egui::Frame::none()
                     .fill(egui::Color32::from_rgba_unmultiplied(12, 15, 20, 205))
@@ -428,7 +476,9 @@ impl LauncherApp {
                         ui.set_width(ui.available_width());
                         let right_w = 270.0;
                         ui.horizontal_top(|ui| {
-                            let left_w = ui.available_width() - right_w - 18.0;
+                            // Между колонками: отступ 18 и два промежутка ряда - иначе рамка вылезает вправо.
+                            let gap = ui.spacing().item_spacing.x;
+                            let left_w = ui.available_width() - right_w - 18.0 - 2.0 * gap;
                             ui.vertical(|ui| {
                                 ui.set_width(left_w);
                                 match &extra {
@@ -461,6 +511,8 @@ impl LauncherApp {
                 self.settings.sort = crate::settings::Sort::LastPlayed;
             }
             Some(ProfileAct::Url(u)) => ctx.open_url(egui::OpenUrl::new_tab(u)),
+            Some(ProfileAct::Group(u)) => self.open_group(u),
+            Some(ProfileAct::Edit) => self.open_profile_edit(),
             Some(ProfileAct::Store(a)) => self.open_store(Some(a), false),
             Some(ProfileAct::Profile(sid)) => self.open_profile(sid, net),
             Some(ProfileAct::Post(text)) => {
@@ -505,6 +557,7 @@ impl LauncherApp {
     }
 
     pub(crate) fn social_windows(&mut self, ctx: &egui::Context, net: &NetState) {
+        self.second_plan_dialogs(ctx, net);
 
         // Своя заметка о друге (видна только вам, хранится в настройках Vaporust).
         if let Some((id, name, mut text)) = self.social_ui.note_edit.take() {
@@ -679,6 +732,43 @@ impl LauncherApp {
                 self.social_ui.confirm_remove = None;
             }
         }
+
+        // Подтверждение блокировки.
+        if let Some((id, block)) = self.social_ui.confirm_block {
+            let name = net
+                .roster
+                .read()
+                .unwrap()
+                .get(&id)
+                .and_then(|f| f.persona_name.clone())
+                .or_else(|| net.profiles.get(&id).and_then(|p| p.as_ref().ok()).and_then(|p| p.persona_name.clone()))
+                .unwrap_or_else(|| id.to_string());
+            let mut close = false;
+            egui::Window::new(if block { "Заблокировать?" } else { "Разблокировать?" })
+                .id(egui::Id::new("confirm_block"))
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    if block {
+                        ui.label(format!("Заблокировать «{name}»?"));
+                        ui.weak("Он не сможет писать вам, приглашать и комментировать ваш профиль. Если это друг, он будет удален из друзей.");
+                    } else {
+                        ui.label(format!("Разблокировать «{name}»?"));
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.button(if block { "Да, заблокировать" } else { "Да, разблокировать" }).clicked() {
+                            let _ = self.tx.send(Cmd::Social(SocialCmd::Block(id, block)));
+                            close = true;
+                        }
+                        if ui.button("Отмена").clicked() {
+                            close = true;
+                        }
+                    });
+                });
+            if close {
+                self.social_ui.confirm_block = None;
+            }
+        }
     }
 }
 
@@ -701,7 +791,11 @@ enum ProfileAct {
     MyWishlist,
     /// Свои недавно запущенные игры (библиотека).
     Recent,
+    /// Редактирование своего профиля (страница программы).
+    Edit,
     Url(String),
+    /// Страница группы в программе.
+    Group(String),
     Store(u32),
     Profile(u64),
     Post(String),
@@ -1101,7 +1195,7 @@ fn profile_right(
                 let l = ui.link(egui::RichText::new(crate::richtext::fix(ui, &g.name)).size(12.5));
                 let l = if g.members > 0 { l.on_hover_text(format!("участников: {}", crate::store::group_digits(g.members))) } else { l };
                 if l.clicked() && !g.url.is_empty() {
-                    *act = Some(ProfileAct::Url(g.url.clone()));
+                    *act = Some(ProfileAct::Group(g.url.clone()));
                 }
             }
         }

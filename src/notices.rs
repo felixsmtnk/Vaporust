@@ -113,6 +113,14 @@ impl LauncherApp {
             return;
         }
         self.notices.sales_gen = st.sales_gen;
+        // Вышла игра из списка желаемого: была «скоро выйдет», теперь вышла.
+        for (appid, name, soon) in &st.wish_status {
+            if *soon {
+                self.settings.wish_upcoming.insert(*appid);
+            } else if self.settings.wish_upcoming.remove(appid) {
+                popup::push(Kind::Sale(*appid), format!("Вышла игра: {name}"), "Из вашего списка желаемого.");
+            }
+        }
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -154,14 +162,16 @@ impl LauncherApp {
         let finished_ok = matches!(i.result, Some(Ok(())));
         let before = self.notices.install.replace((i.appid, i.result.is_some()));
         // Сообщаем только о переходе «шла -> закончилась успешно» и только для установки.
+        // Скачана во временную папку при открытом Steam: Steam увидит ее только после перезапуска.
+        let staged = self.settings.staged.contains_key(&i.appid) && crate::local::steam_running();
         if before == Some((i.appid, false))
             && finished_ok
             && i.done_text == "установлена."
             && self.settings.notify_on
-            && self.settings.notify_download
-            && !crate::notify::app_focused()
+            && (staged || (self.settings.notify_download && !crate::notify::app_focused()))
         {
-            popup::push(Kind::Download(i.appid), "Игра скачана", format!("{} - можно играть.", i.name));
+            let body = if staged { "Перезапустите Steam, чтобы играть.".to_string() } else { format!("{} - можно играть.", i.name) };
+            popup::push(Kind::Download(i.appid), "Игра скачана", body);
         }
     }
 }

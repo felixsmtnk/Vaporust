@@ -42,11 +42,38 @@ pub struct ChatWin {
     /// Копия сетевого состояния и номер изменения, с которого она снята (не копировать каждый кадр).
     snap: Option<NetState>,
     snap_gen: u64,
+    /// Открытые беседы (вкладки): друг и имя; текущая - id.
+    tabs: Vec<(u64, String)>,
+    /// Недописанный текст других вкладок.
+    drafts: std::collections::HashMap<u64, String>,
+    /// Ответ на сообщение: (автор, текст без оформления).
+    reply: Option<(String, String)>,
 }
 
 impl ChatWin {
+    /// Переключиться на беседу (новую - добавить вкладкой).
+    pub fn switch_to(&mut self, id: u64, name: String) {
+        if !self.tabs.iter().any(|(t, _)| *t == id) {
+            self.tabs.push((id, name.clone()));
+        }
+        if self.id != id {
+            let old = std::mem::take(&mut self.input);
+            self.drafts.insert(self.id, old);
+            self.input = self.drafts.remove(&id).unwrap_or_default();
+            self.id = id;
+            self.name = name;
+            self.reply = None;
+            self.search.clear();
+            self.search_open = false;
+            self.focus_input = true;
+        }
+    }
+
     pub fn new(id: u64, name: String) -> Self {
         Self {
+            tabs: vec![(id, name.clone())],
+            drafts: Default::default(),
+            reply: None,
             id,
             name,
             input: String::new(),
@@ -161,6 +188,17 @@ impl ChatWin {
                 }
                 ui.separator();
             }
+            // Ответ на сообщение: над полем ввода - кому отвечаем (уйдет цитатой).
+            if let Some((who, text)) = self.reply.clone() {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(format!("Ответ {who}:")).color(crate::theme::WEAK));
+                    let short: String = text.chars().take(60).collect();
+                    ui.add(egui::Label::new(egui::RichText::new(short).italics()).truncate());
+                    if ui.small_button("✖").on_hover_text("Не отвечать").clicked() {
+                        self.reply = None;
+                    }
+                });
+            }
             ui.horizontal(|ui| {
                 let edit = ui.add(
                     egui::TextEdit::singleline(&mut self.input)
@@ -198,7 +236,13 @@ impl ChatWin {
                 let clicked = ui.button("Отправить").clicked();
                 if (enter || clicked) && !self.input.trim().is_empty() {
                     let text = std::mem::take(&mut self.input).trim().to_string();
-                    send = Some(crate::emoticons_to_bbcode(&text, net));
+                    let mut msg = crate::emoticons_to_bbcode(&text, net);
+                    // Ответ - цитата с автором перед текстом (Steam показывает ее блоком).
+                    if let Some((who, quoted)) = self.reply.take() {
+                        let q: String = quoted.chars().take(300).collect();
+                        msg = format!("[quote author={who}]{q}[/quote]\n{msg}");
+                    }
+                    send = Some(msg);
                     edit.request_focus();
                 } else if enter {
                     edit.request_focus();
@@ -232,6 +276,46 @@ impl ChatWin {
             self.search_open = false;
             self.search.clear();
             self.focus_input = true;
+        }
+        // Вкладки бесед (если открыто больше одной): имя, непрочитанные, крестик.
+        let mut switch: Option<(u64, String)> = None;
+        let mut close_tab: Option<u64> = None;
+        if self.tabs.len() > 1 {
+            egui::TopBottomPanel::top("chat_tabs").frame(egui::Frame::none().fill(crate::theme::TOP).inner_margin(egui::Margin::symmetric(4.0, 3.0))).show(ctx, |ui| {
+                egui::ScrollArea::horizontal().id_salt("chat_tabs_scroll").show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        for (tid, tname) in &self.tabs {
+                            let unread = net.chats.get(tid).map_or(0, |c| c.unread);
+                            let label = if unread > 0 && *tid != id { format!("{tname} ({unread})") } else { tname.clone() };
+                            let mut text = egui::RichText::new(crate::richtext::fix(ui, &label));
+                            if unread > 0 && *tid != id {
+                                text = text.color(egui::Color32::from_rgb(240, 200, 80));
+                            }
+                            if ui.selectable_label(*tid == id, text).clicked() && *tid != id {
+                                switch = Some((*tid, tname.clone()));
+                            }
+                            if ui.small_button("✖").on_hover_text("Закрыть беседу").clicked() {
+                                close_tab = Some(*tid);
+                            }
+                            ui.add_space(6.0);
+                        }
+                    });
+                });
+            });
+        }
+        if let Some((t, n)) = switch {
+            self.switch_to(t, n);
+        }
+        if let Some(t) = close_tab {
+            self.tabs.retain(|(x, _)| *x != t);
+            self.drafts.remove(&t);
+            if t == self.id {
+                if let Some((n, name)) = self.tabs.first().cloned() {
+                    // Текущую закрыли - на первую оставшуюся (без сохранения черновика закрытой).
+                    self.input.clear();
+                    self.switch_to(n, name);
+                }
+            }
         }
         egui::TopBottomPanel::top("chat_head").show(ctx, |ui| {
             ui.add_space(4.0);
@@ -334,7 +418,49 @@ impl ChatWin {
                         last = Some((l.from_self, l.time));
                         let avatar = if l.from_self { my_avatar.as_ref() } else { friend_avatar.as_ref() };
                         let color = if l.from_self { egui::Color32::from_rgb(120, 170, 230) } else { egui::Color32::from_rgb(140, 200, 80) };
-                        ui.horizontal_top(|ui| {
+                        // Меню сообщения по правому щелчку: область с прошлого кадра регистрируем ДО
+                        // содержимого, чтобы ссылки и спойлеры внутри по-прежнему нажимались.
+                        let msg_key = egui::Id::new(("chat_msg", id, l.time, l.ordinal, l.text.len()));
+                        if let Some(rect) = ui.data(|d| d.get_temp::<egui::Rect>(msg_key)) {
+                            let r = ui.interact(rect, msg_key, egui::Sense::click());
+                            r.context_menu(|ui| {
+                                if ui.button("Ответить").clicked() {
+                                    self.reply = Some((who.to_string(), chatfmt::preview(&l.text).0));
+                                    self.focus_input = true;
+                                    ui.close_menu();
+                                }
+                                if ui.button("Копировать текст").clicked() {
+                                    ui.ctx().copy_text(chatfmt::preview(&l.text).0);
+                                    ui.close_menu();
+                                }
+                                // Реакции: свои смайлики Steam (нужен номер сообщения - есть у загруженных из истории).
+                                let mine = net.emoticons.as_ref().map(|e| e.0.clone()).unwrap_or_default();
+                                if l.ordinal > 0 || l.time > 0 {
+                                    ui.menu_button("Реакция", |ui| {
+                                        if mine.is_empty() {
+                                            ui.weak("Нет своих смайликов Steam");
+                                            if net.emoticons.is_none() && !self.emoticons_requested {
+                                                self.emoticons_requested = true;
+                                                let _ = tx.send(Cmd::LoadEmoticons);
+                                            }
+                                        }
+                                        ui.horizontal_wrapped(|ui| {
+                                            ui.set_max_width(260.0);
+                                            for e in mine.iter().take(60) {
+                                                let url = format!("https://community.fastly.steamstatic.com/economy/emoticonlarge/{e}");
+                                                if ui.add(egui::ImageButton::new(egui::Image::new(url).fit_to_exact_size(egui::vec2(22.0, 22.0)))).on_hover_text(e).clicked() {
+                                                    let _ = tx.send(Cmd::ChatReaction { friend: id, time: l.time as u32, ordinal: l.ordinal, kind: 1, name: e.clone(), add: true });
+                                                    ui.close_menu();
+                                                }
+                                            }
+                                        });
+                                    });
+                                }
+                            });
+                        }
+                        let msg_resp = ui.horizontal_top(|ui| {
+                            // Текст сообщения не перехватывает правый щелчок (меню сообщения); копировать - через меню.
+                            ui.style_mut().interaction.selectable_labels = false;
                             let (ar, _) = ui.allocate_exact_size(egui::vec2(32.0, if new_group { 32.0 } else { 1.0 }), egui::Sense::hover());
                             if new_group {
                                 match avatar {
@@ -358,8 +484,45 @@ impl ChatWin {
                                         crate::draw_seg(ui, seg, &mut self.anims, who);
                                     }
                                 });
+                                // Реакции под сообщением: значок и число; щелчок - поставить/снять свою.
+                                if !l.reactions.is_empty() {
+                                    let me = net.my_id.map(|m| (m & 0xFFFF_FFFF) as u32).unwrap_or(0);
+                                    ui.horizontal_wrapped(|ui| {
+                                        for (kind, name, who_ids) in &l.reactions {
+                                            let mine = who_ids.contains(&me);
+                                            let url = if *kind == 2 {
+                                                format!("https://community.fastly.steamstatic.com/economy/sticker/{}", name.replace(' ', "%20"))
+                                            } else {
+                                                format!("https://community.fastly.steamstatic.com/economy/emoticonlarge/{name}")
+                                            };
+                                            let fill = if mine { egui::Color32::from_rgb(40, 70, 100) } else { crate::theme::CARD };
+                                            let r = egui::Frame::none().fill(fill).rounding(8.0).inner_margin(egui::Margin::symmetric(5.0, 1.0)).show(ui, |ui| {
+                                                ui.horizontal(|ui| {
+                                                    ui.add(egui::Image::new(url).fit_to_exact_size(egui::vec2(16.0, 16.0)));
+                                                    ui.label(egui::RichText::new(who_ids.len().to_string()).size(11.5));
+                                                });
+                                            });
+                                            let r = r.response.interact(egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if mine {
+                                                format!("{name}: ваша реакция, щелчок - убрать")
+                                            } else {
+                                                format!("{name}: щелчок - поставить такую же")
+                                            });
+                                            if r.clicked() {
+                                                let _ = tx.send(Cmd::ChatReaction {
+                                                    friend: id,
+                                                    time: l.time as u32,
+                                                    ordinal: l.ordinal,
+                                                    kind: *kind,
+                                                    name: name.clone(),
+                                                    add: !mine,
+                                                });
+                                            }
+                                        }
+                                    });
+                                }
                             });
                         });
+                        ui.data_mut(|d| d.insert_temp(msg_key, msg_resp.response.rect));
                         if new_group {
                             ui.add_space(2.0);
                         }

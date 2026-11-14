@@ -44,10 +44,11 @@ struct Popup {
 }
 
 const LIFE: Duration = Duration::from_secs(6);
-const MAX: usize = 3;
-const W: f32 = 340.0;
-const H: f32 = 88.0;
-const GAP: f32 = 8.0;
+const MAX: usize = 4;
+const W: f32 = 300.0;
+const H: f32 = 68.0;
+/// Уведомления лежат стопкой вплотную (между ними тонкая линия).
+const GAP: f32 = 0.0;
 
 static QUEUE: Mutex<Vec<Popup>> = Mutex::new(Vec::new());
 static CTX: OnceLock<egui::Context> = OnceLock::new();
@@ -81,7 +82,9 @@ pub fn push_full(kind: Kind, title: String, body: String, image: Option<String>,
     };
     {
         let mut q = QUEUE.lock().unwrap();
-        q.retain(|x| x.kind != kind || kind == Kind::Info);
+        // Как в Steam: каждое уведомление отдельно, новые снизу, старые поднимаются вверх.
+        // Убираем только точный повтор.
+        q.retain(|x| !(x.kind == p.kind && x.title == p.title && x.body == p.body));
         q.push(p);
         let extra = q.len().saturating_sub(MAX);
         q.drain(..extra);
@@ -149,20 +152,34 @@ impl LauncherApp {
             .with_decorations(false)
             .with_resizable(false)
             .with_always_on_top()
-            // Прозрачный фон окна - видны скругленные углы карточек и промежутки между ними.
-            .with_transparent(true)
             .with_taskbar(false)
             .with_active(false)
             .with_inner_size(size);
+        let mut pos = None;
         if let Some(wa) = work_area() {
-            // Правый нижний угол рабочей области, отступ 12 точек.
-            let pos = egui::pos2(wa.max.x / ppp - size.x - 12.0, wa.max.y / ppp - size.y - 12.0);
-            builder = builder.with_position(pos);
+            // Как в Steam: вплотную к правому нижнему углу рабочей области (над часами панели задач).
+            let p = egui::pos2(wa.max.x / ppp - size.x, wa.max.y / ppp - size.y);
+            builder = builder.with_position(p);
+            pos = Some(p);
         }
+        // Положение из with_position задается только при создании окна: когда приходит еще одно
+        // уведомление, окно растет вниз под панель задач. Поэтому при каждом изменении числа
+        // карточек явно двигаем окно и меняем его размер.
+        static LAST_N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let moved = LAST_N.swap(n, Ordering::Relaxed) != n;
         ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("vaporust_popups"), builder, |ctx, _| {
+            if moved {
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
+                if let Some(p) = pos {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(p));
+                }
+            }
             egui::CentralPanel::default()
-                .frame(egui::Frame::none().fill(egui::Color32::TRANSPARENT))
+                .frame(egui::Frame::none().fill(crate::theme::CARD))
                 .show(ctx, |ui| {
+                    // Карточки вплотную: без стандартного отступа egui между элементами (иначе стопка
+                    // выше окна и нижняя карточка обрезается панелью задач).
+                    ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
                     let mut q = QUEUE.lock().unwrap();
                     let mut close = None;
                     for (i, p) in q.iter_mut().enumerate() {
@@ -179,19 +196,16 @@ impl LauncherApp {
                         let accent_color = p.accent.unwrap_or_else(|| color(p.kind));
                         // Как остальные окна программы: темная карточка с цветной полоской слева (вид уведомления).
                         let bg = if hovered { egui::Color32::from_rgb(42, 50, 63) } else { crate::theme::CARD };
-                        painter.rect_filled(rect, 8.0, bg);
+                        painter.rect_filled(rect, 0.0, bg);
                         // Легкий светлый блик сверху - карточка не выглядит плоской и пустой.
                         let top = egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), rect.height() * 0.45));
-                        painter.rect_filled(top, egui::Rounding { nw: 8.0, ne: 8.0, sw: 0.0, se: 0.0 }, egui::Color32::from_white_alpha(6));
-                        painter.rect_stroke(rect, 8.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(58, 68, 86)));
-                        // У друзей цвет статуса - только рамка аватара; у остальных - полоска слева.
-                        let friend = matches!(p.kind, Kind::Message(_) | Kind::FriendGame(_) | Kind::FriendOnline(_));
-                        if !friend {
-                            let bar = egui::Rect::from_min_size(rect.min, egui::vec2(3.0, rect.height()));
-                            painter.rect_filled(bar, egui::Rounding { nw: 8.0, sw: 8.0, ne: 0.0, se: 0.0 }, accent_color);
-                        }
+                        painter.rect_filled(top, 0.0, egui::Color32::from_white_alpha(6));
+                        painter.rect_stroke(rect.shrink(0.5), 0.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(58, 68, 86)));
+                        // Цветная полоска слева у всех уведомлений: вид (скидка, загрузка) или статус друга.
+                        let bar = egui::Rect::from_min_size(rect.min, egui::vec2(3.0, rect.height()));
+                        painter.rect_filled(bar, 0.0, accent_color);
                         // Слева, как в Steam: аватар друга в рамке цвета статуса или картинка игры.
-                        let icon = egui::Rect::from_min_size(egui::pos2(rect.left() + 14.0, rect.top() + (H - 56.0) / 2.0), egui::vec2(56.0, 56.0));
+                        let icon = egui::Rect::from_min_size(egui::pos2(rect.left() + 12.0, rect.top() + (H - 44.0) / 2.0), egui::vec2(44.0, 44.0));
                         match p.kind {
                             Kind::Message(id) | Kind::FriendGame(id) | Kind::FriendOnline(id) => {
                                 match avatars.get(&id) {
@@ -219,23 +233,23 @@ impl LauncherApp {
                             }
                         }
                         // Смайлик или стикер из сообщения - справа, перед крестиком.
-                        let mut text_w = W - 82.0 - 38.0;
+                        let mut text_w = W - 66.0 - 32.0;
                         if let Some(url) = &p.image {
                             let img_rect = egui::Rect::from_min_size(
-                                egui::pos2(rect.right() - 38.0 - 52.0, rect.top() + (H - 52.0) / 2.0 + 6.0),
-                                egui::vec2(52.0, 52.0),
+                                egui::pos2(rect.right() - 32.0 - 40.0, rect.top() + (H - 40.0) / 2.0 + 4.0),
+                                egui::vec2(40.0, 40.0),
                             );
                             egui::Image::new(url.as_str()).paint_at(ui, img_rect);
-                            text_w -= 58.0;
+                            text_w -= 46.0;
                         }
                         // Сверху мелко - что это за уведомление, ниже имя (или заголовок) и текст.
                         let title_color = egui::Color32::WHITE;
-                        let kind_text = text(ui, kind_label(p.kind), 10.5, crate::theme::WEAK, text_w, 1);
+                        let kind_text = text(ui, kind_label(p.kind), 9.5, crate::theme::WEAK, text_w, 1);
                         let show_title = !(p.title == "Vaporust" && matches!(p.kind, Kind::Game(_) | Kind::Info));
-                        let title = text(ui, if show_title { &p.title } else { "" }, 15.0, title_color, text_w, 1);
-                        let body = text(ui, &p.body, 12.5, crate::theme::TEXT, text_w, if show_title { 2 } else { 3 });
-                        let x = rect.left() + 82.0;
-                        let gap = 3.0;
+                        let title = text(ui, if show_title { &p.title } else { "" }, 13.5, title_color, text_w, 1);
+                        let body = text(ui, &p.body, 12.0, crate::theme::TEXT, text_w, if show_title { 1 } else { 2 });
+                        let x = rect.left() + 66.0;
+                        let gap = 1.0;
                         let title_h = if show_title { title.size().y + gap } else { 0.0 };
                         let th = kind_text.size().y + gap + title_h + body.size().y;
                         let y = rect.center().y - th / 2.0;
@@ -246,13 +260,13 @@ impl LauncherApp {
                         }
                         painter.galley(egui::pos2(x, y + kind_h + title_h), body, crate::theme::TEXT);
                         // Крестик: крупнее, с подсветкой при наведении.
-                        let xr = egui::Rect::from_center_size(egui::pos2(rect.right() - 18.0, rect.top() + 18.0), egui::vec2(26.0, 26.0));
+                        let xr = egui::Rect::from_center_size(egui::pos2(rect.right() - 15.0, rect.top() + 15.0), egui::vec2(22.0, 22.0));
                         let over_x = ui.input(|i| i.pointer.hover_pos()).is_some_and(|h| xr.contains(h));
                         if over_x {
                             painter.rect_filled(xr, 4.0, egui::Color32::from_rgb(70, 80, 98));
                         }
                         let xc = if over_x { egui::Color32::WHITE } else if hovered { egui::Color32::from_gray(185) } else { egui::Color32::from_gray(125) };
-                        let (c, d) = (xr.center(), 5.0);
+                        let (c, d) = (xr.center(), 4.5);
                         painter.line_segment([c + egui::vec2(-d, -d), c + egui::vec2(d, d)], egui::Stroke::new(1.6, xc));
                         painter.line_segment([c + egui::vec2(-d, d), c + egui::vec2(d, -d)], egui::Stroke::new(1.6, xc));
                         if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
@@ -454,4 +468,17 @@ pub fn status_color(state: Option<u32>, in_game: bool) -> Option<egui::Color32> 
         (3 | 4, _) => egui::Color32::from_rgb(110, 140, 170),
         _ => egui::Color32::from_rgb(90, 170, 230),
     })
+}
+
+/// Для разработки: VAPORUST_TEST_POPUPS=N - показать N пробных уведомлений при запуске
+/// (проверка положения стопки над панелью задач).
+pub fn test_from_env() {
+    let n: usize = std::env::var("VAPORUST_TEST_POPUPS").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    // По одному раз в секунду - как приходят настоящие сообщения.
+    std::thread::spawn(move || {
+        for i in 0..n {
+            push(Kind::Info, "Vaporust", format!("Пробное уведомление {}", i + 1));
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+    });
 }

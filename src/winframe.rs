@@ -355,3 +355,51 @@ pub fn window_buttons(ui: &mut egui::Ui, height: f32) {
     }
     });
 }
+
+/// Один раз за запуск (через 3 с после старта) - строка об окне в журнал: стиль Windows, размеры
+/// окна и рабочей области, рамка. Нужна, чтобы понять черную полосу сверху на некоторых ПК.
+#[cfg(windows)]
+pub fn diag_once(ctx: &egui::Context) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use windows_sys::Win32::Foundation::{HWND, RECT};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetClientRect, GetWindowLongW, GetWindowRect, IsZoomed, GWL_EXSTYLE, GWL_STYLE};
+    static DONE: AtomicBool = AtomicBool::new(false);
+    if DONE.load(Ordering::Relaxed) || ctx.input(|i| i.time) < 3.0 {
+        return;
+    }
+    let hwnd = crate::notify::main_hwnd();
+    if hwnd == 0 || crate::notify::in_tray() {
+        return;
+    }
+    DONE.store(true, Ordering::Relaxed);
+    let hwnd = hwnd as HWND;
+    let (mut wr, mut cr): (RECT, RECT) = unsafe { (std::mem::zeroed(), std::mem::zeroed()) };
+    unsafe {
+        GetWindowRect(hwnd, &mut wr);
+        GetClientRect(hwnd, &mut cr);
+    }
+    let style = unsafe { GetWindowLongW(hwnd, GWL_STYLE) } as u32;
+    let ex = unsafe { GetWindowLongW(hwnd, GWL_EXSTYLE) } as u32;
+    let screen = ctx.input(|i| i.screen_rect());
+    crate::errlog::write(
+        "окно",
+        &format!(
+            "рамка {}, стиль {style:08x}, доп. стиль {ex:08x}, окно {}x{} ({},{}), рабочая область {}x{}, \
+             программа {:.0}x{:.0} при масштабе {:.2}, развернуто {}",
+            if system() { "Windows" } else { "своя" },
+            wr.right - wr.left,
+            wr.bottom - wr.top,
+            wr.left,
+            wr.top,
+            cr.right - cr.left,
+            cr.bottom - cr.top,
+            screen.width(),
+            screen.height(),
+            ctx.pixels_per_point(),
+            unsafe { IsZoomed(hwnd) } != 0
+        ),
+    );
+}
+
+#[cfg(not(windows))]
+pub fn diag_once(_ctx: &egui::Context) {}

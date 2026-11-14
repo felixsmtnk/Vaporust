@@ -344,11 +344,15 @@ impl LauncherApp {
                         if steam_open {
                             ui.colored_label(egui::Color32::from_rgb(230, 170, 60), "Удаление - при закрытом Steam.");
                         }
+                        // Таблицей: что, папка, размер, кнопки - в ровных столбцах.
+                        egui::Grid::new(("leftovers", lib.path.to_string_lossy().to_string())).num_columns(4).striped(true).spacing([14.0, 4.0]).show(ui, |ui| {
                         for l in &lib.leftovers {
-                            ui.horizontal(|ui| {
+                            {
                                 let name = l.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                                ui.label(format!("{}: {name}", l.kind.label()));
-                                ui.weak(net::fmt_bytes(l.size));
+                                ui.weak(l.kind.label());
+                                ui.label(&name);
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| ui.label(net::fmt_bytes(l.size)));
+                                ui.horizontal(|ui| {
                                 if ui.small_button("Открыть").clicked() {
                                     local::open_folder(&l.path);
                                 }
@@ -376,8 +380,11 @@ impl LauncherApp {
                                 {
                                     w.confirm = Some(l.path.clone());
                                 }
-                            });
+                                });
+                                ui.end_row();
+                            }
                         }
+                        });
                         ui.weak(
                             "Папка без установки: игра удалена или перенесена, а файлы остались (часто там \
                              сохранения или моды - загляните перед удалением кнопкой «Открыть»).",

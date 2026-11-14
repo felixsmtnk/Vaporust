@@ -43,6 +43,8 @@ pub enum Cmd {
     SendChat { to: u64, text: String },
     /// Узнать названия игр по appid (для игр, в которые играют друзья).
     ResolveApps(Vec<u32>),
+    /// DLC игры для ее страницы в библиотеке: какие куплены, и их названия.
+    PageDlc(u32),
     /// Загрузить свои смайлики и стикеры (для панели выбора).
     LoadEmoticons,
     /// Обновить игру без Steam (Aurelia). acf - ее appmanifest.
@@ -78,6 +80,10 @@ pub enum Cmd {
     MyRecent,
     /// Профиль целиком (уровень, рамка, игры, группы, комментарии) и комментарий в профиль.
     ProfileExtra(u64),
+    /// Страница группы сообщества по адресу.
+    GroupInfo(String),
+    /// Вступить в группу или выйти из нее.
+    GroupMembership { url: String, info: crate::grouppage::GroupInfo, join: bool },
     PostComment { id: u64, text: String },
     /// Удалить комментарий из профиля (id - чей профиль).
     DeleteComment { id: u64, gid: String },
@@ -99,6 +105,49 @@ pub enum Cmd {
     Feed { start: u64 },
     /// Лицензии аккаунта (даты покупок) - для подсказки о возврате.
     Licenses,
+    /// История кошелька и покупок (только просмотр).
+    WalletHistory,
+    /// Свой профиль: загрузить данные для правки, сохранить, приватность, аватар; ник другу.
+    ProfileEditLoad,
+    ProfileEditSave(crate::profileedit::ProfileEdit),
+    PrivacySave(crate::profileedit::Privacy),
+    AvatarUpload(std::path::PathBuf),
+    SetNickname(u64, String),
+    /// Реакция на сообщение в чате (поставить/убрать).
+    ChatReaction { friend: u64, time: u32, ordinal: u32, kind: i32, name: String, add: bool },
+    /// Создать групповой чат с друзьями; пригласить друга в группу.
+    CreateChatGroup { name: String, invitees: Vec<u64> },
+    InviteToChatGroup { group: u64, friend: u64 },
+    /// Свой обзор игры: загрузить, сохранить.
+    ReviewLoad(u32),
+    ReviewSave { appid: u32, review: crate::actions::MyReview },
+    /// Новая тема в обсуждениях игры.
+    CreateTopic { appid: u32, title: String, text: String },
+    /// Награды за очки: список, наградить (тип цели, цель, награда).
+    AwardConfig,
+    Award { target_type: u32, target: String, reaction: u32 },
+    /// Новый порядок списка желаемого: (appid, место).
+    WishlistReorder(Vec<(u32, u32)>),
+    /// Корзина: загрузить, положить игру (пакет), убрать строку.
+    CartLoad,
+    CartAdd(u32),
+    CartRemove(u64),
+    /// Варианты покупки игры (пакеты) - для «В корзину».
+    AppPackages(u32),
+    /// Кураторы с обзором игры.
+    Curators(u32),
+    /// Семья Steam: пригласить, отменить приглашение.
+    FamilyInvite { family: String, steamid: u64, role: u32 },
+    FamilyCancel { family: String, steamid: u64 },
+    /// Мастерская: коллекции игры, состав коллекции, оценка и избранное мода.
+    WsCollections { appid: u32, text: String },
+    WsCollectionItems(u64),
+    WsVote { id: u64, up: bool },
+    WsFavorite { id: u64, appid: u32, add: bool },
+    /// Список регионов загрузки (города с серверами Steam).
+    DownloadRegions,
+    /// «Недавние игроки» (с кем играли).
+    Coplay,
     /// Где выполнен вход в аккаунт.
     Sessions,
     /// Подгрузить более раннюю переписку с другом.
@@ -119,6 +168,8 @@ pub enum Cmd {
     /// Команда магазина Steam (поиск, страница игры, список желаемого...).
     Store(crate::store::StoreCmd),
     Inv(crate::invent::InvCmd),
+    /// Площадка и обмены (продажа, снятие лота, отмена заявки, обмены).
+    Market(crate::trade::MarketCmd),
     /// Статус для друзей (EPersonaState: 1 в сети, 2 не беспокоить, 3 отошел, 7 невидимка).
     SetPersona(u32),
     /// Проверить, каким установленным играм (appid, папка) нужно обновление.
@@ -162,12 +213,16 @@ pub struct PinDone {
 }
 
 /// Одно сообщение в переписке.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct ChatLine {
     pub from_self: bool,
     pub text: String,
     /// Unix-время, секунды.
     pub time: u64,
+    /// Номер сообщения в секунде (для реакций); 0 - неизвестен (живое сообщение до перечитывания).
+    pub ordinal: u32,
+    /// Реакции: (тип 1 смайлик / 2 стикер, имя, кто поставил - номера аккаунтов).
+    pub reactions: Vec<(i32, String, Vec<u32>)>,
 }
 
 /// Переписка с одним другом.
@@ -321,6 +376,8 @@ pub struct NetState {
     pub activity_busy: bool,
     pub my_recent: Option<Result<Vec<crate::activity::Recent>, String>>,
     pub profile_extra: HashMap<u64, Result<crate::profile_extra::ProfileExtra, String>>,
+    pub groups_info: HashMap<String, Result<crate::grouppage::GroupInfo, String>>,
+    pub group_msg: Option<String>,
     pub comment_msg: Option<String>,
     pub shot_comments: HashMap<u64, Result<(u32, Vec<crate::profile_extra::Comment>), String>>,
     pub shot_msg: Option<String>,
@@ -335,6 +392,20 @@ pub struct NetState {
     pub feed: Option<Result<crate::feed::FeedPage, String>>,
     pub feed_busy: bool,
     pub licenses: Option<Vec<crate::refund::License>>,
+    pub wallet_history: Option<Result<Vec<crate::wallet::WalletRow>, String>>,
+    pub coplay: Option<Result<Vec<crate::coplay::CoplayGame>, String>>,
+    pub profile_edit: Option<Result<crate::profileedit::ProfileEdit, String>>,
+    pub profile_edit_msg: Option<String>,
+    /// Свои обзоры по играм (None внутри - еще не писали).
+    pub my_reviews: HashMap<u32, Result<Option<crate::actions::MyReview>, String>>,
+    /// Итог последнего действия в сообществе/магазине (обзор, тема, награда, корзина, порядок...).
+    pub action_msg: Option<String>,
+    pub award_config: Option<Result<Vec<(u32, u32)>, String>>,
+    pub cart: Option<Result<crate::actions::Cart, String>>,
+    pub download_regions: Option<Result<Vec<(u32, String)>, String>>,
+    pub app_packages: HashMap<u32, Result<Vec<(u32, String, String)>, String>>,
+    pub ws_collections: HashMap<(u32, String), Result<Vec<crate::actions::WsCollection>, String>>,
+    pub ws_collection_items: HashMap<u64, Result<Vec<u64>, String>>,
     pub sessions: Option<Result<Vec<crate::sessions::Session>, String>>,
     /// Лента новостей своих игр.
     pub news_feed: Option<Result<Vec<crate::newsfeed::FeedItem>, String>>,
@@ -358,6 +429,8 @@ pub struct NetState {
     pub vanity: HashMap<String, Result<u64, String>>,
     /// Результат последнего действия с друзьями (заявка, удаление).
     pub friend_msg: Option<String>,
+    /// Кого заблокировали в этом сеансе (Steam сообщит о блокировке не сразу).
+    pub blocked: std::collections::HashSet<u64>,
     /// Мастерская (отдельно: списки бывают большими).
     pub workshop: crate::social::SharedWorkshop,
     /// Коллекции Steam (None - еще не загружены).
@@ -614,12 +687,32 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                                 from_self: m.from_self,
                                 text: m.message,
                                 time: m.timestamp as u64,
+                                ordinal: m.ordinal,
+                                reactions: m.reactions,
                             })
                             .collect();
                         conv.history_loaded = true;
                         conv.error = None;
                     }
                     Err(e) => conv.error = Some(format!("Не удалось загрузить историю: {e:#}")),
+                }
+            });
+        }
+        Cmd::PageDlc(appid) => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let list = load_dlc(&client, appid).await;
+                let ids: Vec<u32> = list.as_ref().map(|l| l.iter().map(|d| d.app_id).collect()).unwrap_or_default();
+                upd(&st, &ctx, |s| s.props.entry(appid).or_default().dlc = Some(list));
+                // Названия DLC (не больше 40, чтобы не засыпать Steam запросами).
+                let known: Vec<u32> = st.lock().unwrap().app_names.keys().copied().collect();
+                for id in ids.into_iter().filter(|i| !known.contains(i)).take(40) {
+                    let (name, _) = client.resolve_install_game_info(id).await;
+                    if !name.starts_with("App ") {
+                        upd(&st, &ctx, |s| {
+                            s.app_names.insert(id, name);
+                        });
+                    }
                 }
             });
         }
@@ -656,6 +749,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                             from_self: true,
                             text: sent.modified_message.unwrap_or(text),
                             time,
+                            ..Default::default()
                         });
                         conv.error = None;
                         if special {
@@ -690,6 +784,10 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::Inv(cmd) => {
             let inv = st.lock().unwrap().inv.clone();
             crate::invent::handle(client, cmd, &inv, ctx);
+        }
+        Cmd::Market(cmd) => {
+            let inv = st.lock().unwrap().inv.clone();
+            crate::trade::handle(client, cmd, &inv, ctx);
         }
         Cmd::SetPersona(state) => {
             let c = client.clone();
@@ -1166,6 +1264,40 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 upd(&st, &ctx, |s| s.my_recent = Some(r));
             });
         }
+        Cmd::GroupInfo(url) => {
+            let (st, ctx) = (st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let r = crate::grouppage::load(&url).await;
+                upd(&st, &ctx, |s| {
+                    s.group_msg = None;
+                    s.groups_info.insert(url, r);
+                });
+            });
+        }
+        Cmd::GroupMembership { url, info, join } => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let r = crate::grouppage::membership(&client, &info, join).await;
+                // Перечитать свой профиль (список групп) и саму группу.
+                let me = client.my_steam_id();
+                let fresh = match me {
+                    Some(me) => Some((me, crate::profile_extra::load(&client, me).await)),
+                    None => None,
+                };
+                let g = crate::grouppage::load(&url).await;
+                upd(&st, &ctx, |s| {
+                    s.group_msg = Some(match r {
+                        Ok(()) if join => "Запрос отправлен. Если группа закрытая, нужно дождаться одобрения.".into(),
+                        Ok(()) => "Вы вышли из группы.".into(),
+                        Err(e) => format!("Не удалось: {e}"),
+                    });
+                    if let Some((me, x)) = fresh {
+                        s.profile_extra.insert(me, x);
+                    }
+                    s.groups_info.insert(url, g);
+                });
+            });
+        }
         Cmd::ProfileExtra(id) => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             tokio::spawn(async move {
@@ -1348,7 +1480,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                             let older: Vec<ChatLine> = msgs
                                 .into_iter()
                                 .rev()
-                                .map(|m| ChatLine { from_self: m.from_self, text: m.message, time: m.timestamp as u64 })
+                                .map(|m| ChatLine { from_self: m.from_self, text: m.message, time: m.timestamp as u64, ordinal: m.ordinal, reactions: m.reactions })
                                 .collect();
                             conv.lines.splice(0..0, older);
                         }
@@ -1370,6 +1502,58 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 if let Ok(v) = crate::refund::load(&client).await {
                     upd(&st, &ctx, |s| s.licenses = Some(v));
                 }
+            });
+        }
+        cmd @ (Cmd::ProfileEditLoad
+        | Cmd::ProfileEditSave(_)
+        | Cmd::PrivacySave(_)
+        | Cmd::AvatarUpload(_)
+        | Cmd::SetNickname(..)
+        | Cmd::ChatReaction { .. }
+        | Cmd::CreateChatGroup { .. }
+        | Cmd::InviteToChatGroup { .. }
+        | Cmd::ReviewLoad(_)
+        | Cmd::ReviewSave { .. }
+        | Cmd::CreateTopic { .. }
+        | Cmd::AwardConfig
+        | Cmd::Award { .. }
+        | Cmd::WishlistReorder(_)
+        | Cmd::CartLoad
+        | Cmd::CartAdd(_)
+        | Cmd::CartRemove(_)
+        | Cmd::AppPackages(_)
+        | Cmd::Curators(_)
+        | Cmd::FamilyInvite { .. }
+        | Cmd::FamilyCancel { .. }
+        | Cmd::WsCollections { .. }
+        | Cmd::WsCollectionItems(_)
+        | Cmd::WsVote { .. }
+        | Cmd::WsFavorite { .. }) => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move { second_plan(&client, cmd, &st, &ctx).await });
+        }
+        Cmd::DownloadRegions => {
+            let (st, ctx) = (st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let r = crate::actions::download_regions().await;
+                upd(&st, &ctx, |s| s.download_regions = Some(r));
+            });
+        }
+        Cmd::Coplay => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let r = match client.my_steam_id() {
+                    Some(me) => crate::coplay::load(&client, me).await,
+                    None => Err("нет входа".into()),
+                };
+                upd(&st, &ctx, |s| s.coplay = Some(r));
+            });
+        }
+        Cmd::WalletHistory => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let r = crate::wallet::load(&client).await;
+                upd(&st, &ctx, |s| s.wallet_history = Some(r));
             });
         }
         Cmd::ChatGroups => {
@@ -1600,8 +1784,194 @@ fn start_link_probe(st: &Shared, ctx: &egui::Context) {
 }
 
 /// Перечитать последние сообщения переписки (после отправки картинки).
+/// Команды второго плана (профиль, чат, сообщество, магазин, семья, Мастерская).
+async fn second_plan(client: &SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Context) {
+    use crate::actions as a;
+    let msg = |r: Result<(), String>, ok: &str| match r {
+        Ok(()) => ok.to_string(),
+        Err(e) => format!("Не получилось: {e}"),
+    };
+    let country = {
+        let s = st.lock().unwrap().store.clone();
+        let c = s.lock().unwrap().country.clone();
+        if c.is_empty() { "US".to_string() } else { c }
+    };
+    match cmd {
+        Cmd::ProfileEditLoad => {
+            let r = crate::profileedit::load(client).await;
+            upd(st, ctx, |s| s.profile_edit = Some(r));
+        }
+        Cmd::ProfileEditSave(e) => {
+            let r = crate::profileedit::save(client, &e).await;
+            let fresh = crate::profileedit::load(client).await;
+            upd(st, ctx, |s| {
+                s.profile_edit_msg = Some(msg(r, "Профиль сохранен."));
+                s.profile_edit = Some(fresh);
+            });
+        }
+        Cmd::PrivacySave(p) => {
+            let r = crate::profileedit::save_privacy(client, &p).await;
+            let fresh = crate::profileedit::load(client).await;
+            upd(st, ctx, |s| {
+                s.profile_edit_msg = Some(msg(r, "Настройки приватности сохранены."));
+                s.profile_edit = Some(fresh);
+            });
+        }
+        Cmd::AvatarUpload(p) => {
+            upd(st, ctx, |s| s.profile_edit_msg = Some("Загружаю аватар...".into()));
+            let r = crate::profileedit::upload_avatar(client, &p).await;
+            let fresh = crate::profileedit::load(client).await;
+            upd(st, ctx, |s| {
+                s.profile_edit_msg = Some(msg(r, "Аватар обновлен (в списках друзей появится не сразу)."));
+                s.profile_edit = Some(fresh);
+            });
+        }
+        Cmd::SetNickname(friend, nick) => {
+            let r = crate::profileedit::set_nickname(client, friend, &nick).await;
+            upd(st, ctx, |s| {
+                if r.is_ok() {
+                    if let Some(f) = s.roster.write().unwrap().get_mut(&friend) {
+                        f.nickname = if nick.trim().is_empty() { None } else { Some(nick.trim().to_string()) };
+                    }
+                }
+                s.friend_msg = Some(msg(r, if nick.trim().is_empty() { "Ник убран." } else { "Ник сохранен." }));
+            });
+        }
+        Cmd::ChatReaction { friend, time, ordinal, kind, name, add } => {
+            let r = a::chat_reaction(client, friend, time, ordinal, kind, &name, add).await;
+            if let Err(e) = r {
+                upd(st, ctx, |s| s.chats.entry(friend).or_default().error = Some(format!("Реакция не поставлена: {e}")));
+            }
+            reload_history(client, friend, st, ctx).await;
+        }
+        Cmd::CreateChatGroup { name, invitees } => {
+            let r = a::create_chat_group(client, &name, &invitees).await;
+            let groups = client.my_chat_groups().await;
+            upd(st, ctx, |s| {
+                s.action_msg = Some(match r {
+                    Ok(_) => format!("Групповой чат «{name}» создан, приглашения отправлены."),
+                    Err(e) => format!("Не получилось: {e}"),
+                });
+                if let Ok(g) = groups {
+                    s.chat_groups = Some(Ok(g));
+                }
+            });
+        }
+        Cmd::InviteToChatGroup { group, friend } => {
+            let r = a::invite_to_chat_group(client, group, friend).await;
+            upd(st, ctx, |s| s.action_msg = Some(msg(r, "Приглашение отправлено.")));
+        }
+        Cmd::ReviewLoad(appid) => {
+            let r = a::review_load(client, appid).await;
+            upd(st, ctx, |s| {
+                s.my_reviews.insert(appid, r);
+            });
+        }
+        Cmd::ReviewSave { appid, review } => {
+            let r = a::review_save(client, appid, &review).await;
+            let fresh = a::review_load(client, appid).await;
+            upd(st, ctx, |s| {
+                s.action_msg = Some(msg(r, "Обзор опубликован."));
+                s.my_reviews.insert(appid, fresh);
+            });
+        }
+        Cmd::CreateTopic { appid, title, text } => {
+            let r = a::create_topic(client, appid, &title, &text).await;
+            upd(st, ctx, |s| {
+                s.action_msg = Some(match r {
+                    Ok(url) => format!("Тема создана: {url}"),
+                    Err(e) => format!("Не получилось: {e}"),
+                });
+            });
+        }
+        Cmd::AwardConfig => {
+            let r = a::award_config(client).await;
+            upd(st, ctx, |s| s.award_config = Some(r));
+        }
+        Cmd::Award { target_type, target, reaction } => {
+            let r = a::award(client, target_type, &target, reaction).await;
+            upd(st, ctx, |s| s.action_msg = Some(msg(r, "Награда отправлена.")));
+        }
+        Cmd::WishlistReorder(items) => {
+            let r = a::wishlist_reorder(client, &items).await;
+            upd(st, ctx, |s| s.action_msg = Some(msg(r, "Порядок желаемого сохранен.")));
+        }
+        Cmd::CartLoad => {
+            let r = a::cart_get(client, &country).await;
+            upd(st, ctx, |s| s.cart = Some(r));
+        }
+        Cmd::CartAdd(packageid) => {
+            let r = a::cart_add(client, packageid, &country).await;
+            let cart = a::cart_get(client, &country).await;
+            upd(st, ctx, |s| {
+                s.action_msg = Some(msg(r, "Добавлено в корзину."));
+                s.cart = Some(cart);
+            });
+        }
+        Cmd::CartRemove(line) => {
+            let r = a::cart_remove(client, line, &country).await;
+            let cart = a::cart_get(client, &country).await;
+            upd(st, ctx, |s| {
+                s.action_msg = Some(msg(r, "Убрано из корзины."));
+                s.cart = Some(cart);
+            });
+        }
+        Cmd::AppPackages(appid) => {
+            let r = a::app_packages(appid, &country).await;
+            upd(st, ctx, |s| {
+                s.app_packages.insert(appid, r);
+            });
+        }
+        Cmd::Curators(appid) => {
+            let r = a::curators_for_app(appid).await;
+            let store = st.lock().unwrap().store.clone();
+            store.lock().unwrap().curators.insert(appid, r);
+            ctx.request_repaint();
+        }
+        Cmd::FamilyInvite { family, steamid, role } => {
+            let r = a::family_invite(client, &family, steamid, role).await;
+            let me = client.my_steam_id().unwrap_or(0);
+            let fresh = crate::family::load(client, me).await;
+            upd(st, ctx, |s| {
+                s.action_msg = Some(msg(r, "Приглашение в семью отправлено (Steam попросит подтвердить по почте)."));
+                s.family_group = Some(fresh);
+            });
+        }
+        Cmd::FamilyCancel { family, steamid } => {
+            let r = a::family_cancel(client, &family, steamid).await;
+            let me = client.my_steam_id().unwrap_or(0);
+            let fresh = crate::family::load(client, me).await;
+            upd(st, ctx, |s| {
+                s.action_msg = Some(msg(r, "Приглашение отменено."));
+                s.family_group = Some(fresh);
+            });
+        }
+        Cmd::WsCollections { appid, text } => {
+            let r = a::ws_collections(client, appid, &text).await;
+            upd(st, ctx, |s| {
+                s.ws_collections.insert((appid, text), r);
+            });
+        }
+        Cmd::WsCollectionItems(id) => {
+            let r = a::ws_collection_items(id).await;
+            upd(st, ctx, |s| {
+                s.ws_collection_items.insert(id, r);
+            });
+        }
+        Cmd::WsVote { id, up } => {
+            let r = a::ws_vote(client, id, up).await;
+            upd(st, ctx, |s| s.action_msg = Some(msg(r, if up { "Вы оценили мод: нравится." } else { "Вы оценили мод: не нравится." })));
+        }
+        Cmd::WsFavorite { id, appid, add } => {
+            let r = a::ws_favorite(client, id, appid, add).await;
+            upd(st, ctx, |s| s.action_msg = Some(msg(r, if add { "Добавлено в избранное." } else { "Убрано из избранного." })));
+        }
+        _ => {}
+    }
+}
+
 async fn reload_history(client: &SteamClient, friend: u64, st: &Shared, ctx: &egui::Context) {
-    if let Ok(msgs) = client.recent_chat_messages(friend, 50).await {
+    if let Ok((msgs, _)) = client.chat_history(friend, 50, None).await {
         upd(st, ctx, |s| {
             let conv = s.chats.entry(friend).or_default();
             conv.lines = msgs
@@ -1611,6 +1981,8 @@ async fn reload_history(client: &SteamClient, friend: u64, st: &Shared, ctx: &eg
                     from_self: m.from_self,
                     text: m.message,
                     time: m.timestamp as u64,
+                    ordinal: m.ordinal,
+                    reactions: m.reactions,
                 })
                 .collect();
             conv.history_loaded = true;
@@ -1709,6 +2081,7 @@ fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st: &Shared, 
                 from_self,
                 text: m.message, // с BBCode: разбирает chatfmt
                 time: if m.server_timestamp > 0 { m.server_timestamp } else { now_unix() },
+                ..Default::default()
             };
             upd(&st, &ctx, |s| {
                 let conv = s.chats.entry(friend).or_default();

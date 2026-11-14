@@ -17,6 +17,14 @@ pub enum Seg {
     Sticker(String),
     /// Эффект комнаты (шарики, конфетти…): тип из [roomeffect type="…"].
     RoomEffect(String),
+    /// Скрытый текст ([spoiler]): показывается по щелчку.
+    Spoiler(String),
+    /// Код ([code]): моноширинным шрифтом, отдельным блоком.
+    Code(String),
+    /// Цитата ([quote author="…"]).
+    Quote { author: Option<String>, text: String },
+    /// Действие от третьего лица: «/me машет рукой».
+    Me(String),
 }
 
 const CDN: &str = "https://community.fastly.steamstatic.com/economy";
@@ -94,6 +102,10 @@ const FORMAT_TAGS: &[&str] = &[
 ];
 
 pub fn parse(msg: &str) -> Vec<Seg> {
+    // «/me текст» - действие от третьего лица (как в чате Steam).
+    if let Some(rest) = msg.strip_prefix("/me ") {
+        return vec![Seg::Me(plain(rest))];
+    }
     let mut segs: Vec<Seg> = Vec::new();
     let mut text = String::new();
     let mut rest = msg;
@@ -130,6 +142,18 @@ pub fn parse(msg: &str) -> Vec<Seg> {
 
         if !closing {
             match name.as_str() {
+                "spoiler" | "code" | "quote" => {
+                    if let Some((b, tail)) = inner(&name) {
+                        flush(&mut text, &mut segs);
+                        segs.push(match name.as_str() {
+                            "spoiler" => Seg::Spoiler(plain(b)),
+                            "code" => Seg::Code(b.trim_matches(['\n', '\r']).to_string()),
+                            _ => Seg::Quote { author: attr(tag, "author").filter(|a| !a.is_empty()), text: plain(b) },
+                        });
+                        rest = tail;
+                        continue;
+                    }
+                }
                 "emoticon" => {
                     if let Some((b, tail)) = inner("emoticon") {
                         flush(&mut text, &mut segs);
@@ -201,6 +225,23 @@ pub fn parse(msg: &str) -> Vec<Seg> {
 }
 
 /// Обычный текст: выделяем смайлики ːимяː и голые ссылки http(s)://.
+
+/// Текст BBCode без оформления (для спойлеров, цитат, «/me»).
+fn plain(s: &str) -> String {
+    parse(s)
+        .into_iter()
+        .map(|seg| match seg {
+            Seg::Text(t) | Seg::Spoiler(t) | Seg::Code(t) | Seg::Me(t) => t,
+            Seg::Quote { text, .. } => text,
+            Seg::Link { label, .. } => label,
+            Seg::Emoticon(n) => format!(":{n}:"),
+            Seg::Sticker(n) => format!("[стикер {n}]"),
+            Seg::Image { .. } => "[картинка]".into(),
+            Seg::RoomEffect(_) => String::new(),
+        })
+        .collect()
+}
+
 fn push_text(text: &str, segs: &mut Vec<Seg>) {
     let mut buf = String::new();
     let mut rest = text;
@@ -320,7 +361,11 @@ pub fn preview(msg: &str) -> (String, Option<String>) {
     let mut what = "";
     for s in parse(msg) {
         match s {
-            Seg::Text(t) => text.push_str(&t),
+            Seg::Text(t) | Seg::Code(t) => text.push_str(&t),
+            Seg::Me(t) => text.push_str(&format!("* {t}")),
+            Seg::Quote { text: q, .. } => text.push_str(&format!("«{q}» ")),
+            // Спойлер в уведомлении не раскрываем.
+            Seg::Spoiler(_) => text.push_str("[спойлер]"),
             Seg::Link { label, .. } => text.push_str(&label),
             Seg::Image { .. } => what = "картинка",
             Seg::Emoticon(n) => {
@@ -364,5 +409,19 @@ mod preview_tests {
         assert_eq!(t, "стикер");
         assert!(img.unwrap().contains("SteamLaugh"));
         assert_eq!(preview("привет ːsteamhappyː").0, "привет");
+    }
+}
+
+#[cfg(test)]
+mod format_tags_tests {
+    use super::{parse, Seg};
+
+    #[test]
+    fn spoiler_code_quote_me() {
+        let s = parse(r#"а [spoiler]тайна[/spoiler] [code]let x = 1;[/code] [quote author="Аня"]привет[/quote]"#);
+        assert!(s.iter().any(|x| matches!(x, Seg::Spoiler(t) if t == "тайна")));
+        assert!(s.iter().any(|x| matches!(x, Seg::Code(t) if t == "let x = 1;")));
+        assert!(s.iter().any(|x| matches!(x, Seg::Quote { author: Some(a), text } if a == "Аня" && text == "привет")));
+        assert!(matches!(parse("/me машет рукой").as_slice(), [Seg::Me(t)] if t == "машет рукой"));
     }
 }

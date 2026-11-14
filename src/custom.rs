@@ -37,6 +37,8 @@ pub struct Edit {
     pub exe: String,
     pub args: String,
     pub confirm_delete: bool,
+    /// Новую игру - добавить и в настоящий Steam.
+    pub to_steam: bool,
 }
 
 /// Минуты, досчитанные потоками запущенных сторонних игр: (номер, минут).
@@ -208,12 +210,45 @@ impl LauncherApp {
 
     /// Каждый кадр: досчитать время сторонних игр, окна добавления и правки.
     pub(crate) fn custom_tick(&mut self, ctx: &egui::Context) {
+        // Одинаковые игры (тот же exe) - одной записью, время складывается.
+        let mut seen: Vec<(String, u32)> = Vec::new();
+        let mut merged: Vec<(u32, u32, u64)> = Vec::new();
+        for g in &self.settings.custom_games {
+            let key = norm_path(&g.exe);
+            match seen.iter().find(|(k, _)| *k == key) {
+                Some((_, first)) => merged.push((*first, g.minutes, g.last_played)),
+                None => seen.push((key, g.id)),
+            }
+        }
+        if !merged.is_empty() {
+            let keep: Vec<u32> = seen.iter().map(|(_, id)| *id).collect();
+            for (first, min, last) in merged {
+                if let Some(g) = self.settings.custom_games.iter_mut().find(|g| g.id == first) {
+                    g.minutes += min;
+                    g.last_played = g.last_played.max(last);
+                }
+            }
+            self.settings.custom_games.retain(|g| keep.contains(&g.id));
+        }
+        // Отложенные «добавить в Steam» - когда Steam закрыт (проверка не чаще раза в 5 с).
+        if !self.settings.pending_shortcuts.is_empty() && PENDING_CHECK.with(|t| t.get().is_none_or(|t| t.elapsed().as_secs() >= 5)) {
+            PENDING_CHECK.with(|t| t.set(Some(std::time::Instant::now())));
+            if !crate::local::steam_running() {
+                for id in std::mem::take(&mut self.settings.pending_shortcuts) {
+                    let msg = self.export_to_steam(id);
+                    if !msg.is_empty() && !msg.contains("уже есть") {
+                        crate::popup::push(crate::popup::Kind::Info, "Сторонние игры", msg);
+                    }
+                }
+            }
+        }
         for (id, min) in std::mem::take(&mut *PLAYED.lock().unwrap()) {
             if let Some(g) = self.settings.custom_games.iter_mut().find(|g| g.id == id) {
                 g.minutes += min;
             }
         }
         let Some(mut e) = self.custom_edit.take() else { return };
+        let steam_open = self.steam_running();
         let mut keep = true;
         let title = if e.id.is_some() { "Сторонняя игра" } else { "Добавить стороннюю игру" };
         egui::Window::new(title)
@@ -244,6 +279,13 @@ impl LauncherApp {
                     ui.add(egui::TextEdit::singleline(&mut e.args).desired_width(300.0).hint_text("необязательно"));
                     ui.end_row();
                 });
+                if e.id.is_none() {
+                    ui.checkbox(&mut e.to_steam, "Добавить и в Steam")
+                        .on_hover_text("Игра появится и в настоящем Steam. Если Steam открыт - добавится, когда вы его закроете.");
+                    if e.to_steam && steam_open {
+                        ui.colored_label(egui::Color32::from_rgb(230, 190, 90), "Steam открыт: в Steam игра появится, когда вы его закроете.");
+                    }
+                }
                 ui.add_space(6.0);
                 let ok = !e.name.trim().is_empty() && std::path::Path::new(e.exe.trim()).exists();
                 ui.horizontal(|ui| {
@@ -259,6 +301,9 @@ impl LauncherApp {
                                 let id = self.settings.custom_games.iter().map(|g| g.id + 1).max().unwrap_or(BASE).max(BASE);
                                 self.settings.custom_games.push(CustomGame { id, name, exe, args, ..Default::default() });
                                 self.lib_page = Some(id);
+                                if e.to_steam {
+                                    self.settings.pending_shortcuts.push(id);
+                                }
                             }
                         }
                         keep = false;
@@ -267,6 +312,27 @@ impl LauncherApp {
                         keep = false;
                     }
                     if let Some(id) = e.id {
+                        if steam_open {
+                            ui.colored_label(egui::Color32::from_rgb(230, 190, 90), "Steam открыт");
+                        }
+                        if ui
+                            .button("Добавить в Steam")
+                            .on_hover_text("Игра появится и в настоящем Steam (как «Добавить стороннюю игру» в Steam). Steam должен быть закрыт.")
+                            .clicked()
+                        {
+                            // Steam открыт - запомнить: добавится, когда его закроют.
+                            let msg = if steam_open {
+                                if !self.settings.pending_shortcuts.contains(&id) {
+                                    self.settings.pending_shortcuts.push(id);
+                                }
+                                "Игра появится в Steam, когда вы его закроете.".to_string()
+                            } else {
+                                self.export_to_steam(id)
+                            };
+                            if !msg.is_empty() {
+                                crate::popup::push(crate::popup::Kind::Info, "Сторонние игры", msg);
+                            }
+                        }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if !e.confirm_delete {
                                 if ui.button("Убрать из библиотеки").clicked() {
@@ -291,10 +357,73 @@ impl LauncherApp {
         }
     }
 
+    /// Взять сторонние игры из настоящего Steam (shortcuts.vdf) в библиотеку Vaporust.
+    pub(crate) fn import_steam_shortcuts(&mut self) {
+        let msg = match self.steam.as_ref().and_then(|s| crate::shortcuts::path(&s.dir)) {
+            None => "Не найдена папка аккаунта Steam.".to_string(),
+            Some(p) => match crate::shortcuts::read(&p) {
+                Err(e) => format!("Не удалось прочитать ярлыки Steam: {e}"),
+                Ok(list) => {
+                    let mut added = 0;
+                    for s in list {
+                        let have = self.settings.custom_games.iter().any(|g| same_path(&g.exe, &s.exe));
+                        if have || s.exe.is_empty() {
+                            continue;
+                        }
+                        let id = self.settings.custom_games.iter().map(|g| g.id + 1).max().unwrap_or(BASE).max(BASE);
+                        self.settings.custom_games.push(CustomGame {
+                            id,
+                            name: if s.name.is_empty() { s.exe.clone() } else { s.name },
+                            exe: s.exe,
+                            args: s.args,
+                            ..Default::default()
+                        });
+                        added += 1;
+                    }
+                    if added == 0 {
+                        "Новых сторонних игр в Steam нет.".to_string()
+                    } else {
+                        format!("Из Steam добавлено сторонних игр: {added}.")
+                    }
+                }
+            },
+        };
+        crate::popup::push(crate::popup::Kind::Info, "Сторонние игры", msg);
+    }
+
+    /// Добавить стороннюю игру Vaporust в настоящий Steam (только при закрытом Steam).
+    pub(crate) fn export_to_steam(&mut self, id: u32) -> String {
+        if crate::local::steam_running() {
+            return "Сначала закройте Steam: иначе он перезапишет список своих сторонних игр.".into();
+        }
+        let Some(g) = self.settings.custom_games.iter().find(|g| g.id == id).cloned() else { return String::new() };
+        match self.steam.as_ref().and_then(|s| crate::shortcuts::path(&s.dir)) {
+            None => "Не найдена папка аккаунта Steam.".into(),
+            Some(p) => match crate::shortcuts::add(&p, &g.name, &g.exe, &g.args) {
+                Ok(true) => format!("«{}» добавлена в Steam. Появится там при следующем запуске Steam.", g.name),
+                Ok(false) => "Эта игра уже есть в Steam.".into(),
+                Err(e) => format!("Не удалось: {e}"),
+            },
+        }
+    }
+
     /// Открыть окно правки сторонней игры.
     pub(crate) fn edit_custom(&mut self, appid: u32) {
         if let Some(g) = self.settings.custom_games.iter().find(|g| g.id == appid) {
-            self.custom_edit = Some(Edit { id: Some(g.id), name: g.name.clone(), exe: g.exe.clone(), args: g.args.clone(), confirm_delete: false });
+            self.custom_edit = Some(Edit { id: Some(g.id), name: g.name.clone(), exe: g.exe.clone(), args: g.args.clone(), confirm_delete: false, to_steam: false });
         }
     }
+}
+
+thread_local! {
+    static PENDING_CHECK: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
+}
+
+/// Путь exe для сравнения: без кавычек, косые черты обратные, без учета регистра.
+fn norm_path(p: &str) -> String {
+    p.trim().trim_matches('"').replace('/', "\\").to_lowercase()
+}
+
+fn same_path(a: &str, b: &str) -> bool {
+    norm_path(a) == norm_path(b)
 }

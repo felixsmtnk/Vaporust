@@ -17,10 +17,10 @@ pub enum Section {
 
 pub fn section_of(v: View) -> Option<Section> {
     Some(match v {
-        View::Store | View::News | View::Points => Section::Store,
-        View::Library | View::Screenshots | View::Stats | View::Storage | View::Downloads => Section::Library,
-        View::Activity | View::Groups | View::Community | View::Workshop => Section::Community,
-        View::Inventory | View::Badges | View::Family | View::Profile | View::Friends => Section::Profile,
+        View::Store | View::News | View::Points | View::Cart => Section::Store,
+        View::Library | View::Screenshots | View::Stats | View::Storage | View::Downloads | View::Achievements | View::Props | View::Music => Section::Library,
+        View::Activity | View::Groups | View::Group | View::Community | View::Workshop => Section::Community,
+        View::Inventory | View::Badges | View::Family | View::Profile | View::Friends | View::ProfileEdit => Section::Profile,
         View::Settings => return None,
     })
 }
@@ -133,6 +133,15 @@ Steam остается открытым.")
                     }
                 }
                 ui.separator();
+                if ui.button("Аккаунты...").on_hover_text("Несколько аккаунтов Steam и быстрое переключение").clicked() {
+                    self.accounts_open = true;
+                    ui.close_menu();
+                }
+                if ui.button("Редактировать профиль").clicked() {
+                    self.open_profile_edit();
+                    ui.close_menu();
+                }
+                ui.separator();
                 if ui.add_enabled(!net.busy, egui::Button::new("Выйти из аккаунта")).clicked() {
                     let _ = self.tx.send(crate::net::Cmd::Logout);
                     ui.close_menu();
@@ -167,10 +176,6 @@ Steam остается открытым.")
                     self.open_profile(me, net);
                 }
             }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 8.0;
-                self.steam_notifs_button(ui, net);
-            });
         });
     }
 
@@ -188,13 +193,13 @@ Steam остается открытым.")
                     let (tab, page) = self.store_win.as_ref().map_or((Tab::Search, false), |w| (w.tab(), w.on_page()));
                     let in_store = self.view == View::Store && !self.store_detached;
                     for (t, label) in [
-                        (Tab::Search, "Поиск"),
+                        (Tab::Home, "Главная"),
                         (Tab::Deals, "Скидки"),
                         (Tab::Charts, "Чарты"),
                         (Tab::Discovery, "Рекомендации"),
                         (Tab::Wishlist, "Желаемое"),
                     ] {
-                        let on = in_store && !page && (tab == t || (t == Tab::Deals && tab == Tab::Events));
+                        let on = in_store && !page && (tab == t || (t == Tab::Deals && tab == Tab::Events) || (t == Tab::Home && tab == Tab::Search));
                         if sub_item(ui, on, label).clicked() {
                             self.open_store(None, ctrl);
                             if let Some(w) = self.store_win.as_mut() {
@@ -217,6 +222,9 @@ Steam остается открытым.")
                     {
                         self.open_points();
                     }
+                    if sub_item(ui, self.view == View::Cart, "Корзина").on_hover_text("Корзина магазина Steam").clicked() {
+                        self.open_cart();
+                    }
                 }
                 Section::Library => {
                     if sub_item(ui, self.view == View::Screenshots, "Скриншоты").clicked() {
@@ -233,6 +241,9 @@ Steam остается открытым.")
                         .clicked()
                     {
                         self.open_storage();
+                    }
+                    if sub_item(ui, self.view == View::Music, "Саундтреки").on_hover_text("Музыка из ваших игр и купленные саундтреки").clicked() {
+                        self.open_music();
                     }
                 }
                 Section::Community => {

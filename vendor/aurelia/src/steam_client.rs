@@ -549,6 +549,7 @@ mod install;
 mod market;
 pub use install::InstallOptions;
 pub use install::set_download_limit_now; // vaporust
+pub use content::CELL_OVERRIDE; // vaporust
 mod content;
 pub(crate) use content::ContentHost;
 mod launch;

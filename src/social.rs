@@ -76,6 +76,8 @@ pub enum SocialCmd {
     ResolveVanity(String),
     AddFriend(u64),
     RemoveFriend(u64),
+    /// Заблокировать (true) или разблокировать пользователя (сайт сообщества).
+    Block(u64, bool),
     /// Поиск в Мастерской игры: текст (пусто - без поиска) и тип сортировки Steam
     /// (0 популярные, 3 в тренде, 1 новые, 21 обновленные, 9 по подпискам, 12 по тексту).
     WorkshopQuery { appid: u32, text: String, sort: u32 },
@@ -116,6 +118,22 @@ pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx
                     ),
                     Err(e) => format!("Заявка не отправлена: {}", err(e)),
                 });
+            }
+            SocialCmd::Block(id, block) => {
+                let res = crate::social::block_user(&c, id, block).await;
+                let mut s = st.lock().unwrap();
+                s.friend_msg = Some(match &res {
+                    Ok(()) if block => "Пользователь заблокирован.".into(),
+                    Ok(()) => "Пользователь разблокирован.".into(),
+                    Err(e) => format!("Не получилось: {e}"),
+                });
+                if res.is_ok() {
+                    if block {
+                        s.blocked.insert(id);
+                    } else {
+                        s.blocked.remove(&id);
+                    }
+                }
             }
             SocialCmd::RemoveFriend(id) => {
                 let res = c.remove_friend(id).await;
@@ -219,5 +237,45 @@ mod live {
             assert_eq!(super::resolve_vanity("gabelogannewell").await, Ok(76561197960287930));
             assert!(super::resolve_vanity("zzzz_no_such_vanity_qq123").await.unwrap_err().contains("не найден"));
         });
+    }
+}
+
+#[cfg(test)]
+mod nick_live {
+    /// Сколько друзей с ником и с подробным статусом в игре (без имен). Только чтение.
+    #[test]
+    #[ignore]
+    fn nicknames_rich_live() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            let list = c.collect_friends(std::time::Duration::from_secs(8)).await.unwrap();
+            let nick = list.iter().filter(|f| f.nickname.is_some()).count();
+            let game = list.iter().filter(|f| f.game_app_id.is_some()).count();
+            let rich: Vec<&str> = list.iter().filter_map(|f| f.rich_status.as_deref()).collect();
+            println!("друзей {}, с ником {nick}, в игре {game}, с подробным статусом {}: {:?}", list.len(), rich.len(), rich);
+        });
+    }
+}
+
+/// Блокировка через сайт сообщества (как «Еще -> Заблокировать» в профиле Steam): ответ {"success":1}.
+pub async fn block_user(c: &SteamClient, id: u64, block: bool) -> Result<(), String> {
+    let web = crate::webapi::web_session(c).await?;
+    let fields = [
+        ("sessionID", web.sessionid().to_string()),
+        ("steamid", id.to_string()),
+        ("block", if block { "1" } else { "0" }.to_string()),
+    ];
+    let t = web
+        .post_form("https://steamcommunity.com/actions/BlockUserAjax", &fields, &format!("https://steamcommunity.com/profiles/{id}/"))
+        .await
+        .map_err(|e| format!("{e:#}"))?
+        .1;
+    let v: serde_json::Value = serde_json::from_str(&t).map_err(|_| "Steam ответил не так, как ожидалось".to_string())?;
+    if v["success"].as_i64() == Some(1) || v["success"].as_bool() == Some(true) {
+        Ok(())
+    } else {
+        Err(format!("Steam отказал (код {})", v["success"]))
     }
 }

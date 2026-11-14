@@ -31,8 +31,16 @@ pub enum Action {
     Import(u32, String),
     /// Открыть папку игры в Проводнике.
     Folder(u32),
+    /// Своя заметка к игре (окно правки).
+    Note(u32, String),
+    /// Ярлык игры на рабочем столе.
+    Shortcut(u32, String),
     /// Закрыть запущенную игру (как крестик окна).
     Stop(u32),
+    /// Поставить идущую загрузку игры на паузу.
+    Pause(u32),
+    /// Спросить, установить ли игру (двойной щелчок по неустановленной).
+    AskInstall(u32, String),
     /// Удалить игру с диска (с подтверждением).
     Uninstall(u32, String),
 }
@@ -45,6 +53,8 @@ pub struct Ctx<'a> {
     pub net: &'a net::NetState,
     /// Игры в очереди загрузок (не на паузе).
     pub queued: &'a std::collections::HashSet<u32>,
+    /// Загрузки на паузе (кнопка «ПРОДОЛЖИТЬ»).
+    pub paused: &'a std::collections::HashSet<u32>,
     /// Коллекции Steam (для меню по правому щелчку).
     pub collections: &'a [crate::colls::Coll],
     /// Обновлять через Steam (для подсказки кнопки «Обновить»).
@@ -163,6 +173,9 @@ pub fn list(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, sort: &mu
             let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
             if resp.double_clicked() && r.ready && !c.launching && !c.installing {
                 out = Some(Action::Play(r.appid));
+            } else if resp.double_clicked() && !r.ready && c.logged_in && !c.installing_now(r.appid) && !crate::custom::is_custom(r.appid) {
+                // Как в Steam: двойной щелчок по неустановленной игре - предложить установить.
+                out = Some(Action::AskInstall(r.appid, r.name.clone()));
             } else if resp.clicked() {
                 out = Some(Action::Page(r.appid));
             }
@@ -172,7 +185,8 @@ pub fn list(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, sort: &mu
 }
 
 /// Плитка с обложками. Рисуются (и грузятся) только видимые ряды.
-pub fn grid(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers) -> Option<Action> {
+/// `recent` - полка «Недавние игры» первым рядом (как на главной библиотеки Steam); пусто - без полки.
+pub fn grid(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, recent: &[Row]) -> Option<Action> {
     let mut out = None;
     // Сколько обложек шириной не меньше 140 точек помещается, и растянуть их на всю ширину -
     // справа не остается пустого места при любом размере окна.
@@ -183,20 +197,40 @@ pub fn grid(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers) -> Option
     let w = ((avail - gap * (cols as f32 - 1.0)) / cols as f32).clamp(min_w, 260.0);
     let tile = egui::vec2(w, w * 1.5);
     let row_h = tile.y + gap;
+    // Полка «Недавние игры» - сверху, тех же размеров, что и сетка (столько же обложек в ряд),
+    // плюс подпись. Ряды разной высоты, поэтому видимые ряды считаем сами (show_viewport).
+    let label_h = 26.0;
+    // Под полкой - подпись «ВСЕ ИГРЫ», как в Steam: полка и общий список - разные разделы.
+    let shelf_h = if recent.is_empty() { 0.0 } else { label_h + row_h + label_h };
     let n_rows = rows.len().div_ceil(cols);
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show_rows(ui, row_h, n_rows, |ui, range| {
-        for row in range {
-            ui.horizontal_top(|ui| {
-                ui.spacing_mut().item_spacing.x = gap;
-                for r in rows.iter().skip(row * cols).take(cols) {
-                    ui.allocate_ui(egui::vec2(tile.x, row_h), |ui| {
-                        ui.vertical(|ui| {
-                            ui.set_width(tile.x);
-                            tile_ui(ui, r, c, covers, tile, &mut out);
-                        });
-                    });
-                }
-            });
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show_viewport(ui, |ui, vp| {
+        let total = shelf_h + n_rows as f32 * row_h;
+        ui.set_min_height(total);
+        let origin = ui.min_rect().min;
+        let width = ui.available_width();
+        let row_ui = |ui: &mut egui::Ui, y: f32, h: f32| {
+            let rect = egui::Rect::from_min_size(egui::pos2(origin.x, origin.y + y), egui::vec2(width, h));
+            ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::left_to_right(egui::Align::Min)))
+        };
+        if shelf_h > 0.0 && vp.min.y < shelf_h {
+            let mut lab = row_ui(ui, 0.0, label_h);
+            lab.label(egui::RichText::new("НЕДАВНИЕ ИГРЫ").size(12.0).strong().color(theme::WEAK));
+            let mut child = row_ui(ui, label_h, row_h);
+            child.spacing_mut().item_spacing.x = gap;
+            for r in recent.iter().take(cols) {
+                tile_ui(&mut child, r, c, covers, tile, &mut out);
+            }
+            let mut all = row_ui(ui, label_h + row_h, label_h);
+            all.label(egui::RichText::new(format!("ВСЕ ИГРЫ ({})", rows.len())).size(12.0).strong().color(theme::WEAK));
+        }
+        let first = (((vp.min.y - shelf_h) / row_h).floor().max(0.0)) as usize;
+        let last = ((((vp.max.y - shelf_h) / row_h).ceil().max(0.0)) as usize).min(n_rows);
+        for row in first..last {
+            let mut child = row_ui(ui, shelf_h + row as f32 * row_h, row_h);
+            child.spacing_mut().item_spacing.x = gap;
+            for r in rows.iter().skip(row * cols).take(cols) {
+                tile_ui(&mut child, r, c, covers, tile, &mut out);
+            }
         }
     });
     out
@@ -217,13 +251,13 @@ fn tile_ui(ui: &mut egui::Ui, r: &Row, c: &Ctx, covers: &Covers, tile: egui::Vec
         cover => {
             // Пока грузится или обложки нет - темная карточка с названием.
             painter.rect_filled(rect, 4.0, egui::Color32::from_gray(40));
-            painter.text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                if matches!(cover, Cover::Loading) { "…" } else { r.name.as_str() },
-                egui::FontId::proportional(13.0),
-                egui::Color32::from_gray(180),
-            );
+            // Длинное название - в несколько строк внутри плитки, по центру.
+            let text = if matches!(cover, Cover::Loading) { "…".to_string() } else { r.name.clone() };
+            let mut job = egui::text::LayoutJob::simple(text, egui::FontId::proportional(13.0), egui::Color32::from_gray(180), rect.width() - 16.0);
+            job.halign = egui::Align::Center;
+            let galley = ui.fonts(|f| f.layout_job(job));
+            let pos = egui::pos2(rect.center().x, rect.center().y - galley.size().y / 2.0);
+            painter.galley(pos, galley, egui::Color32::from_gray(180));
         }
     }
     if c.installing_now(r.appid) {
@@ -394,6 +428,9 @@ pub fn sidebar(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, select
             let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
             if resp.double_clicked() && r.ready && !c.launching && !c.installing {
                 out = Some(Action::Play(r.appid));
+            } else if resp.double_clicked() && !r.ready && c.logged_in && !c.installing_now(r.appid) && !crate::custom::is_custom(r.appid) {
+                // Как в Steam: двойной щелчок по неустановленной игре - предложить установить.
+                out = Some(Action::AskInstall(r.appid, r.name.clone()));
             } else if resp.clicked() {
                 out = Some(Action::Page(r.appid));
             }
@@ -431,10 +468,19 @@ fn big_main_button(ui: &mut egui::Ui, r: &Row, c: &Ctx, out: &mut Option<Action>
         {
             *out = Some(Action::Update(r.appid));
         }
+    } else if c.installing_now(r.appid) {
+        // Игра качается - как в Steam, кнопка ставит ее на паузу.
+        let b = theme::big_button(ui, "ПАУЗА", theme::ACCENT, true)
+            .on_hover_text("Поставить загрузку на паузу: скачанное сохранится, продолжить - кнопкой «ДОКАЧАТЬ»");
+        if b.clicked() {
+            *out = Some(Action::Pause(r.appid));
+        }
     } else {
-        let queued = c.queued.contains(&r.appid) || c.installing_now(r.appid);
+        let queued = c.queued.contains(&r.appid);
         let text = if queued {
             "В ОЧЕРЕДИ"
+        } else if c.paused.contains(&r.appid) {
+            "ПРОДОЛЖИТЬ"
         } else if r.installed {
             "ДОКАЧАТЬ"
         } else {
@@ -463,6 +509,14 @@ pub struct PageData<'a> {
     pub achievements: Option<&'a Result<Vec<aurelia::steam_client::GameAchievement>, String>>,
     pub news: Option<&'a Result<Vec<aurelia::web::discovery::NewsItem>, String>>,
     pub players: Option<i32>,
+    /// Сведения магазина (разработчик, издатель, дата выхода).
+    pub info: Option<&'a aurelia::steam_client::StoreAppInfo>,
+    /// Из открытого API магазина: жанры, трейлер, страница поддержки.
+    pub genres: &'a [String],
+    pub trailer: Option<&'a str>,
+    pub support: Option<&'a str>,
+    /// Своя заметка к игре.
+    pub note: &'a str,
 }
 
 /// Страница игры в библиотеке: фон, кнопки, время, достижения, коллекции, новости.
@@ -593,6 +647,31 @@ pub fn page(
             }
             if r.installed {
                 link(ui, "Папка игры", "Открыть папку игры в Проводнике", Action::Folder(r.appid));
+                link(ui, "Ярлык", "Ярлык на рабочем столе: запуск игры через Vaporust", Action::Shortcut(r.appid, r.name.clone()));
+            }
+            link(ui, "Заметка", "Своя заметка к игре (видна только вам)", Action::Note(r.appid, r.name.clone()));
+            if steam_game {
+                let support = d.support.map(str::to_string).unwrap_or_else(|| {
+                    format!("https://help.steampowered.com/wizard/HelpWithGame/?appid={}", r.appid)
+                });
+                if ui
+                    .add(egui::Button::new(egui::RichText::new("Поддержка").size(13.5)).frame(false))
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
+                    .on_hover_text("Поддержка игры: сайт разработчика или помощь Steam")
+                    .clicked()
+                {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(support));
+                }
+                if let Some(t) = d.trailer {
+                    if ui
+                        .add(egui::Button::new(egui::RichText::new("Трейлер").size(13.5)).frame(false))
+                        .on_hover_cursor(egui::CursorIcon::PointingHand)
+                        .on_hover_text("Открыть трейлер игры в браузере")
+                        .clicked()
+                    {
+                        ui.ctx().open_url(egui::OpenUrl::new_tab(t));
+                    }
+                }
             }
             if !r.installed && c.logged_in && steam_game {
                 link(
@@ -616,6 +695,28 @@ pub fn page(
                 ui.label(p.to_string());
                 ui.end_row();
             }
+            if let Some(i) = d.info {
+                if !i.developers.is_empty() {
+                    ui.weak("Разработчик");
+                    ui.label(i.developers.join(", "));
+                    ui.end_row();
+                }
+                if !i.publishers.is_empty() && i.publishers != i.developers {
+                    ui.weak("Издатель");
+                    ui.label(i.publishers.join(", "));
+                    ui.end_row();
+                }
+                if let Some(date) = i.release_date.as_deref().filter(|s| !s.is_empty()) {
+                    ui.weak("Дата выхода");
+                    ui.label(crate::storewin::ru_date(date));
+                    ui.end_row();
+                }
+            }
+            if !d.genres.is_empty() {
+                ui.weak("Жанры");
+                ui.label(d.genres.join(", "));
+                ui.end_row();
+            }
             if r.family {
                 ui.weak("Доступ");
                 ui.label(family_text(r, c));
@@ -631,6 +732,51 @@ pub fn page(
             });
             ui.end_row();
         });
+
+        if !d.note.trim().is_empty() {
+            ui.add_space(6.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.label(egui::RichText::new("Заметка:").color(theme::WEAK));
+                ui.label(d.note);
+            });
+        }
+
+        // Дополнения (DLC): сколько куплено и какие.
+        if let Some(Ok(dlc)) = c.net.props.get(&r.appid).and_then(|p| p.dlc.as_ref()) {
+            if !dlc.is_empty() {
+                let owned = dlc.iter().filter(|d| d.owned).count();
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.strong(format!("Дополнения (DLC): куплено {owned} из {}", dlc.len()));
+                    if r.installed
+                        && ui
+                            .add(egui::Button::new(egui::RichText::new("Управление").size(12.5)).frame(false))
+                            .on_hover_cursor(egui::CursorIcon::PointingHand)
+                            .on_hover_text("Включить, выключить или установить DLC - в «Свойствах»")
+                            .clicked()
+                    {
+                        out = Some(Action::Props(r.appid, r.name.clone()));
+                    }
+                });
+                let mut sorted: Vec<_> = dlc.iter().collect();
+                sorted.sort_by_key(|d| !d.owned);
+                for d in sorted.iter().take(8) {
+                    let name = c.net.app_names.get(&d.app_id).cloned().unwrap_or_else(|| format!("DLC {}", d.app_id));
+                    ui.horizontal(|ui| {
+                        let (state, color) = match (d.owned, d.installed) {
+                            (true, true) => ("установлено", egui::Color32::from_rgb(120, 190, 80)),
+                            (true, false) => ("куплено", theme::TEXT),
+                            _ => ("не куплено", theme::WEAK),
+                        };
+                        ui.label(egui::RichText::new(name).size(13.0));
+                        ui.label(egui::RichText::new(state).size(12.0).color(color));
+                    });
+                }
+                if dlc.len() > 8 {
+                    ui.weak(format!("и еще {}", dlc.len() - 8));
+                }
+            }
+        }
 
         // Дата покупки и подсказка о возврате (условия Steam: до 14 дней и до 2 часов в игре).
         if let Some(lic) = c.net.licenses.as_ref().and_then(|l| crate::refund::find(&r.name, l)) {

@@ -289,3 +289,82 @@ mod tests {
         });
     }
 }
+
+impl LauncherApp {
+    /// Полка «Что нового» над играми на главной библиотеки: 4 свежие новости своих игр.
+    pub(crate) fn whats_new_shelf(&mut self, ui: &mut egui::Ui, net: &NetState) {
+        if !self.settings.whats_new {
+            return;
+        }
+        if !self.news_ui.asked && (!net.owned.is_empty() || !self.games.is_empty()) {
+            self.news_ui.asked = true;
+            let _ = self.tx.send(Cmd::NewsFeed(self.news_games(net)));
+        }
+        let items: Vec<FeedItem> = match &net.news_feed {
+            Some(Ok(v)) => v.iter().take(4).cloned().collect(),
+            _ => return,
+        };
+        if items.is_empty() {
+            return;
+        }
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("ЧТО НОВОГО").size(13.0).color(crate::theme::TEXT));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.small_button("Скрыть").on_hover_text("Вернуть - Настройки, раздел «Библиотека»").clicked() {
+                    self.settings.whats_new = false;
+                }
+                if ui.link("Все новости").clicked() {
+                    self.close_extras(crate::View::News);
+                    self.view = crate::View::News;
+                }
+            });
+        });
+        let gap = 10.0;
+        // Карточка не уже 250 точек: на узком окне карточек меньше.
+        let fit = (((ui.available_width() + gap) / (250.0 + gap)).floor() as usize).clamp(1, items.len());
+        let items = &items[..fit];
+        let n = fit as f32;
+        let w = ((ui.available_width() + gap) / n - gap).max(120.0);
+        let mut open = None;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = gap;
+            for it in items {
+                let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 64.0), egui::Sense::click());
+                let bg = if resp.hovered() { egui::Color32::from_rgb(52, 66, 86) } else { crate::theme::CARD };
+                ui.painter().rect_filled(rect, 3.0, bg);
+                let img = egui::Rect::from_min_size(rect.min + egui::vec2(4.0, 12.5), egui::vec2(104.0, 39.0));
+                egui::Image::new(format!(
+                    "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{}/capsule_231x87.jpg",
+                    it.appid
+                ))
+                .rounding(2.0)
+                .paint_at(ui, img);
+                let text = egui::Rect::from_min_max(egui::pos2(img.right() + 8.0, rect.top() + 4.0), rect.max - egui::vec2(6.0, 4.0));
+                let mut c = ui.new_child(egui::UiBuilder::new().max_rect(text).layout(egui::Layout::top_down(egui::Align::Min)));
+                use chrono::TimeZone;
+                let date = chrono::Local
+                    .timestamp_opt(it.date as i64, 0)
+                    .single()
+                    .map(|t| t.format("%d.%m").to_string())
+                    .unwrap_or_default();
+                c.add(egui::Label::new(egui::RichText::new(format!("{} · {date}", it.game)).small().weak()).truncate());
+                // Заголовок - до двух строк, дальше многоточие.
+                let mut job = egui::text::LayoutJob::single_section(
+                    it.title.clone(),
+                    egui::TextFormat::simple(egui::FontId::proportional(12.5), egui::Color32::WHITE),
+                );
+                job.wrap = egui::text::TextWrapping { max_width: text.width(), max_rows: 2, break_anywhere: false, overflow_character: Some('…') };
+                c.label(job);
+                if resp.on_hover_text(&it.title).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                    open = Some((it.appid, it.date, it.title.clone()));
+                }
+            }
+        });
+        ui.add_space(6.0);
+        if open.is_some() {
+            self.close_extras(crate::View::News);
+            self.view = crate::View::News;
+            self.news_ui.open = open;
+        }
+    }
+}

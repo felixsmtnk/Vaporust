@@ -169,6 +169,8 @@ pub struct HistoryMessage {
     pub message: String,
     pub timestamp: u32,
     pub ordinal: u32,
+    /// vaporust: реакции на сообщение: (тип 1 смайлик / 2 стикер, имя, кто поставил - номера аккаунтов).
+    pub reactions: Vec<(i32, String, Vec<u32>)>,
 }
 
 impl SteamClient {
@@ -203,6 +205,11 @@ impl SteamClient {
                 message: m.message().to_string(),
                 timestamp: m.timestamp(),
                 ordinal: m.ordinal(),
+                reactions: m
+                    .reactions
+                    .iter()
+                    .map(|r| (r.reaction_type.map(|t| t.value()).unwrap_or(0), r.reaction().to_string(), r.reactors.clone()))
+                    .collect(),
             })
             // Сообщение-граница приходит повторно - отбрасываем.
             .filter(|m| before.is_none_or(|(t, o)| (m.timestamp, m.ordinal) < (t, o)))

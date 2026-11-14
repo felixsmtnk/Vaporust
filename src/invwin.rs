@@ -13,6 +13,7 @@ enum Tab {
     Items,
     Listings,
     Market,
+    Offers,
 }
 
 pub struct InvWin {
@@ -25,6 +26,8 @@ pub struct InvWin {
     query: String,
     /// Цены, которые уже запрошены (чтобы не спрашивать каждый кадр).
     asked_prices: HashSet<(u32, String)>,
+    /// Площадка: что уже запрошено (заявки и история), окно продажи, подтверждения.
+    pub(crate) mk: crate::trade::MarketUi,
 }
 
 /// Одинаковые предметы (один class_id) - одной плиткой с общим количеством.
@@ -88,6 +91,7 @@ impl LauncherApp {
                 selected: None,
                 query: String::new(),
                 asked_prices: HashSet::new(),
+                mk: Default::default(),
             });
             // Кошелек - первым: по нему выбирается валюта цен.
             for c in [InvCmd::Wallet, InvCmd::Apps, InvCmd::Listings] {
@@ -147,7 +151,7 @@ impl LauncherApp {
         egui::TopBottomPanel::top("inv_top").show_inside(ui, |ui| {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                for (tab, label) in [(Tab::Items, "Инвентарь"), (Tab::Listings, "Мои лоты"), (Tab::Market, "Торговая площадка")] {
+                for (tab, label) in [(Tab::Items, "Инвентарь"), (Tab::Listings, "Мои лоты"), (Tab::Market, "Торговая площадка"), (Tab::Offers, "Обмены")] {
                     ui.selectable_value(&mut w.tab, tab, label);
                 }
                 ui.separator();
@@ -177,8 +181,9 @@ impl LauncherApp {
 
         match w.tab {
             Tab::Items => items_tab(ui, w, &st, my_id, &mut cmds),
-            Tab::Listings => listings_tab(ui, &st),
+            Tab::Listings => listings_tab(ui, &st, &mut w.mk),
             Tab::Market => market_tab(ui, w, &st, &mut cmds),
+            Tab::Offers => crate::trade::offers_tab(ui, &st, &mut w.mk),
         }
 
         drop(st);
@@ -318,6 +323,7 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
                             });
                         }
                     }
+                    crate::trade::market_block(ui, &mut w.mk, st, appid, s.ctx, it);
                     if ui.button("Страница на площадке").clicked() {
                         ui.ctx().open_url(egui::OpenUrl::new_tab(invent::listing_url(appid, &it.market_hash_name)));
                     }
@@ -417,7 +423,7 @@ fn item_row(ui: &mut egui::Ui, icon_url: &Option<String>, name: &str, url: Strin
     ui.separator();
 }
 
-fn listings_tab(ui: &mut egui::Ui, st: &InvState) {
+fn listings_tab(ui: &mut egui::Ui, st: &InvState, mk: &mut crate::trade::MarketUi) {
     egui::CentralPanel::default().show_inside(ui, |ui| {
         if ui.button("Торговая площадка в браузере").clicked() {
             ui.ctx().open_url(egui::OpenUrl::new_tab("https://steamcommunity.com/market/"));
@@ -452,6 +458,7 @@ fn listings_tab(ui: &mut egui::Ui, st: &InvState) {
                         &invent::money(l.pay, l.currency),
                         "Цена для покупателя (с комиссией Steam)",
                     );
+                    crate::trade::remove_lot_button(ui, mk, &l.id, &l.name);
                 }
                 ui.add_space(10.0);
                 ui.strong(format!("Заявки на покупку: {}", m.orders.len()));
@@ -469,6 +476,7 @@ fn listings_tab(ui: &mut egui::Ui, st: &InvState) {
                         &format!("по {}", invent::money(o.price, cur)),
                         "",
                     );
+                    crate::trade::cancel_order_button(ui, mk, &o.id, &o.name);
                 }
             }
         });
@@ -540,4 +548,13 @@ fn market_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, cmds: &mut Vec<I
             }
         });
     });
+}
+
+impl InvWin {
+    /// Обход разделов (tour.rs): выбрать игру и предмет.
+    pub(crate) fn tour_select(&mut self, app: u32, class: String) {
+        self.tab = Tab::Items;
+        self.app = Some(app);
+        self.selected = Some(class);
+    }
 }

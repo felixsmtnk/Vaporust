@@ -128,6 +128,8 @@ pub struct Settings {
     /// Избранные друзья (наверху списка) и свои заметки о друзьях.
     /// Кнопка «Во что поиграть?» над библиотекой.
     pub random_button: bool,
+    /// Полка «Что нового» (новости своих игр) на главной библиотеки.
+    pub whats_new: bool,
     /// Обычная рамка окон Windows вместо своей.
     pub system_frame: bool,
     /// Производительность: анимации (стикеры, GIF, эффекты чата, значки загрузки).
@@ -140,8 +142,42 @@ pub struct Settings {
     pub trim_memory: bool,
     pub fav_friends: std::collections::BTreeSet<u64>,
     pub friend_notes: std::collections::BTreeMap<u64, String>,
+    /// Свои заметки к играм (appid -> текст).
+    pub game_notes: std::collections::BTreeMap<u32, String>,
+    /// Раздел при запуске: 0 - Библиотека, 1 - Магазин.
+    pub start_view: u8,
+    /// Свернутые группы друзей: 0 в игре, 1 в сети, 2 не в сети.
+    pub friend_groups_closed: std::collections::BTreeSet<u8>,
+    /// Игры из списка желаемого, которые еще не вышли (чтобы сообщить, когда выйдут).
+    pub wish_upcoming: std::collections::BTreeSet<u32>,
+    /// Масштаб интерфейса (1.0 - 100%).
+    pub ui_scale: f32,
+    /// Сохраненные фильтры библиотеки (динамические коллекции).
+    pub saved_filters: Vec<SavedFilter>,
+    /// Мастер первого запуска пройден (или пропущен).
+    pub wizard_done: bool,
+    /// Регион загрузки (cell id серверов Steam), 0 - автоматически.
+    pub download_cell: u32,
+    /// Качать и при открытом Steam (во временную папку, которую Steam не видит).
+    pub download_with_steam: bool,
+    /// Новые сторонние игры - сразу и в настоящий Steam; ждут закрытия Steam.
+    pub custom_to_steam: bool,
+    pub pending_shortcuts: Vec<u32>,
+    /// Игры, которые качаются во временную папку: appid -> настоящая библиотека.
+    pub staged: std::collections::BTreeMap<u32, String>,
     /// Сторонние игры (не из Steam), добавленные кнопкой «Добавить игру».
     pub custom_games: Vec<crate::custom::CustomGame>,
+}
+
+/// Сохраненный фильтр библиотеки: поиск, жанр, коллекция, «только установленные».
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct SavedFilter {
+    pub name: String,
+    pub search: String,
+    pub genre: Option<String>,
+    pub collection: Option<String>,
+    pub only_installed: bool,
 }
 
 /// Игра в очереди установки.
@@ -217,6 +253,7 @@ impl Default for Settings {
             proxy: String::new(),
             scripts: Default::default(),
             random_button: true,
+            whats_new: true,
             system_frame: false,
             animations: true,
             covers: true,
@@ -224,6 +261,18 @@ impl Default for Settings {
             trim_memory: true,
             fav_friends: Default::default(),
             friend_notes: Default::default(),
+            game_notes: Default::default(),
+            start_view: 0,
+            friend_groups_closed: Default::default(),
+            wish_upcoming: Default::default(),
+            ui_scale: 1.0,
+            saved_filters: Vec::new(),
+            wizard_done: false,
+            download_cell: 0,
+            download_with_steam: true,
+            custom_to_steam: true,
+            pending_shortcuts: Vec::new(),
+            staged: Default::default(),
             custom_games: Vec::new(),
         }
     }

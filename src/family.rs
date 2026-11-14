@@ -37,6 +37,9 @@ pub struct Family {
     pub plays: Vec<Play>,
     /// Не в семье.
     pub none: bool,
+    /// Номер семейной группы и отправленные приглашения: (SteamID, роль 1 взрослый / 2 ребенок).
+    pub id: String,
+    pub pending: Vec<(u64, u32)>,
 }
 
 fn num(v: &serde_json::Value) -> u64 {
@@ -49,6 +52,7 @@ pub async fn load(client: &SteamClient, me: u64) -> Result<Family, String> {
         return Ok(Family { none: true, ..Default::default() });
     }
     let id = num(&g["family_groupid"]).to_string();
+    let id_copy = id.clone();
     let f = webapi::get(client, "IFamilyGroupsService/GetFamilyGroup/v1", &[("family_groupid", id.clone())]).await?;
     let apps = webapi::get(
         client,
@@ -95,11 +99,20 @@ pub async fn load(client: &SteamClient, me: u64) -> Result<Family, String> {
         names,
         plays,
         none: false,
+        pending: f["pending_invites"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|p| (num(&p["steamid"]), num(&p["role"]) as u32))
+            .collect(),
+        id: id_copy,
     })
 }
 
 #[derive(Default)]
 pub struct FamilyUi {
+    /// Приглашение: (кого - SteamID, роль 1 взрослый / 2 ребенок, ждем подтверждения).
+    pub invite: (u64, u32, bool),
     pub open: bool,
     pub asked: bool,
     /// Чьи профили уже запрошены ради имени.
@@ -166,6 +179,7 @@ impl LauncherApp {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.label(egui::RichText::new(&fam.name).size(18.0).strong());
             ui.weak(format!("Свободных мест: {}", fam.free_spots));
+            invite_block(ui, &fam, net, &self.tx, &mut self.family_ui.invite);
             ui.add_space(6.0);
             ui.strong("Участники");
             egui::Grid::new("family_members").num_columns(4).striped(true).show(ui, |ui| {
@@ -240,5 +254,76 @@ mod tests {
             );
             assert!(f.none || !f.members.is_empty());
         });
+    }
+}
+
+/// Приглашения в семью: отправленные (с отменой) и новое приглашение другу.
+fn invite_block(
+    ui: &mut egui::Ui,
+    fam: &Family,
+    net: &NetState,
+    tx: &tokio::sync::mpsc::UnboundedSender<Cmd>,
+    inv: &mut (u64, u32, bool),
+) {
+    let name_of = |id: u64| {
+        net.roster.read().unwrap().get(&id).and_then(|f| f.persona_name.clone()).unwrap_or_else(|| id.to_string())
+    };
+    if !fam.pending.is_empty() {
+        ui.add_space(4.0);
+        ui.strong("Отправленные приглашения");
+        for (id, role) in &fam.pending {
+            ui.horizontal(|ui| {
+                ui.label(format!("{} ({})", name_of(*id), if *role == 2 { "ребенок" } else { "взрослый" }));
+                if ui.small_button("Отменить").clicked() {
+                    let _ = tx.send(Cmd::FamilyCancel { family: fam.id.clone(), steamid: *id });
+                }
+            });
+        }
+    }
+    if fam.free_spots == 0 || fam.id.is_empty() {
+        return;
+    }
+    ui.add_space(4.0);
+    let mut friends: Vec<(u64, String)> = net
+        .roster
+        .read()
+        .unwrap()
+        .values()
+        .filter(|f| f.relationship == 3 && !fam.members.iter().any(|m| m.steamid == f.steam_id))
+        .map(|f| (f.steam_id, f.persona_name.clone().unwrap_or_else(|| f.steam_id.to_string())))
+        .collect();
+    friends.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+    ui.horizontal(|ui| {
+        ui.label("Пригласить:");
+        let current = friends.iter().find(|(id, _)| *id == inv.0).map(|(_, n)| n.clone()).unwrap_or_else(|| "выберите друга".into());
+        egui::ComboBox::from_id_salt("family_invite").selected_text(current).show_ui(ui, |ui| {
+            for (id, n) in &friends {
+                ui.selectable_value(&mut inv.0, *id, n);
+            }
+        });
+        ui.radio_value(&mut inv.1, 1, "взрослый");
+        ui.radio_value(&mut inv.1, 2, "ребенок");
+        if inv.1 == 0 {
+            inv.1 = 1;
+        }
+        if !inv.2 {
+            if ui.add_enabled(inv.0 != 0, egui::Button::new("Пригласить...")).clicked() {
+                inv.2 = true;
+            }
+        } else {
+            if ui.button("Да, отправить приглашение").clicked() {
+                let _ = tx.send(Cmd::FamilyInvite { family: fam.id.clone(), steamid: inv.0, role: inv.1 });
+                *inv = (0, 1, false);
+            }
+            if ui.button("Отмена").clicked() {
+                inv.2 = false;
+            }
+        }
+    });
+    if inv.2 {
+        ui.weak("Steam попросит подтвердить приглашение письмом на почту. Вступивший получит доступ к общей библиотеке.");
+    }
+    if let Some(m) = &net.action_msg {
+        ui.label(m);
     }
 }

@@ -8,6 +8,8 @@ use std::sync::{mpsc, Mutex, OnceLock};
 
 enum TrayCmd {
     Unread(bool),
+    /// Ход загрузки: (название, доля 0..1); None - загрузки нет.
+    Download(Option<(String, f32)>),
 }
 
 static SENDER: OnceLock<Mutex<mpsc::Sender<TrayCmd>>> = OnceLock::new();
@@ -42,6 +44,37 @@ pub fn set_unread(on: bool) {
         return;
     }
     send(TrayCmd::Unread(on));
+}
+
+/// Ход загрузки на значке трея: полоска внизу значка и подсказка. Шлется только при
+/// изменении на целый процент (или при начале и конце загрузки).
+pub fn set_download(d: Option<(String, f32)>) {
+    static LAST: Mutex<Option<(String, i32)>> = Mutex::new(None);
+    let key = d.as_ref().map(|(n, f)| (n.clone(), (f * 100.0) as i32));
+    {
+        let mut last = LAST.lock().unwrap();
+        if *last == key {
+            return;
+        }
+        *last = key;
+    }
+    send(TrayCmd::Download(d));
+}
+
+/// Значок с полоской хода загрузки внизу (поверх обычного значка).
+fn with_progress(base: &eframe::egui::IconData, frac: f32) -> Vec<u8> {
+    let (w, h) = (base.width as usize, base.height as usize);
+    let mut px = base.rgba.clone();
+    let bar_h = (h / 8).max(2);
+    let filled = ((w as f32) * frac.clamp(0.0, 1.0)).round() as usize;
+    for y in h - bar_h..h {
+        for x in 0..w {
+            let i = (y * w + x) * 4;
+            let c: [u8; 4] = if x < filled { [26, 159, 255, 255] } else { [30, 36, 46, 255] };
+            px[i..i + 4].copy_from_slice(&c);
+        }
+    }
+    px
 }
 
 fn send(cmd: TrayCmd) {
@@ -151,6 +184,10 @@ pub fn start() {
             Icon::from_rgba(d.rgba.clone(), d.width, d.height).ok()
         };
         let (normal, unread) = (to_icon(crate::icons::Kind::Launcher), to_icon(crate::icons::Kind::LauncherUnread));
+        let base = crate::icons::icon(crate::icons::Kind::Launcher);
+        // Текущее состояние: непрочитанное и загрузка - значок и подсказка собираются из обоих.
+        let mut is_unread = false;
+        let mut download: Option<(String, f32)> = None;
 
         unsafe {
             // Создать очередь сообщений потока до того, как в нее начнут писать.
@@ -215,16 +252,21 @@ pub fn start() {
                 if msg.message == WM_APP && msg.hwnd.is_null() {
                     while let Ok(cmd) = rx.try_recv() {
                         match cmd {
-                            TrayCmd::Unread(on) => {
-                                let icon = if on { unread.clone() } else { normal.clone() };
-                                let _ = tray.set_icon(icon);
-                                let _ = tray.set_tooltip(Some(if on {
-                                    "Vaporust - новые сообщения"
-                                } else {
-                                    "Vaporust"
-                                }));
-                            }
+                            TrayCmd::Unread(on) => is_unread = on,
+                            TrayCmd::Download(d) => download = d,
                         }
+                        let icon = match (&download, is_unread) {
+                            (_, true) => unread.clone(),
+                            (Some((_, f)), false) => Icon::from_rgba(with_progress(&base, *f), base.width, base.height).ok(),
+                            (None, false) => normal.clone(),
+                        };
+                        let _ = tray.set_icon(icon);
+                        let mut tip = String::from(if is_unread { "Vaporust - новые сообщения" } else { "Vaporust" });
+                        if let Some((name, f)) = &download {
+                            tip.push_str(&format!("
+Загрузка: {name} - {:.0}%", f * 100.0));
+                        }
+                        let _ = tray.set_tooltip(Some(tip));
                     }
                     continue;
                 }

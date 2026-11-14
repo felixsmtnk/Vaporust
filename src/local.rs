@@ -842,11 +842,15 @@ pub fn update_via_steam(
     let mut last_progress = (0u64, Instant::now());
     let mut frozen = Frozen::default();
     let mut last_freeze: Option<Instant> = None;
+    let mut steam_gone: Option<Instant> = None;
     let result = loop {
         if cancel.load(Ordering::Relaxed) {
             return Ok(CANCEL_MSG.into());
         }
         thread::sleep(Duration::from_secs(1));
+        if steam_closed(&mut steam_gone) {
+            break Err("Steam закрыт, обновление прервано.".to_string());
+        }
         let info = read_acf(&acf);
         if info.updating() {
             done_since = None;
@@ -899,6 +903,16 @@ pub fn update_via_steam(
     result
 }
 
+/// Steam не запущен уже 10 с подряд (короткие пропуски, например перезапуск Steam после
+/// обновления самого Steam, не считаются).
+fn steam_closed(gone_since: &mut Option<Instant>) -> bool {
+    if steam_running() {
+        *gone_since = None;
+        return false;
+    }
+    gone_since.get_or_insert_with(Instant::now).elapsed() >= Duration::from_secs(10)
+}
+
 pub fn run_chain(
     steam: &SteamInfo,
     game: &Game,
@@ -933,12 +947,18 @@ pub fn run_chain(
     // бету), показываем прогресс из appmanifest и не считаем это зависанием.
     let acf = appmanifest_path(game);
     let mut deadline = Instant::now() + Duration::from_secs(120);
+    let mut steam_gone: Option<Instant> = None;
     loop {
         if cancelled() {
             return Ok(CANCEL_MSG.into());
         }
         if procs.game_running(&game_dir) {
             break;
+        }
+        // Steam закрыли (например, кнопкой «Закрыть Steam»), пока он обновлял игру или еще не
+        // запустил ее: ждать больше нечего.
+        if steam_closed(&mut steam_gone) {
+            return Err("Steam закрыт, запуск отменен.".into());
         }
         let info = read_acf(&acf);
         if info.updating() {
@@ -1805,5 +1825,323 @@ mod uninstall_tests {
         let bad = Game { dir: root.join("x"), ..game };
         assert!(uninstall_files(&bad).is_err());
         fs::remove_dir_all(&root).unwrap();
+    }
+}
+
+/// Значение верхнего уровня appmanifest (например, AutoUpdateBehavior).
+pub fn acf_top(path: &Path, key: &str) -> Option<String> {
+    let text = fs::read_to_string(path).ok()?;
+    let mut depth = 0;
+    for line in text.lines() {
+        let t = line.trim();
+        match t {
+            "{" => depth += 1,
+            "}" => depth -= 1,
+            _ => {
+                if depth == 1 {
+                    if let Some((k, v)) = kv(t) {
+                        if k.eq_ignore_ascii_case(key) {
+                            return Some(v);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Изменить (или добавить) значение верхнего уровня appmanifest. Только при закрытом Steam.
+/// Остальной файл - байт в байт; запись через .tmp.
+pub fn set_acf_top(path: &Path, key: &str, value: &str) -> Result<(), String> {
+    let text = fs::read_to_string(path).map_err(|e| format!("Не удалось прочитать файл игры: {e}"))?;
+    let mut out: Vec<String> = Vec::new();
+    let mut depth = 0;
+    let mut done = false;
+    for line in text.lines() {
+        let t = line.trim();
+        if t == "{" {
+            depth += 1;
+        } else if t == "}" {
+            // Ключа не было - добавить в конец верхнего уровня.
+            if depth == 1 && !done {
+                out.push(format!("\t\"{key}\"\t\t\"{value}\""));
+                done = true;
+            }
+            depth -= 1;
+        } else if depth == 1 && !done {
+            if let Some((k, _)) = kv(t) {
+                if k.eq_ignore_ascii_case(key) {
+                    let indent: String = line.chars().take_while(|c| c.is_whitespace()).collect();
+                    out.push(format!("{indent}\"{k}\"\t\t\"{value}\""));
+                    done = true;
+                    continue;
+                }
+            }
+        }
+        out.push(line.to_string());
+    }
+    let mut body = out.join("\n");
+    body.push('\n');
+    let tmp = path.with_extension("acf.tmp");
+    fs::write(&tmp, body).map_err(|e| format!("Не удалось записать файл игры: {e}"))?;
+    fs::rename(&tmp, path).map_err(|e| format!("Не удалось записать файл игры: {e}"))
+}
+
+#[cfg(test)]
+mod acf_top_tests {
+    use super::*;
+
+    #[test]
+    fn read_and_set() {
+        let p = std::env::temp_dir().join(format!("vaporust_acftop_{}.acf", std::process::id()));
+        fs::write(
+            &p,
+            "\"AppState\"\n{\n\t\"appid\"\t\t\"70\"\n\t\"AutoUpdateBehavior\"\t\t\"0\"\n\t\"UserConfig\"\n\t{\n\t\t\"AutoUpdateBehavior\"\t\t\"9\"\n\t}\n}\n",
+        )
+        .unwrap();
+        assert_eq!(acf_top(&p, "AutoUpdateBehavior").as_deref(), Some("0"));
+        set_acf_top(&p, "AutoUpdateBehavior", "1").unwrap();
+        assert_eq!(acf_top(&p, "AutoUpdateBehavior").as_deref(), Some("1"));
+        let t = fs::read_to_string(&p).unwrap();
+        assert!(t.contains("\t\t\"AutoUpdateBehavior\"\t\t\"9\""), "вложенное не тронуто");
+        // Нет ключа - добавляется.
+        set_acf_top(&p, "AllowOtherDownloadsWhileRunning", "1").unwrap();
+        assert_eq!(acf_top(&p, "AllowOtherDownloadsWhileRunning").as_deref(), Some("1"));
+        fs::remove_file(&p).unwrap();
+    }
+}
+
+/// Добавить новую папку библиотеки Steam (например, на другом диске), как «Настройки ->
+/// Хранилище -> Добавить диск» в Steam. Только при закрытом Steam. Создает в папке steamapps и
+/// libraryfolder.vdf, дописывает запись в steamapps\libraryfolders.vdf (бэкап .vdf.vaporust.bak).
+pub fn add_library(steam_dir: &Path, folder: &Path) -> Result<PathBuf, String> {
+    if !folder.is_absolute() {
+        return Err("нужен полный путь к папке".into());
+    }
+    let n = norm(folder);
+    let n = n.trim_end_matches('\\');
+    for d in library_dirs(steam_dir) {
+        let dn = norm(&d);
+        let dn = dn.trim_end_matches('\\');
+        if dn == n {
+            return Err("эта папка уже есть в списке библиотек".into());
+        }
+        if n.starts_with(&format!("{dn}\\steamapps")) {
+            return Err("папку нельзя добавить внутри другой библиотеки".into());
+        }
+    }
+    fs::create_dir_all(folder.join("steamapps")).map_err(|e| format!("не удалось создать папку: {e}"))?;
+    // Номер библиотеки, как у Steam: случайное большое число.
+    let contentid = {
+        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(1);
+        ((t ^ (std::process::id() as u128) << 40) % 9_000_000_000_000_000_000 + 1_000_000_000_000_000_000) as u64
+    };
+    let marker = folder.join("libraryfolder.vdf");
+    if !marker.exists() {
+        fs::write(&marker, format!("\"libraryfolder\"\n{{\n\t\"contentid\"\t\t\"{contentid}\"\n\t\"label\"\t\t\"\"\n}}\n"))
+            .map_err(|e| format!("не удалось записать libraryfolder.vdf: {e}"))?;
+    }
+    let vdf = steam_dir.join("steamapps").join("libraryfolders.vdf");
+    let text = fs::read_to_string(&vdf).map_err(|e| format!("не удалось прочитать libraryfolders.vdf: {e}"))?;
+    // Следующий номер записи: на 1 больше самого большого.
+    let mut next = 0u32;
+    let mut depth = 0;
+    for line in text.lines() {
+        let t = line.trim();
+        match t {
+            "{" => depth += 1,
+            "}" => depth -= 1,
+            _ => {
+                if depth == 1 {
+                    if let Some(k) = t.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+                        if let Ok(i) = k.parse::<u32>() {
+                            next = next.max(i + 1);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let esc = folder.to_string_lossy().replace('\\', "\\\\");
+    let entry = format!(
+        "\t\"{next}\"\n\t{{\n\t\t\"path\"\t\t\"{esc}\"\n\t\t\"label\"\t\t\"\"\n\t\t\"contentid\"\t\t\"{contentid}\"\n\t\t\"totalsize\"\t\t\"0\"\n\t\t\"update_clean_bytes_tally\"\t\t\"0\"\n\t\t\"time_last_update_verified\"\t\t\"0\"\n\t\t\"apps\"\n\t\t{{\n\t\t}}\n\t}}\n"
+    );
+    // Вставить перед последней «}» файла.
+    let end = text.rfind('}').ok_or("libraryfolders.vdf поврежден")?;
+    let mut body = String::with_capacity(text.len() + entry.len());
+    body.push_str(text[..end].trim_end_matches(['\r', '\n']));
+    body.push('\n');
+    body.push_str(&entry);
+    body.push_str(&text[end..]);
+    let backup = vdf.with_extension("vdf.vaporust.bak");
+    if !backup.exists() {
+        let _ = fs::copy(&vdf, &backup);
+    }
+    let tmp = vdf.with_extension("vdf.tmp");
+    fs::write(&tmp, body).map_err(|e| format!("не удалось записать libraryfolders.vdf: {e}"))?;
+    fs::rename(&tmp, &vdf).map_err(|e| format!("не удалось записать libraryfolders.vdf: {e}"))?;
+    Ok(folder.to_path_buf())
+}
+
+#[cfg(test)]
+mod add_library_tests {
+    use super::*;
+
+    #[test]
+    fn adds_entry() {
+        let root = std::env::temp_dir().join(format!("vaporust_addlib_{}", std::process::id()));
+        let steam = root.join("Steam");
+        fs::create_dir_all(steam.join("steamapps")).unwrap();
+        fs::write(
+            steam.join("steamapps").join("libraryfolders.vdf"),
+            "\"libraryfolders\"\n{\n\t\"0\"\n\t{\n\t\t\"path\"\t\t\"c:\\steam\"\n\t\t\"apps\"\n\t\t{\n\t\t\t\"70\"\t\t\"1\"\n\t\t}\n\t}\n}\n",
+        )
+        .unwrap();
+        let lib = root.join("Новая библиотека");
+        add_library(&steam, &lib).unwrap();
+        assert!(lib.join("steamapps").is_dir());
+        assert!(lib.join("libraryfolder.vdf").is_file());
+        let dirs = library_dirs(&steam);
+        assert!(dirs.iter().any(|d| norm(d).trim_end_matches('\\') == norm(&lib).trim_end_matches('\\')), "{dirs:?}");
+        let t = fs::read_to_string(steam.join("steamapps").join("libraryfolders.vdf")).unwrap();
+        assert!(t.contains("\t\"1\"\n\t{"), "{t}");
+        assert!(t.trim_end().ends_with('}'));
+        // Повтор - отказ; внутри другой библиотеки - отказ.
+        assert!(add_library(&steam, &lib).is_err());
+        assert!(add_library(&steam, &lib.join("steamapps").join("x")).is_err());
+        fs::remove_dir_all(&root).unwrap();
+    }
+}
+
+/// Очистить временные файлы загрузок Steam (appcache\httpcache): помогает, когда загрузки
+/// Steam зависают. Скачанные игры и недокачанные загрузки не трогаются. Только при закрытом Steam.
+/// Возвращает, сколько байт освобождено.
+pub fn clear_download_cache(steam_dir: &Path) -> Result<u64, String> {
+    let dir = steam_dir.join("appcache").join("httpcache");
+    if !dir.is_dir() {
+        return Ok(0);
+    }
+    let size = dir_size(&dir);
+    for e in fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
+        let p = e.path();
+        let r = if p.is_dir() { fs::remove_dir_all(&p) } else { fs::remove_file(&p) };
+        if let Err(err) = r {
+            return Err(format!("не удалось удалить {}: {err}", p.display()));
+        }
+    }
+    Ok(size.saturating_sub(dir_size(&dir)))
+}
+
+/// Регион загрузки, выбранный в настройках Steam (config.vdf: CellIDServerOverride), если задан.
+pub fn steam_cell_override(steam_dir: &Path) -> Option<u32> {
+    let t = std::fs::read_to_string(steam_dir.join("config").join("config.vdf")).ok()?;
+    let line = t.lines().find(|l| l.contains("\"CellIDServerOverride\""))?;
+    let v = line.split('"').nth(3)?.trim().parse::<u32>().ok()?;
+    (v > 0).then_some(v)
+}
+
+/// Папка временной библиотеки для загрузок при открытом Steam (Steam ее не видит: ее нет в
+/// libraryfolders.vdf). Лежит в той же библиотеке, чтобы перенос был простым переименованием.
+pub fn staging_dir(library: &Path) -> PathBuf {
+    library.join("VaporustStaging")
+}
+
+/// Докачанную во временной библиотеке игру перенести в настоящую: папку common\<игра> и
+/// appmanifest (переименованием, на том же диске). Steam увидит готовую игру.
+pub fn unstage(library: &Path, appid: u32) -> Result<(), String> {
+    let staging = staging_dir(library);
+    let acf = staging.join("steamapps").join(format!("appmanifest_{appid}.acf"));
+    let installdir = acf_top(&acf, "installdir").ok_or("во временной папке нет appmanifest")?;
+    if installdir.is_empty() || installdir.contains("..") || installdir.contains(['\\', '/']) {
+        return Err("странное имя папки игры".into());
+    }
+    let from = staging.join("steamapps").join("common").join(&installdir);
+    let to = library.join("steamapps").join("common").join(&installdir);
+    if to.exists() {
+        return Err(format!("папка {} уже есть в библиотеке", to.display()));
+    }
+    fs::create_dir_all(library.join("steamapps").join("common")).map_err(|e| e.to_string())?;
+    if from.exists() {
+        fs::rename(&from, &to).map_err(|e| format!("перенос папки игры: {e}"))?;
+    }
+    let acf_to = library.join("steamapps").join(format!("appmanifest_{appid}.acf"));
+    fs::rename(&acf, &acf_to).map_err(|e| format!("перенос appmanifest: {e}"))?;
+    let _ = fs::remove_dir_all(staging.join("steamapps").join("downloading").join(appid.to_string()));
+    // Пустая временная библиотека больше не нужна.
+    let left = fs::read_dir(staging.join("steamapps").join("common")).map(|mut d| d.next().is_none()).unwrap_or(true);
+    let acfs = fs::read_dir(staging.join("steamapps"))
+        .map(|d| d.flatten().any(|e| e.file_name().to_string_lossy().starts_with("appmanifest_")))
+        .unwrap_or(false);
+    if left && !acfs {
+        let _ = fs::remove_dir_all(&staging);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod staging_tests {
+    #[test]
+    fn unstage_moves_game() {
+        let lib = std::env::temp_dir().join(format!("vaporust_stage_{}", std::process::id()));
+        let st = super::staging_dir(&lib).join("steamapps");
+        std::fs::create_dir_all(st.join("common").join("Игра")).unwrap();
+        std::fs::write(st.join("common").join("Игра").join("game.exe"), b"x").unwrap();
+        std::fs::write(st.join("appmanifest_60.acf"), "\"AppState\"\n{\n\t\"appid\"\t\t\"60\"\n\t\"installdir\"\t\t\"Игра\"\n}\n").unwrap();
+        super::unstage(&lib, 60).unwrap();
+        assert!(lib.join("steamapps").join("common").join("Игра").join("game.exe").exists());
+        assert!(lib.join("steamapps").join("appmanifest_60.acf").exists());
+        assert!(!super::staging_dir(&lib).exists(), "пустая временная папка удалена");
+        let _ = std::fs::remove_dir_all(&lib);
+    }
+}
+
+/// Недокачанную игру Vaporust из библиотеки - во временную папку (чтобы докачать при открытом Steam):
+/// appmanifest (или спрятанный .acf.vaporust-paused), папку common\<игра> и steamapps\downloading\<appid>.
+pub fn to_staging(library: &Path, appid: u32) -> Result<(), String> {
+    let apps = library.join("steamapps");
+    let st = staging_dir(library).join("steamapps");
+    fs::create_dir_all(st.join("common")).map_err(|e| e.to_string())?;
+    let acf = apps.join(format!("appmanifest_{appid}.acf"));
+    let paused = apps.join(format!("appmanifest_{appid}.acf.vaporust-paused"));
+    let src = if acf.exists() { acf } else if paused.exists() { paused } else { return Err("нет appmanifest игры".into()) };
+    let installdir = acf_top(&src, "installdir").unwrap_or_default();
+    if installdir.is_empty() || installdir.contains("..") || installdir.contains(['\\', '/']) {
+        return Err("странное имя папки игры".into());
+    }
+    let from = apps.join("common").join(&installdir);
+    let to = st.join("common").join(&installdir);
+    if from.exists() {
+        if to.exists() {
+            return Err(format!("во временной папке уже есть {}", to.display()));
+        }
+        fs::rename(&from, &to).map_err(|e| format!("перенос папки игры: {e}"))?;
+    }
+    let dl = apps.join("downloading").join(appid.to_string());
+    if dl.exists() {
+        let _ = fs::create_dir_all(st.join("downloading"));
+        let _ = fs::rename(&dl, st.join("downloading").join(appid.to_string()));
+    }
+    fs::rename(&src, st.join(format!("appmanifest_{appid}.acf"))).map_err(|e| format!("перенос appmanifest: {e}"))?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod to_staging_tests {
+    #[test]
+    fn move_partial_to_staging_and_back() {
+        let lib = std::env::temp_dir().join(format!("vaporust_tostage_{}", std::process::id()));
+        let apps = lib.join("steamapps");
+        std::fs::create_dir_all(apps.join("common").join("Игра")).unwrap();
+        std::fs::write(apps.join("common").join("Игра").join("a.bin"), b"x").unwrap();
+        std::fs::write(apps.join("appmanifest_60.acf.vaporust-paused"), "\"AppState\"\n{\n\t\"installdir\"\t\t\"Игра\"\n}\n").unwrap();
+        super::to_staging(&lib, 60).unwrap();
+        let st = super::staging_dir(&lib).join("steamapps");
+        assert!(st.join("common").join("Игра").join("a.bin").exists());
+        assert!(st.join("appmanifest_60.acf").exists());
+        assert!(!apps.join("common").join("Игра").exists());
+        super::unstage(&lib, 60).unwrap();
+        assert!(apps.join("common").join("Игра").join("a.bin").exists());
+        let _ = std::fs::remove_dir_all(&lib);
     }
 }

@@ -35,6 +35,8 @@ const STEPS: &[(&str, f64)] = &[
     ("downloads", 3.0),
     ("profile", 8.0),
     ("friends", 5.0),
+    ("store_home", 10.0),
+    ("cart", 5.0),
     ("store_search", 8.0),
     ("store_deals", 8.0),
     ("store_charts", 8.0),
@@ -42,7 +44,15 @@ const STEPS: &[(&str, f64)] = &[
     ("store_wishlist", 8.0),
     ("store_page", 9.0),
     ("store_page_scrolled", 3.0),
+    ("profile_edit", 6.0),
+    ("profile_edit_privacy", 2.0),
+    ("friends_coplay", 6.0),
+    ("achievements", 6.0),
+    ("props", 6.0),
+    ("music", 3.0),
+    ("workshop_collections", 8.0),
     ("inventory", 8.0),
+    ("inventory_sell", 10.0),
     ("news", 10.0),
     ("activity", 8.0),
     ("groups", 5.0),
@@ -114,6 +124,11 @@ impl LauncherApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot);
             return;
         }
+        // VAPORUST_TOUR_STEPS=inventory,inventory_sell - только эти шаги (по началу имени).
+        let only: Vec<String> = std::env::var("VAPORUST_TOUR_STEPS").map(|v| v.split(',').map(|x| x.trim().to_string()).collect()).unwrap_or_default();
+        while !only.is_empty() && STEPS.get(t.step).is_some_and(|(n, _)| !only.iter().any(|o| n.starts_with(o.as_str()))) {
+            t.step += 1;
+        }
         let Some(&(name, wait)) = STEPS.get(t.step) else {
             let _ = std::fs::write(t.dir.join("done.txt"), "ok");
             self.tour = None;
@@ -182,6 +197,32 @@ impl LauncherApp {
                 }
                 let _ = self.tx.send(crate::net::Cmd::Store(crate::store::StoreCmd::Search("portal".into())));
             }
+            "store_home" => store_tab(self, Tab::Home),
+            "cart" => self.open_cart(),
+            "profile_edit" => self.open_profile_edit(),
+            "profile_edit_privacy" => self.edit_ui.tab = 2,
+            "friends_coplay" => self.open_friends_page(3),
+            "achievements" => {
+                if let Some((id, n)) = game.clone() {
+                    let _ = self.tx.send(crate::net::Cmd::Achievements(id));
+                    self.close_extras(View::Achievements);
+                    self.ach_open = Some((id, n));
+                    self.view = View::Achievements;
+                }
+            }
+            "props" => {
+                if let Some((id, n)) = game.clone() {
+                    self.open_props(id, n);
+                }
+            }
+            "music" => self.open_music(),
+            "workshop_collections" => {
+                if let Some((id, n)) = game.clone() {
+                    self.open_workshop(id, n, false);
+                    self.ws_ui.item = None;
+                    self.ws_ui.collections = true;
+                }
+            }
             "store_deals" => store_tab(self, Tab::Deals),
             "store_charts" => store_tab(self, Tab::Charts),
             "store_discovery" => store_tab(self, Tab::Discovery),
@@ -189,6 +230,17 @@ impl LauncherApp {
             "store_page" => self.open_store(Some(620), false),
             "store_page_scrolled" => crate::storewin::TOUR_SCROLL.store(1400, std::sync::atomic::Ordering::Relaxed),
             "inventory" => self.open_inventory(false),
+            "inventory_sell" => {
+                // Первый продаваемый предмет загруженного инвентаря (ничего не продаем - только показываем блок).
+                let inv = net.inv.lock().unwrap();
+                let pick = inv.items.iter().find_map(|((app, _), r)| {
+                    r.as_ref().ok()?.iter().find(|i| i.marketable).map(|i| (*app, i.class_id.clone()))
+                });
+                drop(inv);
+                if let (Some((app, class)), Some(w)) = (pick, self.inv_win.as_mut()) {
+                    w.tour_select(app, class);
+                }
+            }
             "news" => {
                 self.close_extras(View::News);
                 self.view = View::News;

@@ -35,6 +35,10 @@ pub struct Extras {
     pub similar: Option<Vec<u32>>,
     /// Системные требования (Windows): минимальные и рекомендуемые, текстом.
     pub requirements: Option<(String, String)>,
+    /// Ссылка на трейлер (видео, открывается в браузере), жанры и страница поддержки игры.
+    pub trailer: Option<String>,
+    pub genres: Vec<String>,
+    pub support: Option<String>,
     /// Отзывы со страницы сообщества (подгружаются по кнопке).
     pub reviews: Option<Reviews>,
 }
@@ -98,6 +102,8 @@ pub struct StoreState {
     /// Скидки на игры из списка желаемого (для уведомлений); растет sales_gen при каждой проверке.
     pub sales: Vec<Sale>,
     pub sales_gen: u64,
+    /// Список желаемого при последней проверке: (appid, название, еще не вышла).
+    pub wish_status: Vec<(u32, String, bool)>,
     /// Отзывы по ссылке: полный текст и номер; итог оценки.
     pub review_full: HashMap<String, Result<(String, u64, String), String>>,
     /// Свои оценки отзывов в этом сеансе: ссылка -> 0 полезен, 1 бесполезен, 2 забавный.
@@ -105,8 +111,14 @@ pub struct StoreState {
     pub review_vote: HashMap<String, String>,
     /// Чарты: номер -> (appid, пометка).
     pub charts: HashMap<u8, Result<Vec<(u32, String)>, String>>,
+    /// Игры, скрытые из рекомендаций («Не интересует»); None - список еще не загружен.
+    pub ignored: Option<HashSet<u32>>,
     /// Очередь открытий.
     pub discovery: Option<Result<Vec<u32>, String>>,
+    /// Названия пакетов (корзина).
+    pub package_names: HashMap<u32, String>,
+    /// Кураторы с обзором игры.
+    pub curators: HashMap<u32, Result<Vec<crate::actions::Curator>, String>>,
 }
 
 /// Игра из списка желаемого со скидкой.
@@ -141,6 +153,8 @@ pub enum StoreCmd {
     ReviewVote { url: String, kind: u8 },
     /// Подробности для этих игр (лениво, для видимых в списке).
     Details(Vec<u32>),
+    /// Название пакета (для корзины).
+    PackageName(u32),
     /// Страница игры: подробности + онлайн, новости, отзывы, похожие.
     Page(u32),
     /// Добавить в список желаемого (true) или убрать.
@@ -151,6 +165,10 @@ pub enum StoreCmd {
     Charts(u8),
     /// Очередь открытий: отметить просмотренными `skip`, `rebuild` - собрать новую.
     Discovery { rebuild: bool, skip: Vec<u32> },
+    /// «Не интересует»: скрыть игру из рекомендаций магазина (true) или вернуть.
+    Ignore(u32, bool),
+    /// Какие игры уже скрыты из рекомендаций (один раз за сеанс).
+    IgnoredList,
 }
 
 /// Русское название вида события Steam (MarketingMessage).
@@ -291,8 +309,13 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                 st.lock().unwrap().events = Some(res);
             }
             StoreCmd::Wishlist => {
+                // Порядок как в Steam («по вашему предпочтению»): сначала игры с местом (priority 1, 2...),
+                // остальные - по дате добавления, старые первыми. Не вышло - список Aurelia.
                 let res = match c.my_steam_id() {
-                    Some(me) => c.wishlist(me).await.map(|w| w.into_iter().map(|e| e.app_id).collect()).map_err(err),
+                    Some(me) => match wishlist_ranked(&c, me).await {
+                        Ok(v) => Ok(v),
+                        Err(_) => c.wishlist(me).await.map(|w| w.into_iter().map(|e| e.app_id).collect()).map_err(err),
+                    },
                     None => Err("нет входа в Steam".into()),
                 };
                 st.lock().unwrap().wishlist = Some(res);
@@ -303,10 +326,12 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                 let ids: Vec<u32> = list.into_iter().map(|e| e.app_id).collect();
                 let cc = country(&c, &st).await;
                 let mut sales = Vec::new();
+                let mut status = Vec::new();
                 // Свежие цены (без кэша страницы магазина): скидки меняются.
                 for chunk in ids.chunks(50) {
                     if let Ok(apps) = c.fetch_store_apps(chunk, LANG, &cc).await {
                         for a in apps {
+                            status.push((a.app_id, a.name.clone(), a.coming_soon));
                             if a.discount_pct > 0 {
                                 sales.push(Sale {
                                     appid: a.app_id,
@@ -321,6 +346,7 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                 }
                 let mut s = st.lock().unwrap();
                 s.sales = sales;
+                s.wish_status = status;
                 s.sales_gen += 1;
                 drop(s);
                 ctx.request_repaint();
@@ -342,6 +368,12 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                 ctx.request_repaint();
             }
             StoreCmd::Details(ids) => load_details(&c, ids, &st, &ctx).await,
+            StoreCmd::PackageName(id) => {
+                if let Ok(name) = package_name(id).await {
+                    st.lock().unwrap().package_names.insert(id, name);
+                    ctx.request_repaint();
+                }
+            }
             StoreCmd::Page(appid) => {
                 st.lock().unwrap().extras.entry(appid).or_default();
                 ctx.request_repaint();
@@ -368,8 +400,13 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                 };
                 st.lock().unwrap().extras.entry(appid).or_default().news = Some(news);
                 // Системные требования - из открытого API магазина (api/appdetails), по-русски.
-                if let Some(req) = fetch_requirements(appid).await {
-                    st.lock().unwrap().extras.entry(appid).or_default().requirements = Some(req);
+                if let Some(d) = fetch_appdetails(appid).await {
+                    let mut s = st.lock().unwrap();
+                    let e = s.extras.entry(appid).or_default();
+                    e.requirements = d.requirements;
+                    e.trailer = d.trailer;
+                    e.genres = d.genres;
+                    e.support = d.support;
                 }
                 ctx.request_repaint();
             }
@@ -446,6 +483,27 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                         }
                     }
                     Err(e) => s.error = Some(format!("Список желаемого не изменен: {}", err(e))),
+                }
+            }
+            StoreCmd::Ignore(appid, on) => {
+                let res = ignore(&c, appid, on).await;
+                let mut s = st.lock().unwrap();
+                match res {
+                    Ok(()) => {
+                        s.error = None;
+                        let set = s.ignored.get_or_insert_with(Default::default);
+                        if on {
+                            set.insert(appid);
+                        } else {
+                            set.remove(&appid);
+                        }
+                    }
+                    Err(e) => s.error = Some(format!("Не удалось: {e}")),
+                }
+            }
+            StoreCmd::IgnoredList => {
+                if let Ok(set) = ignored_list(&c).await {
+                    st.lock().unwrap().ignored = Some(set);
                 }
             }
             StoreCmd::Country(cc) => {
@@ -654,17 +712,46 @@ mod events_live {
     }
 }
 
-/// Системные требования для Windows (минимальные, рекомендуемые) из store.steampowered.com/api/appdetails.
-async fn fetch_requirements(appid: u32) -> Option<(String, String)> {
+/// Сведения из открытого API магазина (store.steampowered.com/api/appdetails), по-русски.
+#[derive(Default)]
+struct AppDetails {
+    requirements: Option<(String, String)>,
+    trailer: Option<String>,
+    genres: Vec<String>,
+    support: Option<String>,
+}
+
+async fn fetch_appdetails(appid: u32) -> Option<AppDetails> {
     let http = aurelia::core::net::steam_web_client().ok()?;
     let url = format!("https://store.steampowered.com/api/appdetails?appids={appid}&l=russian");
     let text = http.get(url).send().await.ok()?.text().await.ok()?;
     let v: serde_json::Value = serde_json::from_str(&text).ok()?;
-    let req = v.get(appid.to_string())?.get("data")?.get("pc_requirements")?;
-    // Нет требований - Steam присылает пустой массив вместо объекта.
+    Some(parse_appdetails(&v, appid))
+}
+
+fn parse_appdetails(v: &serde_json::Value, appid: u32) -> AppDetails {
+    let Some(data) = v.get(appid.to_string()).and_then(|a| a.get("data")) else { return AppDetails::default() };
+    // Системные требования для Windows. Нет требований - Steam присылает пустой массив вместо объекта.
+    let req = &data["pc_requirements"];
     let get = |k: &str| req.get(k).and_then(|x| x.as_str()).map(plain_text).unwrap_or_default();
     let (min, rec) = (get("minimum"), get("recommended"));
-    (!min.is_empty() || !rec.is_empty()).then_some((min, rec))
+    // Трейлер: первое видео, ссылка на файл (mp4 или webm), иначе потоковая (hls).
+    let trailer = data["movies"].as_array().and_then(|m| m.first()).and_then(|m| {
+        [&m["mp4"]["max"], &m["webm"]["max"], &m["hls_h264"], &m["dash_h264"]]
+            .into_iter()
+            .find_map(|x| x.as_str().filter(|s| s.starts_with("http")).map(str::to_string))
+    });
+    let genres = data["genres"]
+        .as_array()
+        .map(|g| g.iter().filter_map(|x| x["description"].as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    let support = data["support_info"]["url"].as_str().filter(|s| s.starts_with("http")).map(str::to_string);
+    AppDetails {
+        requirements: (!min.is_empty() || !rec.is_empty()).then_some((min, rec)),
+        trailer,
+        genres,
+        support,
+    }
 }
 
 /// Порядок отзывов, как на сайте Steam: (browsefilter, подпись).
@@ -1093,4 +1180,95 @@ mod unglue_tests {
         assert_eq!(super::unglue("U.S.A version 1.2"), "U.S.A version 1.2");
         assert_eq!(super::unglue("Готово.Дальше"), "Готово. Дальше");
     }
+}
+
+/// «Не интересует» в магазине Steam: скрыть игру из рекомендаций (on) или вернуть.
+async fn ignore(c: &SteamClient, appid: u32, on: bool) -> Result<(), String> {
+    let web = crate::webapi::web_session(c).await?;
+    let fields = [
+        ("sessionid", web.sessionid().to_string()),
+        ("appid", appid.to_string()),
+        ("remove", if on { "0" } else { "1" }.to_string()),
+        ("snr", "1_5_9__403".to_string()),
+    ];
+    match web
+        .post_form(
+            "https://store.steampowered.com/recommended/ignorerecommendation/",
+            &fields,
+            &format!("https://store.steampowered.com/app/{appid}/"),
+        )
+        .await
+    {
+        Ok((200, _)) => Ok(()),
+        Ok((status, _)) => Err(format!("Steam ответил кодом {status}")),
+        Err(e) => Err(format!("нет связи со Steam: {e:#}")),
+    }
+}
+
+/// Игры, скрытые из рекомендаций: dynamicstore/userdata (rgIgnoredApps).
+async fn ignored_list(c: &SteamClient) -> Result<HashSet<u32>, String> {
+    let web = crate::webapi::web_session(c).await?;
+    let text = web
+        .get_text("https://store.steampowered.com/dynamicstore/userdata/")
+        .await
+        .map_err(|e| format!("{e:#}"))?;
+    let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    Ok(parse_ignored(&v))
+}
+
+fn parse_ignored(v: &serde_json::Value) -> HashSet<u32> {
+    // rgIgnoredApps бывает объектом {"appid": 0} или массивом.
+    match &v["rgIgnoredApps"] {
+        serde_json::Value::Object(m) => m.keys().filter_map(|k| k.parse().ok()).collect(),
+        serde_json::Value::Array(a) => a.iter().filter_map(|x| x.as_u64().map(|n| n as u32)).collect(),
+        _ => HashSet::new(),
+    }
+}
+
+#[cfg(test)]
+mod ignored_tests {
+    #[test]
+    fn parses_both_forms() {
+        let v: serde_json::Value = serde_json::from_str(r#"{"rgIgnoredApps":{"10":0,"20":0}}"#).unwrap();
+        assert_eq!(super::parse_ignored(&v).len(), 2);
+        let v: serde_json::Value = serde_json::from_str(r#"{"rgIgnoredApps":[30]}"#).unwrap();
+        assert!(super::parse_ignored(&v).contains(&30));
+    }
+
+    #[test]
+    fn appdetails_extras() {
+        let v: serde_json::Value = serde_json::from_str(
+            r#"{"70":{"success":true,"data":{"pc_requirements":[],"genres":[{"id":"1","description":"Экшены"}],
+            "support_info":{"url":"https://help.example.com","email":""},
+            "movies":[{"id":1,"mp4":{"480":"http://x/480.mp4","max":"http://x/max.mp4"}}]}}}"#,
+        )
+        .unwrap();
+        let d = super::parse_appdetails(&v, 70);
+        assert_eq!(d.genres, vec!["Экшены"]);
+        assert_eq!(d.trailer.as_deref(), Some("http://x/max.mp4"));
+        assert_eq!(d.support.as_deref(), Some("https://help.example.com"));
+        assert!(d.requirements.is_none());
+    }
+}
+
+/// Название пакета магазина (packagedetails, без входа).
+async fn package_name(id: u32) -> Result<String, String> {
+    let http = aurelia::core::net::steam_web_client().map_err(|e| format!("{e:#}"))?;
+    let url = format!("https://store.steampowered.com/api/packagedetails?packageids={id}&l=russian");
+    let v: serde_json::Value = http.get(url).send().await.map_err(|e| format!("{e:#}"))?.json().await.map_err(|e| format!("{e:#}"))?;
+    v[id.to_string()]["data"]["name"].as_str().map(String::from).ok_or_else(|| "нет данных".into())
+}
+
+/// Список желаемого в порядке Steam: (priority > 0 по возрастанию), затем по дате добавления.
+pub async fn wishlist_ranked(c: &SteamClient, me: u64) -> Result<Vec<u32>, String> {
+    let v = crate::webapi::get(c, "IWishlistService/GetWishlist/v1", &[("steamid", me.to_string())]).await?;
+    let num = |x: &serde_json::Value| x.as_u64().or_else(|| x.as_str()?.parse().ok()).unwrap_or(0);
+    let mut items: Vec<(u64, u64, u32)> = v["items"]
+        .as_array()
+        .ok_or("нет списка")?
+        .iter()
+        .map(|i| (num(&i["priority"]), num(&i["date_added"]), num(&i["appid"]) as u32))
+        .collect();
+    items.sort_by_key(|(p, d, _)| (*p == 0, *p, *d));
+    Ok(items.into_iter().map(|(_, _, a)| a).collect())
 }

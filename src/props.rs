@@ -157,32 +157,13 @@ impl LauncherApp {
             restore_confirm: None,
         });
         let _ = self.tx.send(Cmd::LoadProps(appid));
+        // Свойства - страница главного окна (как в Steam: «Свойства» открываются поверх библиотеки).
+        self.close_extras(crate::View::Props);
+        self.view = crate::View::Props;
     }
 
-    pub(crate) fn props_window(&mut self, ctx: &egui::Context, net: &NetState) {
-        let Some(title) = self.props.as_ref().map(|p| format!("Свойства: {}", p.name)) else {
-            return;
-        };
-        let closed = ctx.show_viewport_immediate(
-            egui::ViewportId::from_hash_of("vaporust_props"),
-            egui::ViewportBuilder::default()
-                .with_title(title)
-                .with_inner_size([680.0, 500.0])
-                .with_min_inner_size([520.0, 360.0])
-                .with_icon(crate::icons::icon(crate::icons::Kind::Launcher))
-                .with_decorations(crate::winframe::system()),
-            |ctx, _class| {
-                crate::winframe::title_bar_auto(ctx);
-                self.props_contents(ctx, net);
-                ctx.input(|i| i.viewport().close_requested())
-            },
-        );
-        if closed {
-            self.props = None;
-        }
-    }
-
-    fn props_contents(&mut self, ctx: &egui::Context, net: &NetState) {
+    pub(crate) fn props_contents(&mut self, ui: &mut egui::Ui, net: &NetState) {
+        let ctx = &ui.ctx().clone();
         let steam_running = self.steam_running();
         let busy = self.launching.load(Ordering::Relaxed) || self.closing.load(Ordering::Relaxed);
         let op_active = net.install.as_ref().is_some_and(|i| i.active());
@@ -202,11 +183,16 @@ impl LauncherApp {
         let logged_in = net.account.is_some();
         let my_id = net.my_id;
         let steam_dir = self.steam.as_ref().map(|s| s.dir.clone());
+        let mut back = false;
 
         egui::SidePanel::left("props_tabs")
             .resizable(false)
             .exact_width(150.0)
-            .show(ctx, |ui| {
+            .show_inside(ui, |ui| {
+                ui.add_space(6.0);
+                if ui.button("< К игре").clicked() {
+                    back = true;
+                }
                 ui.add_space(6.0);
                 for (tab, label) in [
                     (Tab::General, "Общие"),
@@ -222,12 +208,12 @@ impl LauncherApp {
 
         // Нижняя строка: результат последнего действия (панели объявляются до центральной).
         if let Some(n) = &w.note {
-            egui::TopBottomPanel::bottom("props_note").show(ctx, |ui| {
+            egui::TopBottomPanel::bottom("props_note").show_inside(ui, |ui| {
                 ui.colored_label(GREEN, n);
             });
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.heading(&w.name);
             if steam_running {
                 ui.horizontal(|ui| {
@@ -285,6 +271,37 @@ impl LauncherApp {
                             w.launch_text = w.launch_saved.clone();
                         }
                     });
+
+                    // Автообновление этой игры (поле AutoUpdateBehavior в appmanifest, как в
+                    // «Свойства -> Обновления» Steam). Менять - только при закрытом Steam.
+                    ui.add_space(12.0);
+                    ui.strong("Обновления");
+                    let cur: u8 = local::acf_top(&acf_path, "AutoUpdateBehavior").and_then(|v| v.parse().ok()).unwrap_or(0);
+                    let names = [
+                        (0u8, "Всегда обновлять эту игру"),
+                        (1, "Обновлять только при запуске"),
+                        (2, "Высокий приоритет (обновлять раньше других)"),
+                    ];
+                    let mut pick = cur;
+                    ui.add_enabled_ui(!locked, |ui| {
+                        egui::ComboBox::from_id_salt("auto_update")
+                            .width(320.0)
+                            .selected_text(names.iter().find(|n| n.0 == cur).map_or("Всегда обновлять эту игру", |n| n.1))
+                            .show_ui(ui, |ui| {
+                                for (v, l) in names {
+                                    ui.selectable_value(&mut pick, v, l);
+                                }
+                            });
+                    })
+                    .response
+                    .on_disabled_hover_text("Сначала закройте Steam");
+                    if pick != cur {
+                        w.note = Some(match local::set_acf_top(&acf_path, "AutoUpdateBehavior", &pick.to_string()) {
+                            Ok(()) => "Настройка обновлений сохранена.".into(),
+                            Err(e) => e,
+                        });
+                    }
+                    ui.weak("Так же, как в Steam. Vaporust сам игры в фоне не обновляет: кнопка «Обновить» появляется, когда обновление есть.");
 
                     ui.add_space(12.0);
                     ui.strong("Запуск без Steam");
@@ -993,6 +1010,12 @@ impl LauncherApp {
         }
         if do_update_smart {
             self.start_update(appid, ctx);
+        }
+        if back {
+            self.props = None;
+            self.view = crate::View::Library;
+            self.lib_page = Some(appid);
+            return;
         }
         if let Some(on) = pin_action {
             let res = if on { self.pin_game(appid) } else { self.unpin_game(appid) };

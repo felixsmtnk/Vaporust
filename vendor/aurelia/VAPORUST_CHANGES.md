@@ -64,3 +64,11 @@
   без имени); адрес значка группы `{sha}_64.jpg` (как в клиенте Steam; `_medium.jpg` давал 404).
 - `steam_client/friends.rs`: поле `Friend.avatar_hash` (хэш аватара в hex) из `CMsgClientPersonaState`
   - для аватарок в списке друзей.
+- `steam_client/friends.rs`: `Friend.nickname` (свой ник для друга из `CMsgClientPlayerNicknameList`, разбирается
+  вместе со списком друзей сразу после входа, `apply_nicknames`) и `Friend.rich_status` (текст "status" из rich
+  presence игры); `PERSONA_REQUEST_FLAGS` дополнен флагом 4096 (rich presence).
+- `web/web_session.rs`: `post_raw` (POST готового тела - JSON, multipart - с заголовками) и `get_raw` (GET с
+  заголовками, например `x-valve-action-type` для новых страниц площадки).
+- `steam_client/content.rs`: `CELL_OVERRIDE` (регион загрузки, выбранный пользователем; 0 - как назначил Steam),
+  вынесен в `pub use`.
+- `steam_client/vaporust_chat.rs`: `HistoryMessage.reactions` (реакции на сообщения из истории переписки).

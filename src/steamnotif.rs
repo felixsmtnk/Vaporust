@@ -243,7 +243,8 @@ impl LauncherApp {
             let _ = self.tx.send(Cmd::NotifIcons(invs.into_iter().collect()));
         }
         // Колокольчик, как в Steam: число непрочитанных - красным кружком.
-        let bell = egui::Button::new("").frame(false).min_size(egui::vec2(34.0, 26.0));
+        // Ячейка как у кнопок окна рядом (46x34), тонкая линия, подсветка при наведении.
+        let bell = egui::Button::new("").frame(false).min_size(egui::vec2(46.0, 34.0));
         let bell_resp = egui::menu::menu_custom_button(ui, bell, |ui| {
             ui.set_min_width(340.0);
             ui.horizontal(|ui| {
@@ -320,7 +321,10 @@ impl LauncherApp {
             });
         });
         let r = bell_resp.response.rect;
-        draw_bell(ui.painter(), r, if bell_resp.response.hovered() { egui::Color32::WHITE } else { crate::theme::TEXT }, ns.unread);
+        if bell_resp.response.hovered() {
+            ui.painter().rect_filled(r, 0.0, ui.visuals().widgets.hovered.weak_bg_fill);
+        }
+        draw_bell(ui.painter(), r, ui.visuals().text_color(), ns.unread);
         bell_resp.response.on_hover_text(label);
         if mark {
             let _ = self.tx.send(Cmd::SteamNotifsRead);
@@ -380,24 +384,25 @@ mod tests {
 /// Значок колокольчика (рисуется линиями, без шрифта) и кружок с числом непрочитанных.
 fn draw_bell(p: &egui::Painter, r: egui::Rect, color: egui::Color32, unread: u32) {
     let c = r.center();
-    let s = egui::Stroke::new(1.6, color);
+    // Тонкой линией в 1 точку и того же размера, что значки «свернуть / закрыть» рядом.
+    let s = egui::Stroke::new(1.0, color);
     // Купол и юбка колокольчика.
     let mut pts = Vec::new();
     for i in 0..=12 {
         let a = std::f32::consts::PI * (1.0 + i as f32 / 12.0);
-        pts.push(egui::pos2(c.x + 5.0 * a.cos(), c.y - 2.0 + 5.0 * a.sin()));
+        pts.push(egui::pos2(c.x + 4.0 * a.cos(), c.y - 1.5 + 4.0 * a.sin()));
     }
-    pts.push(egui::pos2(c.x + 5.0, c.y + 3.0));
-    pts.push(egui::pos2(c.x + 7.0, c.y + 5.0));
-    pts.push(egui::pos2(c.x - 7.0, c.y + 5.0));
-    pts.push(egui::pos2(c.x - 5.0, c.y + 3.0));
+    pts.push(egui::pos2(c.x + 4.0, c.y + 2.5));
+    pts.push(egui::pos2(c.x + 5.5, c.y + 4.0));
+    pts.push(egui::pos2(c.x - 5.5, c.y + 4.0));
+    pts.push(egui::pos2(c.x - 4.0, c.y + 2.5));
     pts.push(pts[0]);
     p.add(egui::Shape::line(pts, s));
     // Язычок и ушко.
-    p.circle_filled(egui::pos2(c.x, c.y + 7.5), 1.6, color);
-    p.line_segment([egui::pos2(c.x, c.y - 7.0), egui::pos2(c.x, c.y - 8.5)], s);
+    p.line_segment([egui::pos2(c.x - 1.5, c.y + 5.5), egui::pos2(c.x + 1.5, c.y + 5.5)], s);
+    p.line_segment([egui::pos2(c.x, c.y - 5.5), egui::pos2(c.x, c.y - 6.5)], s);
     if unread > 0 {
-        let b = egui::pos2(r.right() - 7.0, r.top() + 6.0);
+        let b = egui::pos2(c.x + 7.5, c.y - 6.0);
         let text = if unread > 9 { "9+".to_string() } else { unread.to_string() };
         p.circle_filled(b, 6.5, egui::Color32::from_rgb(200, 60, 50));
         p.text(b, egui::Align2::CENTER_CENTER, text, egui::FontId::proportional(9.5), egui::Color32::WHITE);

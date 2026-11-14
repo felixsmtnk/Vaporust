@@ -68,6 +68,39 @@ fn note(ui: &mut egui::Ui, text: &str) {
 }
 
 impl LauncherApp {
+    /// Масштаб интерфейса: настройка -> egui; Ctrl+плюс/минус (egui меняет сам) -> настройка.
+    pub(crate) fn zoom_tick(&mut self, ctx: &egui::Context) {
+        // Свои шаги масштаба вместо egui (у него шаг 10% без предела): Ctrl+плюс/минус - соседний
+        // шаг из настроек, Ctrl+0 - 100%.
+        ctx.options_mut(|o| o.zoom_with_keyboard = false);
+        let cur = SCALES.iter().position(|v| (v - self.settings.ui_scale).abs() < 0.01).unwrap_or(2);
+        let (plus, minus, reset) = ctx.input_mut(|i| {
+            let m = egui::Modifiers::COMMAND;
+            (
+                i.consume_key(m, egui::Key::Plus) || i.consume_key(m, egui::Key::Equals),
+                i.consume_key(m, egui::Key::Minus),
+                i.consume_key(m, egui::Key::Num0),
+            )
+        });
+        if plus {
+            self.settings.ui_scale = SCALES[(cur + 1).min(SCALES.len() - 1)];
+        } else if minus {
+            self.settings.ui_scale = SCALES[cur.saturating_sub(1)];
+        } else if reset {
+            self.settings.ui_scale = 1.0;
+        }
+        // Значение не из списка (старые настройки) - к ближайшему шагу.
+        if !SCALES.iter().any(|v| (v - self.settings.ui_scale).abs() < 0.01) {
+            let s = self.settings.ui_scale;
+            self.settings.ui_scale = *SCALES.iter().min_by(|a, b| (*a - s).abs().total_cmp(&(*b - s).abs())).unwrap_or(&1.0);
+        }
+        let want = self.settings.ui_scale;
+        if (want - ctx.zoom_factor()).abs() > 0.001 {
+            ctx.set_zoom_factor(want);
+            self.zoom_applied = want;
+        }
+    }
+
     /// Передать в Aurelia ограничение скорости загрузки и прокси.
     pub(crate) fn send_aurelia_config(&mut self) {
         let proxy = Some(self.settings.proxy.trim().to_string()).filter(|p| !p.is_empty());
@@ -226,6 +259,78 @@ impl LauncherApp {
                         }
                     });
                 });
+
+                // Лицензии и история покупок - как «Сведения об аккаунте» в Steam (только просмотр).
+                card(ui, "Аккаунт", |ui| {
+                    ui.add_space(6.0);
+                    ui.label(egui::RichText::new("Покупки").size(15.0).strong());
+                    let lic = egui::CollapsingHeader::new(match &net.licenses {
+                        Some(l) => format!("Мои лицензии ({})", l.len()),
+                        None => "Мои лицензии".to_string(),
+                    })
+                    .id_salt("licenses")
+                    .show(ui, |ui| {
+                        match &net.licenses {
+                            None => {
+                                crate::spin::spinner(ui);
+                            }
+                            Some(list) => {
+                                ui.add(egui::TextEdit::singleline(&mut self.lic_filter).hint_text("поиск").desired_width(260.0));
+                                let f = self.lic_filter.to_lowercase();
+                                egui::ScrollArea::vertical().id_salt("lic_scroll").max_height(320.0).show(ui, |ui| {
+                                    egui::Grid::new("lic_grid").num_columns(3).spacing([14.0, 3.0]).striped(true).show(ui, |ui| {
+                                        for l in list.iter().filter(|l| f.is_empty() || l.name.to_lowercase().contains(&f)) {
+                                            let when = chrono::DateTime::from_timestamp(l.date, 0)
+                                                .map(|t| t.format("%d.%m.%Y").to_string())
+                                                .unwrap_or_default();
+                                            ui.weak(when);
+                                            ui.label(&l.name);
+                                            ui.weak(match l.method.as_str() {
+                                                "Steam Store" => "магазин Steam",
+                                                "Complimentary" => "бесплатно",
+                                                "Gift/Guest Pass" => "подарок",
+                                                "Retail" => "ключ",
+                                                other => other,
+                                            });
+                                            ui.end_row();
+                                        }
+                                    });
+                                });
+                            }
+                        }
+                    });
+                    if lic.fully_open() && net.licenses.is_none() && !self.licenses_asked {
+                        self.licenses_asked = true;
+                        let _ = self.tx.send(Cmd::Licenses);
+                    }
+                    let hist = egui::CollapsingHeader::new("История покупок и кошелька").id_salt("wallet_hist").show(ui, |ui| {
+                        match &net.wallet_history {
+                            None => {
+                                crate::spin::spinner(ui);
+                            }
+                            Some(Err(e)) => {
+                                ui.label(format!("Не удалось загрузить: {e}"));
+                            }
+                            Some(Ok(rows)) => {
+                                egui::ScrollArea::vertical().id_salt("wallet_scroll").max_height(320.0).show(ui, |ui| {
+                                    egui::Grid::new("wallet_grid").num_columns(4).spacing([14.0, 3.0]).striped(true).show(ui, |ui| {
+                                        for r in rows {
+                                            ui.weak(&r.date);
+                                            ui.add(egui::Label::new(&r.items).truncate());
+                                            ui.weak(&r.kind);
+                                            ui.label(if r.change.is_empty() { &r.total } else { &r.change });
+                                            ui.end_row();
+                                        }
+                                    });
+                                });
+                            }
+                        }
+                    });
+                    if hist.fully_open() && net.wallet_history.is_none() && !self.wallet_asked {
+                        self.wallet_asked = true;
+                        let _ = self.tx.send(Cmd::WalletHistory);
+                    }
+                });
             }
 
             // ---------- Библиотека ----------
@@ -236,8 +341,13 @@ impl LauncherApp {
                 });
                 note(ui, "Плитка - обложки игр, список - компактные строки.");
 
-                row(ui, "Кнопка случайной игры", |ui| {
+                row(ui, "Сторонние игры", |ui| {
+                    ui.checkbox(&mut self.settings.custom_to_steam, "Добавлять и в Steam");
+                });
+                note(ui, "Новая сторонняя игра появится и в настоящем Steam (если Steam открыт - после его закрытия).");
+                row(ui, "Главная библиотеки", |ui| {
                     ui.checkbox(&mut self.settings.random_button, "Показывать «Во что поиграть?» над библиотекой");
+                    ui.checkbox(&mut self.settings.whats_new, "Показывать «Что нового» (новости своих игр) на главной");
                 });
 
                 row(ui, "Устанавливать новые игры в", |ui| {
@@ -263,11 +373,73 @@ impl LauncherApp {
                         }
                     }
                 });
-                note(ui, "Новую папку библиотеки пока можно добавить только в самом Steam (Настройки -> Хранилище).");
+                row(ui, "Папки библиотек", |ui| {
+                    let steam_open = self.steam_running();
+                    if ui
+                        .add_enabled(!steam_open && self.steam.is_some(), egui::Button::new("Добавить папку..."))
+                        .on_hover_text("Новая папка для игр, например на другом диске (как «Хранилище -> Добавить диск» в Steam)")
+                        .on_disabled_hover_text("Сначала закройте Steam")
+                        .clicked()
+                    {
+                        if let (Some(dir), Some(steam)) = (rfd::FileDialog::new().set_title("Папка для игр Steam").pick_folder(), self.steam.clone()) {
+                            let text = match local::add_library(&steam.dir, &dir) {
+                                Ok(p) => {
+                                    self.rescan();
+                                    if let Some(i) = self.libraries.iter().position(|l| local::pretty_path(l) == local::pretty_path(&p)) {
+                                        self.lib_idx = i;
+                                    }
+                                    format!("Папка библиотеки добавлена: {}", local::pretty_path(&p))
+                                }
+                                Err(e) => format!("Не удалось добавить папку библиотеки: {e}"),
+                            };
+                            *self.launch_status.lock().unwrap() = text;
+                        }
+                    }
+                });
+                note(ui, "Steam увидит новую папку при следующем запуске. Переносить игры между папками - в «Свойства» -> «Установленные файлы».");
             });
 
             // ---------- Загрузки ----------
             card(ui, "Загрузки", |ui| {
+                // Регион загрузки: номер «ячейки» серверов Steam (cell id). Steam хранит свой выбор в
+                // config.vdf (CellIDServerOverride) - его можно взять оттуда.
+                let steam_cell = self.steam.as_ref().and_then(|s| crate::local::steam_cell_override(&s.dir));
+                // Список городов с серверами Steam - один раз за сеанс (опрос каталога серверов Steam).
+                thread_local! {
+                    static REGIONS_ASKED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+                }
+                if !REGIONS_ASKED.with(|a| a.replace(true)) {
+                    let _ = self.tx.send(Cmd::DownloadRegions);
+                }
+                let regions: Vec<(u32, String)> = net.download_regions.as_ref().and_then(|r| r.as_ref().ok()).cloned().unwrap_or_default();
+                row(ui, "Регион загрузки", |ui| {
+                    let cur = self.settings.download_cell;
+                    let label = |c: u32| -> String {
+                        if c == 0 {
+                            "Автоматически".into()
+                        } else if let Some((_, n)) = regions.iter().find(|(id, _)| *id == c) {
+                            n.clone()
+                        } else if Some(c) == steam_cell {
+                            format!("Как в Steam (№{c})")
+                        } else {
+                            format!("Регион №{c}")
+                        }
+                    };
+                    egui::ComboBox::from_id_salt("download_region").width(260.0).selected_text(label(cur)).show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.settings.download_cell, 0, "Автоматически");
+                        if let Some(c) = steam_cell {
+                            ui.selectable_value(&mut self.settings.download_cell, c, format!("Как в Steam (№{c})"));
+                        }
+                        ui.separator();
+                        if regions.is_empty() {
+                            ui.weak("Загружаю список регионов...");
+                        }
+                        for (id, name) in &regions {
+                            ui.selectable_value(&mut self.settings.download_cell, *id, name);
+                        }
+                    });
+                });
+                note(ui, "С каких серверов Steam скачивать игры. «Как в Steam» - регион, выбранный в настройках Steam. Если загрузка медленная, выберите ближайший город.");
                 let mut apply = false;
                 row(ui, "Ограничить скорость до", |ui| {
                     apply |= limit_field(ui, &mut self.limit_text, &mut self.settings.download_limit_kb);
@@ -287,6 +459,27 @@ impl LauncherApp {
                      места (без галочки - встанет в очередь на паузе). Загрузка, оборванная пропажей связи, \
                      продолжится, когда Steam снова будет доступен.",
                 );
+
+                row(ui, "Когда Steam открыт", |ui| {
+                    ui.checkbox(&mut self.settings.download_with_steam, "Все равно качать новые игры");
+                });
+                note(ui, "Игра качается во временную папку VaporustStaging внутри библиотеки (Steam ее не видит) и переносится в библиотеку, когда докачается. Начатые раньше в самой библиотеке ждут закрытия Steam.");
+                row(ui, "Кэш загрузок Steam", |ui| {
+                    let steam_open = self.steam_running();
+                    if ui
+                        .add_enabled(!steam_open && self.steam.is_some(), egui::Button::new("Очистить"))
+                        .on_hover_text("Помогает, если загрузки в Steam зависают. Игры и недокачанные загрузки не трогаются.")
+                        .on_disabled_hover_text("Сначала закройте Steam")
+                        .clicked()
+                    {
+                        if let Some(steam) = self.steam.clone() {
+                            *self.launch_status.lock().unwrap() = match local::clear_download_cache(&steam.dir) {
+                                Ok(freed) => format!("Кэш загрузок Steam очищен, освобождено {}.", net::fmt_bytes(freed)),
+                                Err(e) => format!("Не удалось очистить кэш загрузок: {e}"),
+                            };
+                        }
+                    }
+                });
 
                 // ---------- Расписание загрузок ----------
                 row(ui, "Расписание загрузок", |ui| {
@@ -483,6 +676,19 @@ impl LauncherApp {
 
             // ---------- Окно ----------
             card(ui, "Окно", |ui| {
+                row(ui, "При запуске открывать", |ui| {
+                    ui.radio_value(&mut self.settings.start_view, 0, "Библиотеку");
+                    ui.radio_value(&mut self.settings.start_view, 1, "Магазин");
+                });
+                row(ui, "Масштаб интерфейса", |ui| {
+                    for (v, label) in SCALES.iter().copied().zip(["75%", "90%", "100%", "110%", "125%", "150%", "200%"]) {
+                        let on = (self.settings.ui_scale - v).abs() < 0.01;
+                        if ui.selectable_label(on, label).clicked() {
+                            self.settings.ui_scale = v;
+                        }
+                    }
+                });
+                note(ui, "Размер текста и кнопок во всех окнах. Также Ctrl+плюс / Ctrl+минус, Ctrl+0 - вернуть 100%.");
                 row(ui, "Рамка окон", |ui| {
                     ui.radio_value(&mut self.settings.system_frame, false, "Своя (Vaporust)");
                     ui.radio_value(&mut self.settings.system_frame, true, "Обычная Windows");
@@ -745,3 +951,6 @@ fn hour_box(ui: &mut egui::Ui, id: &str, h: &mut u8) -> bool {
     });
     *h != before
 }
+
+/// Шаги масштаба интерфейса (настройки, мастер, Ctrl+плюс/минус).
+pub const SCALES: [f32; 7] = [0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0];

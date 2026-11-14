@@ -366,7 +366,7 @@ impl LauncherApp {
                 let partial = self.games.iter().find(|g| g.appid == q.appid && !g.ready);
                 let mut state = if q.paused {
                     "На паузе".to_string()
-                } else if steam_open {
+                } else if steam_open && (!self.settings.download_with_steam || (partial.is_some() && !self.settings.staged.contains_key(&q.appid) && self.movable_partial(q.appid).is_none())) {
                     "Ждет закрытия Steam".to_string()
                 } else {
                     "В очереди".to_string()

@@ -85,6 +85,10 @@ impl LauncherApp {
                 if ui.small_button("Обновить").clicked() {
                     let _ = self.tx.send(Cmd::ChatGroups);
                 }
+                if ui.small_button("Создать...").clicked() {
+                    self.net.lock().unwrap().action_msg = None;
+                    self.social_ui.group_create = Some((String::new(), Default::default()));
+                }
             });
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                 for g in &groups {

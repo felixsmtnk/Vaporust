@@ -13,6 +13,8 @@ pub struct FriendsPage {
     pub filter: String,
     /// Чьи профили уже запрошены (имена и аватары тех, кто в заявках).
     pub asked: std::collections::HashSet<u64>,
+    /// «Недавние игроки» уже запрошены.
+    pub coplay_asked: bool,
 }
 
 /// Человек в списке: id, имя, аватар, строка статуса и ее цвет.
@@ -88,6 +90,7 @@ impl LauncherApp {
                 format!("Мои друзья ({})", lists[0].len()),
                 format!("Заявки в друзья ({})", lists[1].len()),
                 format!("Отправленные ({})", lists[2].len()),
+                "Недавние игроки".to_string(),
             ]
             .into_iter()
             .enumerate()
@@ -110,6 +113,10 @@ impl LauncherApp {
             });
         });
         ui.separator();
+        if self.friends_page.tab == 3 {
+            self.coplay_contents(ui, net);
+            return;
+        }
 
         let tab = self.friends_page.tab.min(2) as usize;
         let filter = self.friends_page.filter.to_lowercase();

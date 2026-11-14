@@ -29,6 +29,9 @@ impl LauncherApp {
         let Some((appid, name, size)) = self.uninstall_ask.clone() else { return };
         let custom = crate::custom::is_custom(appid);
         let steam_running = !custom && self.steam_running();
+        // При открытом Steam можно удалить установленную игру; недокачанную Steam может сейчас качать сам.
+        // Своя недокачанная (начата в Vaporust) - Steam ее не качает, удалять можно.
+        let ready = self.games.iter().find(|g| g.appid == appid).is_some_and(|g| g.ready) || self.settings.holding.contains(&appid);
         // Мешает только сама эта игра (другая запущенная - нет) и закрытие Steam.
         let this_running = local::RUNNING.lock().unwrap().as_ref().is_some_and(|r| r.0 == appid);
         let busy = this_running || (!custom && self.closing.load(Ordering::Relaxed));
@@ -61,8 +64,8 @@ impl LauncherApp {
                     crate::net::fmt_bytes(size)
                 ));
                 }
-                let blocked = if steam_running {
-                    Some("Сначала закройте Steam: при открытом Steam файлы игры трогать нельзя.")
+                let blocked = if steam_running && !ready {
+                    Some("Игра не докачана, и открытый Steam может качать ее сам: сначала закройте Steam.")
                 } else if busy {
                     Some("Сначала дождитесь закрытия игры.")
                 } else if downloading {
@@ -73,6 +76,9 @@ impl LauncherApp {
                 if let Some(b) = blocked {
                     ui.add_space(4.0);
                     ui.colored_label(egui::Color32::from_rgb(230, 170, 90), b);
+                }
+                if steam_running && ready && blocked.is_none() {
+                    ui.weak("Steam открыт: он заметит удаление после перезапуска.");
                 }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
@@ -106,6 +112,7 @@ impl LauncherApp {
         // Больше не «наша» загрузка: убрать из очереди, из спрятанных и из прерванной.
         self.settings.downloads.retain(|q| q.appid != appid);
         self.settings.holding.retain(|a| *a != appid);
+        self.settings.staged.remove(&appid);
         if self.settings.current_download.as_ref().is_some_and(|q| q.appid == appid) {
             self.settings.current_download = None;
         }
@@ -144,5 +151,46 @@ impl LauncherApp {
             .filter(|o| o.appid != appid && o.dir.to_string_lossy().to_lowercase() == dir)
             .map(|o| (o.appid, o.name.clone()))
             .collect()
+    }
+}
+
+impl LauncherApp {
+    /// «Установить игру?» - после двойного щелчка по неустановленной игре (как в Steam).
+    pub(crate) fn install_ask_dialog(&mut self, ctx: &egui::Context, net: &NetState) {
+        let Some((appid, name)) = self.install_ask.clone() else { return };
+        let mut close = false;
+        let mut go = false;
+        let lib = self.libraries.get(self.lib_idx).cloned();
+        egui::Window::new("Установка игры")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                ui.set_max_width(400.0);
+                ui.label(egui::RichText::new(format!("Установить «{name}»?")).size(16.0).strong());
+                ui.label("Игра не установлена. Vaporust скачает ее в библиотеку:");
+                if let Some(l) = &lib {
+                    let free = local::free_space(l).map(crate::net::fmt_bytes).unwrap_or_default();
+                    ui.weak(format!("{}{}", l.display(), if free.is_empty() { String::new() } else { format!(" (свободно {free})") }));
+                }
+                if net.install.as_ref().is_some_and(|i| i.active()) {
+                    ui.weak("Сейчас качается другая игра - эта встанет в очередь.");
+                }
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui.add(egui::Button::new(egui::RichText::new("Установить").color(egui::Color32::WHITE)).fill(crate::theme::ACCENT)).clicked() {
+                        go = true;
+                    }
+                    if ui.button("Отмена").clicked() {
+                        close = true;
+                    }
+                });
+            });
+        if go {
+            self.install_ask = None;
+            self.enqueue(appid, name, net);
+        } else if close {
+            self.install_ask = None;
+        }
     }
 }

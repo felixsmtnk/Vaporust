@@ -111,6 +111,43 @@ impl WebSession {
         Ok((status, resp.text().await.unwrap_or_default()))
     }
 
+    /// vaporust: authenticated POST of a ready body (JSON, multipart) with its content type and
+    /// extra headers. Returns status and body text.
+    pub async fn post_raw(
+        &self,
+        url: &str,
+        content_type: &str,
+        body: Vec<u8>,
+        referer: &str,
+        headers: &[(&str, &str)],
+    ) -> Result<(u16, String)> {
+        let mut req = self
+            .http
+            .post(url)
+            .header(reqwest::header::COOKIE, self.cookie_header().expose())
+            .header(reqwest::header::REFERER, referer)
+            .header(reqwest::header::CONTENT_TYPE, content_type)
+            .body(body);
+        for (k, v) in headers {
+            req = req.header(*k, *v);
+        }
+        let resp = req.send().await.with_context(|| format!("POST {url} failed"))?;
+        let status = resp.status().as_u16();
+        Ok((status, resp.text().await.unwrap_or_default()))
+    }
+
+    /// vaporust: authenticated GET with extra headers (new SSR pages: x-valve-action-type).
+    /// Returns status and body text, without the redirect/eligibility handling of `get_text`.
+    pub async fn get_raw(&self, url: &str, headers: &[(&str, &str)]) -> Result<(u16, String)> {
+        let mut req = self.http.get(url).header(reqwest::header::COOKIE, self.cookie_header().expose());
+        for (k, v) in headers {
+            req = req.header(*k, *v);
+        }
+        let resp = req.send().await.with_context(|| format!("GET {url} failed"))?;
+        let status = resp.status().as_u16();
+        Ok((status, resp.text().await.unwrap_or_default()))
+    }
+
     /// vaporust: unauthenticated PUT of raw bytes with the given headers (upload host).
     pub async fn put_bytes(&self, url: &str, headers: &[(String, String)], body: Vec<u8>) -> Result<u16> {
         let mut req = self.http.put(url).body(body);

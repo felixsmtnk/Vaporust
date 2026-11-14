@@ -13,7 +13,7 @@ use steam_vent::ReceivableMessage;
 use steam_vent_proto::steammessages_clientserver_2::CMsgClientPlayingSessionState;
 use steam_vent_proto::steammessages_clientserver_friends::{
     CMsgClientAddFriend, CMsgClientAddFriendResponse, CMsgClientChangeStatus,
-    CMsgClientFriendsList, CMsgClientPersonaState, CMsgClientRemoveFriend,
+    CMsgClientFriendsList, CMsgClientPersonaState, CMsgClientPlayerNicknameList, CMsgClientRemoveFriend,
     CMsgClientRequestFriendData,
 };
 use steam_vent_proto::steammessages_clientserver_login::CMsgClientLoggedOff;
@@ -29,7 +29,8 @@ pub const RELATIONSHIP_FRIEND: u32 = 3;
 /// Status(1) | PlayerName(2) | Presence(16) | GameExtraInfo(256) |
 /// GameDataBlob(512) = 787. These cover online status, display name, and the
 /// currently-played game.
-pub const PERSONA_REQUEST_FLAGS: u32 = 1 | 2 | 16 | 256 | 512;
+// vaporust: + 4096 (rich presence) for the in-game status text.
+pub const PERSONA_REQUEST_FLAGS: u32 = 1 | 2 | 16 | 256 | 512 | 4096;
 
 /// Maximum friends per `CMsgClientRequestFriendData` request. Steam answers each
 /// request with a burst of `CMsgClientPersonaState` messages, and steam-vent's
@@ -68,6 +69,10 @@ pub struct Friend {
     pub game_name: Option<String>,
     /// vaporust: avatar hash (hex) for avatars.fastly.steamstatic.com/<hash>.jpg.
     pub avatar_hash: Option<String>,
+    /// vaporust: your private nickname for this friend (CMsgClientPlayerNicknameList).
+    pub nickname: Option<String>,
+    /// vaporust: rich presence "status" text from the game (e.g. map and score), if any.
+    pub rich_status: Option<String>,
 }
 
 impl Friend {
@@ -82,6 +87,8 @@ impl Friend {
             game_app_id: None,
             avatar_hash: None,
             game_name: None,
+            nickname: None,
+            rich_status: None,
         }
     }
 }
@@ -195,16 +202,34 @@ pub fn apply_persona_state(roster: &mut Roster, msg: &CMsgClientPersonaState) {
             };
             if entry.game_app_id.is_none() {
                 entry.game_name = None;
+                entry.rich_status = None;
             }
         }
         if fr.has_game_name() && entry.game_app_id.is_some() {
             entry.game_name = nonempty(fr.game_name());
+        }
+        // vaporust: rich presence "status" (games put readable text there: map, score, mode).
+        if !fr.rich_presence.is_empty() {
+            entry.rich_status = fr
+                .rich_presence
+                .iter()
+                .find(|kv| kv.key().eq_ignore_ascii_case("status"))
+                .map(|kv| kv.value().trim().to_string())
+                .filter(|v| !v.is_empty() && !v.starts_with('#'));
         }
         // vaporust: avatar hash (all-zero hash = no avatar set).
         let hash = fr.avatar_hash();
         if !hash.is_empty() && hash.iter().any(|b| *b != 0) {
             entry.avatar_hash = Some(hash.iter().map(|b| format!("{b:02x}")).collect());
         }
+    }
+}
+
+/// vaporust: fold private friend nicknames into the roster (removal = clear them).
+pub fn apply_nicknames(roster: &mut Roster, msg: &CMsgClientPlayerNicknameList) {
+    for n in &msg.nicknames {
+        let entry = roster.entry(n.steamid()).or_insert_with(|| Friend::new(n.steamid(), 0));
+        entry.nickname = if msg.removal() { None } else { nonempty(n.nickname()) };
     }
 }
 
@@ -225,6 +250,7 @@ pub fn host_steam_owns_presence() -> bool {
 fn drain_unprocessed_into(connection: &Connection, roster: &mut Roster) {
     let mut lists = Vec::new();
     let mut personas = Vec::new();
+    let mut nicknames = Vec::new();
     for raw in connection.take_unprocessed() {
         if raw.kind == <CMsgClientFriendsList as ReceivableMessage>::KIND {
             if let Ok(msg) = raw.into_message::<CMsgClientFriendsList>() {
@@ -233,6 +259,11 @@ fn drain_unprocessed_into(connection: &Connection, roster: &mut Roster) {
         } else if raw.kind == <CMsgClientPersonaState as ReceivableMessage>::KIND {
             if let Ok(msg) = raw.into_message::<CMsgClientPersonaState>() {
                 personas.push(msg);
+            }
+        } else if raw.kind == <CMsgClientPlayerNicknameList as ReceivableMessage>::KIND {
+            // vaporust: friend nicknames, sent once right after logon.
+            if let Ok(msg) = raw.into_message::<CMsgClientPlayerNicknameList>() {
+                nicknames.push(msg);
             }
         } else if raw.kind == <CMsgClientPlayingSessionState as ReceivableMessage>::KIND {
             // Keep it for game invites.
@@ -246,6 +277,9 @@ fn drain_unprocessed_into(connection: &Connection, roster: &mut Roster) {
     }
     for persona in &personas {
         apply_persona_state(roster, persona);
+    }
+    for list in &nicknames {
+        apply_nicknames(roster, list);
     }
 }
 

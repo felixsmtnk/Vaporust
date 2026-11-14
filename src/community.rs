@@ -299,6 +299,7 @@ impl LauncherApp {
         let mut open_url: Option<String> = None;
         let mut open_guide: Option<u64> = None;
         let mut open_topic: Option<String> = None;
+        let mut new_topic = false;
         let mut back = false;
         ui.horizontal(|ui| {
             ui.heading(format!("Сообщество: {name}"));
@@ -309,6 +310,9 @@ impl LauncherApp {
             }
             if ui.selectable_label(st.tab == 1, "Руководства").clicked() {
                 st.tab = 1;
+            }
+            if ui.button("Новая тема...").on_hover_text("Создать тему в «Общем обсуждении» игры").clicked() {
+                new_topic = true;
             }
         });
         if let Some(m) = &net.comm_msg {
@@ -527,6 +531,9 @@ impl LauncherApp {
         }
         if let Some(id) = open_guide {
             let _ = self.tx.send(Cmd::CommGuide(id));
+        }
+        if new_topic {
+            self.open_topic(appid, name.clone());
         }
         if let Some(u) = open_url {
             ui.ctx().open_url(egui::OpenUrl::new_tab(u));

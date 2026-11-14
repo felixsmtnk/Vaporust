@@ -18,6 +18,13 @@ pub struct WsUi {
     /// Открытая страница мода и выбранная картинка на ней.
     pub item: Option<u64>,
     pub preview: usize,
+    /// Показывать коллекции (а не моды); открытая коллекция; запрошенные коллекции и моды.
+    pub collections: bool,
+    pub coll_open: Option<u64>,
+    pub coll_asked: std::collections::HashSet<(u32, String)>,
+    pub items_asked: std::collections::HashSet<u64>,
+    /// Подтверждение «подписаться на всю коллекцию».
+    pub sub_all: bool,
 }
 
 impl WsUi {
@@ -255,12 +262,23 @@ impl crate::LauncherApp {
                 self.view = crate::View::Library;
             }
             ui.label(egui::RichText::new(format!("Мастерская  ·  {name}")).size(15.0).color(crate::theme::WEAK));
+            if !in_item {
+                ui.add_space(12.0);
+                if ui.selectable_label(!self.ws_ui.collections, "Моды").clicked() {
+                    self.ws_ui.collections = false;
+                }
+                if ui.selectable_label(self.ws_ui.collections, "Коллекции").on_hover_text("Наборы модов, собранные игроками").clicked() {
+                    self.ws_ui.collections = true;
+                }
+            }
         });
         ui.add_space(4.0);
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             let ws = net.workshop.lock().unwrap();
             if self.ws_ui.item.is_some() {
                 crate::theme::centered(ui, 1100.0, |ui| detail_page(ui, &mut self.ws_ui, &ws, &mut cmds));
+            } else if self.ws_ui.collections {
+                collections_view(ui, &mut self.ws_ui, net, &ws, &mut cmds);
             } else {
                 browse(ui, &mut self.ws_ui, &ws, &mut cmds);
             }
@@ -545,6 +563,23 @@ pub fn detail_page(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &m
                 cmds.push(Cmd::Social(SocialCmd::WorkshopSubscribe { appid, id, on: !subscribed }));
             }
             ui.weak("Steam скачает мод сам при следующем запуске игры.");
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("Нравится").on_hover_text("Оценить мод (видно автору)").clicked() {
+                    cmds.push(Cmd::WsVote { id, up: true });
+                }
+                if ui.button("Не нравится").clicked() {
+                    cmds.push(Cmd::WsVote { id, up: false });
+                }
+                if ui.button("В избранное").on_hover_text("Избранное Мастерской в вашем профиле").clicked() {
+                    cmds.push(Cmd::WsFavorite { id, appid, add: true });
+                }
+                if ui.button("Наградить...").on_hover_text("Наградить мод очками Steam").clicked() {
+                    crate::storewin::UI_REQ.lock().unwrap().push(crate::storewin::UiReq::Award(2, id.to_string(), format!("мод «{}»", d.title)));
+                }
+                if ui.button("Комментарии").on_hover_text("Откроются на сайте Steam").clicked() {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(format!("https://steamcommunity.com/sharedfiles/filedetails/comments/{id}")));
+                }
+            });
             ui.add_space(8.0);
             let votes = d.votes_up + d.votes_down;
             egui::Grid::new("ws_detail").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
@@ -656,5 +691,125 @@ mod detail_live {
                 Err(e) => println!("ошибка: {e}"),
             }
         });
+    }
+}
+
+/// Коллекции Мастерской игры: список, состав коллекции, «подписаться на все».
+fn collections_view(ui: &mut egui::Ui, w: &mut WsUi, net: &net::NetState, ws: &WorkshopState, cmds: &mut Vec<Cmd>) {
+    let appid = w.appid;
+    let subs = ws.sub_ids.get(&appid).cloned().unwrap_or_default();
+    if let Some(cid) = w.coll_open {
+        if ui.button("< Все коллекции").clicked() {
+            w.coll_open = None;
+            w.sub_all = false;
+            return;
+        }
+        if w.items_asked.insert(cid) {
+            cmds.push(Cmd::WsCollectionItems(cid));
+        }
+        let title = net
+            .ws_collections
+            .iter()
+            .filter(|((a, _), _)| *a == appid)
+            .filter_map(|(_, r)| r.as_ref().ok())
+            .flatten()
+            .find(|c| c.id == cid)
+            .map(|c| c.title.clone())
+            .unwrap_or_default();
+        ui.label(egui::RichText::new(crate::richtext::fix(ui, &title)).size(17.0).strong());
+        match net.ws_collection_items.get(&cid) {
+            None => {
+                crate::spin::spinner(ui);
+            }
+            Some(Err(e)) => {
+                ui.label(format!("Не удалось загрузить: {e}"));
+            }
+            Some(Ok(items)) => {
+                let missing: Vec<u64> = items.iter().copied().filter(|i| !subs.contains(i)).collect();
+                ui.horizontal(|ui| {
+                    ui.weak(format!("Модов: {}, из них вы подписаны на {}", items.len(), items.len() - missing.len()));
+                    if !missing.is_empty() {
+                        if !w.sub_all {
+                            if ui.button(format!("Подписаться на все ({})", missing.len())).clicked() {
+                                w.sub_all = true;
+                            }
+                        } else {
+                            ui.label(format!("Подписаться на {} модов? Steam скачает их при запуске игры.", missing.len()));
+                            if ui.button("Да").clicked() {
+                                for id in &missing {
+                                    cmds.push(Cmd::Social(SocialCmd::WorkshopSubscribe { appid, id: *id, on: true }));
+                                }
+                                w.sub_all = false;
+                            }
+                            if ui.button("Нет").clicked() {
+                                w.sub_all = false;
+                            }
+                        }
+                    }
+                });
+                ui.add_space(4.0);
+                for id in items.iter().take(200) {
+                    if !ws.details.contains_key(id) && w.items_asked.insert(*id) {
+                        cmds.push(Cmd::Social(SocialCmd::WorkshopDetail(*id)));
+                    }
+                    let name = match ws.details.get(id) {
+                        Some(Ok(d)) => d.title.clone(),
+                        Some(Err(_)) => format!("мод {id} (недоступен)"),
+                        None => format!("мод {id}"),
+                    };
+                    ui.horizontal(|ui| {
+                        let on = subs.contains(id);
+                        if ui.link(crate::richtext::fix(ui, &name)).clicked() {
+                            w.item = Some(*id);
+                        }
+                        if on {
+                            ui.label(egui::RichText::new("подписаны").small().color(crate::theme::PLAY_TEXT));
+                        }
+                    });
+                }
+            }
+        }
+        return;
+    }
+    let key = (appid, w.text.trim().to_string());
+    ui.horizontal(|ui| {
+        let edit = ui.add(egui::TextEdit::singleline(&mut w.text).hint_text("Поиск коллекций").desired_width(220.0));
+        if (edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) || ui.button("Искать").clicked() {
+            w.coll_asked.remove(&(appid, w.text.trim().to_string()));
+        }
+    });
+    if w.coll_asked.insert(key.clone()) {
+        cmds.push(Cmd::WsCollections { appid, text: key.1.clone() });
+    }
+    match net.ws_collections.get(&key) {
+        None => {
+            crate::spin::spinner(ui);
+        }
+        Some(Err(e)) => {
+            ui.label(format!("Не удалось загрузить: {e}"));
+        }
+        Some(Ok(list)) if list.is_empty() => {
+            ui.weak("Коллекций нет.");
+        }
+        Some(Ok(list)) => {
+            for c in list {
+                let r = egui::Frame::none().fill(crate::theme::CARD).rounding(3.0).inner_margin(egui::Margin::same(6.0)).show(ui, |ui| {
+                    ui.set_width(ui.available_width().min(900.0));
+                    ui.horizontal(|ui| {
+                        if !c.preview.is_empty() {
+                            ui.add(egui::Image::new(crate::richtext::ugc_small(&c.preview, 128)).fit_to_exact_size(egui::vec2(64.0, 64.0)).rounding(2.0));
+                        }
+                        ui.vertical(|ui| {
+                            ui.label(egui::RichText::new(crate::richtext::fix(ui, &c.title)).size(15.0).color(egui::Color32::WHITE));
+                            ui.weak(format!("модов: {} · следят: {}", c.items, crate::store::group_digits(c.subscriptions)));
+                        });
+                    });
+                });
+                if r.response.interact(egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                    w.coll_open = Some(c.id);
+                }
+                ui.add_space(3.0);
+            }
+        }
     }
 }

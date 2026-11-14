@@ -30,6 +30,8 @@ pub struct InvState {
     /// Поиск по площадке: запрос и (всего найдено, загруженные результаты).
     pub search: Option<(String, Result<(u32, Vec<MarketHit>), String>)>,
     pub searching: bool,
+    /// Площадка и обмены: история цен, заявки, продажа, обмены.
+    pub trade: crate::trade::TradeState,
 }
 
 pub type SharedInv = Arc<Mutex<InvState>>;
@@ -189,6 +191,8 @@ pub fn wallet_currency(st: &InvState) -> u32 {
 /// Свой лот на площадке.
 #[derive(Clone, Debug)]
 pub struct Lot {
+    /// Номер лота (снять с продажи).
+    pub id: String,
     pub appid: u32,
     pub name: String,
     pub hash_name: String,
@@ -203,6 +207,8 @@ pub struct Lot {
 /// Своя заявка на покупку.
 #[derive(Clone, Debug)]
 pub struct Order {
+    /// Номер заявки (отменить).
+    pub id: String,
     pub appid: u32,
     pub name: String,
     pub hash_name: String,
@@ -235,6 +241,15 @@ fn num(v: Option<&Value>) -> i64 {
     v.and_then(|x| x.as_i64().or_else(|| x.as_str().and_then(|s| s.parse().ok()))).unwrap_or(0)
 }
 
+/// Номер (строка или число в JSON) как строка.
+fn id_str(v: Option<&Value>) -> String {
+    match v {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Null) | None => String::new(),
+        Some(x) => x.to_string(),
+    }
+}
+
 fn s(v: Option<&Value>) -> String {
     v.and_then(Value::as_str).unwrap_or_default().to_string()
 }
@@ -254,6 +269,7 @@ pub fn parse_my_market(body: &str) -> Result<MyMarket, String> {
         let price = num(x.get("price"));
         let cur = num(x.get("currencyid")) as u32;
         Some(Lot {
+            id: id_str(x.get("listingid")),
             appid: num(a.get("appid")) as u32,
             // market_name - с износом/качеством, как на площадке.
             name: Some(s(a.get("market_name"))).filter(|n| !n.is_empty()).unwrap_or_else(|| s(a.get("name"))),
@@ -271,6 +287,7 @@ pub fn parse_my_market(body: &str) -> Result<MyMarket, String> {
         .map(|o| {
             let d = o.get("description");
             Order {
+                id: id_str(o.get("buy_orderid")),
                 appid: num(o.get("appid")) as u32,
                 name: d.map(|d| s(d.get("name"))).filter(|n| !n.is_empty()).unwrap_or_else(|| s(o.get("hash_name"))),
                 hash_name: s(o.get("hash_name")),
