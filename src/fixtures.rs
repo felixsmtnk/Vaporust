@@ -216,6 +216,7 @@ mod tests {
     #[test]
     fn workshop_item() {
         let shots = crate::workshopui::page_screenshots(&page("workshop_item.html"));
+        assert!(!shots.is_empty(), "скриншоты мода не найдены");
         assert!(shots.iter().all(|u| u.starts_with("https://")), "{shots:?}");
     }
 

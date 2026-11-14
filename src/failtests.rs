@@ -282,3 +282,57 @@ fn staging_conflict_keeps_files() {
     let empty = TempDir::new("staging_empty");
     assert!(crate::local::unstage(&empty.0, 60).is_err());
 }
+
+#[test]
+fn restore_is_all_or_nothing() {
+    let t = TempDir::new("restore_atomic");
+    let a = t.file("save/a.sav", b"A-now");
+    let b = t.file("save/b.sav", b"B-now");
+    // В списке два файла, а в архиве только первый: ничего не заменяется.
+    let manifest = format!("0_a.sav\t{}\n1_b.sav\t{}\n", a.display(), b.display());
+    let z = t.file(
+        "partial.zip",
+        &zip_with(&[("files/0_a.sav", b"A-old"), ("vaporust_backup.txt", manifest.as_bytes())]),
+    );
+    assert!(crate::backup::restore(&z).is_err());
+    assert_eq!(fs::read(&a).unwrap(), b"A-now", "первый файл не тронут");
+    assert_eq!(fs::read(&b).unwrap(), b"B-now");
+    // Сбой при записи второго файла (на его месте папка): первый возвращается как был.
+    let blocked = t.0.join("save").join("dir.sav");
+    fs::create_dir_all(blocked.join("inner")).unwrap();
+    let manifest = format!("0_a.sav\t{}\n1_d.sav\t{}\n", a.display(), blocked.display());
+    let z = t.file(
+        "blocked.zip",
+        &zip_with(&[("files/0_a.sav", b"A-old"), ("files/1_d.sav", b"D-old"), ("vaporust_backup.txt", manifest.as_bytes())]),
+    );
+    let e = crate::backup::restore(&z).unwrap_err();
+    assert!(e.contains("возвращены как были"), "{e}");
+    assert_eq!(fs::read(&a).unwrap(), b"A-now", "откат первого файла");
+    assert!(!t.0.join("save").join("a.sav.vaporust-tmp").exists(), "временных файлов не осталось");
+    // Новый файл, которого раньше не было, при откате удаляется.
+    let fresh = t.0.join("save").join("new.sav");
+    let manifest = format!("0_n.sav\t{}\n1_d.sav\t{}\n", fresh.display(), blocked.display());
+    let z = t.file(
+        "fresh.zip",
+        &zip_with(&[("files/0_n.sav", b"N"), ("files/1_d.sav", b"D"), ("vaporust_backup.txt", manifest.as_bytes())]),
+    );
+    assert!(crate::backup::restore(&z).is_err());
+    assert!(!fresh.exists());
+}
+
+#[test]
+fn backups_in_one_second_do_not_overwrite() {
+    let t = TempDir::new("backup_names");
+    let save = t.file("s.sav", b"first");
+    let dir = t.0.join("copies");
+    let (z1, _) = crate::backup::backup_to(&dir, &[save.clone()]).unwrap();
+    fs::write(&save, b"second").unwrap();
+    let (z2, _) = crate::backup::backup_to(&dir, &[save.clone()]).unwrap();
+    fs::write(&save, b"third").unwrap();
+    let (z3, _) = crate::backup::backup_to(&dir, &[save.clone()]).unwrap();
+    assert!(z1 != z2 && z2 != z3 && z1 != z3, "{z1:?} {z2:?} {z3:?}");
+    crate::backup::restore(&z1).unwrap();
+    assert_eq!(fs::read(&save).unwrap(), b"first", "первая копия не затерта второй");
+    crate::backup::restore(&z2).unwrap();
+    assert_eq!(fs::read(&save).unwrap(), b"second");
+}

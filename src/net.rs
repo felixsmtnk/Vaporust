@@ -488,6 +488,10 @@ impl SharedNet {
 }
 
 fn upd(st: &Shared, ctx: &egui::Context, f: impl FnOnce(&mut NetState)) {
+    // Ответ задачи прошлого входа (вышли или вошли в другой аккаунт) - не записываем.
+    if stale_task() {
+        return;
+    }
     f(&mut st.lock().unwrap());
     ctx.request_repaint();
     // Окно чата - отдельный viewport: его тоже будим (новые сообщения, статусы), но только
@@ -617,7 +621,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::FriendAchievements(appid, who) => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let res = client.fetch_achievements_for(appid, "russian", who).await.map_err(|e| format!("{e:#}"));
                 upd(&st, &ctx, |s| {
                     s.friend_achievements.insert((appid, who), res);
@@ -703,7 +707,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::PageDlc(appid) => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let list = load_dlc(&client, appid).await;
                 let ids: Vec<u32> = list.as_ref().map(|l| l.iter().map(|d| d.app_id).collect()).unwrap_or_default();
                 upd(&st, &ctx, |s| s.props.entry(appid).or_default().dlc = Some(list));
@@ -721,7 +725,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::ResolveApps(ids) => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 for id in ids {
                     let (name, _) = client.resolve_install_game_info(id).await;
                     // Aurelia возвращает «App N», если название не нашлось.
@@ -794,7 +798,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::SetPersona(state) => {
             let c = client.clone();
-            tokio::spawn(async move {
+            spawn_session(async move {
                 // Наблюдатель друзей при входе сам объявляет статус из конфига Aurelia
                 // (невидимка); ждем его и объявляем свой поверх.
                 tokio::time::sleep(Duration::from_secs(3)).await;
@@ -803,7 +807,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::CheckUpdates(games) => {
             let (c, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 if let Ok(ids) = c.games_needing_update(&games).await {
                     upd(&st, &ctx, |s| s.updates = Some(ids.into_iter().collect()));
                 }
@@ -812,7 +816,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::LoadProps(appid) => load_props(client, appid, st, ctx),
         Cmd::SetDlc { base, dlc, enabled } => {
             let (c, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let res = c.set_dlc_enabled(dlc, enabled).await.map_err(|e| format!("{e:#}"));
                 let list = load_dlc(&c, base).await;
                 upd(&st, &ctx, |s| {
@@ -1057,7 +1061,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::LoadEmoticons => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let lists = client.fetch_emoticons_and_stickers().await.unwrap_or_default();
                 upd(&st, &ctx, |s| s.emoticons = Some(lists));
             });
@@ -1068,7 +1072,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 s.key_busy = true;
                 s.key_result = None;
             });
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = crate::keys::activate(&client, &key).await;
                 upd(&st, &ctx, |s| {
                     s.key_busy = false;
@@ -1079,7 +1083,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::NewsFeed(games) => {
             let (st, ctx) = (st.clone(), ctx.clone());
             upd(&st, &ctx, |s| s.news_busy = true);
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = crate::newsfeed::load(games).await;
                 upd(&st, &ctx, |s| {
                     s.news_busy = false;
@@ -1089,7 +1093,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::NotifIcons(invs) => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let Ok(web) = crate::webapi::web_session(&client).await else { return };
                 let mut icons = HashMap::new();
                 for (app, cx) in invs {
@@ -1108,7 +1112,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::SteamNotifs | Cmd::SteamNotifsRead => {
             let mark = matches!(cmd, Cmd::SteamNotifsRead);
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 if mark {
                     if let Err(e) = crate::steamnotif::mark_all_read(&client).await {
                         upd(&st, &ctx, |s| s.steam_notifs = Some(Err(format!("Не отмечены: {e}"))));
@@ -1125,7 +1129,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::Badges => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let Some(me) = client.my_steam_id() else { return };
                 let r = crate::badges::load(&client, me).await;
                 upd(&st, &ctx, |s| s.badges = Some(r));
@@ -1133,7 +1137,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::CraftBadge { appid, foil } => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let Some(me) = client.my_steam_id() else { return };
                 let r = crate::badges::craft(&client, me, appid, foil).await;
                 let msg = match r {
@@ -1149,7 +1153,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::PointsBalance => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let Some(me) = client.my_steam_id() else { return };
                 if let Ok(b) = crate::points::balance(&client, me).await {
                     upd(&st, &ctx, |s| s.points_balance = Some(b));
@@ -1159,7 +1163,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::PointsQuery { class, search, cursor } => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             upd(&st, &ctx, |s| s.points_busy = true);
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let more = cursor.is_some();
                 let r = crate::points::query(&client, class, &search, cursor.as_deref()).await;
                 upd(&st, &ctx, |s| {
@@ -1178,7 +1182,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::PointsOwned => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 if let Ok(mut o) = crate::points::owned(&client).await {
                     upd(&st, &ctx, |s| {
                         // Купленное в этом сеансе Steam может еще не отдавать - не терять.
@@ -1193,7 +1197,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::PointsRedeem(item) => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = crate::points::redeem(&client, item.defid).await;
                 let bal = match client.my_steam_id() {
                     Some(me) => crate::points::balance(&client, me).await.ok(),
@@ -1240,7 +1244,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::Family => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let Some(me) = client.my_steam_id() else { return };
                 let r = crate::family::load(&client, me).await;
                 upd(&st, &ctx, |s| s.family_group = Some(r));
@@ -1249,7 +1253,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::Activity(friends) => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             upd(&st, &ctx, |s| s.activity_busy = true);
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = crate::activity::load(&client, friends).await;
                 upd(&st, &ctx, |s| {
                     s.activity_busy = false;
@@ -1259,7 +1263,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::MyRecent => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let Some(me) = client.my_steam_id() else { return };
                 let r = crate::webapi::get(&client, "IPlayerService/GetRecentlyPlayedGames/v1", &[("steamid", me.to_string())])
                     .await
@@ -1269,7 +1273,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::GroupInfo(url) => {
             let (st, ctx) = (st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = crate::grouppage::load(&url).await;
                 upd(&st, &ctx, |s| {
                     s.group_msg = None;
@@ -1279,7 +1283,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::GroupMembership { url, info, join } => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = crate::grouppage::membership(&client, &info, join).await;
                 // Перечитать свой профиль (список групп) и саму группу.
                 let me = client.my_steam_id();
@@ -1303,7 +1307,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::ProfileExtra(id) => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = crate::profile_extra::load(&client, id).await;
                 upd(&st, &ctx, |s| {
                     s.profile_extra.insert(id, r);
@@ -1313,7 +1317,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::DeleteComment { id, gid } => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             upd(&st, &ctx, |s| s.comment_msg = Some("Удаляю...".into()));
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = crate::profile_extra::delete_comment(&client, id, &gid).await;
                 let fresh = crate::profile_extra::load(&client, id).await;
                 upd(&st, &ctx, |s| {
@@ -1327,7 +1331,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::MoreComments { id, start } => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 if let Ok((total, more)) = crate::profile_extra::load_comments(&client, id, start).await {
                     upd(&st, &ctx, |s| {
                         // Страница комментариев (по 10), как в Steam.
@@ -1342,7 +1346,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::PostComment { id, text } => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             upd(&st, &ctx, |s| s.comment_msg = Some("Отправляю...".into()));
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = crate::profile_extra::post_comment(&client, id, &text).await;
                 let fresh = crate::profile_extra::load(&client, id).await;
                 upd(&st, &ctx, |s| {
@@ -1356,7 +1360,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::ShotComments { owner, id } => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = crate::shotcomments::load(&client, owner, id).await;
                 upd(&st, &ctx, |s| {
                     s.shot_comments.insert(id, r);
@@ -1366,7 +1370,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::ShotComment { owner, id, text } => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             upd(&st, &ctx, |s| s.shot_msg = Some("Отправляю...".into()));
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = crate::shotcomments::post(&client, owner, id, &text).await;
                 let fresh = crate::shotcomments::load(&client, owner, id).await;
                 upd(&st, &ctx, |s| {
@@ -1380,7 +1384,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::ShotVote { id, up } => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = crate::shotcomments::vote(&client, id, up).await;
                 upd(&st, &ctx, |s| {
                     s.shot_msg = Some(match r {
@@ -1393,7 +1397,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::CommTopics { appid, page } => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             upd(&st, &ctx, |s| s.comm_topics = None);
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = crate::community::load_topics(&client, appid, page).await.map(|v| (appid, page, v));
                 upd(&st, &ctx, |s| s.comm_topics = Some(r));
             });
@@ -1401,7 +1405,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::CommTopic(url) => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             upd(&st, &ctx, |s| s.comm_msg = Some("Открываю тему...".into()));
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = crate::community::load_topic(&client, &url).await;
                 upd(&st, &ctx, |s| {
                     s.comm_msg = None;
@@ -1412,7 +1416,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::CommReply { topic, text } => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             upd(&st, &ctx, |s| s.comm_msg = Some("Отправляю ответ...".into()));
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = crate::community::reply(&client, &topic, &text).await;
                 let fresh = crate::community::load_topic(&client, &topic.url).await;
                 upd(&st, &ctx, |s| {
@@ -1427,7 +1431,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::CommGuide(id) => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             upd(&st, &ctx, |s| s.comm_msg = Some("Открываю руководство...".into()));
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = crate::community::load_guide(&client, id).await;
                 upd(&st, &ctx, |s| {
                     s.comm_msg = None;
@@ -1438,7 +1442,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::CommGuides { appid, search } => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             upd(&st, &ctx, |s| s.comm_guides = None);
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = crate::community::load_guides(&client, appid, &search).await.map(|v| (appid, v));
                 upd(&st, &ctx, |s| s.comm_guides = Some(r));
             });
@@ -1446,7 +1450,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::Feed { start } => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             upd(&st, &ctx, |s| s.feed_busy = true);
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let Some(me) = client.my_steam_id() else { return };
                 let r = crate::feed::load_days(&client, me, start, 20).await;
                 upd(&st, &ctx, |s| {
@@ -1468,7 +1472,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             let Some(before) = before else { return };
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             upd(&st, &ctx, |s| s.chats.entry(friend).or_default().loading_older = true);
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = client.chat_history(friend, 50, Some(before)).await;
                 upd(&st, &ctx, |s| {
                     let conv = s.chats.entry(friend).or_default();
@@ -1494,14 +1498,14 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::Sessions => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = crate::sessions::load(&client).await;
                 upd(&st, &ctx, |s| s.sessions = Some(r));
             });
         }
         Cmd::Licenses => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 if let Ok(v) = crate::refund::load(&client).await {
                     upd(&st, &ctx, |s| s.licenses = Some(v));
                 }
@@ -1533,7 +1537,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         | Cmd::WsVote { .. }
         | Cmd::WsFavorite { .. }) => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move { second_plan(&client, cmd, &st, &ctx).await });
+            spawn_session(async move { second_plan(&client, cmd, &st, &ctx).await });
         }
         Cmd::DownloadRegions => {
             let (st, ctx) = (st.clone(), ctx.clone());
@@ -1544,7 +1548,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::Coplay => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = match client.my_steam_id() {
                     Some(me) => crate::coplay::load(&client, me).await,
                     None => Err("нет входа".into()),
@@ -1554,14 +1558,14 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::WalletHistory => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = crate::wallet::load(&client).await;
                 upd(&st, &ctx, |s| s.wallet_history = Some(r));
             });
         }
         Cmd::ChatGroups => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = client.my_chat_groups().await.map_err(|e| format!("{e:#}"));
                 // Как открытое окно чата в Steam: иначе история каналов может не отдаваться.
                 if let Ok(g) = &r {
@@ -1572,7 +1576,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::GroupMessages { group, chat } => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = client.group_messages(group, chat, 60).await.map_err(|e| format!("{e:#}"));
                 upd(&st, &ctx, |s| {
                     // Сбой обновления не стирает уже показанные сообщения.
@@ -1584,7 +1588,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::GroupSend { group, chat, text } => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = client.send_group_message(group, chat, &text).await;
                 let fresh = client.group_messages(group, chat, 60).await.map_err(|e| format!("{e:#}"));
                 upd(&st, &ctx, |s| {
@@ -1597,7 +1601,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::AccountInfo => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let d = client.get_account_data().await;
                 upd(&st, &ctx, |s| s.account_data = Some(d));
             });
@@ -1605,7 +1609,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::CloudShots { user, appid, page } => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             upd(&st, &ctx, |s| s.cloud_shots_busy = true);
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let r = if user == 0 {
                     client.my_cloud_screenshots(appid, page, 50).await
                 } else {
@@ -1638,7 +1642,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             // Эффекты комнаты: Steam не сообщает отдельному сеансу, какие куплены, - они лежат в
             // инвентаре (753/6), как стикеры: тип «Winter Sale Event 2019 Chat Effect», имя «Confetti».
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let Ok(web) = crate::webapi::web_session(&client).await else { return };
                 let Ok(items) = aurelia::steam_client::inventory_via_lang(&web, 753, 6, "english").await else {
                     return;
@@ -1663,7 +1667,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::SendImage { to, path } => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            spawn_session(async move {
                 let set_status = |v: Option<String>, err: Option<String>| {
                     upd(&st, &ctx, |s| {
                         let c = s.chats.entry(to).or_default();
@@ -1728,6 +1732,8 @@ async fn logged_in(client: &mut SteamClient, session: SessionState, st: &Shared,
     let roster = Arc::new(RwLock::new(Roster::new()));
     let my_id = client.my_steam_id();
     crate::webapi::clear_token();
+    // Новый вход: задачи прошлого входа больше ничего не пишут (spawn_session, слушатель чата).
+    SESSION_GEN.fetch_add(1, Ordering::Relaxed);
     upd(st, ctx, |s| {
         s.account = Some(name);
         s.need_login = false;
@@ -1744,6 +1750,14 @@ async fn logged_in(client: &mut SteamClient, session: SessionState, st: &Shared,
         }
     };
     upd(st, ctx, |s| s.session_secure = Some(secure));
+    if !secure {
+        // Редкий случай (хранилище ключей Windows недоступно) - но о нем нужно знать сразу.
+        crate::popup::push(
+            crate::popup::Kind::Info,
+            "Вход не зашифрован",
+            "Хранилище ключей Windows недоступно: сохраненный вход лежит открытым. Подробнее - Настройки -> Аккаунт.",
+        );
+    }
     start_social(client, roster, st, ctx);
     start_link_probe(st, ctx);
     load_owned(client, st, ctx).await;
@@ -1784,6 +1798,27 @@ static PROBE_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::n
 /// Номер входа: фоновые задачи прошлого входа (сообщения чата) после выхода или нового входа
 /// больше ничего не записывают.
 static SESSION_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+tokio::task_local! {
+    /// Номер входа, при котором запущена фоновая задача (см. spawn_session).
+    static TASK_SESSION: u64;
+}
+
+/// Запустить фоновую задачу, привязанную к текущему входу: если пока она работает, пользователь
+/// вышел или вошел в другой аккаунт, ее записи в NetState отбрасываются (upd). Так ответ
+/// прошлого аккаунта (семья, недавние игры, профиль...) не попадет к новому.
+fn spawn_session<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
+where
+    F: std::future::Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    tokio::spawn(TASK_SESSION.scope(SESSION_GEN.load(Ordering::Relaxed), fut))
+}
+
+/// Идет ли код в задаче прошлого входа.
+fn stale_task() -> bool {
+    TASK_SESSION.try_with(|g| *g != SESSION_GEN.load(Ordering::Relaxed)).unwrap_or(false)
+}
 
 /// Раз в 20 с проверять, есть ли связь со Steam (соединение с steamcommunity.com:443). Две
 /// неудачи подряд - автономный режим, как при запуске без сети: полоса «Нет связи со Steam»,
@@ -2098,7 +2133,7 @@ fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st: &Shared, 
     let Ok(chat) = client.chat_client() else {
         return;
     };
-    let gen = SESSION_GEN.fetch_add(1, Ordering::Relaxed) + 1;
+    let gen = SESSION_GEN.load(Ordering::Relaxed); // номер входа ставит logged_in
     let (st, ctx) = (st.clone(), ctx.clone());
     tokio::spawn(async move {
         use steam_vent_chat::ChatEvent;
@@ -3445,5 +3480,37 @@ mod shared_uninstall_live {
             }
             println!("удалилось бы файлов: {}; по верхним папкам: {tops:?}", list.len());
         });
+    }
+}
+
+#[cfg(test)]
+mod session_tests {
+    use super::*;
+
+    /// Ответ задачи прошлого входа, пришедший после выхода или нового входа, не записывается;
+    /// задачи текущего входа и обычный код пишут как раньше.
+    #[test]
+    fn stale_task_writes_are_dropped() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let st: Shared = Arc::new(SharedNet::default());
+        let ctx = egui::Context::default();
+        rt.block_on(async {
+            let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+            let (st2, ctx2) = (st.clone(), ctx.clone());
+            let old = spawn_session(async move {
+                let _ = rx.await; // «долгий запрос» старого аккаунта
+                upd(&st2, &ctx2, |s| s.message = "старый аккаунт".into());
+            });
+            // Пока запрос шел, вошли в другой аккаунт.
+            SESSION_GEN.fetch_add(1, Ordering::Relaxed);
+            let _ = tx.send(());
+            old.await.unwrap();
+            assert!(st.lock().unwrap().message.is_empty(), "ответ прошлого входа отброшен");
+            let (st3, ctx3) = (st.clone(), ctx.clone());
+            spawn_session(async move { upd(&st3, &ctx3, |s| s.message = "новый".into()) }).await.unwrap();
+            assert_eq!(st.lock().unwrap().message, "новый");
+        });
+        upd(&st, &ctx, |s| s.message = "вне задач".into());
+        assert_eq!(st.lock().unwrap().message, "вне задач");
     }
 }

@@ -1574,7 +1574,9 @@ impl LauncherApp {
     /// Левая колонка библиотеки, как в Steam: «Главная», поиск, коллекция, фильтры и список игр.
     /// Поиск и фильтры библиотеки: в левой колонке или (toolbar) строкой над таблицей.
     fn library_filters(&mut self, ui: &mut egui::Ui, net: &NetState, toolbar: bool) {
-        let hint = if net.owned.is_empty() { "Поиск".to_string() } else { format!("Поиск среди {} игр", net.owned.len()) };
+        // Без числа: поиск идет по всем играм библиотеки (свои, семейные, сторонние), а число
+        // «своих» (228) рядом с заголовком «Все игры (345)» сбивало с толку.
+        let hint = "Поиск по названию";
         ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text(hint).desired_width(if toolbar { 220.0 } else { f32::INFINITY }));
                     // Коллекции Steam (правый щелчок по игре - добавить в коллекцию).
                     if let Some(colls) = net.collections.as_ref() {

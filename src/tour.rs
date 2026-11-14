@@ -80,6 +80,8 @@ const STEPS: &[(&str, f64)] = &[
 impl LauncherApp {
     pub(crate) fn tour_tick(&mut self, ctx: &egui::Context, net: &NetState) {
         let Some(t) = self.tour.as_mut() else { return };
+        // На снимках не нужны всплывающие подсказки от случайно оказавшейся над окном мыши.
+        ctx.style_mut(|s| s.interaction.tooltip_delay = 1.0e6);
         let now = ctx.input(|i| i.time);
         // Готовые снимки.
         let shots: Vec<std::sync::Arc<egui::ColorImage>> = ctx.input(|i| {

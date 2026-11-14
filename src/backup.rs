@@ -35,10 +35,21 @@ pub fn backup_to(dir: &Path, files: &[PathBuf]) -> Result<(PathBuf, usize), Stri
         return Err("Файлов сохранений на этом ПК нет - копировать нечего.".into());
     }
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    // Имя по времени; если копия с таким именем уже есть (две копии в одну секунду), - «_2», «_3»...
+    // Файл создается только новым (create_new): существующую копию не перезаписать никогда.
     let stamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
-    let out = dir.join(format!("{stamp}.zip"));
+    let (out, file) = (1..1000)
+        .find_map(|n| {
+            let name = if n == 1 { format!("{stamp}.zip") } else { format!("{stamp}_{n}.zip") };
+            let p = dir.join(name);
+            match fs::OpenOptions::new().write(true).create_new(true).open(&p) {
+                Ok(f) => Some(Ok((p, f))),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => None,
+                Err(e) => Some(Err(format!("Архив не создан: {e}"))),
+            }
+        })
+        .unwrap_or_else(|| Err("Архив не создан: слишком много копий за одну секунду.".into()))?;
     let r = (|| -> Result<(), String> {
-        let file = fs::File::create(&out).map_err(|e| format!("Архив не создан: {e}"))?;
         let mut z = zip::ZipWriter::new(file);
         let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
         let mut manifest = String::new();
@@ -80,7 +91,9 @@ pub fn list(game: &str) -> Vec<(PathBuf, std::time::SystemTime, u64)> {
     v
 }
 
-/// Вернуть файлы из копии на их места (перезаписывая). Возвращает число файлов.
+/// Вернуть файлы из копии на их места. Все или ничего: сначала архив читается и проверяется
+/// целиком (нет хоть одного файла - ничего не трогаем), затем файлы заменяются по одному, а при
+/// ошибке посередине уже замененные возвращаются как были. Возвращает число файлов.
 pub fn restore(zip_path: &Path) -> Result<usize, String> {
     use std::io::Read;
     let file = fs::File::open(zip_path).map_err(|e| format!("Архив не открыт: {e}"))?;
@@ -90,22 +103,63 @@ pub fn restore(zip_path: &Path) -> Result<usize, String> {
         .map_err(|_| "В архиве нет списка файлов - это не копия Vaporust.".to_string())?
         .read_to_string(&mut manifest)
         .map_err(|e| e.to_string())?;
-    let mut n = 0;
+    // 1. Прочитать все файлы копии. Ошибка здесь - сохранения не тронуты.
+    let mut items: Vec<(PathBuf, Vec<u8>)> = Vec::new();
     for line in manifest.lines() {
         let Some((name, dest)) = line.split_once('\t') else { continue };
-        let dest = PathBuf::from(dest);
         let mut data = Vec::new();
         z.by_name(&format!("files/{name}"))
-            .map_err(|e| format!("В архиве нет {name}: {e}"))?
+            .map_err(|e| format!("Копия повреждена, ничего не восстановлено: в архиве нет {name} ({e})."))?
             .read_to_end(&mut data)
-            .map_err(|e| e.to_string())?;
-        if let Some(parent) = dest.parent() {
-            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        fs::write(&dest, data).map_err(|e| format!("Не восстановлен {}: {e}", dest.display()))?;
-        n += 1;
+            .map_err(|e| format!("Копия повреждена, ничего не восстановлено: {e}."))?;
+        items.push((PathBuf::from(dest), data));
     }
-    Ok(n)
+    if items.is_empty() {
+        return Err("В копии нет файлов.".into());
+    }
+    // 2. Заменить, запоминая прежнее содержимое (None - файла не было).
+    let mut done: Vec<(PathBuf, Option<Vec<u8>>)> = Vec::new();
+    let res = (|| -> Result<(), String> {
+        for (dest, data) in &items {
+            let old = fs::read(dest).ok();
+            if let Some(parent) = dest.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            write_replace(dest, data).map_err(|e| format!("Не восстановлен {}: {e}", dest.display()))?;
+            done.push((dest.clone(), old));
+        }
+        Ok(())
+    })();
+    if let Err(e) = res {
+        // 3. Откат: вернуть замененные файлы.
+        let mut lost = Vec::new();
+        for (dest, old) in done.into_iter().rev() {
+            let ok = match old {
+                Some(data) => write_replace(&dest, &data).is_ok(),
+                None => fs::remove_file(&dest).is_ok(),
+            };
+            if !ok {
+                lost.push(dest.display().to_string());
+            }
+        }
+        return Err(if lost.is_empty() {
+            format!("{e}. Сохранения возвращены как были.")
+        } else {
+            format!("{e}. Не удалось вернуть: {} - возьмите их из страховочной копии.", lost.join(", "))
+        });
+    }
+    Ok(items.len())
+}
+
+/// Записать файл через временный рядом и переименование: файл никогда не остается обрезанным.
+fn write_replace(dest: &Path, data: &[u8]) -> std::io::Result<()> {
+    let mut tmp = dest.as_os_str().to_owned();
+    tmp.push(".vaporust-tmp");
+    let tmp = PathBuf::from(tmp);
+    fs::write(&tmp, data)?;
+    fs::rename(&tmp, dest).inspect_err(|_| {
+        let _ = fs::remove_file(&tmp);
+    })
 }
 
 #[cfg(test)]
