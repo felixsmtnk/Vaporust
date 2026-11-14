@@ -268,7 +268,7 @@ started hidden and closed with the game, so achievements and cloud saves work as
 - Encrypted saved login, checksum-verified self-update, multiple accounts, 64- and 32-bit builds.
 - Networking by a lightly modified copy of **[Aurelia](https://github.com/Drackrath/Aurelia)**
   by Drackrath - huge thanks.
-- **Status: alpha (0.6.1-alpha).** The interface is in Russian for now; English is planned for the beta.
+- **Status: alpha (0.6.2-alpha).** The interface is in Russian for now; English is planned for the beta.
 
 **Disclaimer:** an independent, unofficial project, **not affiliated with, endorsed or sponsored
 by Valve Corporation or Steam**. Steam and Valve are trademarks of Valve Corporation. The
