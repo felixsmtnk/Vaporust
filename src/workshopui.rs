@@ -96,72 +96,137 @@ pub fn browse(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &mut Ve
             if let Some(t) = ws.total.get(&appid) {
                 ui.weak(format!("Всего модов: {t}"));
             }
-            // Плитка: картинка, название, подписчики и оценка, кнопка подписки.
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
-                for it in items {
-                    ui.allocate_ui(egui::vec2(200.0, 230.0), |ui| {
-                        egui::Frame::none()
-                            .fill(ui.visuals().faint_bg_color)
-                            .rounding(6.0)
-                            .inner_margin(egui::Margin::same(6.0))
-                            .show(ui, |ui| {
-                                ui.set_width(188.0);
-                                ui.vertical(|ui| {
-                                    let url = format!("https://steamcommunity.com/sharedfiles/filedetails/?id={}", it.id);
-                                    let size = egui::vec2(188.0, 106.0);
-                                    let img = if it.preview_url.is_empty() {
-                                        ui.allocate_exact_size(size, egui::Sense::click()).1
-                                    } else {
-                                        ui.add(
-                                            egui::Image::new(crate::richtext::ugc_small(&it.preview_url, 376))
-                                                .fit_to_exact_size(size)
-                                                .rounding(4.0)
-                                                .sense(egui::Sense::click()),
-                                        )
-                                    };
-                                    let _ = url;
-                                    let title = crate::richtext::fix(ui, &it.title);
-                                    let t = ui.add(egui::Label::new(egui::RichText::new(title).strong()).truncate().sense(egui::Sense::click()));
-                                    if img.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Страница мода").clicked()
-                                        || t.on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
-                                    {
-                                        w.item = Some(it.id);
-                                        w.preview = 0;
-                                        if !matches!(ws.details.get(&it.id), Some(Ok(_))) {
-                                            cmds.push(Cmd::Social(SocialCmd::WorkshopDetail(it.id)));
-                                        }
-                                    }
-                                    let mut info = Vec::new();
-                                    if it.subscriptions > 0 {
-                                        info.push(format!("подписчиков {}", crate::store::group_digits(it.subscriptions)));
-                                    }
-                                    let votes = it.votes_up + it.votes_down;
-                                    if votes > 0 {
-                                        info.push(format!("{}% хорошо", it.votes_up * 100 / votes));
-                                    }
-                                    ui.weak(egui::RichText::new(info.join(" · ")).small());
-                                    let mut meta = Vec::new();
-                                    if it.file_size > 0 {
-                                        meta.push(net::fmt_bytes(it.file_size));
-                                    }
-                                    if it.time_updated > 0 {
-                                        meta.push(format!("обновлен {}", fmt_date(it.time_updated as u64)));
-                                    }
-                                    ui.weak(egui::RichText::new(meta.join(" · ")).small());
-                                    if subs.contains(&it.id) {
-                                        if ui.button("Отписаться").clicked() {
-                                            cmds.push(Cmd::Social(SocialCmd::WorkshopSubscribe { appid, id: it.id, on: false }));
-                                        }
-                                    } else if ui.button("Подписаться").clicked() {
-                                        cmds.push(Cmd::Social(SocialCmd::WorkshopSubscribe { appid, id: it.id, on: true }));
-                                    }
-                                });
-                            });
-                    });
+            // Сетка как в Мастерской Steam: квадратная картинка целиком (на темном фоне), под ней
+            // название в две строки и оценка звездами; подписка - кнопкой «+» на картинке при наведении.
+            let gap = 14.0;
+            let avail = ui.available_width() - 4.0;
+            let cols = (((avail + gap) / (170.0 + gap)).floor() as usize).max(1);
+            let tile_w = ((avail - gap * (cols - 1) as f32) / cols as f32).min(230.0);
+            let mut open = None;
+            for row in items.chunks(cols) {
+                ui.horizontal_top(|ui| {
+                    ui.spacing_mut().item_spacing.x = gap;
+                    for it in row {
+                        match tile(ui, it, tile_w, subs.contains(&it.id)) {
+                            Some(TileAct::Open) => open = Some(it.id),
+                            Some(TileAct::Subscribe(on)) => {
+                                cmds.push(Cmd::Social(SocialCmd::WorkshopSubscribe { appid, id: it.id, on }));
+                            }
+                            None => {}
+                        }
+                    }
+                });
+                ui.add_space(gap);
+            }
+            if let Some(id) = open {
+                w.item = Some(id);
+                w.preview = 0;
+                if !matches!(ws.details.get(&id), Some(Ok(_))) {
+                    cmds.push(Cmd::Social(SocialCmd::WorkshopDetail(id)));
                 }
-            });
+            }
         }
+    }
+}
+
+enum TileAct {
+    Open,
+    Subscribe(bool),
+}
+
+/// Плитка мода: картинка целиком, название, звезды и подписчики. Щелчок - страница мода.
+fn tile(ui: &mut egui::Ui, it: &aurelia::core::models::WorkshopItem, w: f32, subscribed: bool) -> Option<TileAct> {
+    let mut act = None;
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, w + 58.0), egui::Sense::click());
+    if !ui.is_rect_visible(rect) {
+        return None;
+    }
+    let hovered = resp.hovered();
+    let img_rect = egui::Rect::from_min_size(rect.min, egui::vec2(w, w));
+    let p = ui.painter_at(rect);
+    p.rect_filled(img_rect, 3.0, egui::Color32::from_rgb(16, 20, 26));
+    if !it.preview_url.is_empty() {
+        // Картинка целиком, по центру квадрата (не обрезается).
+        let url = crate::richtext::ugc_small(&it.preview_url, 400);
+        let img = egui::Image::new(url).max_size(img_rect.size()).maintain_aspect_ratio(true);
+        ui.put(img_rect, img);
+    }
+    if hovered {
+        p.rect_stroke(img_rect, 3.0, egui::Stroke::new(2.0, crate::theme::ACCENT));
+    }
+    // Подписка: зеленая галочка, если подписаны; «+» - при наведении.
+    if subscribed || hovered {
+        let b = egui::Rect::from_min_size(egui::pos2(img_rect.right() - 34.0, img_rect.top() + 6.0), egui::vec2(28.0, 28.0));
+        let br = ui.interact(b, ui.id().with(("ws_sub", it.id)), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+        let fill = if subscribed { crate::theme::PLAY } else if br.hovered() { crate::theme::ACCENT } else { egui::Color32::from_rgba_unmultiplied(20, 26, 34, 220) };
+        p.rect_filled(b, 4.0, fill);
+        let c = b.center();
+        let s = egui::Stroke::new(2.2, egui::Color32::WHITE);
+        if subscribed {
+            p.line_segment([c + egui::vec2(-6.0, 0.0), c + egui::vec2(-2.0, 4.5)], s);
+            p.line_segment([c + egui::vec2(-2.0, 4.5), c + egui::vec2(6.5, -5.0)], s);
+        } else {
+            p.line_segment([c + egui::vec2(-6.0, 0.0), c + egui::vec2(6.0, 0.0)], s);
+            p.line_segment([c + egui::vec2(0.0, -6.0), c + egui::vec2(0.0, 6.0)], s);
+        }
+        let br = br.on_hover_text(if subscribed { "Отписаться" } else { "Подписаться (Steam скачает мод при запуске игры)" });
+        if br.clicked() {
+            act = Some(TileAct::Subscribe(!subscribed));
+        }
+    }
+    // Название (до двух строк).
+    let title = crate::richtext::fix(ui, &it.title);
+    let mut job = egui::text::LayoutJob::simple(title, egui::FontId::proportional(13.5), egui::Color32::WHITE, w);
+    job.wrap.max_rows = 2;
+    let galley = ui.fonts(|f| f.layout_job(job));
+    let ty = img_rect.bottom() + 5.0;
+    let th = galley.size().y;
+    p.galley(egui::pos2(rect.left(), ty), galley, egui::Color32::WHITE);
+    // Оценка звездами и подписчики.
+    let votes = it.votes_up + it.votes_down;
+    let sy = ty + th.max(17.0) + 10.0;
+    if votes > 0 {
+        let share = it.votes_up as f32 / votes as f32;
+        stars(&p, egui::pos2(rect.left() + 6.0, sy), share);
+    }
+    if it.subscriptions > 0 {
+        p.text(
+            egui::pos2(rect.right(), sy),
+            egui::Align2::RIGHT_CENTER,
+            crate::store::group_digits(it.subscriptions),
+            egui::FontId::proportional(11.5),
+            crate::theme::WEAK,
+        );
+    }
+    if act.is_none() && resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+        act = Some(TileAct::Open);
+    }
+    act
+}
+
+/// Пять звезд, закрашенных по доле положительных оценок (как оценка в Мастерской Steam).
+fn stars(p: &egui::Painter, left_center: egui::Pos2, share: f32) {
+    let filled = (share * 5.0).round() as usize;
+    for i in 0..5 {
+        let c = left_center + egui::vec2(i as f32 * 13.0, 0.0);
+        let pts: Vec<egui::Pos2> = (0..10)
+            .map(|k| {
+                let a = std::f32::consts::PI * (k as f32) / 5.0 - std::f32::consts::FRAC_PI_2;
+                let r = if k % 2 == 0 { 5.5 } else { 2.4 };
+                c + egui::vec2(a.cos() * r, a.sin() * r)
+            })
+            .collect();
+        let col = if i < filled { egui::Color32::from_rgb(230, 190, 70) } else { egui::Color32::from_rgb(70, 78, 92) };
+        // Звезда невыпуклая: рисуем веером треугольников от центра.
+        let mut mesh = egui::Mesh::default();
+        mesh.colored_vertex(c, col);
+        for pt in &pts {
+            mesh.colored_vertex(*pt, col);
+        }
+        for k in 0..10u32 {
+            mesh.add_triangle(0, 1 + k, 1 + (k + 1) % 10);
+        }
+        p.add(egui::Shape::mesh(mesh));
     }
 }
 
@@ -180,13 +245,22 @@ impl crate::LauncherApp {
         let Some((appid, name)) = self.ws_open.clone() else { return };
         let mut cmds = Vec::new();
         self.ws_ui.ensure(appid, &mut cmds);
-        ui.heading(format!("Мастерская: {name}"));
+        let in_item = self.ws_ui.item.is_some();
+        ui.horizontal(|ui| {
+            if in_item {
+                if ui.button("< Все моды").clicked() {
+                    self.ws_ui.item = None;
+                }
+            } else if !self.ws_detached && ui.button("< К игре").clicked() {
+                self.view = crate::View::Library;
+            }
+            ui.label(egui::RichText::new(format!("Мастерская  ·  {name}")).size(15.0).color(crate::theme::WEAK));
+        });
+        ui.add_space(4.0);
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             let ws = net.workshop.lock().unwrap();
             if self.ws_ui.item.is_some() {
-                if detail_page(ui, &mut self.ws_ui, &ws, &mut cmds) {
-                    self.ws_ui.item = None;
-                }
+                crate::theme::centered(ui, 1100.0, |ui| detail_page(ui, &mut self.ws_ui, &ws, &mut cmds));
             } else {
                 browse(ui, &mut self.ws_ui, &ws, &mut cmds);
             }
@@ -385,21 +459,17 @@ pub fn page_screenshots(html: &str) -> Vec<String> {
     out
 }
 
-/// Страница мода внутри программы. Возвращает true, если нажата «< К модам».
-pub fn detail_page(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &mut Vec<Cmd>) -> bool {
-    let Some(id) = w.item else { return false };
-    let mut back = false;
-    if ui.button("< К модам").clicked() {
-        back = true;
-    }
+/// Страница мода внутри программы («назад» - в шапке Мастерской).
+pub fn detail_page(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &mut Vec<Cmd>) {
+    let Some(id) = w.item else { return };
     let d = match ws.details.get(&id) {
         None => {
             crate::spin::spinner(ui);
-            return back;
+            return;
         }
         Some(Err(e)) => {
             ui.label(format!("Не удалось загрузить мод: {e}"));
-            return back;
+            return;
         }
         Some(Ok(d)) => d.clone(),
     };
@@ -417,7 +487,8 @@ pub fn detail_page(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &m
     ui.add_space(6.0);
     ui.horizontal_top(|ui| {
         // Слева - большая картинка и ряд маленьких, как в Мастерской Steam.
-        let big_w = (ui.available_width() - 260.0).clamp(240.0, 560.0);
+        // Как в Steam: слева крупно картинки (60% ширины), справа рядом - подписка и сведения.
+        let big_w = (ui.available_width() * 0.6).clamp(240.0, 640.0);
         ui.vertical(|ui| {
             let big = egui::vec2(big_w, big_w * 9.0 / 16.0);
             ui.set_width(big.x);
@@ -451,6 +522,20 @@ pub fn detail_page(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &m
         });
         // Справа - подписка и сведения.
         ui.vertical(|ui| {
+            // Оценка звездами, как в Мастерской Steam.
+            let votes_all = d.votes_up + d.votes_down;
+            if votes_all > 0 {
+                let (r, _) = ui.allocate_exact_size(egui::vec2(160.0, 20.0), egui::Sense::hover());
+                stars(ui.painter(), r.left_center() + egui::vec2(7.0, 0.0), d.votes_up as f32 / votes_all as f32);
+                ui.painter().text(
+                    r.left_center() + egui::vec2(72.0, 0.0),
+                    egui::Align2::LEFT_CENTER,
+                    format!("оценок: {}", crate::store::group_digits(votes_all)),
+                    egui::FontId::proportional(12.0),
+                    crate::theme::WEAK,
+                );
+                ui.add_space(4.0);
+            }
             let (text, fill) = if subscribed {
                 ("Отписаться", egui::Color32::from_rgb(70, 78, 92))
             } else {
@@ -507,9 +592,14 @@ pub fn detail_page(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &m
             }
         });
     });
-    ui.add_space(10.0);
-    ui.separator();
-    for b in crate::store::description_blocks(&d.description) {
+    ui.add_space(12.0);
+    // Описание - в карточке, обычным размером текста.
+    egui::Frame::none().fill(crate::theme::CARD).rounding(4.0).inner_margin(egui::Margin::same(14.0)).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.label(egui::RichText::new("Описание").size(15.0).strong());
+        ui.add_space(6.0);
+        ui.style_mut().override_text_style = Some(egui::TextStyle::Body);
+        for b in crate::store::description_blocks(&d.description) {
         match b {
             crate::store::Block::Heading(t) => {
                 ui.add_space(6.0);
@@ -526,8 +616,9 @@ pub fn detail_page(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &m
                 });
             }
         }
-    }
-    back
+        }
+    });
+    ui.add_space(12.0);
 }
 
 #[cfg(test)]

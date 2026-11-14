@@ -15,6 +15,8 @@ pub const CARD: Color32 = Color32::from_rgb(40, 46, 56);
 pub const ACCENT: Color32 = Color32::from_rgb(26, 159, 255);
 /// Зеленая кнопка «Играть».
 pub const PLAY: Color32 = Color32::from_rgb(92, 158, 30);
+/// Зеленый текст «в игре» (светлее кнопки «ИГРАТЬ»).
+pub const PLAY_TEXT: Color32 = Color32::from_rgb(140, 200, 70);
 pub const TEXT: Color32 = Color32::from_rgb(220, 222, 224);
 pub const WEAK: Color32 = Color32::from_rgb(140, 150, 162);
 

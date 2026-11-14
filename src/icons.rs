@@ -558,3 +558,37 @@ pub fn set_taskbar_icon(hwnd: isize) {
 
 #[cfg(not(windows))]
 pub fn set_taskbar_icon(_hwnd: isize) {}
+
+#[cfg(test)]
+mod social {
+    /// Картинка для превью ссылок на GitHub (1280x640): логотип на темном фоне в цветах программы.
+    /// VAPORUST_SOCIAL=1 cargo test social_preview -- --ignored
+    #[test]
+    #[ignore]
+    fn social_preview() {
+        assert!(std::env::var("VAPORUST_SOCIAL").is_ok());
+        let (w, h) = (1280u32, 640u32);
+        let size = 440.0f32;
+        let (ox, oy) = ((w as f32 - size) / 2.0, (h as f32 - size) / 2.0);
+        let img = image::RgbaImage::from_fn(w, h, |x, y| {
+            // Фон: темно-синий градиент, как верхняя полоса Vaporust.
+            let t = y as f32 / h as f32;
+            let bg = [23.0 + 10.0 * t, 26.0 + 14.0 * t, 33.0 + 22.0 * t];
+            let mut acc = [0.0f32; 3];
+            for sy in 0..3 {
+                for sx in 0..3 {
+                    let px = (x as f32 + (sx as f32 + 0.5) / 3.0 - ox) / size * 64.0;
+                    let py = (y as f32 + (sy as f32 + 0.5) / 3.0 - oy) / size * 64.0;
+                    let c = super::logo(px, py).unwrap_or(bg);
+                    for k in 0..3 {
+                        acc[k] += c[k] / 9.0;
+                    }
+                }
+            }
+            image::Rgba([acc[0] as u8, acc[1] as u8, acc[2] as u8, 255])
+        });
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets").join("social_preview.png");
+        img.save(&path).unwrap();
+        println!("{}", path.display());
+    }
+}

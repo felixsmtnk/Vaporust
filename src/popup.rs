@@ -27,6 +27,8 @@ pub enum Kind {
     Download(u32),
     /// Просто сообщение (проверка) - открыть Vaporust.
     Info,
+    /// Сообщение об игре (удалена, закрыта, ошибка запуска) - страница игры.
+    Game(u32),
 }
 
 struct Popup {
@@ -43,8 +45,8 @@ struct Popup {
 
 const LIFE: Duration = Duration::from_secs(6);
 const MAX: usize = 3;
-const W: f32 = 330.0;
-const H: f32 = 72.0;
+const W: f32 = 340.0;
+const H: f32 = 88.0;
 const GAP: f32 = 8.0;
 
 static QUEUE: Mutex<Vec<Popup>> = Mutex::new(Vec::new());
@@ -147,6 +149,8 @@ impl LauncherApp {
             .with_decorations(false)
             .with_resizable(false)
             .with_always_on_top()
+            // Прозрачный фон окна - видны скругленные углы карточек и промежутки между ними.
+            .with_transparent(true)
             .with_taskbar(false)
             .with_active(false)
             .with_inner_size(size);
@@ -157,7 +161,7 @@ impl LauncherApp {
         }
         ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("vaporust_popups"), builder, |ctx, _| {
             egui::CentralPanel::default()
-                .frame(egui::Frame::none().fill(crate::theme::TOP))
+                .frame(egui::Frame::none().fill(egui::Color32::TRANSPARENT))
                 .show(ctx, |ui| {
                     let mut q = QUEUE.lock().unwrap();
                     let mut close = None;
@@ -172,31 +176,41 @@ impl LauncherApp {
                         }
                         let painter = ui.painter_at(rect);
                         // Карточка в цветах программы: темная, тонкая рамка, при наведении светлее.
-                        let bg = if hovered { egui::Color32::from_rgb(50, 58, 72) } else { crate::theme::CARD };
-                        painter.rect_filled(rect, 4.0, bg);
-                        painter.rect_stroke(rect, 4.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(62, 72, 88)));
                         let accent_color = p.accent.unwrap_or_else(|| color(p.kind));
+                        // Как остальные окна программы: темная карточка с цветной полоской слева (вид уведомления).
+                        let bg = if hovered { egui::Color32::from_rgb(42, 50, 63) } else { crate::theme::CARD };
+                        painter.rect_filled(rect, 8.0, bg);
+                        // Легкий светлый блик сверху - карточка не выглядит плоской и пустой.
+                        let top = egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), rect.height() * 0.45));
+                        painter.rect_filled(top, egui::Rounding { nw: 8.0, ne: 8.0, sw: 0.0, se: 0.0 }, egui::Color32::from_white_alpha(6));
+                        painter.rect_stroke(rect, 8.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(58, 68, 86)));
+                        // У друзей цвет статуса - только рамка аватара; у остальных - полоска слева.
+                        let friend = matches!(p.kind, Kind::Message(_) | Kind::FriendGame(_) | Kind::FriendOnline(_));
+                        if !friend {
+                            let bar = egui::Rect::from_min_size(rect.min, egui::vec2(3.0, rect.height()));
+                            painter.rect_filled(bar, egui::Rounding { nw: 8.0, sw: 8.0, ne: 0.0, se: 0.0 }, accent_color);
+                        }
                         // Слева, как в Steam: аватар друга в рамке цвета статуса или картинка игры.
-                        let icon = egui::Rect::from_min_size(egui::pos2(rect.left() + 12.0, rect.top() + (H - 48.0) / 2.0), egui::vec2(48.0, 48.0));
+                        let icon = egui::Rect::from_min_size(egui::pos2(rect.left() + 14.0, rect.top() + (H - 56.0) / 2.0), egui::vec2(56.0, 56.0));
                         match p.kind {
                             Kind::Message(id) | Kind::FriendGame(id) | Kind::FriendOnline(id) => {
                                 match avatars.get(&id) {
                                     Some(u) => {
-                                        egui::Image::new(u.as_str()).rounding(3.0).paint_at(ui, icon);
+                                        egui::Image::new(u.as_str()).rounding(5.0).paint_at(ui, icon);
                                     }
                                     None => {
                                         painter.rect_filled(icon, 3.0, crate::theme::SIDEBAR);
                                     }
                                 }
-                                painter.rect_stroke(icon.expand(1.0), 3.0, egui::Stroke::new(2.0, accent_color));
+                                painter.rect_stroke(icon.expand(1.0), 5.0, egui::Stroke::new(2.0, accent_color));
                             }
-                            Kind::Sale(a) | Kind::Download(a) if a != 0 => {
+                            Kind::Sale(a) | Kind::Download(a) | Kind::Game(a) if a != 0 => {
                                 // Квадрат из середины шапки игры (460x215).
                                 let url = format!("https://shared.steamstatic.com/store_item_assets/steam/apps/{a}/header.jpg");
                                 let k = 215.0 / 460.0;
                                 egui::Image::new(url)
                                     .uv(egui::Rect::from_min_max(egui::pos2(0.5 - k / 2.0, 0.0), egui::pos2(0.5 + k / 2.0, 1.0)))
-                                    .rounding(3.0)
+                                    .rounding(5.0)
                                     .paint_at(ui, icon);
                             }
                             _ => {
@@ -205,34 +219,42 @@ impl LauncherApp {
                             }
                         }
                         // Смайлик или стикер из сообщения - справа, перед крестиком.
-                        let mut text_w = W - 72.0 - 30.0;
+                        let mut text_w = W - 82.0 - 38.0;
                         if let Some(url) = &p.image {
                             let img_rect = egui::Rect::from_min_size(
-                                egui::pos2(rect.right() - 30.0 - 52.0, rect.top() + (H - 52.0) / 2.0),
+                                egui::pos2(rect.right() - 38.0 - 52.0, rect.top() + (H - 52.0) / 2.0 + 6.0),
                                 egui::vec2(52.0, 52.0),
                             );
                             egui::Image::new(url.as_str()).paint_at(ui, img_rect);
                             text_w -= 58.0;
                         }
-                        let title_color = if p.accent.is_some() { accent_color } else { egui::Color32::WHITE };
-                        let title = text(ui, &p.title, 14.5, title_color, text_w, 1);
-                        let body = text(ui, &p.body, 12.5, crate::theme::TEXT, text_w, 2);
-                        let x = rect.left() + 72.0;
-                        let th = title.size().y + 3.0 + body.size().y;
+                        // Сверху мелко - что это за уведомление, ниже имя (или заголовок) и текст.
+                        let title_color = egui::Color32::WHITE;
+                        let kind_text = text(ui, kind_label(p.kind), 10.5, crate::theme::WEAK, text_w, 1);
+                        let show_title = !(p.title == "Vaporust" && matches!(p.kind, Kind::Game(_) | Kind::Info));
+                        let title = text(ui, if show_title { &p.title } else { "" }, 15.0, title_color, text_w, 1);
+                        let body = text(ui, &p.body, 12.5, crate::theme::TEXT, text_w, if show_title { 2 } else { 3 });
+                        let x = rect.left() + 82.0;
+                        let gap = 3.0;
+                        let title_h = if show_title { title.size().y + gap } else { 0.0 };
+                        let th = kind_text.size().y + gap + title_h + body.size().y;
                         let y = rect.center().y - th / 2.0;
-                        let title_h = title.size().y;
-                        painter.galley(egui::pos2(x, y), title, title_color);
-                        painter.galley(egui::pos2(x, y + title_h + 3.0), body, crate::theme::TEXT);
-                        // Крестик.
-                        let xr = egui::Rect::from_center_size(egui::pos2(rect.right() - 14.0, rect.top() + 14.0), egui::vec2(18.0, 18.0));
+                        let kind_h = kind_text.size().y + gap;
+                        painter.galley(egui::pos2(x, y), kind_text, title_color);
+                        if show_title {
+                            painter.galley(egui::pos2(x, y + kind_h), title, title_color);
+                        }
+                        painter.galley(egui::pos2(x, y + kind_h + title_h), body, crate::theme::TEXT);
+                        // Крестик: крупнее, с подсветкой при наведении.
+                        let xr = egui::Rect::from_center_size(egui::pos2(rect.right() - 18.0, rect.top() + 18.0), egui::vec2(26.0, 26.0));
                         let over_x = ui.input(|i| i.pointer.hover_pos()).is_some_and(|h| xr.contains(h));
-                        painter.text(
-                            xr.center(),
-                            egui::Align2::CENTER_CENTER,
-                            "✖",
-                            egui::FontId::proportional(11.0),
-                            if over_x { egui::Color32::WHITE } else { egui::Color32::from_gray(120) },
-                        );
+                        if over_x {
+                            painter.rect_filled(xr, 4.0, egui::Color32::from_rgb(70, 80, 98));
+                        }
+                        let xc = if over_x { egui::Color32::WHITE } else if hovered { egui::Color32::from_gray(185) } else { egui::Color32::from_gray(125) };
+                        let (c, d) = (xr.center(), 5.0);
+                        painter.line_segment([c + egui::vec2(-d, -d), c + egui::vec2(d, d)], egui::Stroke::new(1.6, xc));
+                        painter.line_segment([c + egui::vec2(-d, d), c + egui::vec2(d, -d)], egui::Stroke::new(1.6, xc));
                         if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                             if !over_x {
                                 CLICKED.lock().unwrap().push(p.kind);
@@ -255,6 +277,19 @@ fn text(ui: &egui::Ui, s: &str, size: f32, color: egui::Color32, width: f32, row
     ui.fonts(|f| f.layout_job(job))
 }
 
+/// Подпись вида уведомления (мелко над заголовком).
+fn kind_label(k: Kind) -> &'static str {
+    match k {
+        Kind::Message(_) => "НОВОЕ СООБЩЕНИЕ",
+        Kind::FriendGame(_) => "ДРУГ ИГРАЕТ",
+        Kind::FriendOnline(_) => "ДРУГ В СЕТИ",
+        Kind::Sale(_) => "СКИДКА В СПИСКЕ ЖЕЛАЕМОГО",
+        Kind::Download(_) => "ЗАГРУЗКА ЗАВЕРШЕНА",
+        Kind::Game(_) => "БИБЛИОТЕКА",
+        Kind::Info => "VAPORUST",
+    }
+}
+
 fn color(k: Kind) -> egui::Color32 {
     match k {
         Kind::Message(_) => egui::Color32::from_rgb(90, 160, 240),
@@ -263,6 +298,7 @@ fn color(k: Kind) -> egui::Color32 {
         Kind::Sale(_) => egui::Color32::from_rgb(240, 180, 60),
         Kind::Download(_) => egui::Color32::from_rgb(120, 210, 140),
         Kind::Info => egui::Color32::from_gray(150),
+        Kind::Game(_) => egui::Color32::from_gray(150),
     }
 }
 
@@ -286,7 +322,7 @@ mod sound {
             Kind::Sale(_) => &[(1318.5, 0, 200), (1760.0, 110, 200), (2093.0, 220, 380)],
             // Загрузка готова: вверх через октаву.
             Kind::Download(_) => &[(392.0, 0, 220), (587.3, 120, 220), (784.0, 240, 450)],
-            Kind::Info => &[(987.8, 0, 260)],
+            Kind::Info | Kind::Game(_) => &[(987.8, 0, 260)],
         }
     }
 
@@ -340,7 +376,7 @@ mod sound {
             Kind::FriendOnline(_) => 2,
             Kind::Sale(_) => 3,
             Kind::Download(_) => 4,
-            Kind::Info => 5,
+            Kind::Info | Kind::Game(_) => 5,
         };
         C[i].get_or_init(|| wav(k))
     }
@@ -398,7 +434,7 @@ impl LauncherApp {
                 }
                 Kind::Sale(0) => self.open_wishlist(),
                 Kind::Sale(appid) => self.open_store(Some(appid), false),
-                Kind::Download(appid) => {
+                Kind::Download(appid) | Kind::Game(appid) => {
                     self.view = crate::View::Library;
                     self.lib_page = Some(appid);
                     let _ = self.tx.send(crate::net::Cmd::Store(crate::store::StoreCmd::Page(appid)));

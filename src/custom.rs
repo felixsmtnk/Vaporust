@@ -5,6 +5,7 @@
 use crate::{LauncherApp, Row};
 use eframe::egui;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::Ordering;
 
 /// Номера сторонних игр начинаются отсюда (как у ярлыков в Steam - старший бит), чтобы не
 /// пересекаться с настоящими appid.
@@ -41,9 +42,113 @@ pub struct Edit {
 /// Минуты, досчитанные потоками запущенных сторонних игр: (номер, минут).
 static PLAYED: std::sync::Mutex<Vec<(u32, u32)>> = std::sync::Mutex::new(Vec::new());
 
+
+/// Файлы сторонних игр по номеру - для значка в списке (его читает поток обложек).
+pub static EXES: std::sync::Mutex<Vec<(u32, String)>> = std::sync::Mutex::new(Vec::new());
+
+/// Путь к exe сторонней игры.
+pub fn exe_of(id: u32) -> Option<String> {
+    EXES.lock().unwrap().iter().find(|(i, _)| *i == id).map(|(_, e)| e.clone())
+}
+
+/// Значок программы из ее exe (как в Проводнике): RGBA и сторона квадрата.
+#[cfg(windows)]
+pub fn exe_icon(path: &str) -> Option<(usize, Vec<u8>)> {
+    use std::mem::{size_of, zeroed};
+    use std::ptr::null_mut;
+    use windows_sys::Win32::Graphics::Gdi::{
+        CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, BITMAP, BITMAPINFO, BITMAPINFOHEADER,
+        BI_RGB, DIB_RGB_COLORS,
+    };
+    use windows_sys::Win32::UI::Shell::ExtractIconExW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyIcon, GetIconInfo, HICON, ICONINFO};
+
+    let wide: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
+    let mut large: HICON = null_mut();
+    let n = unsafe { ExtractIconExW(wide.as_ptr(), 0, &mut large, null_mut(), 1) };
+    if n == 0 || large.is_null() {
+        return None;
+    }
+    let mut info: ICONINFO = unsafe { zeroed() };
+    if unsafe { GetIconInfo(large, &mut info) } == 0 {
+        unsafe { DestroyIcon(large) };
+        return None;
+    }
+    let cleanup = |info: &ICONINFO| unsafe {
+        if !info.hbmColor.is_null() {
+            DeleteObject(info.hbmColor);
+        }
+        if !info.hbmMask.is_null() {
+            DeleteObject(info.hbmMask);
+        }
+        DestroyIcon(large);
+    };
+    if info.hbmColor.is_null() {
+        cleanup(&info);
+        return None;
+    }
+    let mut bm: BITMAP = unsafe { zeroed() };
+    unsafe { GetObjectW(info.hbmColor, size_of::<BITMAP>() as i32, &mut bm as *mut _ as *mut _) };
+    let (w, h) = (bm.bmWidth, bm.bmHeight);
+    if w <= 0 || h <= 0 || w > 256 || w != h {
+        cleanup(&info);
+        return None;
+    }
+    let read = |bmp| -> Vec<u8> {
+        let mut bi: BITMAPINFO = unsafe { zeroed() };
+        bi.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
+        bi.bmiHeader.biWidth = w;
+        bi.bmiHeader.biHeight = -h; // сверху вниз
+        bi.bmiHeader.biPlanes = 1;
+        bi.bmiHeader.biBitCount = 32;
+        bi.bmiHeader.biCompression = BI_RGB;
+        let mut buf = vec![0u8; (w * h * 4) as usize];
+        unsafe {
+            let dc = CreateCompatibleDC(null_mut());
+            GetDIBits(dc, bmp, 0, h as u32, buf.as_mut_ptr() as *mut _, &mut bi, DIB_RGB_COLORS);
+            DeleteDC(dc);
+        }
+        buf
+    };
+    let mut px = read(info.hbmColor);
+    // Старые значки без прозрачности в цвете: прозрачность берем из маски (белое - прозрачно).
+    if px.chunks(4).all(|p| p[3] == 0) {
+        let mask = if info.hbmMask.is_null() { Vec::new() } else { read(info.hbmMask) };
+        for (i, p) in px.chunks_mut(4).enumerate() {
+            p[3] = if mask.get(i * 4).is_some_and(|m| *m != 0) { 0 } else { 255 };
+        }
+    }
+    for p in px.chunks_mut(4) {
+        p.swap(0, 2); // BGRA -> RGBA
+    }
+    cleanup(&info);
+    Some((w as usize, px))
+}
+
+#[cfg(not(windows))]
+pub fn exe_icon(_path: &str) -> Option<(usize, Vec<u8>)> {
+    None
+}
+
+#[cfg(all(test, windows))]
+mod icon_tests {
+    #[test]
+    fn notepad_icon() {
+        let (side, px) = super::exe_icon(r"C:\Windows\System32\notepad.exe").expect("значок блокнота");
+        assert!(side >= 16);
+        assert_eq!(px.len(), side * side * 4);
+        assert!(px.chunks(4).any(|p| p[3] > 0), "значок не пустой");
+    }
+}
+
 impl LauncherApp {
     /// Строки библиотеки для сторонних игр.
     pub(crate) fn custom_rows(&self) -> Vec<Row> {
+        {
+            let mut exes = EXES.lock().unwrap();
+            exes.clear();
+            exes.extend(self.settings.custom_games.iter().map(|g| (g.id, g.exe.clone())));
+        }
         self.settings
             .custom_games
             .iter()
@@ -64,6 +169,10 @@ impl LauncherApp {
 
     /// Запустить стороннюю игру напрямую.
     pub(crate) fn launch_custom(&mut self, appid: u32) {
+        if self.launching.load(Ordering::Relaxed) {
+            *self.launch_status.lock().unwrap() = "Сначала дождитесь закрытия запущенной игры.".into();
+            return;
+        }
         let Some(g) = self.settings.custom_games.iter_mut().find(|g| g.id == appid) else { return };
         let exe = std::path::PathBuf::from(&g.exe);
         let dir = exe.parent().map(|p| p.to_path_buf()).unwrap_or_default();
@@ -71,15 +180,24 @@ impl LauncherApp {
         match std::process::Command::new(&exe).args(&args).current_dir(&dir).spawn() {
             Ok(mut child) => {
                 g.last_played = chrono::Utc::now().timestamp() as u64;
-                *self.launch_status.lock().unwrap() = format!("Запущена «{}».", g.name);
+                let name = g.name.clone();
+                *self.launch_status.lock().unwrap() = format!("Запущена «{name}».");
+                let (status, launching) = (self.launch_status.clone(), self.launching.clone());
+                launching.store(true, Ordering::Relaxed);
                 // Время в игре: ждем завершения процесса в своем потоке.
                 let started = std::time::Instant::now();
                 std::thread::spawn(move || {
-                    let _ = child.wait();
+                    {
+                        // Пока игра идет, внизу и на ее странице есть «Закрыть игру».
+                        let _running = crate::local::RunningGuard::set(appid, &name, &dir);
+                        let _ = child.wait();
+                    }
                     let min = (started.elapsed().as_secs() / 60) as u32;
                     if min > 0 {
                         PLAYED.lock().unwrap().push((appid, min));
                     }
+                    *status.lock().unwrap() = format!("«{name}» закрыта.");
+                    launching.store(false, Ordering::Relaxed);
                 });
             }
             Err(e) => {

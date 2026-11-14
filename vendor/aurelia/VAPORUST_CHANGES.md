@@ -26,6 +26,9 @@
 - `src/web/web_session.rs` - добавлены методы `post_form` (POST формы с куками
   веб-сессии) и `put_bytes` (PUT файла на сервер загрузки). Проход через
   `/market/eligibilitycheck/` с 0.2.5 делает сам автор в `get_text`, наша версия убрана.
+  В `get_text` добавлен проход обычных перенаправлений внутри steamcommunity.com (до 4 переходов,
+  кроме входа и eligibilitycheck): иначе профили с коротким адресом (`/profiles/<id>/` ->
+  `/id/<имя>/`) возвращались ошибкой.
 - `src/steam_client/content.rs` - `fetch_achievements` вынесена в `fetch_achievements_for(appid,
   язык, steam_id)`: достижения любого пользователя (сравнение с другом).
 

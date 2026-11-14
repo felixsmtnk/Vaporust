@@ -147,9 +147,18 @@ fn local_icon(steam_dir: &Path, appid: u32) -> Option<Vec<u8>> {
 }
 
 fn load(ctx: &egui::Context, steam_dir: Option<&Path>, kind: Kind, appid: u32) -> Cover {
-    // Сторонняя игра (не из Steam): картинок в Steam нет.
+    // Сторонняя игра (не из Steam): картинок в Steam нет, значок - из ее exe.
     if crate::custom::is_custom(appid) {
-        return Cover::Missing;
+        if kind != Kind::Icon {
+            return Cover::Missing;
+        }
+        let Some((side, px)) = crate::custom::exe_of(appid).and_then(|e| crate::custom::exe_icon(&e)) else {
+            return Cover::Missing;
+        };
+        let Some(img) = image::RgbaImage::from_raw(side as u32, side as u32, px) else { return Cover::Missing };
+        let small = image::imageops::resize(&img, 32, 32, image::imageops::FilterType::Triangle);
+        let color = egui::ColorImage::from_rgba_unmultiplied([32, 32], small.as_raw());
+        return Cover::Ready(ctx.load_texture(format!("icon{appid}"), color, egui::TextureOptions::LINEAR));
     }
     if kind == Kind::Icon {
         let Some(bytes) = steam_dir.and_then(|d| local_icon(d, appid)) else { return Cover::Missing };

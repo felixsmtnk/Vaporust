@@ -72,6 +72,14 @@ impl LauncherApp {
     pub(crate) fn top_nav(&mut self, ui: &mut egui::Ui, net: &NetState) {
         let ctrl = ui.input(|i| i.modifiers.ctrl);
         let section = section_of(self.view);
+        // Игра и Steam: действия, которых раньше было в нижней полосе.
+        let launching = self.launching.load(std::sync::atomic::Ordering::Relaxed);
+        let closing = self.closing.load(std::sync::atomic::Ordering::Relaxed);
+        let steam_running = !closing && self.steam_running();
+        let running = crate::local::RUNNING.lock().unwrap().clone().filter(|_| launching && !closing);
+        let force_ok = running.as_ref().is_some_and(|(a, _, _)| {
+            self.stop_asked.is_some_and(|(id, t)| id == *a && t.elapsed() >= std::time::Duration::from_secs(10))
+        });
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 18.0;
             // Меню программы - простым текстом, как «Steam» в клиенте.
@@ -80,6 +88,49 @@ impl LauncherApp {
                 if ui.button("Настройки").clicked() {
                     self.view = View::Settings;
                     ui.close_menu();
+                }
+                if let Some((appid, name, _)) = &running {
+                    ui.separator();
+                    if ui
+                        .button(format!("Закрыть «{name}»"))
+                        .on_hover_text("Просит игру закрыться, как крестик окна или Alt+F4")
+                        .clicked()
+                    {
+                        self.stop_running(*appid, false);
+                        ui.close_menu();
+                    }
+                    if force_ok
+                        && ui
+                            .button("Закрыть игру принудительно")
+                            .on_hover_text("Сразу завершает процессы игры, если она зависла. Несохраненное пропадет.")
+                            .clicked()
+                    {
+                        self.stop_running(*appid, true);
+                        ui.close_menu();
+                    }
+                }
+                if launching && !running.as_ref().is_some_and(|r| crate::custom::is_custom(r.0)) {
+                    if running.is_none() {
+                        ui.separator();
+                    }
+                    if ui
+                        .button("Перестать следить за игрой")
+                        .on_hover_text("Запасной выход, если Vaporust не заметил закрытия игры.
+Steam остается открытым.")
+                        .clicked()
+                    {
+                        self.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                        ui.close_menu();
+                    }
+                }
+                if steam_running {
+                    if !launching {
+                        ui.separator();
+                    }
+                    if ui.button("Закрыть Steam").on_hover_text("Закрывает Steam (если он завис - принудительно)").clicked() {
+                        self.close_steam(ui.ctx());
+                        ui.close_menu();
+                    }
                 }
                 ui.separator();
                 if ui.add_enabled(!net.busy, egui::Button::new("Выйти из аккаунта")).clicked() {

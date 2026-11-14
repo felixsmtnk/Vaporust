@@ -84,7 +84,7 @@ Vaporust основан на [Aurelia](https://github.com/Drackrath/Aurelia), н
 
 ## Состояние проекта
 
-Vaporust в **альфе** (последняя версия 0.5.0-alpha): основное работает и проверено вручную
+Vaporust в **альфе** (последняя версия 0.5.1-alpha): основное работает и проверено вручную
 на двух компьютерах с Windows 10 (64 бит), включая старый ноутбук, но ошибки вполне вероятны.
 
 | Раздел | Статус | Что работает |
@@ -335,7 +335,7 @@ built for low-end PCs where the official client's steamwebhelper is too heavy.
   **[Aurelia](https://github.com/Drackrath/Aurelia)** by Drackrath - huge thanks; this project
   is inspired by and built on it (changes are listed in `vendor/aurelia/VAPORUST_CHANGES.md`).
 - Based on Aurelia, but with a friendly windowed interface, its own features, and made for Windows.
-- **Status: alpha (0.5.0-alpha).** The interface is in Russian for now; English is planned for the beta.
+- **Status: alpha (0.5.1-alpha).** The interface is in Russian for now; English is planned for the beta.
 
 **Disclaimer:** an independent, unofficial project, **not affiliated with, endorsed or
 sponsored by Valve Corporation or Steam**. Steam and Valve are trademarks of Valve

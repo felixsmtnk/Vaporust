@@ -31,6 +31,10 @@ pub enum Action {
     Import(u32, String),
     /// Открыть папку игры в Проводнике.
     Folder(u32),
+    /// Закрыть запущенную игру (как крестик окна).
+    Stop(u32),
+    /// Удалить игру с диска (с подтверждением).
+    Uninstall(u32, String),
 }
 
 /// Состояние, нужное для кнопок (одинаковое для всех строк кадра).
@@ -45,6 +49,11 @@ pub struct Ctx<'a> {
     pub collections: &'a [crate::colls::Coll],
     /// Обновлять через Steam (для подсказки кнопки «Обновить»).
     pub update_via_steam: bool,
+    /// Какая игра сейчас запущена (кнопка «ОСТАНОВИТЬ» вместо «ИГРАТЬ»).
+    pub running: Option<u32>,
+    /// Какую игру сейчас запускает (или закрывает) Vaporust и что с ней происходит.
+    pub status_app: Option<u32>,
+    pub status: &'a str,
 }
 
 impl Ctx<'_> {
@@ -128,7 +137,9 @@ pub fn list(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, sort: &mu
                 name.push_str("  (семья)");
             }
             cell(&p, x, rect.left() + xs[1] - x - 8.0, name, egui::FontId::proportional(13.5), name_color);
-            let (state, color) = if c.installing_now(r.appid) {
+            let (state, color) = if c.running == Some(r.appid) {
+                ("в игре", theme::PLAY_TEXT)
+            } else if c.installing_now(r.appid) {
                 ("загружается", theme::ACCENT)
             } else if c.queued.contains(&r.appid) {
                 ("в очереди", theme::ACCENT)
@@ -194,10 +205,14 @@ pub fn grid(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers) -> Option
 fn tile_ui(ui: &mut egui::Ui, r: &Row, c: &Ctx, covers: &Covers, tile: egui::Vec2, out: &mut Option<Action>) {
     let (rect, resp) = ui.allocate_exact_size(tile, egui::Sense::click());
     let painter = ui.painter_at(rect);
+    // При наведении обложка плавно чуть приближается (как в Steam): меняется только видимая
+    // часть той же картинки, без новых загрузок; перерисовка - лишь на время анимации (0.15 с).
+    let zoom = ui.ctx().animate_bool_with_time(egui::Id::new(("tile_zoom", r.appid)), resp.hovered(), 0.15) * 0.05;
     match covers.get(r.appid) {
         Cover::Ready(tex) => {
             let tint = if r.installed { egui::Color32::WHITE } else { egui::Color32::from_gray(110) };
-            painter.image(tex.id(), rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), tint);
+            let uv = egui::Rect::from_min_max(egui::pos2(zoom, zoom), egui::pos2(1.0 - zoom, 1.0 - zoom));
+            painter.image(tex.id(), rect, uv, tint);
         }
         cover => {
             // Пока грузится или обложки нет - темная карточка с названием.
@@ -216,8 +231,9 @@ fn tile_ui(ui: &mut egui::Ui, r: &Row, c: &Ctx, covers: &Covers, tile: egui::Vec
         painter.text(rect.center(), egui::Align2::CENTER_CENTER, "загрузка…", egui::FontId::proportional(14.0), egui::Color32::WHITE);
     }
     collections_menu(&resp, r, c, out);
-    if resp.hovered() {
-        painter.rect_stroke(rect, 3.0, egui::Stroke::new(2.0, egui::Color32::from_rgb(110, 160, 230)));
+    if zoom > 0.0 {
+        // Чуть светлее вместе с приближением, без рамки.
+        painter.rect_filled(rect, 0.0, egui::Color32::from_white_alpha((zoom * 240.0) as u8));
     }
     // Как в Steam: под обложкой ничего нет; при наведении - зеленая кнопка «Играть» в углу
     // (у установленных), щелчок по ней запускает игру, по остальной обложке - страница игры.
@@ -272,7 +288,17 @@ fn collections_menu(resp: &egui::Response, r: &Row, c: &Ctx, out: &mut Option<Ac
             item(ui, true, "Открыть папку игры", Action::Folder(r.appid));
         }
         if crate::custom::is_custom(r.appid) {
+            ui.separator();
+            item(ui, c.running != Some(r.appid), "Убрать из библиотеки...", Action::Uninstall(r.appid, r.name.clone()));
             return;
+        }
+        if r.installed {
+            item(
+                ui,
+                !c.installing_now(r.appid) && c.running != Some(r.appid),
+                "Удалить...",
+                Action::Uninstall(r.appid, r.name.clone()),
+            );
         }
         ui.separator();
         item(ui, c.logged_in, "Достижения", Action::Achievements(r.appid, r.name.clone()));
@@ -342,7 +368,9 @@ pub fn sidebar(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, select
                 }
                 x = ir.right() + 7.0;
             }
-            let (suffix, color) = if c.installing_now(r.appid) {
+            let (suffix, color) = if c.running == Some(r.appid) {
+                (" - в игре", theme::PLAY_TEXT)
+            } else if c.installing_now(r.appid) {
                 (" - загрузка", theme::ACCENT)
             } else if r.ready && c.needs_update(r) {
                 (" - обновление", theme::ACCENT)
@@ -376,7 +404,17 @@ pub fn sidebar(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, select
 
 /// Большая кнопка на странице игры: «ИГРАТЬ» (зеленая) или «УСТАНОВИТЬ» (голубая).
 fn big_main_button(ui: &mut egui::Ui, r: &Row, c: &Ctx, out: &mut Option<Action>) {
-    if r.ready {
+    if c.running == Some(r.appid) {
+        // Как в Steam: пока игра идет, вместо «ИГРАТЬ» - «ОСТАНОВИТЬ».
+        let b = theme::big_button(ui, "ОСТАНОВИТЬ", theme::ACCENT, true)
+            .on_hover_text("Просит игру закрыться, как крестик окна или Alt+F4. Игра может спросить о сохранении.");
+        if b.clicked() {
+            *out = Some(Action::Stop(r.appid));
+        }
+    } else if r.ready && c.launching && c.status_app == Some(r.appid) {
+        // Игра запускается: Steam поднимается, игра еще не появилась.
+        theme::big_button(ui, "ЗАПУСК...", theme::PLAY, false);
+    } else if r.ready {
         let ok = !c.launching && !c.installing;
         let b = theme::big_button(ui, "ИГРАТЬ", theme::PLAY, ok).on_disabled_hover_text("Недоступно, пока идет запуск или установка");
         if b.clicked() {
@@ -516,6 +554,16 @@ pub fn page(
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 22.0;
                     stats(ui);
+                });
+            }
+            // Что сейчас происходит с этой игрой (запуск Steam, ожидание игры, закрытие).
+            if c.launching && c.status_app == Some(r.appid) && !c.status.is_empty() {
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if c.running != Some(r.appid) {
+                        crate::spin::spinner(ui);
+                    }
+                    ui.label(egui::RichText::new(c.status).size(12.5).color(theme::WEAK));
                 });
             }
         });

@@ -174,8 +174,13 @@ impl LauncherApp {
                 ui.add(egui::Label::new(egui::RichText::new(crate::richtext::fix(ui, &name)).size(15.0).strong()).truncate());
                 // Статус - щелчок открывает выбор, как в Steam.
                 // Стрелка вниз после статуса и рука под курсором - видно, что статус можно сменить.
-                let label = egui::RichText::new(format!("{}    ", crate::settings::persona_label(persona))).size(12.0).color(color);
-                let st = egui::menu::menu_custom_button(ui, egui::Button::new(label).frame(false), |ui| {
+                // Текст в одну строку (без переноса), место под стрелку - справа от текста.
+                let text = crate::settings::persona_label(persona);
+                // Текст и стрелку рисуем сами поверх пустой кнопки - так их положение точно известно.
+                let galley = ui.painter().layout_no_wrap(text.to_string(), egui::FontId::proportional(12.0), color);
+                let text_w = galley.size().x;
+                let btn = egui::Button::new("").frame(false).min_size(egui::vec2(text_w + 13.0, galley.size().y + 2.0));
+                let st = egui::menu::menu_custom_button(ui, btn, |ui| {
                     let before = self.settings.persona;
                     for (state, label) in crate::settings::PERSONAS {
                         ui.radio_value(&mut self.settings.persona, state, label);
@@ -186,10 +191,14 @@ impl LauncherApp {
                     }
                 });
                 let r = st.response.rect;
-                let c = egui::pos2(r.right() - 9.0, r.center().y);
+                let fg = if st.response.hovered() { egui::Color32::WHITE } else { color };
+                let ty = r.center().y - galley.size().y / 2.0;
+                ui.painter().galley_with_override_text_color(egui::pos2(r.left(), ty), galley, fg);
+                // Стрелка - в 4 точках после текста, как в Steam.
+                let c = egui::pos2(r.left() + text_w + 7.5, r.center().y + 0.5);
                 ui.painter().add(egui::Shape::convex_polygon(
-                    vec![c + egui::vec2(-4.0, -2.0), c + egui::vec2(4.0, -2.0), c + egui::vec2(0.0, 3.0)],
-                    if st.response.hovered() { egui::Color32::WHITE } else { color },
+                    vec![c + egui::vec2(-3.5, -1.8), c + egui::vec2(3.5, -1.8), c + egui::vec2(0.0, 2.5)],
+                    fg,
                     egui::Stroke::NONE,
                 ));
                 st.response
@@ -443,6 +452,14 @@ impl LauncherApp {
         match act {
             Some(ProfileAct::Chat) => self.open_chat(&ctx, id, name.clone(), net),
             Some(ProfileAct::Wishlist) => self.open_friend_wishlist(id, name.clone()),
+            Some(ProfileAct::MyWishlist) => self.open_wishlist(),
+            Some(ProfileAct::Recent) => {
+                // Своя библиотека, недавно запущенные сверху.
+                self.close_extras(crate::View::Library);
+                self.view = crate::View::Library;
+                self.lib_page = None;
+                self.settings.sort = crate::settings::Sort::LastPlayed;
+            }
             Some(ProfileAct::Url(u)) => ctx.open_url(egui::OpenUrl::new_tab(u)),
             Some(ProfileAct::Store(a)) => self.open_store(Some(a), false),
             Some(ProfileAct::Profile(sid)) => self.open_profile(sid, net),
@@ -680,6 +697,10 @@ pub(crate) fn viewport(title: &str, size: [f32; 2], min: [f32; 2]) -> egui::View
 enum ProfileAct {
     Chat,
     Wishlist,
+    /// Свой список желаемого (в магазине программы).
+    MyWishlist,
+    /// Свои недавно запущенные игры (библиотека).
+    Recent,
     Url(String),
     Store(u32),
     Profile(u64),
@@ -726,29 +747,53 @@ fn pager(ui: &mut egui::Ui, current: u32, pages: u32, act: &mut Option<ProfileAc
     if pages <= 1 {
         return;
     }
+    // Порядок «< 1 2 3 ... >»; в раскладке справа налево элементы добавляются задом наперед.
+    enum Item {
+        Prev,
+        Num(u32),
+        Gap,
+        Next,
+    }
+    let mut items = vec![Item::Prev];
+    let mut shown_gap = false;
+    for n in 0..pages {
+        if n < 6 || n + 1 == pages || n.abs_diff(current) <= 1 {
+            items.push(Item::Num(n));
+            shown_gap = false;
+        } else if !shown_gap {
+            items.push(Item::Gap);
+            shown_gap = true;
+        }
+    }
+    items.push(Item::Next);
+    if ui.layout().prefer_right_to_left() {
+        items.reverse();
+    }
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
-        if ui.add_enabled(current > 0, egui::Button::new("<").small()).clicked() {
-            *act = Some(ProfileAct::Page(current - 1));
-        }
-        let mut shown_gap = false;
-        for n in 0..pages {
-            let near = n < 6 || n + 1 == pages || n.abs_diff(current) <= 1;
-            if !near {
-                if !shown_gap {
-                    ui.weak("...");
-                    shown_gap = true;
+        for it in items {
+            match it {
+                Item::Prev => {
+                    if ui.add_enabled(current > 0, egui::Button::new("<").small()).clicked() {
+                        *act = Some(ProfileAct::Page(current - 1));
+                    }
                 }
-                continue;
+                Item::Next => {
+                    if ui.add_enabled(current + 1 < pages, egui::Button::new(">").small()).clicked() {
+                        *act = Some(ProfileAct::Page(current + 1));
+                    }
+                }
+                Item::Gap => {
+                    ui.weak("...");
+                }
+                Item::Num(n) => {
+                    let text = egui::RichText::new((n + 1).to_string())
+                        .color(if n == current { egui::Color32::WHITE } else { crate::theme::WEAK });
+                    if ui.add(egui::Button::new(text).frame(false)).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && n != current {
+                        *act = Some(ProfileAct::Page(n));
+                    }
+                }
             }
-            shown_gap = false;
-            let text = egui::RichText::new((n + 1).to_string()).color(if n == current { egui::Color32::WHITE } else { crate::theme::WEAK });
-            if ui.add(egui::Button::new(text).frame(false)).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && n != current {
-                *act = Some(ProfileAct::Page(n));
-            }
-        }
-        if ui.add_enabled(current + 1 < pages, egui::Button::new(">").small()).clicked() {
-            *act = Some(ProfileAct::Page(current + 1));
         }
     });
 }
@@ -787,8 +832,23 @@ fn profile_left(
                 }
             });
         }
+        // Показатели, как в Steam: крупное число, под ним подпись.
+        if !s.stats.is_empty() {
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 26.0;
+                for (value, label) in &s.stats {
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        ui.label(egui::RichText::new(value).size(22.0).color(egui::Color32::WHITE));
+                        ui.label(egui::RichText::new(label).size(12.0).color(crate::theme::WEAK));
+                    });
+                }
+            });
+        }
         if !s.text.is_empty() {
-            ui.add(egui::Label::new(egui::RichText::new(crate::richtext::fix(ui, &s.text)).color(crate::theme::WEAK)).wrap());
+            ui.add_space(2.0);
+            ui.add(egui::Label::new(egui::RichText::new(crate::richtext::fix(ui, &s.text)).size(13.0).color(crate::theme::WEAK)).wrap());
         }
         ui.add_space(14.0);
     }
@@ -837,11 +897,11 @@ fn profile_left(
                 }
                 ui.weak("|");
                 if ui.link("Список желаемого").clicked() {
-                    *act = Some(if is_me { ProfileAct::Url(format!("https://store.steampowered.com/wishlist/profiles/{owner}/")) } else { ProfileAct::Wishlist });
+                    *act = Some(if is_me { ProfileAct::MyWishlist } else { ProfileAct::Wishlist });
                 }
                 ui.weak("|");
                 if ui.link("Все недавно запущенные").clicked() {
-                    *act = Some(ProfileAct::Url(format!("{base}/games/?tab=recent")));
+                    *act = Some(if is_me { ProfileAct::Recent } else { ProfileAct::Url(format!("{base}/games/?tab=recent")) });
                 }
             });
         });
@@ -879,16 +939,55 @@ fn profile_left(
         ui.add_space(8.0);
     }
     for c in &x.comments {
+        // Строка комментария: наведена ли мышь - по месту с прошлого кадра (без учета слоев,
+        // иначе значок мусорки «уводил» наведение со строки и пропадал до щелчка).
+        let row_id = ui.id().with(("comment_row", &c.id));
+        let hovered = ui
+            .ctx()
+            .data(|d| d.get_temp::<egui::Rect>(row_id))
+            .zip(ui.input(|i| i.pointer.hover_pos()))
+            .is_some_and(|(r, p)| r.contains(p));
+        let confirm = sui.confirm_delete.as_deref() == Some(c.id.as_str());
         let row = ui.horizontal_top(|ui| {
+            // Аватар; рамка аватара (предмет Steam) - поверх, чуть больше, как в Steam.
             let (ar, _) = ui.allocate_exact_size(egui::vec2(40.0, 40.0), egui::Sense::hover());
             if !c.avatar.is_empty() {
                 egui::Image::new(c.avatar.as_str()).rounding(2.0).paint_at(ui, ar);
+            } else {
+                ui.painter().rect_filled(ar, 2.0, crate::theme::CARD);
+            }
+            if !c.frame.is_empty() {
+                egui::Image::new(c.frame.as_str()).paint_at(ui, ar.expand(ar.width() * 0.11));
             }
             ui.vertical(|ui| {
+                ui.set_width(ui.available_width());
                 ui.spacing_mut().item_spacing.y = 1.0;
                 ui.horizontal(|ui| {
-                    if ui.link(egui::RichText::new(crate::richtext::fix(ui, &c.author)).color(egui::Color32::WHITE).strong()).clicked() && !c.author_url.is_empty() {
+                    if ui.link(egui::RichText::new(crate::richtext::fix(ui, &c.author)).color(egui::Color32::WHITE).strong()).clicked()
+                        && !c.author_url.is_empty()
+                    {
                         *act = Some(ProfileAct::Url(c.author_url.clone()));
+                    }
+                    // Удалить - значок мусорки справа при наведении, как в Steam.
+                    if c.can_delete && !c.id.is_empty() && (hovered || confirm) {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if confirm {
+                                if ui.small_button("Нет").clicked() {
+                                    sui.confirm_delete = None;
+                                }
+                                if ui
+                                    .small_button(egui::RichText::new("Удалить навсегда").color(egui::Color32::from_rgb(230, 110, 110)))
+                                    .clicked()
+                                {
+                                    *act = Some(ProfileAct::Delete(c.id.clone()));
+                                }
+                            } else if trash_button(ui)
+                                .on_hover_text(if is_me { "Удалить комментарий из своего профиля" } else { "Удалить свой комментарий" })
+                                .clicked()
+                            {
+                                sui.confirm_delete = Some(c.id.clone());
+                            }
+                        });
                     }
                 });
                 if c.time > 0 {
@@ -897,36 +996,7 @@ fn profile_left(
                 ui.add(egui::Label::new(crate::richtext::fix(ui, &c.text)).wrap());
             });
         });
-        // Удалить - значком при наведении на комментарий (как в Steam).
-        if c.can_delete && !c.id.is_empty() {
-            let r = row.response.rect;
-            let hovered = ui.rect_contains_pointer(r);
-            let confirm = sui.confirm_delete.as_deref() == Some(c.id.as_str());
-            if hovered || confirm {
-                let pos = egui::pos2(r.right() - 4.0, r.top());
-                egui::Area::new(ui.id().with(("del", &c.id)))
-                    .fixed_pos(pos - egui::vec2(if confirm { 190.0 } else { 70.0 }, 0.0))
-                    .order(egui::Order::Foreground)
-                    .show(ui.ctx(), |ui| {
-                        ui.horizontal(|ui| {
-                            if confirm {
-                                if ui.small_button(egui::RichText::new("Удалить навсегда").color(egui::Color32::from_rgb(230, 110, 110))).clicked() {
-                                    *act = Some(ProfileAct::Delete(c.id.clone()));
-                                }
-                                if ui.small_button("Нет").clicked() {
-                                    sui.confirm_delete = None;
-                                }
-                            } else if ui
-                                .small_button("Удалить")
-                                .on_hover_text(if is_me { "Удалить комментарий из своего профиля" } else { "Удалить свой комментарий" })
-                                .clicked()
-                            {
-                                sui.confirm_delete = Some(c.id.clone());
-                            }
-                        });
-                    });
-            }
-        }
+        ui.ctx().data_mut(|d| d.insert_temp(row_id, row.response.rect));
         ui.add_space(10.0);
     }
     ui.horizontal(|ui| {
@@ -956,10 +1026,14 @@ fn profile_right(
     for (label, total, href) in counts.into_iter().filter(|(l, t, _)| !t.is_empty() || l.to_lowercase().starts_with("инвентарь")) {
         let lower = label.to_lowercase();
         let resp = ui
-            .horizontal(|ui| {
-                let l = ui.add(egui::Label::new(egui::RichText::new(&label).size(15.0).color(egui::Color32::from_gray(225))).sense(egui::Sense::click()));
+            // Строка фиксированной высоты: иначе раскладка с выравниванием по низу растягивалась на всю
+            // оставшуюся высоту колонки и уводила остальное под комментарии.
+            .allocate_ui_with_layout(egui::vec2(ui.available_width(), 26.0), egui::Layout::left_to_right(egui::Align::Max), |ui| {
+                // Как в Steam: подпись, за ней через небольшой отступ число - крупнее и серее, по нижнему краю.
+                ui.spacing_mut().item_spacing.x = 7.0;
+                let l = ui.add(egui::Label::new(egui::RichText::new(&label).size(15.0).color(egui::Color32::from_gray(215))).sense(egui::Sense::click()));
                 if !total.is_empty() {
-                    ui.label(egui::RichText::new(&total).size(20.0).color(crate::theme::WEAK));
+                    ui.add(egui::Label::new(egui::RichText::new(&total).size(20.0).color(crate::theme::WEAK)).selectable(false));
                 }
                 l
             })
@@ -1037,4 +1111,23 @@ fn profile_right(
         ui.weak(format!("В Steam с {}", fmt_date(c)));
     }
     ui.weak(format!("Код друга: {}", id.saturating_sub(social::STEAMID64_BASE)));
+}
+
+/// Значок мусорки (рисуется линиями, как в Steam): кнопка удаления комментария.
+fn trash_button(ui: &mut egui::Ui) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), egui::Sense::click());
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    let c = if resp.hovered() { egui::Color32::from_rgb(230, 110, 110) } else { crate::theme::WEAK };
+    let s = egui::Stroke::new(1.4, c);
+    let p = ui.painter();
+    let m = r.center();
+    // Крышка с ручкой.
+    p.line_segment([m + egui::vec2(-6.0, -4.5), m + egui::vec2(6.0, -4.5)], s);
+    p.line_segment([m + egui::vec2(-2.0, -6.5), m + egui::vec2(2.0, -6.5)], s);
+    // Корзина.
+    let body = [m + egui::vec2(-4.5, -3.0), m + egui::vec2(-3.5, 6.5), m + egui::vec2(3.5, 6.5), m + egui::vec2(4.5, -3.0)];
+    p.add(egui::Shape::line(body.to_vec(), s));
+    p.line_segment([m + egui::vec2(-1.3, -1.0), m + egui::vec2(-1.1, 4.5)], s);
+    p.line_segment([m + egui::vec2(1.3, -1.0), m + egui::vec2(1.1, 4.5)], s);
+    resp
 }

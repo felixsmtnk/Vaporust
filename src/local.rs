@@ -1419,13 +1419,32 @@ fn game_pids(dir: &Path) -> Vec<u32> {
     let mut procs = Procs::new();
     procs.refresh();
     let me = std::process::id();
-    procs
+    let mut pids: Vec<u32> = procs
         .sys
         .processes()
         .values()
         .filter(|p| p.pid().as_u32() != me && p.exe().is_some_and(|e| norm(e).starts_with(&d)))
         .map(|p| p.pid().as_u32())
-        .collect()
+        .collect();
+    // И их дочерние процессы: многие игры запускают саму игру не из своей папки (Plants vs. Zombies
+    // распаковывает и запускает popcapgame1.exe во временной папке, а PlantsVsZombies.exe только ждет).
+    loop {
+        let more: Vec<u32> = procs
+            .sys
+            .processes()
+            .values()
+            .filter(|p| {
+                let pid = p.pid().as_u32();
+                pid != me && !pids.contains(&pid) && p.parent().is_some_and(|pp| pids.contains(&pp.as_u32()))
+            })
+            .map(|p| p.pid().as_u32())
+            .collect();
+        if more.is_empty() {
+            break;
+        }
+        pids.extend(more);
+    }
+    pids
 }
 
 /// Остановить игру. Мягко: окнам игры отправляется WM_CLOSE (как крестик окна или
@@ -1667,5 +1686,124 @@ pub fn pretty_path(p: &std::path::Path) -> String {
             s.strip_prefix(r"\?\").map(str::to_string).unwrap_or(s)
         }
         Err(_) => p.display().to_string().replace('/', "\\"),
+    }
+}
+
+/// Сколько места занимает папка (со всеми вложенными), байт.
+pub fn dir_size(p: &Path) -> u64 {
+    let Ok(rd) = fs::read_dir(p) else { return 0 };
+    rd.flatten()
+        .map(|e| match e.file_type() {
+            Ok(t) if t.is_dir() => dir_size(&e.path()),
+            Ok(_) => e.metadata().map(|m| m.len()).unwrap_or(0),
+            Err(_) => 0,
+        })
+        .sum()
+}
+
+/// Удалить игру с диска самостоятельно: папку игры, незаконченную загрузку
+/// (steamapps\downloading\<appid>) и appmanifest - в том числе спрятанный от Steam
+/// (недокачанные загрузки Vaporust, которые Aurelia не находит). Только при закрытом Steam.
+pub fn uninstall_files(game: &Game) -> Result<(), String> {
+    // Защита от ошибки в пути: удаляем только <библиотека>\steamapps\common\<папка игры>.
+    let common = game.dir.parent().ok_or("неверная папка игры")?;
+    let steamapps = common.parent().ok_or("неверная папка игры")?;
+    let name_is = |p: &Path, n: &str| p.file_name().is_some_and(|f| f.to_string_lossy().eq_ignore_ascii_case(n));
+    let leaf = game.dir.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+    if !name_is(common, "common") || !name_is(steamapps, "steamapps") || leaf.trim().is_empty() || leaf == "." || leaf == ".." {
+        return Err(format!("папка игры выглядит неправильно: {}", game.dir.display()));
+    }
+    // Папку делят несколько игр (common\Half-Life у Counter-Strike, Half-Life, Blue Shift...):
+    // целиком ее удалять нельзя.
+    if let Some(other) = other_owner(steamapps, game.appid, &leaf) {
+        return Err(format!("эту папку использует и другая игра ({other}), целиком ее удалять нельзя"));
+    }
+    if game.dir.exists() {
+        fs::remove_dir_all(&game.dir).map_err(|e| format!("не удалось удалить папку игры: {e}"))?;
+    }
+    let downloading = steamapps.join("downloading").join(game.appid.to_string());
+    if downloading.exists() {
+        let _ = fs::remove_dir_all(&downloading);
+    }
+    let (acf, hidden) = (
+        steamapps.join(format!("appmanifest_{}.acf", game.appid)),
+        steamapps.join(format!("appmanifest_{}{STASH_EXT}", game.appid)),
+    );
+    for f in [acf, hidden] {
+        if f.exists() {
+            fs::remove_file(&f).map_err(|e| format!("не удалось удалить {}: {e}", f.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Другая игра (название) в этой библиотеке с той же папкой installdir.
+fn other_owner(steamapps: &Path, appid: u32, installdir: &str) -> Option<String> {
+    for e in fs::read_dir(steamapps).ok()?.flatten() {
+        let f = e.file_name().to_string_lossy().to_string();
+        if !f.starts_with("appmanifest_") || !(f.ends_with(".acf") || f.ends_with(STASH_EXT)) {
+            continue;
+        }
+        let Ok(text) = fs::read_to_string(e.path()) else { continue };
+        let (mut id, mut dir, mut name) = (None, None, None);
+        for (k, v) in text.lines().filter_map(kv) {
+            match k.as_str() {
+                "appid" if id.is_none() => id = v.parse::<u32>().ok(),
+                "installdir" if dir.is_none() => dir = Some(v),
+                "name" if name.is_none() => name = Some(v),
+                _ => {}
+            }
+        }
+        if id.is_some_and(|i| i != appid) && dir.is_some_and(|d| d.eq_ignore_ascii_case(installdir)) {
+            return Some(name.unwrap_or_default());
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod uninstall_tests {
+    use super::*;
+
+    #[test]
+    fn uninstall_partial_stashed() {
+        let root = std::env::temp_dir().join(format!("vaporust_uninst_{}", std::process::id()));
+        let steamapps = root.join("steamapps");
+        let dir = steamapps.join("common").join("Игра тест");
+        fs::create_dir_all(dir.join("sub")).unwrap();
+        fs::write(dir.join("sub").join("a.bin"), vec![0u8; 1000]).unwrap();
+        fs::create_dir_all(steamapps.join("downloading").join("777")).unwrap();
+        fs::write(steamapps.join(format!("appmanifest_777{STASH_EXT}")), "\"AppState\"\n{\n}\n").unwrap();
+        fs::write(steamapps.join("appmanifest_778.acf"), "чужая игра").unwrap();
+        let game = Game {
+            appid: 777,
+            name: "Игра тест".into(),
+            dir: dir.clone(),
+            ready: false,
+            needs_update: false,
+            size: 0,
+            stashed: true,
+        };
+        assert_eq!(dir_size(&dir), 1000);
+        uninstall_files(&game).unwrap();
+        assert!(!dir.exists());
+        assert!(!steamapps.join("downloading").join("777").exists());
+        assert!(!steamapps.join(format!("appmanifest_777{STASH_EXT}")).exists());
+        assert!(steamapps.join("appmanifest_778.acf").exists(), "чужое не трогаем");
+        assert!(steamapps.join("common").exists());
+        // Общая папка (как common\Half-Life у Counter-Strike и Half-Life) - отказ, файлы целы.
+        let shared = steamapps.join("common").join("Half-Life");
+        fs::create_dir_all(&shared).unwrap();
+        fs::write(shared.join("hl.exe"), b"x").unwrap();
+        fs::write(steamapps.join("appmanifest_10.acf"), "\"AppState\"\n{\n\t\"appid\"\t\t\"10\"\n\t\"name\"\t\t\"Counter-Strike\"\n\t\"installdir\"\t\t\"Half-Life\"\n}\n").unwrap();
+        fs::write(steamapps.join("appmanifest_70.acf"), "\"AppState\"\n{\n\t\"appid\"\t\t\"70\"\n\t\"name\"\t\t\"Half-Life\"\n\t\"installdir\"\t\t\"Half-Life\"\n}\n").unwrap();
+        let cs = Game { appid: 10, name: "Counter-Strike".into(), dir: shared.clone(), ready: true, needs_update: false, size: 0, stashed: false };
+        let err = uninstall_files(&cs).unwrap_err();
+        assert!(err.contains("Half-Life"), "{err}");
+        assert!(shared.join("hl.exe").exists());
+        // Неправильный путь - отказ.
+        let bad = Game { dir: root.join("x"), ..game };
+        assert!(uninstall_files(&bad).is_err());
+        fs::remove_dir_all(&root).unwrap();
     }
 }

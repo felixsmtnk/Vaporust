@@ -64,6 +64,7 @@ mod custom;
 mod friendspage;
 mod downloads;
 mod tray;
+mod uninstall;
 mod updater;
 mod webapi;
 mod workshopui;
@@ -194,6 +195,12 @@ struct LauncherApp {
     trimmed: bool,
     /// Окно добавления или правки сторонней игры.
     custom_edit: Option<custom::Edit>,
+    /// Подтверждение удаления игры: (appid, название, размер на диске).
+    pub(crate) uninstall_ask: Option<(u32, String, u64)>,
+    /// Какую игру запускает Vaporust (ее состояние показывается на странице игры).
+    status_app: Option<u32>,
+    /// Последнее показанное состояние (новое - всплывающим уведомлением).
+    status_seen: String,
     /// Страница «Друзья».
     friends_page: friendspage::FriendsPage,
     trim_at: std::time::Instant,
@@ -378,7 +385,8 @@ impl LauncherApp {
             lib_page: None,
             mem_place: None,
             page_loaded: None,
-            frame_applied: None,
+            // Окно создается без рамки: команду шлем, только если в настройках обычная рамка.
+            frame_applied: Some(false),
             tour: tour::Tour::from_env(),
             last_unread: 0,
             queue_started: None,
@@ -392,6 +400,9 @@ impl LauncherApp {
             own_profile_asked: false,
             trimmed: false,
             custom_edit: None,
+            uninstall_ask: None,
+            status_app: None,
+            status_seen: String::new(),
             friends_page: Default::default(),
             trim_at: std::time::Instant::now(),
             tx,
@@ -601,6 +612,18 @@ impl LauncherApp {
             q.paused = false; // уже в очереди на паузе - «Докачать» снимает паузу
             return;
         }
+        // Пока открыт Steam, Vaporust не качает (Steam мог бы сам начать качать ту же игру):
+        // игра встает в очередь и начнется сама, как только Steam закроют. Раньше нажатие
+        // «Установить» в этом случае ничего видимого не делало.
+        if self.steam_running() && !self.launching.load(Ordering::Relaxed) {
+            self.settings.downloads.push(settings::QueueItem { appid, name: name.clone(), paused: false });
+            popup::push(
+                popup::Kind::Game(appid),
+                "Загрузка ждет закрытия Steam",
+                format!("«{name}» в очереди: начнется сама, когда вы закроете Steam (меню «Vaporust» - «Закрыть Steam»)."),
+            );
+            return;
+        }
         let busy = net.install.as_ref().is_some_and(|i| i.active());
         let waiting = self.settings.downloads.iter().any(|q| !q.paused);
         let allowed = schedule::may_download(&self.settings);
@@ -671,6 +694,51 @@ impl LauncherApp {
         self.queue_started = Some(std::time::Instant::now());
     }
 
+    /// Сообщения о результате (удалена, закрыта, ошибка запуска) - всплывающим уведомлением:
+    /// в нижней полосе состояния больше нет, а ход запуска виден на странице игры.
+    fn status_popup(&mut self) {
+        let st = self.launch_status.lock().unwrap().clone();
+        if st == self.status_seen {
+            return;
+        }
+        let busy = self.launching.load(Ordering::Relaxed) || self.closing.load(Ordering::Relaxed);
+        // «Удаляю...», «Прошу закрыться...» - это ход дела, а не итог: не показываем.
+        let in_progress = st.ends_with("...") || st.ends_with('…');
+        if !busy && !in_progress && !st.is_empty() && st != "Готово." {
+            // Игра из «кавычек» - ее картинка слева, щелчок открывает ее страницу.
+            let game = st
+                .split_once('«')
+                .and_then(|(_, rest)| rest.split_once('»'))
+                .map(|(name, _)| name)
+                .and_then(|name| {
+                    self.games
+                        .iter()
+                        .find(|g| g.name == name)
+                        .map(|g| g.appid)
+                });
+            let kind = game.map_or(popup::Kind::Info, popup::Kind::Game);
+            popup::push(kind, "Vaporust", st.clone());
+        }
+        self.status_seen = st;
+    }
+
+    /// Закрыть запущенную игру: мягко (как крестик окна) или принудительно.
+    fn stop_running(&mut self, appid: u32, force: bool) {
+        let Some((id, name, dir)) = local::RUNNING.lock().unwrap().clone() else { return };
+        if id != appid {
+            return;
+        }
+        let n = local::stop_game(&dir, force);
+        if !force {
+            self.stop_asked = Some((appid, std::time::Instant::now()));
+        }
+        *self.launch_status.lock().unwrap() = match (force, n > 0) {
+            (true, _) => format!("«{name}» закрыта принудительно."),
+            (false, true) => format!("Прошу «{name}» закрыться..."),
+            (false, false) => "Процессы игры не найдены.".into(),
+        };
+    }
+
     fn steam_running(&mut self) -> bool {
         let now = std::time::Instant::now();
         match self.steam_check {
@@ -726,6 +794,7 @@ impl LauncherApp {
     }
 
     fn start(&mut self, appid: u32, ctx: &egui::Context) {
+        self.status_app = Some(appid);
         if custom::is_custom(appid) {
             self.launch_custom(appid);
             return;
@@ -1225,12 +1294,7 @@ impl LauncherApp {
                 }
                 self.inventory_contents(ui, net);
             }
-            View::Workshop => {
-                if ui.button("< К игре").clicked() {
-                    self.view = View::Library;
-                }
-                self.workshop_contents(ui, net);
-            }
+            View::Workshop => self.workshop_contents(ui, net),
             View::Settings => self.settings_contents(ui, net),
             View::Screenshots => self.shots_contents(ui, net),
             View::Storage => self.storage_contents(ui),
@@ -1828,6 +1892,12 @@ fn fmt_eta(secs: u64) -> String {
 }
 
 impl eframe::App for LauncherApp {
+    /// Фон под панелями: полностью прозрачный (у окна уведомлений видны скругленные углы;
+    /// у обычных окон фон и так закрыт панелями, а прозрачность окна выключена).
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.0, 0.0, 0.0, 0.0]
+    }
+
     /// eframe вызывает при выходе и периодически (раз в 30 с).
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         self.settings.freeze_webhelper = self.freeze_webhelper;
@@ -1954,17 +2024,46 @@ impl eframe::App for LauncherApp {
             self.frame_applied = Some(self.settings.system_frame);
             ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(self.settings.system_frame));
         }
+        winframe::heal_client_size(ctx);
+        // Windows упорно рисует свой заголовок поверх своей рамки - включить обычную рамку Windows.
+        if let Some(m) = winframe::caption_forced() {
+            self.settings.system_frame = true;
+            errlog::write("окно", &format!("Windows рисует свой заголовок ({m}): включена обычная рамка Windows"));
+            ctx.request_repaint();
+        }
+        // Проверка рамки - в первые 10 с после запуска (дальше перерисовка как обычно, без лишних кадров).
+        if !self.settings.system_frame && ctx.input(|i| i.time) < 10.0 {
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        }
         if !notify::in_tray() {
             let title = if unread > 0 {
                 format!("({unread}) Vaporust {}", env!("CARGO_PKG_VERSION"))
             } else {
                 concat!("Vaporust ", env!("CARGO_PKG_VERSION")).to_string()
             };
-            winframe::title_bar(ctx, &title);
-            let top_frame = egui::Frame::none().fill(theme::TOP).inner_margin(egui::Margin::symmetric(10.0, 6.0));
-            egui::TopBottomPanel::top("account").frame(top_frame).show_separator_line(false).show(ctx, |ui| {
-                self.account_panel(ui, &net);
+            let _ = &title; // название окна - на панели задач (ViewportCommand::Title выше)
+            // Как в Steam: отдельной полосы заголовка нет - кнопки окна в строке разделов справа,
+            // окно перетаскивается за пустое место этой строки.
+            winframe::frame_only(ctx);
+            let own_frame = !winframe::system();
+            let top_frame = egui::Frame::none().fill(theme::TOP).inner_margin(if own_frame {
+                egui::Margin { left: 10.0, right: 0.0, top: 0.0, bottom: 2.0 }
+            } else {
+                egui::Margin::symmetric(10.0, 6.0)
             });
+            let drag_id = egui::Id::new("vaporust_top_drag");
+            let top = egui::TopBottomPanel::top("account").frame(top_frame).show_separator_line(false).show(ctx, |ui| {
+                winframe::drag_behind(ui, drag_id);
+                ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        winframe::window_buttons(ui, 34.0);
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            self.account_panel(ui, &net);
+                        });
+                    });
+                });
+            });
+            winframe::remember_drag(ctx, drag_id, top.response.rect);
             if net.account.is_some() {
                 let sub_frame = egui::Frame::none().fill(theme::TOP).inner_margin(egui::Margin { left: 10.0, right: 10.0, top: 0.0, bottom: 5.0 });
                 egui::TopBottomPanel::top("subnav").frame(sub_frame).show(ctx, |ui| self.sub_nav(ui, &net));
@@ -1974,7 +2073,6 @@ impl eframe::App for LauncherApp {
             let bottom_frame = egui::Frame::none().fill(theme::TOP).inner_margin(egui::Margin::symmetric(8.0, 3.0));
             egui::TopBottomPanel::bottom("status").frame(bottom_frame).show(ctx, |ui| {
                 ui.add_space(2.0);
-                let steam_running = self.steam_running();
                 let full = ui.max_rect();
                 let row = ui.horizontal(|ui| {
                     // Слева, как в Steam, - «Добавить игру».
@@ -1991,73 +2089,6 @@ impl eframe::App for LauncherApp {
                             ui.close_menu();
                         }
                     });
-                    let launching = self.launching.load(Ordering::Relaxed);
-                    let closing = self.closing.load(Ordering::Relaxed);
-                    if launching || closing {
-                        crate::spin::spinner(ui);
-                    }
-                    let running = local::RUNNING.lock().unwrap().clone();
-                    if let Some((appid, name, dir)) = running.filter(|_| launching && !closing) {
-                        let asked = self.stop_asked.filter(|(a, _)| *a == appid).map(|(_, t)| t);
-                        if ui
-                            .button("Закрыть игру")
-                            .on_hover_text(format!(
-                                "Просит «{name}» закрыться, как крестик окна или Alt+F4.\n\
-                                 Игра может спросить о сохранении."
-                            ))
-                            .clicked()
-                        {
-                            let n = local::stop_game(&dir, false);
-                            self.stop_asked = Some((appid, std::time::Instant::now()));
-                            *self.launch_status.lock().unwrap() = if n > 0 {
-                                format!("Прошу «{name}» закрыться...")
-                            } else {
-                                "Процессы игры не найдены.".into()
-                            };
-                        }
-                        if asked.is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(10))
-                            && ui
-                                .button("Закрыть принудительно")
-                                .on_hover_text(
-                                    "Сразу завершает все процессы игры, если она зависла\n\
-                                     и не закрывается сама. Несохраненное пропадет.",
-                                )
-                                .clicked()
-                        {
-                            local::stop_game(&dir, true);
-                            *self.launch_status.lock().unwrap() = format!("«{name}» закрыта принудительно.");
-                        }
-                    }
-                    if launching && !closing {
-                        if ui
-                            .button("Перестать следить")
-                            .on_hover_text(
-                                "Запасной выход, если лаунчер не заметил закрытия игры.\n\
-                                 Лаунчер перестает ждать, а Steam остается открытым:\n\
-                                 его можно закрыть кнопкой «Закрыть Steam».",
-                            )
-                            .clicked()
-                        {
-                            self.cancel.store(true, Ordering::Relaxed);
-                        }
-                    } else if steam_running && !closing {
-                        if ui
-                            .button("Закрыть Steam")
-                            .on_hover_text("Закрывает Steam (если он завис - принудительно).")
-                            .clicked()
-                        {
-                            self.close_steam(ctx);
-                        }
-                    }
-                    let status = self.launch_status.lock().unwrap().clone();
-                    if !status.is_empty() {
-                        // Статус не залезает под «Загрузки» посередине.
-                        let max = (full.center().x - 150.0 - ui.cursor().left()).max(60.0);
-                        ui.scope(|ui| {
-                            ui.set_max_width(max);
-                            ui.add(egui::Label::new(status).truncate());
-                        });
-                    }
                     // Справа, как в Steam, - «Друзья и чат».
                     if net.account.is_some() {
                         let unread: u32 = net.chats.values().map(|c| c.unread).sum();
@@ -2091,6 +2122,7 @@ impl eframe::App for LauncherApp {
             let rows = if self.view == View::Library { self.rows(&net) } else { Vec::new() };
             let queued: std::collections::HashSet<u32> =
                 self.settings.downloads.iter().filter(|q| !q.paused).map(|q| q.appid).collect();
+            let status_text = self.launch_status.lock().unwrap().clone();
             let vc = libview::Ctx {
                 launching,
                 installing,
@@ -2099,6 +2131,9 @@ impl eframe::App for LauncherApp {
                 queued: &queued,
                 collections: net.collections.as_deref().unwrap_or(&[]),
                 update_via_steam: self.settings.update_via_steam,
+                running: local::RUNNING.lock().unwrap().as_ref().map(|r| r.0),
+                status_app: self.status_app,
+                status: &status_text,
             };
             let mut side_action = None;
             // Компактный вид (таблица): без левой колонки, фильтры - строкой над таблицей.
@@ -2233,6 +2268,8 @@ impl eframe::App for LauncherApp {
                         }
                     }
                     Some(libview::Action::Import(appid, name)) => self.import_game(appid, name),
+                    Some(libview::Action::Stop(appid)) => self.stop_running(appid, false),
+                    Some(libview::Action::Uninstall(appid, name)) => self.ask_uninstall(appid, name),
                     Some(libview::Action::Collection { id, appid, add }) => {
                         let _ = self.tx.send(Cmd::Coll(colls::CollCmd::Toggle { id, appid, add }));
                     }
@@ -2254,6 +2291,8 @@ impl eframe::App for LauncherApp {
         self.stats_tick(&net);
         self.popups_ui(ctx);
         self.custom_tick(ctx);
+        self.uninstall_dialog(ctx, &net);
+        self.status_popup();
         self.popup_clicks(ctx, &net);
         self.finish_tick(&net);
         self.run_queue(&net);

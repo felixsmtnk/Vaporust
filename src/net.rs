@@ -133,6 +133,8 @@ pub enum Cmd {
     Move { appid: u32, name: String, dest: PathBuf },
     /// Удалить игру с диска.
     Uninstall { appid: u32, name: String },
+    /// Удалить игру из папки, общей с другими играми (others): только ее собственные файлы.
+    UninstallShared { appid: u32, name: String, dir: PathBuf, others: Vec<u32> },
     /// Закрепленная версия: записать в appmanifest последние версии хранилищ ветки, чтобы
     /// настоящий Steam считал игру обновленной. launch - после этого запустить игру.
     PinRefresh { appid: u32, path: PathBuf, branch: String, launch: bool },
@@ -936,6 +938,22 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 c.uninstall_game(appid, false).await.map_err(|e| format!("Не удалось удалить: {e:#}"))
             });
         }
+        Cmd::UninstallShared { appid, name, dir, others } => {
+            let c = client.clone();
+            start_op(
+                appid,
+                format!("Удаление: {name}"),
+                "удалена (файлы других игр из общей папки не тронуты).",
+                st,
+                ctx,
+                move |_| async move {
+                    uninstall_shared(&c, appid, &dir, &others)
+                        .await
+                        .map(|_| ())
+                        .map_err(|e| format!("Не удалось удалить (ничего не удалено): {e}"))
+                },
+            );
+        }
         Cmd::LoadEmoticons => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             tokio::spawn(async move {
@@ -1499,6 +1517,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             });
         }
         Cmd::Logout => {
+            PROBE_GEN.fetch_add(1, Ordering::Relaxed); // проверка связи прошлого входа больше не нужна
             let _ = client.logout().await;
             upd(st, ctx, |s| {
                 *s = NetState {
@@ -1528,7 +1547,56 @@ async fn logged_in(client: &mut SteamClient, session: SessionState, st: &Shared,
         s.chats.clear();
     });
     start_social(client, roster, st, ctx);
+    start_link_probe(st, ctx);
     load_owned(client, st, ctx).await;
+}
+
+/// Номер сеанса проверки связи: новый вход останавливает проверку прошлого сеанса.
+static PROBE_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Раз в 20 с проверять, есть ли связь со Steam (соединение с steamcommunity.com:443). Две
+/// неудачи подряд - автономный режим, как при запуске без сети: полоса «Нет связи со Steam»,
+/// а offline_tick в интерфейсе раз в минуту пробует войти снова. Раньше пропажу интернета
+/// Vaporust замечал только после перезапуска.
+fn start_link_probe(st: &Shared, ctx: &egui::Context) {
+    let gen = PROBE_GEN.fetch_add(1, Ordering::Relaxed) + 1;
+    let (st, ctx) = (st.clone(), ctx.clone());
+    tokio::spawn(async move {
+        let mut fails = 0;
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+            if PROBE_GEN.load(Ordering::Relaxed) != gen {
+                return;
+            }
+            let ok = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                tokio::net::TcpStream::connect("steamcommunity.com:443"),
+            )
+            .await
+            .is_ok_and(|r| r.is_ok());
+            if ok {
+                fails = 0;
+                continue;
+            }
+            fails += 1;
+            if fails < 2 || PROBE_GEN.load(Ordering::Relaxed) != gen {
+                continue;
+            }
+            let mut went = false;
+            upd(&st, &ctx, |s| {
+                if s.account.is_some() {
+                    s.offline = true;
+                    s.offline_reason = "Нет подключения к интернету".into();
+                    s.account = None;
+                    went = true;
+                }
+            });
+            if went {
+                crate::errlog::write("сеть", "связь со Steam пропала (проверка соединения)");
+            }
+            return;
+        }
+    });
 }
 
 /// Перечитать последние сообщения переписки (после отправки картинки).
@@ -2804,6 +2872,153 @@ mod ach_live {
                     Err(e) => println!("друг: ошибка {e:#}"),
                 }
             }
+        });
+    }
+}
+
+/// appmanifest игры в steamapps: обычный или спрятанный от Steam (недокачанная загрузка Vaporust).
+fn manifest_of(steamapps: &std::path::Path, appid: u32) -> std::path::PathBuf {
+    let acf = steamapps.join(format!("appmanifest_{appid}.acf"));
+    if acf.exists() {
+        return acf;
+    }
+    steamapps.join(format!("appmanifest_{appid}{}", crate::local::STASH_EXT))
+}
+
+/// Удалить игру, которая делит папку с другими играми (например, Counter-Strike, Half-Life,
+/// Blue Shift и Opposing Force лежат в одной папке common\Half-Life). Удаляются только файлы
+/// хранилищ этой игры, которых нет у игр-соседей; пустые после этого папки тоже убираются.
+/// Списки файлов берутся у Steam; если хоть один получить не удалось - ничего не удаляется.
+async fn uninstall_shared(
+    c: &SteamClient,
+    appid: u32,
+    game_dir: &std::path::Path,
+    others: &[u32],
+) -> Result<usize, String> {
+    let steamapps = game_dir
+        .parent()
+        .and_then(std::path::Path::parent)
+        .ok_or("неверная папка игры")?
+        .to_path_buf();
+    let remove = shared_remove_list(c, appid, &steamapps, others).await?;
+    remove_listed(appid, game_dir, &steamapps, &remove)
+}
+
+/// Какие файлы (пути внутри папки игры) удалить у игры из общей папки: файлы ее хранилищ,
+/// которых нет у соседей. Ничего не удаляет.
+async fn shared_remove_list(
+    c: &SteamClient,
+    appid: u32,
+    steamapps: &std::path::Path,
+    others: &[u32],
+) -> Result<Vec<String>, String> {
+    let steamapps = steamapps.to_path_buf();
+    let my_acf = manifest_of(&steamapps, appid);
+    let installed = crate::local::installed_depots(&my_acf);
+    let files = |app: u32, depot: u32, manifest: u64| async move {
+        c.depot_file_names(app, depot, manifest)
+            .await
+            .map_err(|e| format!("список файлов хранилища {depot}: {e:#}"))
+    };
+    // Файлы соседей (их собственные и общие хранилища) - не трогаем.
+    let mut keep = std::collections::HashSet::new();
+    // Хранилища этой игры, которыми пользуются соседи (SharedDepots у них), - тоже не трогаем.
+    let mut protected = std::collections::HashSet::new();
+    for &other in others {
+        let acf = manifest_of(&steamapps, other);
+        for (d, m) in crate::local::installed_depots(&acf) {
+            keep.extend(files(other, d, m).await?.into_iter().map(|f| f.to_lowercase()));
+        }
+        for (d, owner) in crate::local::shared_depots(&acf) {
+            if owner == appid {
+                protected.insert(d);
+            }
+            let owner_acf = manifest_of(&steamapps, owner);
+            if let Some(m) = crate::local::installed_depots(&owner_acf).get(&d) {
+                keep.extend(files(owner, d, *m).await?.into_iter().map(|f| f.to_lowercase()));
+            }
+        }
+    }
+    // Сначала собрать все списки, потом удалять: при ошибке сети диск остается как был.
+    let mut remove = Vec::new();
+    for (d, m) in installed.iter().filter(|(d, _)| !protected.contains(d)) {
+        for f in files(appid, *d, *m).await? {
+            if !keep.contains(&f.to_lowercase()) {
+                remove.push(f);
+            }
+        }
+    }
+    Ok(remove)
+}
+
+/// Удалить перечисленные файлы, опустевшие папки, незаконченную загрузку и appmanifest.
+fn remove_listed(
+    appid: u32,
+    game_dir: &std::path::Path,
+    steamapps: &std::path::Path,
+    remove: &[String],
+) -> Result<usize, String> {
+    let mut n = 0;
+    let mut dirs = std::collections::BTreeSet::new();
+    for f in remove {
+        let p = game_dir.join(f.replace('/', "\\"));
+        if p.is_file() && std::fs::remove_file(&p).is_ok() {
+            n += 1;
+        }
+        // Папки, где лежали удаленные файлы, - кандидаты на удаление, если опустели.
+        let mut parent = p.parent();
+        while let Some(dir) = parent {
+            if dir == game_dir || !dir.starts_with(game_dir) {
+                break;
+            }
+            dirs.insert(dir.to_path_buf());
+            parent = dir.parent();
+        }
+    }
+    // Самые глубокие - первыми; remove_dir не удаляет непустые папки.
+    let mut dirs: Vec<_> = dirs.into_iter().collect();
+    dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+    for d in dirs {
+        let _ = std::fs::remove_dir(&d);
+    }
+    let _ = std::fs::remove_dir_all(steamapps.join("downloading").join(appid.to_string()));
+    for f in [
+        steamapps.join(format!("appmanifest_{appid}.acf")),
+        steamapps.join(format!("appmanifest_{appid}{}", crate::local::STASH_EXT)),
+    ] {
+        if f.exists() {
+            std::fs::remove_file(&f).map_err(|e| format!("не удалось удалить {}: {e}", f.display()))?;
+        }
+    }
+    Ok(n)
+}
+
+#[cfg(test)]
+mod shared_uninstall_live {
+    /// Что удалило бы новое удаление у игры из общей папки (по умолчанию Counter-Strike, 10).
+    /// НИЧЕГО НЕ УДАЛЯЕТ. VAPORUST_APP - другая игра.
+    #[test]
+    #[ignore]
+    fn shared_plan_live() {
+        let appid: u32 = std::env::var("VAPORUST_APP").ok().and_then(|v| v.parse().ok()).unwrap_or(10);
+        let steam = crate::local::find_steam().unwrap();
+        let games = crate::local::scan_games(&steam.dir);
+        let me = games.iter().find(|g| g.appid == appid).expect("игра не установлена");
+        let dir = me.dir.to_string_lossy().to_lowercase();
+        let others: Vec<u32> =
+            games.iter().filter(|g| g.appid != appid && g.dir.to_string_lossy().to_lowercase() == dir).map(|g| g.appid).collect();
+        println!("{} ({appid}), соседи: {others:?}", me.name);
+        let steamapps = me.dir.parent().unwrap().parent().unwrap().to_path_buf();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            let list = super::shared_remove_list(&c, appid, &steamapps, &others).await.unwrap();
+            let mut tops = std::collections::BTreeMap::<String, usize>::new();
+            for f in &list {
+                *tops.entry(f.split(['/', '\\']).next().unwrap_or("").to_lowercase()).or_default() += 1;
+            }
+            println!("удалилось бы файлов: {}; по верхним папкам: {tops:?}", list.len());
         });
     }
 }

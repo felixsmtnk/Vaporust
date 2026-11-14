@@ -33,6 +33,8 @@ pub struct PropsWin {
     beta_choice: Option<String>,
     move_idx: usize,
     confirm_uninstall: bool,
+    /// Размер папки игры, если в appmanifest его нет (недокачанная игра).
+    dir_size: Option<u64>,
     note: Option<String>,
     // Мастерская: подписки уже запрошены.
     ws_loaded: bool,
@@ -147,6 +149,7 @@ impl LauncherApp {
             beta_choice: None,
             move_idx: 0,
             confirm_uninstall: false,
+            dir_size: None,
             note,
             ws_loaded: false,
             dg_inputs: Default::default(),
@@ -190,6 +193,7 @@ impl LauncherApp {
         let mut close_steam = false;
         let mut cmds: Vec<Cmd> = Vec::new();
         let mut do_update = false;
+        let mut do_uninstall = false;
         // Смена беты: без Steam (как кнопка «Обновить» в библиотеке).
         let mut do_update_smart = false;
         // Закрепить (true) или открепить (false) - выполняется после отрисовки.
@@ -244,6 +248,12 @@ impl LauncherApp {
             };
             let acf_path = local::appmanifest_path(&game);
             let acf = local::read_acf(&acf_path);
+            // У недокачанных (особенно спрятанных от Steam) размер в appmanifest 0 - считаем по папке.
+            let disk_size = if acf.size_on_disk > 0 && game.ready {
+                acf.size_on_disk
+            } else {
+                *w.dir_size.get_or_insert_with(|| local::dir_size(&game.dir))
+            };
 
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match w.tab {
                 Tab::General => {
@@ -586,7 +596,7 @@ impl LauncherApp {
                             local::open_folder(&game.dir);
                         }
                     });
-                    ui.label(format!("Размер на диске: {}", net::fmt_bytes(acf.size_on_disk)));
+                    ui.label(format!("Размер на диске: {}", net::fmt_bytes(disk_size)));
                     if acf.last_updated > 0 {
                         ui.label(format!("Обновлена: {}", fmt_date(acf.last_updated)));
                     }
@@ -675,13 +685,14 @@ impl LauncherApp {
                         }
                     } else {
                         ui.colored_label(egui::Color32::from_rgb(230, 110, 110), format!(
-                            "Удалить «{}» с диска? Будет удалена папка игры ({}). Сохранения в облаке Steam останутся.",
+                            "Удалить «{}» с диска? Будет удалена папка игры ({}). Игра останется на аккаунте, \
+                             сохранения в облаке Steam не пострадают.",
                             w.name,
-                            net::fmt_bytes(acf.size_on_disk)
+                            net::fmt_bytes(disk_size)
                         ));
                         ui.horizontal(|ui| {
                             if ui.add_enabled(!locked, egui::Button::new("Да, удалить")).clicked() {
-                                cmds.push(Cmd::Uninstall { appid: w.appid, name: w.name.clone() });
+                                do_uninstall = true;
                                 w.confirm_uninstall = false;
                             }
                             if ui.button("Отмена").clicked() {
@@ -968,6 +979,10 @@ impl LauncherApp {
 
         for c in cmds {
             let _ = self.tx.send(c);
+        }
+        if do_uninstall {
+            let name = self.props.as_ref().map(|p| p.name.clone()).unwrap_or_default();
+            self.uninstall_game(appid, name);
         }
         if close_steam {
             self.close_steam(ctx);

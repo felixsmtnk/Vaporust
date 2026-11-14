@@ -51,6 +51,24 @@ pub fn animations() -> bool {
 /// Пометка в конце адреса: показать GIF неподвижным (egui анимирует адреса, оканчивающиеся на
 /// «.gif»). HttpLoader убирает ее перед скачиванием.
 const STILL: &str = "?vaporust-still";
+/// Метка «уменьшить до N точек по большей стороне» (миниатюры крупных картинок: фоны профиля).
+const MAX: &str = "?vaporust-max=";
+
+/// Адрес картинки, которую достаточно показать не больше `px` точек по большей стороне.
+pub fn sized(url: &str, px: u32) -> String {
+    format!("{url}{MAX}{px}")
+}
+
+/// Настоящий адрес для скачивания: без меток Vaporust.
+fn strip_markers(uri: &str) -> &str {
+    uri.find("?vaporust-").map_or(uri, |i| &uri[..i])
+}
+
+/// Предел стороны из метки адреса (если есть).
+fn max_from(uri: &str) -> Option<u32> {
+    let i = uri.find(MAX)?;
+    uri[i + MAX.len()..].split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
+}
 
 /// Адрес GIF, который всегда показывается неподвижным (сетки предметов: десятки анимаций сразу
 /// заняли бы сотни мегабайт).
@@ -109,7 +127,7 @@ fn pump(st: &Arc<Mutex<HttpState>>, ctx: &egui::Context) {
         }
         s.cache.insert(uri.clone(), Http::Running);
         s.running += 1;
-        let fetch = uri.strip_suffix(STILL).unwrap_or(&uri).to_string();
+        let fetch = strip_markers(&uri).to_string();
         let (st2, ctx2) = (st.clone(), ctx.clone());
         ehttp::fetch(ehttp::Request::get(fetch), move |r| {
             let entry = match r {
@@ -206,6 +224,8 @@ struct Job {
     uri: String,
     bytes: Bytes,
     big: bool,
+    /// Предел большей стороны.
+    max: u32,
 }
 
 pub struct SmallLoader {
@@ -238,7 +258,7 @@ impl SmallLoader {
                     if !matches!(cache.lock().get(&job.uri), Some(Entry::Pending)) {
                         continue; // уже не нужна
                     }
-                    let e = match decode_small(&job.bytes) {
+                    let e = match decode_max(&job.bytes, job.max) {
                         Ok(img) => Entry::Ready(Arc::new(img)),
                         Err(err) => Entry::Failed(err),
                     };
@@ -270,9 +290,14 @@ fn is_frame_uri(uri: &str) -> bool {
 }
 
 /// Раскодировать и уменьшить (большая сторона не больше max_side()).
+#[cfg(test)]
 pub fn decode_small(bytes: &[u8]) -> Result<ColorImage, String> {
+    decode_max(bytes, max_side())
+}
+
+/// Раскодировать и уменьшить до `side` по большей стороне.
+fn decode_max(bytes: &[u8], side: u32) -> Result<ColorImage, String> {
     let img = image::load_from_memory(bytes).map_err(|e| e.to_string())?;
-    let side = max_side();
     let img = if img.width().max(img.height()) > side {
         img.resize(side, side, image::imageops::FilterType::Triangle)
     } else {
@@ -321,7 +346,10 @@ impl ImageLoader for SmallLoader {
                 let big = bytes.len() > 200_000;
                 let _ = format;
                 self.cache.lock().insert(uri.to_string(), Entry::Pending);
-                self.jobs.lock().push_back(Job { uri: uri.to_string(), bytes, big });
+                let max = max_from(uri).map_or(max_side(), |m| m.min(max_side()));
+                // Крупный исходник ради миниатюры тоже не храним.
+                let big = big || max_from(uri).is_some();
+                self.jobs.lock().push_back(Job { uri: uri.to_string(), bytes, big, max });
                 let _ = self.wake.send(());
                 Ok(ImagePoll::Pending { size: None })
             }

@@ -13,6 +13,8 @@ pub struct Comment {
     pub author: String,
     pub author_url: String,
     pub avatar: String,
+    /// Рамка аватара автора (предмет Steam), если есть.
+    pub frame: String,
     pub time: u64,
     pub text: String,
     /// Номер комментария (для удаления) и можно ли его удалить (свой профиль или свой комментарий).
@@ -82,7 +84,23 @@ pub fn parse_comments(html: &str) -> Vec<Comment> {
     html.split("class=\"commentthread_comment ")
         .skip(1)
         .map(|c| {
-            let avatar = between(c, "<img src=\"", "\"").unwrap_or("").to_string();
+            // Блок аватара: сначала (если есть) рамка - «profile_avatar_frame», потом ссылка с аватаром.
+            // Анимированный аватар: <picture> с неподвижной копией для «reduced-motion» - берем ее.
+            let block = between(c, "commentthread_comment_avatar", "author_name_group")
+                .or_else(|| c.split("commentthread_author_link").next())
+                .unwrap_or("");
+            let (frame, rest) = match block.split_once("profile_avatar_frame") {
+                Some((_, f)) => {
+                    let (fr, rest) = f.split_once("</div>").unwrap_or((f, ""));
+                    (between(fr, "<img src=\"", "\"").unwrap_or("").to_string(), rest)
+                }
+                None => (String::new(), block),
+            };
+            let avatar = between(rest, "prefers-reduced-motion: reduce)\" srcset=\"", "\"")
+                .or_else(|| between(rest, "<img src=\"", "\""))
+                .or_else(|| between(rest, "<img srcset=\"", "\"").map(|s| s.split(' ').next().unwrap_or(s)))
+                .unwrap_or("")
+                .to_string();
             let author_url = between(c, "commentthread_author_link\" href=\"", "\"").unwrap_or("").to_string();
             let author = between(c, "<bdi>", "</bdi>").map(crate::store::plain_text).unwrap_or_default();
             let time = between(c, "data-timestamp=\"", "\"").and_then(|t| t.parse().ok()).unwrap_or(0);
@@ -92,7 +110,7 @@ pub fn parse_comments(html: &str) -> Vec<Comment> {
                 .unwrap_or_default();
             let id = between(c, "id=\"comment_", "\"").unwrap_or("").to_string();
             let can_delete = c.contains("DeleteComment");
-            Comment { author, author_url, avatar, time, text: text.trim().to_string(), id, can_delete }
+            Comment { author, author_url, avatar, frame, time, text: text.trim().to_string(), id, can_delete }
         })
         .collect()
 }
@@ -102,6 +120,9 @@ pub fn parse_comments(html: &str) -> Vec<Comment> {
 pub struct Showcase {
     pub title: String,
     pub images: Vec<(String, Option<String>)>,
+    /// Показатели витрины, как в Steam: крупное число и подпись (2 456 / Часов сыграно).
+    pub stats: Vec<(String, String)>,
+    /// Текст по строкам (блоки HTML - отдельные строки).
     pub text: String,
 }
 
@@ -161,15 +182,162 @@ pub fn parse_showcases(html: &str) -> Vec<Showcase> {
             }
             let body = b.split("<script").next().unwrap_or(b);
             let body = body.split_once("profile_customization_block").map(|x| x.1).unwrap_or(body);
-            let text: String = text_of(body);
+            // Тело начинается внутри тега блока (class="profile_customization_block">) - с его конца.
+            let body = body.split_once('>').map_or(body, |x| x.1);
+            let (stats, text) = stats_and_lines(body);
             let text = if text.chars().count() > 400 { format!("{}...", text.chars().take(400).collect::<String>()) } else { text };
-            (!images.is_empty() || !text.is_empty()).then(|| Showcase { title: if title.is_empty() { "Витрина".into() } else { title }, images, text })
+            (!images.is_empty() || !text.is_empty() || !stats.is_empty()).then(|| Showcase { title: if title.is_empty() { "Витрина".into() } else { title }, images, stats, text })
         })
         .collect()
 }
 
-fn text_of(html: &str) -> String {
-    strip_tags(&format!("<div {html}"))
+/// Кусок HTML: текст или тег (имя в нижнем регистре, закрывающий ли, атрибут class).
+enum Piece {
+    Text(String),
+    Tag { name: String, close: bool, class: String },
+}
+
+/// Разбор HTML на текст и теги с учетом кавычек в атрибутах (в подсказках Steam внутри
+/// атрибутов бывают «<br>» и «>»), без комментариев и содержимого script/style.
+fn pieces(html: &str) -> Vec<Piece> {
+    let mut out = Vec::new();
+    let b = html.as_bytes();
+    let mut i = 0;
+    let mut text = String::new();
+    let flush = |text: &mut String, out: &mut Vec<Piece>| {
+        if !text.is_empty() {
+            out.push(Piece::Text(std::mem::take(text)));
+        }
+    };
+    while i < b.len() {
+        if b[i] != b'<' {
+            let next = html[i..].find('<').map_or(html.len(), |n| i + n);
+            text.push_str(&html[i..next]);
+            i = next;
+            continue;
+        }
+        if html[i..].starts_with("<!--") {
+            i = html[i..].find("-->").map_or(html.len(), |e| i + e + 3);
+            continue;
+        }
+        // Конец тега - первый «>» вне кавычек.
+        let mut j = i + 1;
+        let mut quote: Option<u8> = None;
+        while j < b.len() {
+            match (quote, b[j]) {
+                (None, b'"') | (None, b'\'') => quote = Some(b[j]),
+                (Some(q), c) if c == q => quote = None,
+                (None, b'>') => break,
+                _ => {}
+            }
+            j += 1;
+        }
+        let inner = &html[i + 1..j.min(html.len())];
+        i = (j + 1).min(html.len());
+        let close = inner.starts_with('/');
+        let name: String = inner
+            .trim_start_matches('/')
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric())
+            .collect::<String>()
+            .to_ascii_lowercase();
+        if name.is_empty() {
+            continue;
+        }
+        flush(&mut text, &mut out);
+        if !close && (name == "script" || name == "style") {
+            let end = format!("</{name}");
+            i = html[i..].find(&end).map_or(html.len(), |e| i + e);
+            continue;
+        }
+        let class = between(inner, "class=\"", "\"").unwrap_or("").to_string();
+        out.push(Piece::Tag { name, close, class });
+    }
+    flush(&mut text, &mut out);
+    out
+}
+
+/// Теги, у которых нет закрывающей пары.
+fn void_tag(name: &str) -> bool {
+    matches!(name, "br" | "img" | "input" | "meta" | "hr" | "source" | "link" | "wbr")
+}
+
+/// Показатели витрины («showcase_stat»: value + label; бывают и div, и ссылкой «a») и текст
+/// остального по строкам (блоки - отдельные строки, пустые и повторы убираются).
+fn stats_and_lines(html: &str) -> (Vec<(String, String)>, String) {
+    let ps = pieces(html);
+    let mut stats: Vec<(String, String)> = Vec::new();
+    let mut lines: Vec<String> = Vec::new();
+    let mut line = String::new();
+    // Открытые элементы: (имя, class).
+    let mut stack: Vec<(String, String)> = Vec::new();
+    let has = |class: &str, token: &str| class.split_whitespace().any(|c| c == token);
+    let push_line = |line: &mut String, lines: &mut Vec<String>| {
+        let t = decode(&line.split_whitespace().collect::<Vec<_>>().join(" "));
+        line.clear();
+        if !t.is_empty() && t != "-->" && lines.last() != Some(&t) {
+            lines.push(t);
+        }
+    };
+    for p in ps {
+        match p {
+            Piece::Tag { name, close: false, class } => {
+                if name == "br" {
+                    push_line(&mut line, &mut lines);
+                }
+                if has(&class, "showcase_stat") {
+                    push_line(&mut line, &mut lines);
+                    stats.push((String::new(), String::new()));
+                }
+                if !void_tag(&name) {
+                    stack.push((name, class));
+                }
+            }
+            Piece::Tag { name, close: true, .. } => {
+                if let Some(pos) = stack.iter().rposition(|(n, _)| *n == name) {
+                    stack.truncate(pos);
+                }
+                if matches!(name.as_str(), "div" | "p" | "li" | "tr" | "h1" | "h2" | "h3" | "h4") {
+                    push_line(&mut line, &mut lines);
+                }
+            }
+            Piece::Text(t) => {
+                let in_stat = stack.iter().any(|(_, c)| has(c, "showcase_stat"));
+                if in_stat {
+                    let t = decode(&t.split_whitespace().collect::<Vec<_>>().join(" "));
+                    if let Some(s) = stats.last_mut() {
+                        if stack.iter().any(|(_, c)| has(c, "value")) {
+                            s.0.push_str(&t);
+                        } else if stack.iter().any(|(_, c)| has(c, "label")) {
+                            s.1.push_str(&t);
+                        }
+                    }
+                } else {
+                    line.push(' ');
+                    line.push_str(&t);
+                }
+            }
+        }
+    }
+    push_line(&mut line, &mut lines);
+    stats.retain(|(v, l)| !v.trim().is_empty() || !l.trim().is_empty());
+    for s in &mut stats {
+        s.0 = s.0.trim().to_string();
+        s.1 = s.1.trim().to_string();
+    }
+    (stats, lines.join("\n"))
+}
+
+/// Сущности HTML в тексте.
+fn decode(t: &str) -> String {
+    t.replace("&nbsp;", " ")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+        .trim()
+        .to_string()
 }
 
 pub async fn load(client: &SteamClient, id: u64) -> Result<ProfileExtra, String> {
@@ -287,6 +455,10 @@ mod tests {
         assert_eq!(c.len(), 1);
         assert_eq!((c[0].author.as_str(), c[0].time, c[0].avatar.as_str()), ("Аня", 1700000000, "https://a/x.jpg"));
         assert!(c[0].text.contains("Привет") && c[0].text.contains("мир"));
+        // Рамка аватара и анимированный аватар (как отдает Steam).
+        let html = r#"<div class="commentthread_comment responsive_body_text" id="comment_2"><div class="commentthread_comment_avatar playerAvatar offline"><div class="profile_avatar_frame"><picture><source srcset="https://f/1.png"></source><img src="https://f/1.png"></picture></div><a href="u"><picture><source media="(prefers-reduced-motion: reduce)" srcset="https://a/still.jpg"></source><img srcset="https://a/anim.gif" ></picture></a></div><div class="author_name_group"><a class="hoverunderline commentthread_author_link" href="h"><bdi>Б</bdi></a></div><div class="commentthread_comment_text">т</div></div>"#;
+        let c = parse_comments(html);
+        assert_eq!((c[0].avatar.as_str(), c[0].frame.as_str()), ("https://a/still.jpg", "https://f/1.png"));
     }
 
     #[test]
@@ -605,5 +777,99 @@ mod page_tests {
     fn strips_tags() {
         assert_eq!(super::strip_tags("<!-- x --> 1 313 Предметов <div data-panel=\"{}\">"), "1 313 Предметов");
         assert_eq!(super::strip_tags("a<br>b &amp; c <div"), "a b & c");
+    }
+}
+
+#[cfg(test)]
+mod comment_html_live {
+    /// Начало HTML первых комментариев своего профиля (аватар и рамка). VAPORUST_DUMP - папка.
+    #[test]
+    #[ignore]
+    fn comment_avatar_html() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            let me = c.my_steam_id().unwrap_or(0);
+            let web = crate::webapi::web_session(&c).await.unwrap();
+            let t = web.get_text(&format!("https://steamcommunity.com/comment/Profile/render/{me}/-1/?start=0&count=10")).await.unwrap();
+            let j: serde_json::Value = serde_json::from_str(&t).unwrap();
+            let html = j["comments_html"].as_str().unwrap_or("");
+            for part in html.split("class=\"commentthread_comment ").skip(1).take(3) {
+                let head = part;
+                println!("-----\n{}", head.chars().take(2200).collect::<String>());
+            }
+        });
+    }
+}
+
+#[cfg(test)]
+mod friend_pages_live {
+    /// Что разбирается со страниц профилей друзей (друзья из правой колонки своего профиля).
+    #[test]
+    #[ignore]
+    fn friend_pages() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            let me = c.my_steam_id().unwrap();
+            let mine = super::load(&c, me).await.unwrap();
+            let mut ids = vec![me];
+            ids.extend(mine.page.friends.iter().map(|f| f.steamid));
+            for id in ids {
+                let x = super::load(&c, id).await.unwrap();
+                let name = mine.page.friends.iter().find(|f| f.steamid == id).map(|f| f.name.clone()).unwrap_or("я".into());
+                println!(
+                    "{name}: уровень {:?}, счетчиков {}, недавних {}, наград {}, значков {}, друзей {}, витрин {}, групп {}, комм. {}",
+                    x.level,
+                    x.counts.len(),
+                    x.page.recent.len(),
+                    x.page.awards.len(),
+                    x.page.badges.len(),
+                    x.page.friends.len(),
+                    x.showcases.len(),
+                    x.groups.len(),
+                    x.comments_total
+                );
+            }
+        });
+    }
+}
+
+#[cfg(test)]
+mod showcase_html_live {
+    /// Сырой HTML витрин друга (VAPORUST_NAME - имя из правой колонки своего профиля).
+    #[test]
+    #[ignore]
+    fn showcase_html() {
+        let want = std::env::var("VAPORUST_NAME").unwrap_or_default();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            let me = c.my_steam_id().unwrap();
+            let mine = super::load(&c, me).await.unwrap();
+            let f = mine.page.friends.iter().find(|f| f.name == want).expect("нет такого друга");
+            let web = crate::webapi::web_session(&c).await.unwrap();
+            let html = web.get_text(&format!("https://steamcommunity.com/profiles/{}/?l=russian", f.steamid)).await.unwrap();
+            let area = html.split("profile_customization_area").nth(1).unwrap_or("");
+            for part in area.split("class=\"profile_customization").skip(1) {
+                let t: String = part.chars().take(200000).collect();
+                println!("=====\n{}", t.split_whitespace().collect::<Vec<_>>().join(" "));
+            }
+        });
+    }
+}
+
+#[cfg(test)]
+mod showcase_parse_tests {
+    #[test]
+    fn stats_and_lines() {
+        let html = r#"<div class="profile_customization_area"><div class="profile_customization"><div class="profile_customization_header">Любимая игра</div><div class="profile_customization_block"><div class="favoritegame_showcase"><div class="showcase_item_detail_title"><a class="whiteLink" href="x"> Counter-Strike 2 </a></div><div class="showcase_stats_row"><div class="showcase_stat"> <div class="value">2 456</div> <div class="label">Часов сыграно</div> </div><div class="showcase_stat"> <div class="value">1</div> <div class="label">Достижений</div> </div></div><div class="name"><a>Global Sentinel</a></div> <div class="xp">500 ед. опыта</div></div></div></div><div class="profile_rightcol"></div>"#;
+        let s = super::parse_showcases(html);
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].stats, vec![("2 456".to_string(), "Часов сыграно".to_string()), ("1".to_string(), "Достижений".to_string())]);
+        assert_eq!(s[0].text, "Counter-Strike 2\nGlobal Sentinel\n500 ед. опыта");
     }
 }

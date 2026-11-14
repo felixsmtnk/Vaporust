@@ -131,6 +131,19 @@ impl WebSession {
             // Retry once with new cookies.
             resp = self.send_get(url).await?;
         }
+        // vaporust: follow ordinary same-site redirects (e.g. /profiles/<id>/ -> /id/<custom url>/),
+        // otherwise profiles with a custom URL come back as an error. Login and other sites stay errors.
+        for _ in 0..4 {
+            let Some(loc) = redirect_location(&resp) else { break };
+            if loc.contains("/login") || loc.contains("eligibilitycheck") {
+                break;
+            }
+            let next = if loc.starts_with('/') { format!("https://steamcommunity.com{loc}") } else { loc };
+            if !next.starts_with("https://steamcommunity.com/") {
+                break;
+            }
+            resp = self.send_get(&next).await?;
+        }
         read_checked(resp).await
     }
 

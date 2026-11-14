@@ -55,7 +55,12 @@ fn parse_item(d: &serde_json::Value) -> Option<RewardItem> {
     let data = d.get("community_item_data")?;
     let appid = num(&d["appid"]) as u32;
     let s = |k: &str| data.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
-    let file = if s("item_image_small").is_empty() { s("item_image_large") } else { s("item_image_small") };
+    // Какую картинку показывать: у анимированных «маленькая» - это анимация (APNG ~1 МБ), а «большая» -
+    // неподвижная (~30 КБ); у смайликов маленькая всего 18x18, большая - 54x54. Иначе - маленькая.
+    let class = num(&d["community_item_class"]) as u32;
+    let animated = data.get("animated").and_then(|a| a.as_bool()).unwrap_or(false);
+    let (small, large) = (s("item_image_small"), s("item_image_large"));
+    let file = if (animated || class == 4) && !large.is_empty() || small.is_empty() { large } else { small };
     let title = if s("item_title").is_empty() { s("item_name") } else { s("item_title") };
     Some(RewardItem {
         defid: num(&d["defid"]),
@@ -191,7 +196,10 @@ impl LauncherApp {
         });
         ui.horizontal(|ui| {
             ui.add(egui::TextEdit::singleline(&mut st.search).hint_text("Поиск по названию или игре").desired_width(260.0));
-            if net.points_busy {
+            // Значок загрузки здесь - только когда список уже показан (догрузка); пустой список
+            // показывает свой значок ниже, второй не нужен.
+            let shown = matches!(&net.points_page, Some(Ok(p)) if p.class == st.class && p.search == st.search.trim());
+            if net.points_busy && shown {
                 crate::spin::spinner(ui);
             }
         });
@@ -219,8 +227,15 @@ impl LauncherApp {
                     ui.allocate_ui(egui::vec2(150.0, 190.0), |ui| {
                         ui.vertical(|ui| {
                             ui.set_width(150.0);
-                            if !it.image.is_empty() {
-                                ui.add(egui::Image::new(crate::imgload::still(&it.image)).fit_to_exact_size(egui::vec2(110.0, 110.0)));
+                            // Картинка грузится, только когда видна (в каталоге десятки тысяч предметов), и
+                            // уменьшенной: фоны профиля приходят размером 1920x1080.
+                            let (r, _) = ui.allocate_exact_size(egui::vec2(110.0, 110.0), egui::Sense::hover());
+                            if !it.image.is_empty() && ui.is_rect_visible(r) {
+                                let url = crate::imgload::sized(&crate::imgload::still(&it.image), 240);
+                                let img = egui::Image::new(url).max_size(egui::vec2(110.0, 110.0)).maintain_aspect_ratio(true);
+                                // Смайлики маленькие (54x54) - не растягиваем, чтобы не расплывались.
+                                let target = if it.class == 4 { r.shrink(19.0) } else { r };
+                                ui.put(target, img.max_size(target.size()));
                             }
                             ui.add(egui::Label::new(egui::RichText::new(&it.title).small()).truncate());
                             ui.label(format!("{} очков", crate::store::group_digits(it.cost)));
@@ -324,3 +339,31 @@ mod owned_live {
         });
     }
 }
+
+#[cfg(test)]
+mod tag_live {
+    /// Стикеры «Тег «...»» без картинки: что о них отдает Steam (сырые данные первой страницы).
+    #[test]
+    #[ignore]
+    fn tag_stickers_live() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            let cl: u32 = std::env::var("VAPORUST_CLASS").ok().and_then(|v| v.parse().ok()).unwrap_or(11);
+            let p = super::query(&c, cl, "", None).await.unwrap();
+            for it in p.items.iter().take(3) {
+                println!("{} | {} | {}", it.title, it.name, it.image);
+            }
+            let v = crate::webapi::get(
+                &c,
+                "ILoyaltyRewardsService/QueryRewardItems/v1",
+                &[("community_item_classes[0]", std::env::var("VAPORUST_CLASS").unwrap_or("11".into())), ("count", "3".into()), ("language", "russian".into())],
+            )
+            .await
+            .unwrap();
+            println!("{}", serde_json::to_string_pretty(&v["definitions"][0]).unwrap_or_default());
+        });
+    }
+}
+
