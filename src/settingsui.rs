@@ -244,6 +244,25 @@ impl LauncherApp {
                             crate::spin::spinner(ui);
                         }
                     });
+                    // Быстрая продажа на площадке: на сколько дешевле самого дешевого лота.
+                    let (cur, step) = match &wallet {
+                        Some(Ok(w)) => (w.currency, w.fee_rules.map(|r| r.currency_increment).unwrap_or(1)),
+                        _ => (1, 1),
+                    };
+                    row(ui, "Быстрая продажа", |ui| {
+                        ui.label("дешевле самого дешевого лота на");
+                        let mut v = self.settings.quick_undercut as f64 / 100.0;
+                        if ui.add(egui::DragValue::new(&mut v).range(0.0..=100000.0).speed(0.05).fixed_decimals(2)).changed() {
+                            self.settings.quick_undercut = (v * 100.0).round() as i64;
+                        }
+                    });
+                    note(
+                        ui,
+                        &format!(
+                            "0 - на один шаг цены вашей валюты ({}). Меньше шага Steam не разрешит: сумма округлится вверх до шага.",
+                            crate::invent::money(step, cur)
+                        ),
+                    );
                     row(ui, "Игр", |ui| {
                         let own = net.owned.len();
                         let fam = net.family.iter().filter(|f| !net.owned.iter().any(|o| o.app_id == f.app_id)).count();

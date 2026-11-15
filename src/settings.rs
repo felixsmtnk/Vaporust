@@ -134,6 +134,9 @@ pub struct Settings {
     pub system_frame: bool,
     /// Запоминать размер и положение главного окна (и сами размер/положение).
     pub remember_window: bool,
+    /// Быстрая продажа: на сколько дешевле самого дешевого лота (минимальные единицы валюты; 0 - на
+    /// один шаг цены валюты).
+    pub quick_undercut: i64,
     pub window: Option<crate::winpos::WinPos>,
     /// Производительность: анимации (стикеры, GIF, эффекты чата, значки загрузки).
     pub animations: bool,
@@ -259,6 +262,7 @@ impl Default for Settings {
             whats_new: true,
             system_frame: false,
             remember_window: true,
+            quick_undercut: 0,
             window: None,
             animations: true,
             covers: true,

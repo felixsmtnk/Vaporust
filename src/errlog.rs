@@ -28,7 +28,8 @@ fn scrub(s: &str) -> String {
     }
     out.push_str(if digits.len() >= 15 { "<id>" } else { &digits });
     match std::env::var("USERNAME") {
-        Ok(u) if u.len() > 2 => out.replace(&format!(r"\Users\{u}\"), r"\Users\<user>\"),
+        // Любой длины: короткие имена (например, «PC») тоже личные.
+        Ok(u) if !u.is_empty() => out.replace(&format!(r"\Users\{u}\"), r"\Users\<user>\"),
         _ => out,
     }
 }
@@ -116,5 +117,9 @@ mod diag_tests {
         assert!(s.contains("<id>") && !s.contains("76561198000000000") && s.contains("730"), "{s}");
         let d = super::diagnostics(&[("Окно", "960x630".into())]);
         assert!(d.contains("Vaporust") && d.contains("Окно: 960x630"), "{d}");
+        if let Ok(u) = std::env::var("USERNAME") {
+            let p = super::scrub(&format!(r"C:\Users\{u}\AppData\x.log"));
+            assert!(!p.contains(&format!(r"\{u}\")) && p.contains("<user>"), "{p}");
+        }
     }
 }

@@ -36,6 +36,12 @@ pub struct MarketUi {
     pub offers_asked: bool,
     /// Обмен: (номер, действие 0 принять / 1 отклонить / 2 отменить) - ждет подтверждения.
     pub offer_confirm: Option<(String, u8)>,
+    /// На сколько быстрая продажа дешевле самого дешевого лота (минимальные единицы; 0 - на один
+    /// шаг цены валюты). Берется из настроек каждый кадр.
+    pub undercut: i64,
+    /// Последнее сообщение о действии: (текст, когда появилось, у какого предмета). Через 90 с или
+    /// на другом предмете не показывается (например, «ждет подтверждения» после отмены в телефоне).
+    pub msg_seen: Option<(String, std::time::Instant, (u32, String))>,
 }
 
 /// Цена из поля ввода, в копейках/центах. Строго: только цифры и не больше одного
@@ -125,20 +131,28 @@ pub fn market_block(ui: &mut egui::Ui, mk: &mut MarketUi, st: &crate::invent::In
         ui.add_space(4.0);
         // Правила цен своей валюты (минимум, шаг, комиссии) приходят с кошельком. Без них цены не
         // посчитать честно - продажу не предлагаем.
-        let Some(r) = rules(st) else {
+        let Some(r) = rules(st, appid) else {
             ui.weak("Продажа недоступна: Steam не прислал правила цен для вашей валюты. Обновите кошелек (вкладка «Мои лоты») или продайте на сайте Steam.");
-            return_with_msg(ui, mk, st);
+            return_with_msg(ui, mk, st, &key);
             return;
         };
         if let Some(Ok(sp)) = spread {
-            // Быстрая: на один шаг цены дешевле самого дешевого лота (но не ниже лучшей заявки).
+            // Быстрая: дешевле самого дешевого лота на заданную сумму (по умолчанию - на один шаг цены
+            // валюты), но не ниже лучшей заявки и минимальной цены. Если самый дешевый лот уже по
+            // минимальной цене - быстрая продажа по ней же (дешевле Steam не разрешит).
             let min_total = crate::trade::pay_for(r.market_minimum, &r);
-            if sp.lowest_sell > min_total {
-                let want = (sp.lowest_sell - r.currency_increment).max(sp.highest_buy).max(min_total);
+            if sp.lowest_sell > 0 {
+                let cut = undercut_amount(mk.undercut, &r);
+                let want = (sp.lowest_sell - cut).max(sp.highest_buy).max(min_total);
                 let pay = effective(want, &r);
+                let hint = if pay >= sp.lowest_sell {
+                    "Самый дешевый лот уже по минимальной цене (или вровень с лучшей заявкой): дешевле выставить нельзя, лот будет по той же цене".to_string()
+                } else {
+                    format!("Лот на {} дешевле самого дешевого на площадке: обычно продается быстро. Шаг меняется в «Настройки -> Аккаунт».", m(cut))
+                };
                 if ui
                     .add(egui::Button::new(format!("Быстрая продажа за {}", m(pay))).fill(egui::Color32::from_rgb(60, 90, 40)))
-                    .on_hover_text("Лот на один шаг цены дешевле самого дешевого на площадке: обычно продается быстро")
+                    .on_hover_text(hint)
                     .clicked()
                 {
                     mk.sell = Some(base(1, pay));
@@ -162,12 +176,29 @@ pub fn market_block(ui: &mut egui::Ui, mk: &mut MarketUi, st: &crate::invent::In
             mk.sell = Some(base(0, effective(pay, &r)));
         }
     }
-    return_with_msg(ui, mk, st);
+    return_with_msg(ui, mk, st, &key);
 }
 
-/// Правила цен кошелька (None - кошелек еще не загружен или Steam их не прислал).
-fn rules(st: &crate::invent::InvState) -> Option<crate::trade::FeeRules> {
-    st.wallet.as_ref()?.as_ref().ok()?.fee_rules
+/// Правила цен для предмета игры: минимум и шаг - из кошелька, комиссия игры - своя, если у игры
+/// она есть (market_pubfee_rate), иначе общая из кошелька. None - кошелек еще не загружен или
+/// Steam не прислал правила.
+fn rules(st: &crate::invent::InvState, appid: u32) -> Option<crate::trade::FeeRules> {
+    let mut r = st.wallet.as_ref()?.as_ref().ok()?.fee_rules?;
+    let app_fee = st.apps.as_ref().and_then(|a| a.as_ref().ok()).and_then(|apps| apps.iter().find(|a| a.appid == appid)).and_then(|a| a.pubfee);
+    if let Some(f) = app_fee.filter(|f| (0.0..1.0).contains(f)) {
+        r.publisher_fee_percent = f;
+    }
+    Some(r)
+}
+
+/// На сколько дешевле быстрая продажа: заданная сумма, округленная вверх до шага цены валюты
+/// (меньше шага Steam не разрешит), 0 - один шаг.
+pub fn undercut_amount(setting: i64, r: &crate::trade::FeeRules) -> i64 {
+    let step = r.currency_increment.max(1);
+    if setting <= 0 {
+        return step;
+    }
+    ((setting + step - 1) / step) * step
 }
 
 /// Цена для покупателя, которую Steam выставит на самом деле, если покупатель готов заплатить
@@ -177,10 +208,21 @@ fn effective(total: i64, r: &crate::trade::FeeRules) -> i64 {
 }
 
 /// Хвост блока: сообщение о последнем действии и окно продажи.
-fn return_with_msg(ui: &mut egui::Ui, mk: &mut MarketUi, st: &crate::invent::InvState) {
+fn return_with_msg(ui: &mut egui::Ui, mk: &mut MarketUi, st: &crate::invent::InvState, key: &(u32, String)) {
     if let Some(msg) = &st.trade.msg {
-        ui.add_space(4.0);
-        ui.label(egui::RichText::new(msg).color(egui::Color32::from_rgb(240, 200, 80)));
+        // Новое сообщение - запомнить, когда и у какого предмета оно появилось.
+        if mk.msg_seen.as_ref().is_none_or(|(m, _, _)| m != msg) {
+            mk.msg_seen = Some((msg.clone(), std::time::Instant::now(), key.clone()));
+        }
+        let fresh = mk
+            .msg_seen
+            .as_ref()
+            .is_some_and(|(_, at, k)| k == key && at.elapsed() < std::time::Duration::from_secs(90));
+        if fresh {
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new(msg).color(egui::Color32::from_rgb(240, 200, 80)));
+            ui.ctx().request_repaint_after(std::time::Duration::from_secs(5));
+        }
     }
     sell_window(ui.ctx(), mk, st);
 }
@@ -188,7 +230,7 @@ fn return_with_msg(ui: &mut egui::Ui, mk: &mut MarketUi, st: &crate::invent::Inv
 /// Окно подтверждения продажи: цена для покупателя, что получите вы, количество.
 fn sell_window(ctx: &egui::Context, mk: &mut MarketUi, st: &crate::invent::InvState) {
     let Some(mut d) = mk.sell.take() else { return };
-    let Some(r) = rules(st) else { return };
+    let Some(r) = rules(st, d.appid) else { return };
     let cur = crate::invent::wallet_currency(st);
     let m = |c: i64| crate::invent::money(c, cur);
     let mut keep = true;

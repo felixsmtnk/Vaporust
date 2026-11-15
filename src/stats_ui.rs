@@ -37,18 +37,23 @@ fn read(p: &std::path::Path) -> Option<History> {
 }
 
 /// История аккаунта `owner`. Старый общий файл playtime.json (до разделения по аккаунтам)
-/// достается аккаунту, только если это явно его игры: не меньше 80% игр из файла есть у него.
-pub fn load_for(owner: u64, owned: &[u32]) -> History {
+/// достается аккаунту, только если в Vaporust на этом ПК входили всего в один аккаунт и время
+/// игр в файле не больше нынешнего (иначе файл точно чужой). Иначе он остается как был.
+/// `totals` - (appid, всего минут) игр аккаунта сейчас.
+pub fn load_for(owner: u64, totals: &[(u32, u32)]) -> History {
     let Some(p) = file_for(owner) else { return History { owner, ..Default::default() } };
     if let Some(h) = read(&p) {
         return History { owner, ..h };
     }
     if let Some(old) = data_dir().map(|d| d.join("playtime.json")) {
         if let Some(h) = read(&old) {
-            if adopt_legacy(&h, owned) {
+            let one_account = crate::accounts::load().list.len() <= 1;
+            if one_account && adopt_legacy(&h, totals) {
                 let h = History { owner, ..h };
-                save(&h);
-                let _ = std::fs::rename(&old, old.with_extension("json.migrated"));
+                // Старый файл убираем только если новый действительно записан.
+                if save(&h).is_ok() {
+                    let _ = std::fs::rename(&old, old.with_extension("json.migrated"));
+                }
                 return h;
             }
         }
@@ -56,25 +61,26 @@ pub fn load_for(owner: u64, owned: &[u32]) -> History {
     History { owner, ..Default::default() }
 }
 
-/// Принадлежит ли старый общий файл аккаунту с такими играми.
-pub fn adopt_legacy(h: &History, owned: &[u32]) -> bool {
+/// Похож ли старый общий файл на историю аккаунта с такими играми: не меньше 80% игр из файла
+/// есть у аккаунта, и ни у одной время в файле не больше нынешнего (время в игре не убывает).
+pub fn adopt_legacy(h: &History, totals: &[(u32, u32)]) -> bool {
     if h.last.is_empty() {
         return false;
     }
-    let mine = h.last.keys().filter(|id| owned.contains(id)).count();
-    mine * 10 >= h.last.len() * 8
+    let now: std::collections::HashMap<u32, u32> = totals.iter().copied().collect();
+    let mine = h.last.keys().filter(|id| now.contains_key(id)).count();
+    let consistent = h.last.iter().all(|(id, old)| now.get(id).is_none_or(|cur| old <= cur));
+    mine * 10 >= h.last.len() * 8 && consistent
 }
 
-fn save(h: &History) {
-    if let Some(p) = file_for(h.owner).filter(|_| h.owner != 0) {
-        if let Some(d) = p.parent() {
-            let _ = std::fs::create_dir_all(d);
-        }
-        let tmp = p.with_extension("json.tmp");
-        if std::fs::write(&tmp, serde_json::to_string(h).unwrap_or_default()).is_ok() {
-            let _ = std::fs::rename(&tmp, &p);
-        }
+fn save(h: &History) -> Result<(), String> {
+    let p = file_for(h.owner).filter(|_| h.owner != 0).ok_or("нет папки данных")?;
+    if let Some(d) = p.parent() {
+        std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
     }
+    let tmp = p.with_extension("json.tmp");
+    std::fs::write(&tmp, serde_json::to_string(h).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &p).map_err(|e| e.to_string())
 }
 
 /// Учесть новые общие времена (appid, минут). Возвращает true, если что-то изменилось.
@@ -190,12 +196,14 @@ impl LauncherApp {
         if self.stats_ui.seen != net.owned.len() || self.stats_ui.seen_sum != sum {
             self.stats_ui.seen = net.owned.len();
             self.stats_ui.seen_sum = sum;
-            let owned: Vec<u32> = net.owned.iter().map(|g| g.app_id).collect();
+            let owned: Vec<(u32, u32)> = net.owned.iter().map(|g| (g.app_id, g.playtime_forever_minutes)).collect();
             let h = self.stats_ui.history.get_or_insert_with(|| load_for(me, &owned));
             let today = chrono::Local::now().format("%Y-%m-%d").to_string();
             let totals: Vec<(u32, u32)> = net.owned.iter().map(|g| (g.app_id, g.playtime_forever_minutes)).collect();
             if record(h, &today, &totals) {
-                save(h);
+                if let Err(e) = save(h) {
+                    crate::errlog::write("статистика", &format!("не записана: {e}"));
+                }
             }
         }
         let due = self.stats_ui.refresh_at.get_or_insert_with(std::time::Instant::now).elapsed() >= std::time::Duration::from_secs(1800);
@@ -213,7 +221,7 @@ impl LauncherApp {
         let h = match (net.my_id, self.stats_ui.history.as_ref()) {
             (Some(me), Some(h)) if h.owner == me => h.clone(),
             (Some(me), _) => {
-                let owned: Vec<u32> = net.owned.iter().map(|g| g.app_id).collect();
+                let owned: Vec<(u32, u32)> = net.owned.iter().map(|g| (g.app_id, g.playtime_forever_minutes)).collect();
                 self.stats_ui.history.insert(load_for(me, &owned)).clone()
             }
             _ => History::default(),
@@ -330,9 +338,10 @@ mod tests {
     fn legacy_file_owner() {
         let mut h = History::default();
         record(&mut h, "2026-11-13", &[(70, 10), (10, 5), (20, 1), (30, 0), (40, 0)]);
-        assert!(adopt_legacy(&h, &[70, 10, 20, 30, 40, 50]), "все игры свои");
-        assert!(adopt_legacy(&h, &[70, 10, 20, 30]), "4 из 5 = 80%");
-        assert!(!adopt_legacy(&h, &[70, 10, 99]), "чужой аккаунт");
-        assert!(!adopt_legacy(&History::default(), &[70]), "пустой файл");
+        assert!(adopt_legacy(&h, &[(70, 12), (10, 5), (20, 1), (30, 0), (40, 0), (50, 3)]), "все игры свои, время не убыло");
+        assert!(adopt_legacy(&h, &[(70, 10), (10, 5), (20, 1), (30, 0)]), "4 из 5 = 80%");
+        assert!(!adopt_legacy(&h, &[(70, 10), (10, 5), (99, 1)]), "чужой аккаунт");
+        assert!(!adopt_legacy(&h, &[(70, 3), (10, 5), (20, 1), (30, 0), (40, 0)]), "время в файле больше нынешнего - файл чужой");
+        assert!(!adopt_legacy(&History::default(), &[(70, 1)]), "пустой файл");
     }
 }

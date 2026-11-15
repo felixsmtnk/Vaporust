@@ -190,7 +190,11 @@ fn page_num(t: &str, key: &str) -> Option<i64> {
 
 /// Заявки со страницы предмета на площадке (новая страница Steam: amtMaxBuyOrder, amtMinSellOrder...).
 pub fn parse_spread_page(html: &str) -> Result<(Spread, u32), String> {
-    let buy = page_num(html, "amtMaxBuyOrder").ok_or("предмет не продается на площадке")?;
+    // Заявок на покупку может не быть совсем (amtMaxBuyOrder: null) - это не «не продается».
+    if !html.contains("amtMinSellOrder") && !html.contains("amtMaxBuyOrder") {
+        return Err("предмет не продается на площадке".into());
+    }
+    let buy = page_num(html, "amtMaxBuyOrder").unwrap_or(0);
     Ok((
         Spread {
             highest_buy: buy,
@@ -531,5 +535,72 @@ mod rules_live {
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod spread_live {
+    /// Живой тест (только чтение): заявки по первым предметам CS2 из инвентаря - сырой ответ.
+    #[test]
+    #[ignore]
+    fn cs2_spread_live() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            let web = crate::webapi::web_session(&c).await.unwrap();
+            let items = aurelia::steam_client::inventory_via_lang(&web, 730, 2, "english").await.unwrap();
+            for it in items.iter().filter(|i| i.marketable).take(2) {
+                println!("hash: {}", it.market_hash_name);
+                let qp = serde_json::json!([730, it.market_hash_name]).to_string();
+                let url = format!("https://steamcommunity.com/market/orderbook?q=Load&qp={}", super::url_encode(&qp));
+                let (code, t) = web.get_raw(&url, &[("x-valve-request-type", "queryAction")]).await.unwrap();
+                println!("{code}: {}", &t[..t.len().min(700)]);
+            }
+        });
+    }
+}
+
+#[cfg(test)]
+mod pubfee_live {
+    /// Живой тест (только чтение): ставки комиссии игр из g_rgAppContextData инвентаря.
+    #[test]
+    #[ignore]
+    fn pubfee_live() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            let web = crate::webapi::web_session(&c).await.unwrap();
+            let html = web.get_text(&format!("https://steamcommunity.com/profiles/{}/inventory/?l=english", web.steam_id())).await.unwrap();
+            for part in html.split("\"appid\":").skip(1).take(14) {
+                let id: String = part.chars().take_while(|c| c.is_ascii_digit()).collect();
+                let fee = part.find("market_pubfee_rate").map(|i| &part[i..(i + 30).min(part.len())]).unwrap_or("-");
+                println!("{id}: {fee}");
+            }
+        });
+    }
+}
+
+#[cfg(test)]
+mod spread_tests {
+    /// Нет ни одной заявки на покупку (amtMaxBuyOrder: null) - это не «не продается».
+    #[test]
+    fn no_buy_orders() {
+        let t = r#"{"data":{"success":true,"data":{"amtMaxBuyOrder":null,"amtMinSellOrder":300,"eCurrency":18,"cBuyOrders":0,"cSellOrders":30318}}}"#;
+        let (sp, cur) = super::parse_spread_page(t).unwrap();
+        assert_eq!((sp.highest_buy, sp.lowest_sell, sp.sell_count, cur), (0, 300, 30318, 18));
+        assert!(super::parse_spread_page(r#"{"data":{"success":false}}"#).is_err());
+    }
+
+    #[test]
+    fn undercut_steps() {
+        let uah = super::FeeRules { market_minimum: 100, currency_increment: 100, ..super::default_rules() };
+        let usd = super::default_rules();
+        assert_eq!(crate::tradeui::undercut_amount(0, &uah), 100, "по умолчанию - один шаг");
+        assert_eq!(crate::tradeui::undercut_amount(2, &uah), 100, "2 копейки у гривны - не меньше шага");
+        assert_eq!(crate::tradeui::undercut_amount(150, &uah), 200, "вверх до шага");
+        assert_eq!(crate::tradeui::undercut_amount(2, &usd), 2);
+        assert_eq!(crate::tradeui::undercut_amount(0, &usd), 1);
     }
 }

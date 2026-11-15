@@ -16,6 +16,8 @@ pub struct InvApp {
     pub count: u64,
     /// Разделы инвентаря игры: (id, название, предметов).
     pub contexts: Vec<(u32, String, u64)>,
+    /// Комиссия игры на площадке (market_pubfee_rate), если у игры она своя; иначе - из кошелька.
+    pub pubfee: Option<f64>,
 }
 
 #[derive(Default)]
@@ -155,7 +157,7 @@ pub fn handle(client: &SteamClient, cmd: InvCmd, st: &SharedInv, ctx: &egui::Con
 }
 
 fn steam_app() -> InvApp {
-    InvApp { appid: STEAM_APP, name: "Steam".into(), icon: None, count: 0, contexts: vec![(6, "Сообщество".into(), 0)] }
+    InvApp { appid: STEAM_APP, name: "Steam".into(), icon: None, count: 0, contexts: vec![(6, "Сообщество".into(), 0)], pubfee: None }
 }
 
 /// Валюта кошелька (для цен площадки); пока неизвестна - доллары.
@@ -374,6 +376,7 @@ pub fn parse_app_contexts(html: &str) -> Result<Vec<InvApp>, String> {
                 icon: a.get("icon").and_then(Value::as_str).filter(|s| !s.is_empty()).map(String::from),
                 count: num(a.get("asset_count")),
                 contexts,
+                pubfee: a.get("market_pubfee_rate").and_then(|x| x.as_f64().or_else(|| x.as_str().and_then(|s| s.parse().ok()))),
             })
         })
         .filter(|a| !a.contexts.is_empty())

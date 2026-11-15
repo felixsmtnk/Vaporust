@@ -100,30 +100,22 @@ pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx
                 let res = resolve_vanity(&name).await;
                 if let Ok(id) = res {
                     let p = c.user_profile(id).await.map_err(err);
-                    if crate::net::stale_task() {
-                        return; // ответ прошлого входа
-                    }
-                    st.lock().unwrap().profiles.insert(id, p);
+                    let Some(mut cur) = crate::net::lock_current(&st) else { return }; // ответ прошлого входа - не пишем
+                    cur.profiles.insert(id, p);
                 }
-                if crate::net::stale_task() {
-                    return; // ответ прошлого входа
-                }
-                st.lock().unwrap().vanity.insert(name, res);
+                let Some(mut cur) = crate::net::lock_current(&st) else { return }; // ответ прошлого входа - не пишем
+                cur.vanity.insert(name, res);
                 ctx.request_repaint();
             }
             SocialCmd::Profile(id) => {
                 let res = c.user_profile(id).await.map_err(err);
-                if crate::net::stale_task() {
-                    return; // ответ прошлого входа
-                }
-                st.lock().unwrap().profiles.insert(id, res);
+                let Some(mut cur) = crate::net::lock_current(&st) else { return }; // ответ прошлого входа - не пишем
+                cur.profiles.insert(id, res);
             }
             SocialCmd::AddFriend(id) => {
                 let res = c.add_friend(id).await;
-                if crate::net::stale_task() {
-                    return; // ответ прошлого входа
-                }
-                st.lock().unwrap().friend_msg = Some(match res {
+                let Some(mut cur) = crate::net::lock_current(&st) else { return }; // ответ прошлого входа - не пишем
+                cur.friend_msg = Some(match res {
                     Ok(a) => format!(
                         "Заявка отправлена{}.",
                         a.persona_name.map(|n| format!(": {n}")).unwrap_or_default()
@@ -133,10 +125,8 @@ pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx
             }
             SocialCmd::Block(id, block) => {
                 let res = crate::social::block_user(&c, id, block).await;
-                if crate::net::stale_task() {
-                    return; // ответ прошлого входа
-                }
-                let mut s = st.lock().unwrap();
+                let Some(mut cur) = crate::net::lock_current(&st) else { return }; // ответ прошлого входа - не пишем
+                let mut s = cur;
                 s.friend_msg = Some(match &res {
                     Ok(()) if block => "Пользователь заблокирован.".into(),
                     Ok(()) => "Пользователь разблокирован.".into(),
@@ -152,10 +142,8 @@ pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx
             }
             SocialCmd::RemoveFriend(id) => {
                 let res = c.remove_friend(id).await;
-                if crate::net::stale_task() {
-                    return; // ответ прошлого входа
-                }
-                let mut s = st.lock().unwrap();
+                let Some(mut cur) = crate::net::lock_current(&st) else { return }; // ответ прошлого входа - не пишем
+                let mut s = cur;
                 s.friend_msg = Some(match res {
                     Ok(()) => "Готово.".into(),
                     Err(e) => format!("Не получилось: {}", err(e)),

@@ -202,7 +202,7 @@ pub fn grid(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, recent: &
     // Полка «Недавние игры» - сверху, тех же размеров, что и сетка (столько же обложек в ряд),
     // плюс подпись. Ряды разной высоты, поэтому видимые ряды считаем сами (show_viewport).
     let label_h = 26.0;
-    // Под полкой - подпись «ВСЕ ИГРЫ», как в Steam: полка и общий список - разные разделы.
+    // Под полкой - разделительная линия: полка и общий список - разные разделы.
     let shelf_h = if recent.is_empty() { 0.0 } else { label_h + row_h + label_h };
     let n_rows = rows.len().div_ceil(cols);
     egui::ScrollArea::vertical().auto_shrink([false, false]).show_viewport(ui, |ui, vp| {
@@ -220,10 +220,11 @@ pub fn grid(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, recent: &
             let mut child = row_ui(ui, label_h, row_h);
             child.spacing_mut().item_spacing.x = gap;
             for r in recent.iter().take(cols) {
-                tile_ui(&mut child, r, c, covers, tile, &mut out);
+                tile_ui(&mut child, r, c, covers, tile, 0, &mut out);
             }
-            let mut all = row_ui(ui, label_h + row_h, label_h);
-            all.label(egui::RichText::new(format!("ВСЕ ИГРЫ ({})", rows.len())).size(12.0).strong().color(theme::WEAK));
+            // Граница между полкой и всеми играми - тонкой линией (число игр уже в заголовке сверху).
+            let y = origin.y + label_h + row_h + label_h / 2.0;
+            ui.painter().hline(origin.x..=origin.x + width - 16.0, y, egui::Stroke::new(1.0, egui::Color32::from_rgb(50, 57, 69)));
         }
         let first = (((vp.min.y - shelf_h) / row_h).floor().max(0.0)) as usize;
         let last = ((((vp.max.y - shelf_h) / row_h).ceil().max(0.0)) as usize).min(n_rows);
@@ -231,24 +232,30 @@ pub fn grid(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, recent: &
             let mut child = row_ui(ui, shelf_h + row as f32 * row_h, row_h);
             child.spacing_mut().item_spacing.x = gap;
             for r in rows.iter().skip(row * cols).take(cols) {
-                tile_ui(&mut child, r, c, covers, tile, &mut out);
+                tile_ui(&mut child, r, c, covers, tile, 1, &mut out);
             }
         }
     });
     out
 }
 
-fn tile_ui(ui: &mut egui::Ui, r: &Row, c: &Ctx, covers: &Covers, tile: egui::Vec2, out: &mut Option<Action>) {
-    let (rect, resp) = ui.allocate_exact_size(tile, egui::Sense::click());
-    let painter = ui.painter_at(rect);
-    // При наведении обложка плавно чуть приближается (как в Steam): меняется только видимая
-    // часть той же картинки, без новых загрузок; перерисовка - лишь на время анимации (0.15 с).
-    let zoom = ui.ctx().animate_bool_with_time(egui::Id::new(("tile_zoom", r.appid)), resp.hovered(), 0.15) * 0.05;
+/// `section` - где плитка (0 полка «Недавние», 1 сетка): одна игра бывает в обоих местах, и
+/// анимация наведения у каждой своя - иначе подсвечивались обе.
+fn tile_ui(ui: &mut egui::Ui, r: &Row, c: &Ctx, covers: &Covers, tile: egui::Vec2, section: u8, out: &mut Option<Action>) {
+    let (base, resp) = ui.allocate_exact_size(tile, egui::Sense::click());
+    // При наведении вся плитка плавно чуть увеличивается (как в Steam) вместе с кнопкой. Это та же
+    // картинка, только крупнее; перерисовка - лишь на время анимации (0.15 с).
+    let t = ui.ctx().animate_bool_with_time(egui::Id::new(("tile_zoom", section, r.appid)), resp.hovered(), 0.15);
+    let rect = base.expand2(base.size() * 0.03 * t);
+    let painter = ui.painter().clone();
+    if t > 0.0 {
+        // Легкая тень под увеличенной плиткой.
+        painter.rect_filled(rect.translate(egui::vec2(0.0, 4.0 * t)), 4.0, egui::Color32::from_black_alpha((90.0 * t) as u8));
+    }
     match covers.get(r.appid) {
         Cover::Ready(tex) => {
-            let tint = if r.installed { egui::Color32::WHITE } else { egui::Color32::from_gray(110) };
-            let uv = egui::Rect::from_min_max(egui::pos2(zoom, zoom), egui::pos2(1.0 - zoom, 1.0 - zoom));
-            painter.image(tex.id(), rect, uv, tint);
+            let tint = if r.installed { egui::Color32::WHITE } else { egui::Color32::from_gray(110 + (40.0 * t) as u8) };
+            painter.image(tex.id(), rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), tint);
         }
         cover => {
             // Пока грузится или обложки нет - темная карточка с названием.
@@ -267,25 +274,40 @@ fn tile_ui(ui: &mut egui::Ui, r: &Row, c: &Ctx, covers: &Covers, tile: egui::Vec
         painter.text(rect.center(), egui::Align2::CENTER_CENTER, "загрузка…", egui::FontId::proportional(14.0), egui::Color32::WHITE);
     }
     collections_menu(&resp, r, c, out);
-    if zoom > 0.0 {
-        // Чуть светлее вместе с приближением, без рамки.
-        painter.rect_filled(rect, 0.0, egui::Color32::from_white_alpha((zoom * 240.0) as u8));
-    }
-    // Как в Steam: под обложкой ничего нет; при наведении - зеленая кнопка «Играть» в углу
-    // (у установленных), щелчок по ней запускает игру, по остальной обложке - страница игры.
+    // Как в Steam: под обложкой ничего нет; при наведении в углу кнопка: зеленая «Играть» у
+    // установленных, синяя «Установить» у неустановленных. Щелчок по кнопке - действие, по
+    // остальной обложке - страница игры.
     let hover = resp.hovered();
-    let mut play_hit = false;
-    if hover && r.ready && !c.launching && !c.installing {
-        let b = egui::Rect::from_min_size(egui::pos2(rect.left() + 8.0, rect.bottom() - 42.0), egui::vec2(34.0, 34.0));
+    let mut button_hit: Option<Action> = None;
+    let can_play = r.ready && !c.launching && !c.installing;
+    let can_install = !r.installed && c.logged_in && !c.installing_now(r.appid) && !crate::custom::is_custom(r.appid);
+    if hover && (can_play || can_install) {
+        let s = 34.0 * (1.0 + 0.03 * t);
+        let b = egui::Rect::from_min_size(egui::pos2(rect.left() + 8.0, rect.bottom() - 8.0 - s), egui::vec2(s, s));
         let over = ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| b.contains(p));
-        painter.rect_filled(b, 4.0, if over { egui::Color32::from_rgb(112, 190, 38) } else { theme::PLAY });
-        let (cx, cy) = (b.center().x + 2.0, b.center().y);
-        painter.add(egui::Shape::convex_polygon(
-            vec![egui::pos2(cx - 6.0, cy - 8.0), egui::pos2(cx + 8.0, cy), egui::pos2(cx - 6.0, cy + 8.0)],
-            egui::Color32::WHITE,
-            egui::Stroke::NONE,
-        ));
-        play_hit = over;
+        let (cx, cy) = (b.center().x, b.center().y);
+        if can_play {
+            painter.rect_filled(b, 4.0, if over { egui::Color32::from_rgb(112, 190, 38) } else { theme::PLAY });
+            painter.add(egui::Shape::convex_polygon(
+                vec![egui::pos2(cx - 4.0, cy - 8.0), egui::pos2(cx + 10.0, cy), egui::pos2(cx - 4.0, cy + 8.0)],
+                egui::Color32::WHITE,
+                egui::Stroke::NONE,
+            ));
+            if over {
+                button_hit = Some(Action::Play(r.appid));
+            }
+        } else {
+            // Синяя кнопка со стрелкой вниз (скачать), как «Установить» в Steam.
+            painter.rect_filled(b, 4.0, if over { egui::Color32::from_rgb(71, 160, 240) } else { theme::ACCENT });
+            let st = egui::Stroke::new(2.5, egui::Color32::WHITE);
+            painter.line_segment([egui::pos2(cx, cy - 9.0), egui::pos2(cx, cy + 5.0)], st);
+            painter.line_segment([egui::pos2(cx - 6.0, cy - 1.0), egui::pos2(cx, cy + 5.0)], st);
+            painter.line_segment([egui::pos2(cx + 6.0, cy - 1.0), egui::pos2(cx, cy + 5.0)], st);
+            painter.line_segment([egui::pos2(cx - 8.0, cy + 10.0), egui::pos2(cx + 8.0, cy + 10.0)], st);
+            if over {
+                button_hit = Some(Action::AskInstall(r.appid, r.name.clone()));
+            }
+        }
     }
     if resp
         .on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -297,82 +319,93 @@ fn tile_ui(ui: &mut egui::Ui, r: &Row, c: &Ctx, covers: &Covers, tile: egui::Vec
         ))
         .clicked()
     {
-        *out = Some(if play_hit { Action::Play(r.appid) } else { Action::Page(r.appid) });
+        *out = Some(button_hit.unwrap_or(Action::Page(r.appid)));
     }
 }
 
-/// Меню по правому щелчку: в какие коллекции входит игра, и «Новая коллекция».
+/// Меню по правому щелчку, порядок как в Steam: главное действие, переходы, коллекции,
+/// «Управление» (папка, удаление) и «Свойства» в конце.
 fn collections_menu(resp: &egui::Response, r: &Row, c: &Ctx, out: &mut Option<Action>) {
+    // Выбранное действие - через RefCell: им пользуются и кнопки, и вложенные подменю.
+    let pick: std::cell::RefCell<Option<Action>> = std::cell::RefCell::new(None);
     resp.context_menu(|ui| {
         ui.set_min_width(200.0);
         ui.label(egui::RichText::new(&r.name).strong());
         ui.separator();
         let mut item = |ui: &mut egui::Ui, enabled: bool, text: &str, act: Action| {
             if ui.add_enabled(enabled, egui::Button::new(text)).clicked() {
-                *out = Some(act);
+                *pick.borrow_mut() = Some(act);
                 ui.close_menu();
             }
         };
+        let custom = crate::custom::is_custom(r.appid);
         if r.installed {
             item(ui, r.ready && !c.launching, "Играть", Action::Play(r.appid));
-        } else if c.logged_in {
+        } else if c.logged_in && !custom {
             item(ui, !c.installing_now(r.appid), "Установить", Action::Install(r.appid, r.name.clone()));
         }
         item(ui, true, "Страница игры", Action::Page(r.appid));
-        if r.installed {
-            item(ui, true, "Свойства...", Action::Props(r.appid, r.name.clone()));
-            item(ui, true, "Открыть папку игры", Action::Folder(r.appid));
-        }
-        if crate::custom::is_custom(r.appid) {
+        if !custom {
             ui.separator();
-            item(ui, c.running != Some(r.appid), "Убрать из библиотеки...", Action::Uninstall(r.appid, r.name.clone()));
-            return;
+            item(ui, c.logged_in, "Достижения", Action::Achievements(r.appid, r.name.clone()));
+            item(ui, true, "Скриншоты", Action::Shots(r.appid));
+            item(ui, c.logged_in, "Сообщество", Action::Community(r.appid, r.name.clone()));
+            item(ui, true, "Страница в магазине", Action::Store(r.appid));
+            ui.separator();
+            ui.menu_button("Коллекции", |ui| {
+                if c.collections.is_empty() {
+                    ui.weak("Коллекции еще загружаются...");
+                }
+                for coll in c.collections {
+                    let mut inside = coll.apps.contains(&r.appid);
+                    let resp = ui.add_enabled(!coll.dynamic, egui::Checkbox::new(&mut inside, &coll.name));
+                    if coll.dynamic {
+                        resp.on_disabled_hover_text("Динамическая коллекция (по фильтру) - меняется только в Steam");
+                    } else if resp.changed() {
+                        *pick.borrow_mut() = Some(Action::Collection { id: coll.id.clone(), appid: r.appid, add: inside });
+                        ui.close_menu();
+                    }
+                }
+                ui.separator();
+                // Поле для имени новой коллекции живет во временной памяти egui.
+                let id = egui::Id::new("new_collection_name");
+                let mut name = ui.data_mut(|d| d.get_temp::<String>(id)).unwrap_or_default();
+                ui.horizontal(|ui| {
+                    ui.add(egui::TextEdit::singleline(&mut name).hint_text("Новая коллекция").desired_width(140.0));
+                    if ui.add_enabled(!name.trim().is_empty(), egui::Button::new("Создать")).clicked() {
+                        *pick.borrow_mut() = Some(Action::NewCollection { name: name.trim().to_string(), appid: r.appid });
+                        name.clear();
+                        ui.close_menu();
+                    }
+                });
+                ui.data_mut(|d| d.insert_temp(id, name));
+            });
         }
-        if r.installed {
-            item(
-                ui,
-                !c.installing_now(r.appid) && c.running != Some(r.appid),
-                "Удалить...",
-                Action::Uninstall(r.appid, r.name.clone()),
-            );
-        }
-        ui.separator();
-        item(ui, c.logged_in, "Достижения", Action::Achievements(r.appid, r.name.clone()));
-        item(ui, true, "Скриншоты", Action::Shots(r.appid));
-        item(ui, c.logged_in, "Сообщество", Action::Community(r.appid, r.name.clone()));
-        item(ui, true, "Страница в магазине", Action::Store(r.appid));
-        ui.separator();
-        ui.menu_button("Коллекции", |ui| {
-            if c.collections.is_empty() {
-                ui.weak("Коллекции еще загружаются...");
-            }
-            for coll in c.collections {
-                let mut inside = coll.apps.contains(&r.appid);
-                let resp = ui.add_enabled(!coll.dynamic, egui::Checkbox::new(&mut inside, &coll.name));
-                if coll.dynamic {
-                    resp.on_disabled_hover_text("Динамическая коллекция (по фильтру) - меняется только в Steam");
-                } else if resp.changed() {
-                    *out = Some(Action::Collection { id: coll.id.clone(), appid: r.appid, add: inside });
+        if r.installed || custom {
+            ui.separator();
+            ui.menu_button("Управление", |ui| {
+                ui.set_min_width(180.0);
+                if r.installed && ui.button("Открыть папку игры").clicked() {
+                    *pick.borrow_mut() = Some(Action::Folder(r.appid));
                     ui.close_menu();
                 }
-            }
-            ui.separator();
-            // Поле для имени новой коллекции живет во временной памяти egui.
-            let id = egui::Id::new("new_collection_name");
-            let mut name = ui.data_mut(|d| d.get_temp::<String>(id)).unwrap_or_default();
-            ui.horizontal(|ui| {
-                ui.add(egui::TextEdit::singleline(&mut name).hint_text("Новая коллекция").desired_width(140.0));
-                if ui.add_enabled(!name.trim().is_empty(), egui::Button::new("Создать")).clicked() {
-                    *out = Some(Action::NewCollection { name: name.trim().to_string(), appid: r.appid });
-                    name.clear();
+                let (text, enabled) = if custom {
+                    ("Убрать из библиотеки...", c.running != Some(r.appid))
+                } else {
+                    ("Удалить...", !c.installing_now(r.appid) && c.running != Some(r.appid))
+                };
+                if ui.add_enabled(enabled, egui::Button::new(text)).clicked() {
+                    *pick.borrow_mut() = Some(Action::Uninstall(r.appid, r.name.clone()));
                     ui.close_menu();
                 }
             });
-            ui.data_mut(|d| d.insert_temp(id, name));
-        });
+            item(ui, true, "Свойства...", Action::Props(r.appid, r.name.clone()));
+        }
     });
+    if let Some(a) = pick.into_inner() {
+        *out = Some(a);
+    }
 }
-
 
 /// Список игр в левой колонке, как в Steam: значок и название; щелчок - страница игры,
 /// двойной щелчок - «Играть», правый щелчок - меню игры.

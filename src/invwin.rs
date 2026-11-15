@@ -126,6 +126,9 @@ impl LauncherApp {
 
     /// Содержимое инвентаря: и в главном окне, и в отдельном.
     pub(crate) fn inventory_contents(&mut self, ui: &mut egui::Ui, net: &NetState) {
+        if let Some(w) = self.inv_win.as_mut() {
+            w.mk.undercut = self.settings.quick_undercut;
+        }
         let shared = net.inv.clone();
         let st = shared.lock().unwrap();
         let mut cmds: Vec<InvCmd> = Vec::new();
