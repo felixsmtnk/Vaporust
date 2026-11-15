@@ -308,6 +308,32 @@ impl LauncherApp {
             // Строка 2 (только в списках): поиск или подраздел слева, порядок и фильтры справа.
             if w.pages.is_empty() {
                 ui.add_space(4.0);
+                // В узком окне порядок, фильтры и регион - отдельной строкой ниже, иначе налезают на поиск.
+                let narrow = ui.available_width() < 900.0;
+                macro_rules! right_group {
+                    ($ui:expr) => {
+                        if !row1 {
+                            region_combo($ui, &st.country.clone(), &mut self.settings.store_country, &mut cmds, w);
+                        }
+                        if w.tab != Tab::Home {
+                            let active = [w.only_discount, w.only_free, w.hide_owned].iter().filter(|b| **b).count();
+                            let label = if active > 0 { format!("Фильтры ({active})") } else { "Фильтры".to_string() };
+                            $ui.menu_button(label, |ui| {
+                                ui.checkbox(&mut w.only_discount, "Только со скидкой");
+                                ui.checkbox(&mut w.only_free, "Только бесплатные");
+                                ui.checkbox(&mut w.hide_owned, "Скрыть купленные");
+                            });
+                            egui::ComboBox::from_id_salt("store_sort")
+                                .selected_text(w.sort.label())
+                                .show_ui($ui, |ui| {
+                                    for s in Sort::ALL {
+                                        ui.selectable_value(&mut w.sort, s, s.label());
+                                    }
+                                });
+                            $ui.weak("Порядок:");
+                        }
+                    };
+                }
                 ui.horizontal(|ui| {
                     match w.tab {
                         // Поиск по магазину - на «Главной» (как в Steam); результаты - на месте полок.
@@ -315,7 +341,7 @@ impl LauncherApp {
                             let edit = ui.add(
                                 egui::TextEdit::singleline(&mut w.query)
                                     .hint_text("Название игры, Enter - искать")
-                                    .desired_width(320.0),
+                                    .desired_width((ui.available_width() * 0.5).clamp(140.0, 320.0)),
                             );
                             let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                             if (enter || ui.button("Найти").clicked()) && !w.query.trim().is_empty() {
@@ -354,30 +380,20 @@ impl LauncherApp {
                             }
                         }
                     }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if !row1 {
-                            region_combo(ui, &st.country.clone(), &mut self.settings.store_country, &mut cmds, w);
-                        }
-                        if w.tab == Tab::Home {
-                            return;
-                        }
-                        let active = [w.only_discount, w.only_free, w.hide_owned].iter().filter(|b| **b).count();
-                        let label = if active > 0 { format!("Фильтры ({active})") } else { "Фильтры".to_string() };
-                        ui.menu_button(label, |ui| {
-                            ui.checkbox(&mut w.only_discount, "Только со скидкой");
-                            ui.checkbox(&mut w.only_free, "Только бесплатные");
-                            ui.checkbox(&mut w.hide_owned, "Скрыть купленные");
+                    if !narrow {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            right_group!(ui);
                         });
-                        egui::ComboBox::from_id_salt("store_sort")
-                            .selected_text(w.sort.label())
-                            .show_ui(ui, |ui| {
-                                for s in Sort::ALL {
-                                    ui.selectable_value(&mut w.sort, s, s.label());
-                                }
-                            });
-                        ui.weak("Порядок:");
-                    });
+                    }
                 });
+                if narrow && (!row1 || w.tab != Tab::Home) {
+                    ui.add_space(2.0);
+                    ui.horizontal(|ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            right_group!(ui);
+                        });
+                    });
+                }
             }
             if let Some(e) = &st.error {
                 ui.colored_label(egui::Color32::from_rgb(230, 110, 110), e);

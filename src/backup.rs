@@ -117,11 +117,26 @@ pub fn restore(zip_path: &Path) -> Result<usize, String> {
     if items.is_empty() {
         return Err("В копии нет файлов.".into());
     }
-    // 2. Заменить, запоминая прежнее содержимое (None - файла не было).
+    // 2. Прочитать прежнее содержимое ВСЕХ мест до первой записи. «Файла не было» - только когда
+    // его действительно нет; файл, который не читается (занят игрой, нет доступа), останавливает
+    // восстановление до замены: иначе откат удалил бы его как «не существовавший».
+    let mut olds: Vec<Option<Vec<u8>>> = Vec::with_capacity(items.len());
+    for (dest, _) in &items {
+        match fs::read(dest) {
+            Ok(d) => olds.push(Some(d)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => olds.push(None),
+            Err(e) => {
+                return Err(format!(
+                    "Ничего не восстановлено: файл {} занят или недоступен ({e}). Закройте игру и Steam и попробуйте снова.",
+                    dest.display()
+                ))
+            }
+        }
+    }
+    // 3. Заменить, запоминая, что уже заменено.
     let mut done: Vec<(PathBuf, Option<Vec<u8>>)> = Vec::new();
     let res = (|| -> Result<(), String> {
-        for (dest, data) in &items {
-            let old = fs::read(dest).ok();
+        for ((dest, data), old) in items.iter().zip(olds) {
             if let Some(parent) = dest.parent() {
                 fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
@@ -131,7 +146,7 @@ pub fn restore(zip_path: &Path) -> Result<usize, String> {
         Ok(())
     })();
     if let Err(e) = res {
-        // 3. Откат: вернуть замененные файлы.
+        // 4. Откат: вернуть замененные файлы.
         let mut lost = Vec::new();
         for (dest, old) in done.into_iter().rev() {
             let ok = match old {

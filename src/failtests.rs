@@ -297,7 +297,7 @@ fn restore_is_all_or_nothing() {
     assert!(crate::backup::restore(&z).is_err());
     assert_eq!(fs::read(&a).unwrap(), b"A-now", "первый файл не тронут");
     assert_eq!(fs::read(&b).unwrap(), b"B-now");
-    // Сбой при записи второго файла (на его месте папка): первый возвращается как был.
+    // На месте второго файла папка (не читается): отказ ДО записи, первый не тронут.
     let blocked = t.0.join("save").join("dir.sav");
     fs::create_dir_all(blocked.join("inner")).unwrap();
     let manifest = format!("0_a.sav\t{}\n1_d.sav\t{}\n", a.display(), blocked.display());
@@ -306,18 +306,58 @@ fn restore_is_all_or_nothing() {
         &zip_with(&[("files/0_a.sav", b"A-old"), ("files/1_d.sav", b"D-old"), ("vaporust_backup.txt", manifest.as_bytes())]),
     );
     let e = crate::backup::restore(&z).unwrap_err();
+    assert!(e.contains("Ничего не восстановлено"), "{e}");
+    assert_eq!(fs::read(&a).unwrap(), b"A-now");
+    // Сбой при записи второго файла (он только для чтения): первый возвращается как был.
+    let ro = t.file("save/ro.sav", b"RO-now");
+    let mut perm = fs::metadata(&ro).unwrap().permissions();
+    perm.set_readonly(true);
+    fs::set_permissions(&ro, perm.clone()).unwrap();
+    let manifest = format!("0_a.sav\t{}\n1_r.sav\t{}\n", a.display(), ro.display());
+    let z = t.file(
+        "readonly.zip",
+        &zip_with(&[("files/0_a.sav", b"A-old"), ("files/1_r.sav", b"RO-old"), ("vaporust_backup.txt", manifest.as_bytes())]),
+    );
+    let e = crate::backup::restore(&z).unwrap_err();
     assert!(e.contains("возвращены как были"), "{e}");
     assert_eq!(fs::read(&a).unwrap(), b"A-now", "откат первого файла");
+    assert_eq!(fs::read(&ro).unwrap(), b"RO-now");
     assert!(!t.0.join("save").join("a.sav.vaporust-tmp").exists(), "временных файлов не осталось");
     // Новый файл, которого раньше не было, при откате удаляется.
     let fresh = t.0.join("save").join("new.sav");
-    let manifest = format!("0_n.sav\t{}\n1_d.sav\t{}\n", fresh.display(), blocked.display());
+    let manifest = format!("0_n.sav\t{}\n1_r.sav\t{}\n", fresh.display(), ro.display());
     let z = t.file(
         "fresh.zip",
-        &zip_with(&[("files/0_n.sav", b"N"), ("files/1_d.sav", b"D"), ("vaporust_backup.txt", manifest.as_bytes())]),
+        &zip_with(&[("files/0_n.sav", b"N"), ("files/1_r.sav", b"R"), ("vaporust_backup.txt", manifest.as_bytes())]),
     );
     assert!(crate::backup::restore(&z).is_err());
     assert!(!fresh.exists());
+    #[allow(clippy::permissions_set_readonly_false)]
+    perm.set_readonly(false);
+    fs::set_permissions(&ro, perm).unwrap();
+}
+
+/// QA-01: файл, который нельзя прочитать (игра держит его открытым без общего чтения), не должен
+/// считаться «несуществующим» и удаляться при откате.
+#[cfg(windows)]
+#[test]
+fn restore_keeps_unreadable_file() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let t = TempDir::new("restore_locked");
+    let a = t.file("save/a.sav", b"A-now");
+    let b_dir = t.0.join("save").join("b.sav");
+    fs::create_dir_all(&b_dir).unwrap();
+    let manifest = format!("0_a.sav\t{}\n1_b.sav\t{}\n", a.display(), b_dir.display());
+    let z = t.file(
+        "locked.zip",
+        &zip_with(&[("files/0_a.sav", b"A-old"), ("files/1_b.sav", b"B"), ("vaporust_backup.txt", manifest.as_bytes())]),
+    );
+    // Чтение запрещено, запись и удаление разрешены (FILE_SHARE_WRITE | FILE_SHARE_DELETE).
+    let lock = fs::OpenOptions::new().read(true).share_mode(0x2 | 0x4).open(&a).unwrap();
+    let e = crate::backup::restore(&z).unwrap_err();
+    drop(lock);
+    assert!(e.contains("Ничего не восстановлено"), "{e}");
+    assert_eq!(fs::read(&a).unwrap(), b"A-now", "файл на месте и не изменен");
 }
 
 #[test]

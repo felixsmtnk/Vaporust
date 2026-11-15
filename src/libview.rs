@@ -81,7 +81,7 @@ impl Ctx<'_> {
 pub fn list(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, sort: &mut Sort, icons: bool) -> Option<Action> {
     let mut out = None;
     let w = ui.available_width() - 14.0;
-    let (state_w, hours_w, last_w, size_w) = (130.0, 80.0, 110.0, 90.0);
+    let (state_w, hours_w, last_w, size_w) = (130.0, 80.0, 128.0, 90.0);
     let name_w = (w - state_w - hours_w - last_w - size_w).max(120.0);
     let xs = [0.0, name_w, name_w + state_w, name_w + state_w + hours_w, name_w + state_w + hours_w + last_w];
     let small = egui::FontId::proportional(12.5);
@@ -101,7 +101,9 @@ pub fn list(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, sort: &mu
         let resp = ui.interact(r, ui.id().with(("table_head", i)), if s.is_some() { egui::Sense::click() } else { egui::Sense::hover() });
         let on = s.is_some_and(|s| s == *sort);
         let color = if on { theme::ACCENT } else if resp.hovered() && s.is_some() { egui::Color32::WHITE } else { theme::WEAK };
-        ui.painter().text(r.left_center(), egui::Align2::LEFT_CENTER, *label, egui::FontId::proportional(11.0), color);
+        // Текст не заходит в соседний столбец: рисуем только внутри своей ячейки (с зазором 8).
+        let cell = egui::Rect::from_min_max(r.min, egui::pos2((r.right() - 8.0).max(r.left()), r.bottom()));
+        ui.painter_at(cell).text(r.left_center(), egui::Align2::LEFT_CENTER, *label, egui::FontId::proportional(11.0), color);
         if let Some(s) = s {
             if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                 *sort = *s;
@@ -529,7 +531,8 @@ pub fn page(
     covers_on: bool,
 ) -> Option<Action> {
     let mut out = None;
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    // Своя прокрутка у каждой игры: страница новой игры открывается сверху.
+    egui::ScrollArea::vertical().id_salt(("game_page", r.appid)).auto_shrink([false, false]).show(ui, |ui| {
         // Широкий фон игры (library_hero) с названием поверх; без обложек - только полоса с названием.
         let w = ui.available_width();
         let h = if covers_on { (w / 3.1).clamp(140.0, 320.0) } else { 64.0 };

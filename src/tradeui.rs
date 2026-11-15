@@ -1,7 +1,7 @@
 //! Интерфейс площадки в инвентаре: заявки и график цены у предмета, продажа (своя цена,
 //! быстрая, мгновенная), «Снять с продажи», «Отменить заявку», вкладка «Обмены».
 
-use crate::trade::{receive_for, MarketCmd, OfferItem};
+use crate::trade::{MarketCmd, OfferItem};
 use eframe::egui;
 
 /// Просьбы интерфейса инвентаря к сети (отправляет LauncherApp::drain_ui_req).
@@ -123,33 +123,61 @@ pub fn market_block(ui: &mut egui::Ui, mk: &mut MarketUi, st: &crate::invent::In
             mode,
         };
         ui.add_space(4.0);
+        // Правила цен своей валюты (минимум, шаг, комиссии) приходят с кошельком. Без них цены не
+        // посчитать честно - продажу не предлагаем.
+        let Some(r) = rules(st) else {
+            ui.weak("Продажа недоступна: Steam не прислал правила цен для вашей валюты. Обновите кошелек (вкладка «Мои лоты») или продайте на сайте Steam.");
+            return_with_msg(ui, mk, st);
+            return;
+        };
         if let Some(Ok(sp)) = spread {
-            // Быстрая: на 0,01 дешевле самого дешевого лота (но не ниже лучшей заявки).
-            if sp.lowest_sell > 3 {
-                let pay = (sp.lowest_sell - 1).max(sp.highest_buy).max(3);
+            // Быстрая: на один шаг цены дешевле самого дешевого лота (но не ниже лучшей заявки).
+            let min_total = crate::trade::pay_for(r.market_minimum, &r);
+            if sp.lowest_sell > min_total {
+                let want = (sp.lowest_sell - r.currency_increment).max(sp.highest_buy).max(min_total);
+                let pay = effective(want, &r);
                 if ui
                     .add(egui::Button::new(format!("Быстрая продажа за {}", m(pay))).fill(egui::Color32::from_rgb(60, 90, 40)))
-                    .on_hover_text("Лот на 0,01 дешевле самого дешевого на площадке: обычно продается быстро")
+                    .on_hover_text("Лот на один шаг цены дешевле самого дешевого на площадке: обычно продается быстро")
                     .clicked()
                 {
                     mk.sell = Some(base(1, pay));
                 }
             }
             // Мгновенная: по самой высокой заявке - продается сразу.
-            if sp.highest_buy > 3
-                && ui
-                    .add(egui::Button::new(format!("Мгновенная продажа за {}", m(sp.highest_buy))).fill(egui::Color32::from_rgb(110, 80, 30)))
+            if sp.highest_buy >= min_total {
+                let pay = effective(sp.highest_buy, &r);
+                if ui
+                    .add(egui::Button::new(format!("Мгновенная продажа за {}", m(pay))).fill(egui::Color32::from_rgb(110, 80, 30)))
                     .on_hover_text("По самой высокой заявке на покупку: предмет продается сразу")
                     .clicked()
-            {
-                mk.sell = Some(base(2, sp.highest_buy));
+                {
+                    mk.sell = Some(base(2, pay));
+                }
             }
         }
         if ui.button("Продать по своей цене...").clicked() {
-            let pay = spread.and_then(|r| r.as_ref().ok()).map(|sp| sp.lowest_sell.max(3)).unwrap_or(100);
-            mk.sell = Some(base(0, pay));
+            let min_total = crate::trade::pay_for(r.market_minimum, &r);
+            let pay = spread.and_then(|x| x.as_ref().ok()).map(|sp| sp.lowest_sell.max(min_total)).unwrap_or(min_total.max(100));
+            mk.sell = Some(base(0, effective(pay, &r)));
         }
     }
+    return_with_msg(ui, mk, st);
+}
+
+/// Правила цен кошелька (None - кошелек еще не загружен или Steam их не прислал).
+fn rules(st: &crate::invent::InvState) -> Option<crate::trade::FeeRules> {
+    st.wallet.as_ref()?.as_ref().ok()?.fee_rules
+}
+
+/// Цена для покупателя, которую Steam выставит на самом деле, если покупатель готов заплатить
+/// `total`: Steam сначала переводит ее в «вы получите», а потом обратно с комиссиями и шагом цены.
+fn effective(total: i64, r: &crate::trade::FeeRules) -> i64 {
+    crate::trade::pay_for(crate::trade::receive_for(total, r), r)
+}
+
+/// Хвост блока: сообщение о последнем действии и окно продажи.
+fn return_with_msg(ui: &mut egui::Ui, mk: &mut MarketUi, st: &crate::invent::InvState) {
     if let Some(msg) = &st.trade.msg {
         ui.add_space(4.0);
         ui.label(egui::RichText::new(msg).color(egui::Color32::from_rgb(240, 200, 80)));
@@ -160,9 +188,14 @@ pub fn market_block(ui: &mut egui::Ui, mk: &mut MarketUi, st: &crate::invent::In
 /// Окно подтверждения продажи: цена для покупателя, что получите вы, количество.
 fn sell_window(ctx: &egui::Context, mk: &mut MarketUi, st: &crate::invent::InvState) {
     let Some(mut d) = mk.sell.take() else { return };
+    let Some(r) = rules(st) else { return };
     let cur = crate::invent::wallet_currency(st);
     let m = |c: i64| crate::invent::money(c, cur);
     let mut keep = true;
+    // Escape - отмена (запрос не отправляется).
+    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        return;
+    }
     let title = match d.mode {
         1 => "Быстрая продажа",
         2 => "Мгновенная продажа",
@@ -181,15 +214,27 @@ fn sell_window(ctx: &egui::Context, mk: &mut MarketUi, st: &crate::invent::InvSt
                 }
             });
             // Цена каждый кадр берется из того, что написано в поле сейчас: при ошибке не
-            // остается прежнее число, а продажа выключена.
+            // остается прежнее число, а продажа выключена. Дальше - ровно то, что сделает Steam:
+            // «вы получите» по правилам валюты и цена для покупателя после округления.
             let parsed = parse_money(&d.pay_text);
             if let Some(p) = parsed {
                 d.pay = p;
             }
-            let receive = parsed.map(receive_for).unwrap_or(0);
+            let min_total = crate::trade::pay_for(r.market_minimum, &r);
+            let receive = parsed.filter(|&p| p >= min_total).map(|p| crate::trade::receive_for(p, &r)).unwrap_or(0);
+            let real_pay = if receive > 0 { crate::trade::pay_for(receive, &r) } else { 0 };
             match parsed {
-                Some(pay) => {
-                    ui.label(format!("Вы получите: {} (комиссия Steam и игры: {})", m(receive), m(pay - receive)));
+                Some(p) if p < min_total => {
+                    ui.colored_label(egui::Color32::from_rgb(230, 90, 80), format!("Слишком мало: в вашей валюте цена для покупателя не меньше {}.", m(min_total)));
+                }
+                Some(p) => {
+                    ui.label(format!("Вы получите: {} (комиссия Steam и игры: {})", m(receive), m(real_pay - receive)));
+                    if real_pay != p {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(230, 170, 60),
+                            format!("Steam округлит цену по правилам вашей валюты: покупатель заплатит {}.", m(real_pay)),
+                        );
+                    }
                 }
                 None => {
                     ui.colored_label(egui::Color32::from_rgb(230, 90, 80), "Неверная цена: только цифры и до двух знаков после запятой, например 12,50.");
@@ -202,15 +247,15 @@ fn sell_window(ctx: &egui::Context, mk: &mut MarketUi, st: &crate::invent::InvSt
                 });
             }
             if d.mode == 2 {
-                ui.weak("Цена равна самой высокой заявке: предмет купят сразу после подтверждения.");
+                ui.weak("Цена равна самой высокой заявке: предмет могут купить сразу.");
             }
-            ui.weak("После выставления Steam попросит подтвердить продажу в мобильном приложении. Деньги придут в кошелек Steam.");
+            ui.weak(
+                "Нажатие «Выставить» отправляет лот в Steam. Если Steam попросит подтверждение, подтвердите \
+                 продажу в мобильном приложении; иначе лот появится сразу. Деньги придут в кошелек Steam.",
+            );
             ui.horizontal(|ui| {
-                let ok = parsed.is_some() && receive >= 1 && !st.trade.busy;
-                let text = match parsed {
-                    Some(pay) => format!("Выставить за {}", m(pay)),
-                    None => "Выставить".to_string(),
-                };
+                let ok = receive >= r.market_minimum && !st.trade.busy;
+                let text = if receive > 0 { format!("Выставить за {}", m(real_pay)) } else { "Выставить".to_string() };
                 if ui.add_enabled(ok, egui::Button::new(text)).clicked() {
                     req(MarketCmd::Sell {
                         appid: d.appid,
@@ -226,6 +271,7 @@ fn sell_window(ctx: &egui::Context, mk: &mut MarketUi, st: &crate::invent::InvSt
                     keep = false;
                 }
             });
+            ui.weak("Esc - отмена.");
         });
     if keep {
         mk.sell = Some(d);

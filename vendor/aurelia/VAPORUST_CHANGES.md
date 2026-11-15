@@ -74,3 +74,6 @@
 - `steam_client/vaporust_chat.rs`: `HistoryMessage.reactions` (реакции на сообщения из истории переписки).
 - `steam_client/ident_tests.rs`: в тестовом `Friend` добавлены поля `nickname` и `rich_status` (иначе тесты Aurelia не
   собирались после нашей доработки друзей).
+- `steam_client/market.rs`: `WalletBalance.fee_rules` и `MarketFeeRules` (минимальная цена, шаг цены и комиссии из
+  `g_rgWalletInfo`: `wallet_market_minimum`, `wallet_currency_increment`, `wallet_fee_percent`,
+  `wallet_publisher_fee_percent_default`), вынесено в `pub use` - для расчета цен площадки как на сайте Steam.

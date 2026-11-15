@@ -88,7 +88,7 @@ mod webapi;
 mod workshopui;
 
 /// Что показано в центре главного окна.
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub enum View {
     Library,
     Profile,
@@ -241,6 +241,10 @@ struct LauncherApp {
     start_applied: bool,
     /// Масштаб, который Vaporust выставил сам (иначе его поменяли Ctrl+плюс/минус).
     zoom_applied: f32,
+    /// Для какого масштаба (точек на пиксель) уже задан наименьший размер окна.
+    min_ppp_sent: f32,
+    /// Когда последний раз увеличивали окно до наименьшего размера.
+    min_grow_at: Option<std::time::Instant>,
     /// Шаг мастера первого запуска.
     wizard_step: usize,
     /// Какую игру запускает Vaporust (ее состояние показывается на странице игры).
@@ -470,6 +474,8 @@ impl LauncherApp {
             wallet_asked: false,
             start_applied: false,
             zoom_applied: 1.0,
+            min_ppp_sent: 0.0,
+            min_grow_at: None,
             wizard_step: 0,
             status_app: None,
             status_seen: String::new(),
@@ -2543,8 +2549,11 @@ impl eframe::App for LauncherApp {
             }
             egui::CentralPanel::default().show(ctx, |ui| {
                 // Магазин, инвентарь, Мастерская - вместо библиотеки, в этом же окне.
+                // У каждой страницы (и у каждой игры) своя прокрутка: иначе новая страница открывалась
+                // на месте, до которого прокрутили предыдущую (egui различает области прокрутки по id).
+                let page_key = (self.view, self.lib_page, self.ach_open.as_ref().map(|a| a.0));
                 if self.view != View::Library {
-                    self.section_view(ui, &net);
+                    ui.push_id(page_key, |ui| self.section_view(ui, &net));
                     return;
                 }
                 let page_row = self.lib_page.and_then(|id| self.row_map(&net).remove(&id));
@@ -2623,7 +2632,7 @@ impl eframe::App for LauncherApp {
                     ui.add_space(4.0);
                     // Таблица: поиск и фильтры строкой под заголовком (в плитке они в левой колонке, тоже под «Главная»).
                     if table_mode {
-                        ui.horizontal(|ui| self.library_filters(ui, &net, true));
+                        ui.horizontal_wrapped(|ui| self.library_filters(ui, &net, true)); // в узком окне фильтры переносятся
                         ui.add_space(4.0);
                     }
                     // Без обложек (настройка «Производительность») - всегда список.

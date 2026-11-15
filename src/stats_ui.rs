@@ -1,7 +1,7 @@
 //! «Статистика»: время в играх. Steam хранит только «всего» и «за две недели», поэтому
 //! историю по дням Vaporust записывает сам: при каждом обновлении библиотеки сравнивает
 //! общее время каждой игры с прошлым разом и разницу относит к сегодняшнему дню.
-//! Файл: <папка данных Vaporust>\playtime.json.
+//! Файл: <папка данных Vaporust>\playtime_<SteamID>.json - у каждого аккаунта своя история.
 
 use crate::net::{Cmd, NetState};
 use crate::LauncherApp;
@@ -13,6 +13,9 @@ use std::path::PathBuf;
 #[derive(Default, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct History {
+    /// Чья история (SteamID). У каждого аккаунта свой файл: иначе общее время второго аккаунта
+    /// засчиталось бы как «сыграно сегодня».
+    pub owner: u64,
     /// С какого дня ведется запись (ГГГГ-ММ-ДД).
     pub since: String,
     /// Последнее известное общее время: appid -> минут.
@@ -21,17 +24,49 @@ pub struct History {
     pub days: BTreeMap<String, BTreeMap<u32, u32>>,
 }
 
-fn file() -> Option<PathBuf> {
-    let base = if crate::portable::enabled() { crate::portable::data_dir() } else { crate::portable::normal_dir() };
-    base.map(|d| d.join("playtime.json"))
+fn data_dir() -> Option<PathBuf> {
+    if crate::portable::enabled() { crate::portable::data_dir() } else { crate::portable::normal_dir() }
 }
 
-pub fn load() -> History {
-    file().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+fn file_for(owner: u64) -> Option<PathBuf> {
+    data_dir().map(|d| d.join(format!("playtime_{owner}.json")))
+}
+
+fn read(p: &std::path::Path) -> Option<History> {
+    std::fs::read_to_string(p).ok().and_then(|t| serde_json::from_str(&t).ok())
+}
+
+/// История аккаунта `owner`. Старый общий файл playtime.json (до разделения по аккаунтам)
+/// достается аккаунту, только если это явно его игры: не меньше 80% игр из файла есть у него.
+pub fn load_for(owner: u64, owned: &[u32]) -> History {
+    let Some(p) = file_for(owner) else { return History { owner, ..Default::default() } };
+    if let Some(h) = read(&p) {
+        return History { owner, ..h };
+    }
+    if let Some(old) = data_dir().map(|d| d.join("playtime.json")) {
+        if let Some(h) = read(&old) {
+            if adopt_legacy(&h, owned) {
+                let h = History { owner, ..h };
+                save(&h);
+                let _ = std::fs::rename(&old, old.with_extension("json.migrated"));
+                return h;
+            }
+        }
+    }
+    History { owner, ..Default::default() }
+}
+
+/// Принадлежит ли старый общий файл аккаунту с такими играми.
+pub fn adopt_legacy(h: &History, owned: &[u32]) -> bool {
+    if h.last.is_empty() {
+        return false;
+    }
+    let mine = h.last.keys().filter(|id| owned.contains(id)).count();
+    mine * 10 >= h.last.len() * 8
 }
 
 fn save(h: &History) {
-    if let Some(p) = file() {
+    if let Some(p) = file_for(h.owner).filter(|_| h.owner != 0) {
         if let Some(d) = p.parent() {
             let _ = std::fs::create_dir_all(d);
         }
@@ -144,11 +179,19 @@ impl LauncherApp {
         if net.account.is_none() || net.owned.is_empty() {
             return;
         }
+        let Some(me) = net.my_id else { return };
+        // Сменился аккаунт - своя история и заново «что уже учтено».
+        if self.stats_ui.history.as_ref().is_some_and(|h| h.owner != me) {
+            self.stats_ui.history = None;
+            self.stats_ui.seen = 0;
+            self.stats_ui.seen_sum = 0;
+        }
         let sum: u64 = net.owned.iter().map(|g| g.playtime_forever_minutes as u64).sum();
         if self.stats_ui.seen != net.owned.len() || self.stats_ui.seen_sum != sum {
             self.stats_ui.seen = net.owned.len();
             self.stats_ui.seen_sum = sum;
-            let h = self.stats_ui.history.get_or_insert_with(load);
+            let owned: Vec<u32> = net.owned.iter().map(|g| g.app_id).collect();
+            let h = self.stats_ui.history.get_or_insert_with(|| load_for(me, &owned));
             let today = chrono::Local::now().format("%Y-%m-%d").to_string();
             let totals: Vec<(u32, u32)> = net.owned.iter().map(|g| (g.app_id, g.playtime_forever_minutes)).collect();
             if record(h, &today, &totals) {
@@ -167,7 +210,14 @@ impl LauncherApp {
             self.stats_ui.asked = true;
             let _ = self.tx.send(Cmd::MyRecent);
         }
-        let h = self.stats_ui.history.get_or_insert_with(load).clone();
+        let h = match (net.my_id, self.stats_ui.history.as_ref()) {
+            (Some(me), Some(h)) if h.owner == me => h.clone(),
+            (Some(me), _) => {
+                let owned: Vec<u32> = net.owned.iter().map(|g| g.app_id).collect();
+                self.stats_ui.history.insert(load_for(me, &owned)).clone()
+            }
+            _ => History::default(),
+        };
         ui.heading("Статистика");
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             let total: u32 = net.owned.iter().map(|g| g.playtime_forever_minutes).sum();
@@ -273,5 +323,16 @@ mod tests {
         let today = chrono::NaiveDate::from_ymd_opt(2026, 11, 14).unwrap();
         let d = per_day(&h, today, 3);
         assert_eq!(d.iter().map(|x| x.1).collect::<Vec<_>>(), vec![0, 60, 70]);
+    }
+
+    /// QA-04: старый общий файл достается аккаунту, только если это его игры.
+    #[test]
+    fn legacy_file_owner() {
+        let mut h = History::default();
+        record(&mut h, "2026-11-13", &[(70, 10), (10, 5), (20, 1), (30, 0), (40, 0)]);
+        assert!(adopt_legacy(&h, &[70, 10, 20, 30, 40, 50]), "все игры свои");
+        assert!(adopt_legacy(&h, &[70, 10, 20, 30]), "4 из 5 = 80%");
+        assert!(!adopt_legacy(&h, &[70, 10, 99]), "чужой аккаунт");
+        assert!(!adopt_legacy(&History::default(), &[70]), "пустой файл");
     }
 }

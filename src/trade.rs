@@ -67,36 +67,75 @@ pub enum MarketCmd {
     Offer { id: String, partner: u64, act: u8 },
 }
 
-// ---------- Комиссия, как в Steam (CalculateFeeAmount) ----------
+// ---------- Цены и комиссия, как на сайте Steam (economy_common.js) ----------
+//
+// У каждой валюты кошелька свои правила: минимальная цена (она же минимальная комиссия) и шаг
+// цены. Steam берет их из g_rgWalletInfo (wallet_market_minimum, wallet_currency_increment,
+// wallet_fee_percent, wallet_publisher_fee_percent_default). Функции ниже - перенос
+// ToValidMarketPrice, CalculateFee, GetTotalWithFees и GetItemPriceFromTotal один в один.
+// Раньше Vaporust считал как для доллара (минимум 0,01), и для гривны предпросмотр врал:
+// «покупатель заплатит 1,02 ₴» вместо 3,00 ₴.
 
-pub const STEAM_FEE: f64 = 0.05;
-pub const PUBLISHER_FEE: f64 = 0.10;
+pub use aurelia::steam_client::MarketFeeRules as FeeRules;
 
-/// Комиссии со стороны покупателя при цене «получите» = receive.
-pub fn fees(receive: i64) -> i64 {
-    let steam = ((receive as f64 * STEAM_FEE).floor() as i64).max(1);
-    let publisher = ((receive as f64 * PUBLISHER_FEE).floor() as i64).max(1);
-    steam + publisher
+/// Правила, когда кошелек их не прислал: как у доллара. Только для тестов и подсказок -
+/// продажа без настоящих правил запрещена (см. tradeui).
+pub fn default_rules() -> FeeRules {
+    FeeRules { market_minimum: 1, currency_increment: 1, steam_fee_percent: 0.05, publisher_fee_percent: 0.10 }
 }
 
-/// Сколько заплатит покупатель, если вы хотите получить receive.
-pub fn pay_for(receive: i64) -> i64 {
-    receive + fees(receive)
+/// ToValidMarketPrice: не меньше минимума и кратно шагу валюты.
+pub fn to_valid(price: i64, r: &FeeRules) -> i64 {
+    let floor = r.market_minimum;
+    let inc = r.currency_increment;
+    if price <= floor {
+        return floor;
+    }
+    if price <= inc {
+        return inc;
+    }
+    if inc > 1 {
+        let d = price as f64 / inc as f64;
+        let sign = if d < 0.0 { -1.0 } else { 1.0 };
+        return ((sign * (d.abs() + 0.5).floor()) * inc as f64) as i64;
+    }
+    price
 }
 
-/// Сколько получите вы, если покупатель платит pay (наибольшее, что не превышает pay).
-pub fn receive_for(pay: i64) -> i64 {
-    if pay < 3 {
-        return 0;
+/// CalculateFee.
+fn fee(base: i64, pct: f64, r: &FeeRules) -> i64 {
+    if pct > 0.0 {
+        to_valid((base as f64 * pct).floor() as i64, r)
+    } else {
+        0
     }
-    let mut r = ((pay as f64) / (1.0 + STEAM_FEE + PUBLISHER_FEE)).floor() as i64;
-    while r > 1 && pay_for(r) > pay {
-        r -= 1;
+}
+
+/// Сколько заплатит покупатель, если вы получите receive (GetTotalWithFees).
+pub fn pay_for(receive: i64, r: &FeeRules) -> i64 {
+    to_valid(receive, r) + fee(receive, r.publisher_fee_percent, r) + fee(receive, r.steam_fee_percent, r)
+}
+
+/// Сколько получите вы, если покупатель платит total (GetItemPriceFromTotal).
+pub fn receive_for(total: i64, r: &FeeRules) -> i64 {
+    let (ppct, spct) = (r.publisher_fee_percent, r.steam_fee_percent);
+    let (inc, floor) = (r.currency_increment, r.market_minimum);
+    let guess = (total as f64 / (1.0 + ppct + spct)).floor() as i64;
+    let max_base = total - 2 * floor;
+    let mut base = to_valid(guess.min(max_base), r);
+    for _ in 0..3 {
+        let calc = pay_for(base, r);
+        if calc == total {
+            return base;
+        }
+        if calc < total {
+            base += inc;
+        } else {
+            base -= inc;
+            break;
+        }
     }
-    while pay_for(r + 1) <= pay {
-        r += 1;
-    }
-    r.max(1)
+    base.max(floor)
 }
 
 fn url_encode(s: &str) -> String {
@@ -409,17 +448,30 @@ mod tests {
 
     #[test]
     fn fee_math() {
+        let usd = default_rules();
         // Как на площадке: покупатель платит 1,15 - вы получаете 1,00.
-        assert_eq!(pay_for(100), 115);
-        assert_eq!(receive_for(115), 100);
-        // Минимум комиссий - по 1 копейке.
-        assert_eq!(pay_for(1), 3);
-        assert_eq!(receive_for(3), 1);
-        for pay in 3..5000 {
-            let r = receive_for(pay);
-            assert!(pay_for(r) <= pay, "pay {pay}");
-            assert!(pay_for(r + 1) > pay, "pay {pay}");
+        assert_eq!(pay_for(100, &usd), 115);
+        assert_eq!(receive_for(115, &usd), 100);
+        // Минимум комиссий - по одной минимальной единице.
+        assert_eq!(pay_for(1, &usd), 3);
+        assert_eq!(receive_for(3, &usd), 1);
+        for base in 1..20000 {
+            assert_eq!(receive_for(pay_for(base, &usd), &usd), base, "base {base}");
         }
+        // Валюта с минимумом и шагом 100 (пример из сверки с кодом Steam): 100 + 100 + 100.
+        let big = FeeRules { market_minimum: 100, currency_increment: 100, ..usd };
+        assert_eq!(pay_for(100, &big), 300);
+        assert_eq!(receive_for(300, &big), 100);
+        for base in (100..20000).step_by(100) {
+            assert_eq!(receive_for(pay_for(base, &big), &big), base, "base {base}");
+        }
+        // Минимум 100, шаг 1 (как у гривны на лотах пользователя: 3,00 / получите 1,00).
+        let uah = FeeRules { market_minimum: 100, currency_increment: 1, ..usd };
+        assert_eq!(pay_for(100, &uah), 300);
+        assert_eq!(receive_for(300, &uah), 100);
+        assert_eq!(to_valid(1234, &big), 1200);
+        assert_eq!(to_valid(1250, &big), 1300);
+        assert_eq!(to_valid(5, &uah), 100);
     }
 
     #[test]
@@ -459,3 +511,25 @@ mod tests {
     }
 }
 pub use crate::tradeui::{cancel_order_button, market_block, offers_tab, remove_lot_button, MarketUi, MARKET_REQ};
+
+#[cfg(test)]
+mod rules_live {
+    /// Живой тест (только чтение): правила цен кошелька пользователя. Печатает только правила.
+    #[test]
+    #[ignore]
+    fn wallet_rules_live() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut c = aurelia::steam_client::SteamClient::new().unwrap();
+            c.restore_session().await.unwrap();
+            let web = crate::webapi::web_session(&c).await.unwrap();
+            let w = aurelia::steam_client::wallet_via(&web).await.unwrap();
+            println!("валюта {}: {:?}", w.currency, w.fee_rules);
+            if let Some(r) = w.fee_rules {
+                for receive in [1, 50, 100, 101, 1000] {
+                    println!("получите {receive} -> покупатель {}", super::pay_for(receive, &r));
+                }
+            }
+        });
+    }
+}

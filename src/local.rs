@@ -1702,10 +1702,27 @@ mod relink_tests {
 pub fn pretty_path(p: &std::path::Path) -> String {
     match std::fs::canonicalize(p) {
         Ok(c) => {
+            // canonicalize дает «длинный» путь Windows: \\?\C:\... или \\?\UNC\сервер\папка.
             let s = c.display().to_string();
-            s.strip_prefix(r"\?\").map(str::to_string).unwrap_or(s)
+            if let Some(unc) = s.strip_prefix(r"\\?\UNC\") {
+                format!(r"\\{unc}")
+            } else {
+                s.strip_prefix(r"\\?\").map(str::to_string).unwrap_or(s)
+            }
         }
         Err(_) => p.display().to_string().replace('/', "\\"),
+    }
+}
+
+#[cfg(test)]
+mod pretty_path_tests {
+    #[cfg(windows)]
+    #[test]
+    fn no_long_path_prefix() {
+        let dir = std::env::temp_dir();
+        let s = super::pretty_path(&dir);
+        assert!(!s.starts_with(r"\\?\"), "{s}");
+        assert!(s.contains(':'), "{s}");
     }
 }
 

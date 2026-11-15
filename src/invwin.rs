@@ -342,8 +342,10 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
     }
 
     egui::CentralPanel::default().show_inside(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut w.filter).hint_text("Поиск по предметам").desired_width(220.0));
+        // Ширина поиска - по месту (при открытом предмете справа его мало), число переносится.
+        ui.horizontal_wrapped(|ui| {
+            let fw = (ui.available_width() - 110.0).clamp(90.0, 220.0);
+            ui.add(egui::TextEdit::singleline(&mut w.filter).hint_text("Поиск по предметам").desired_width(fw));
             ui.weak(format!("Предметов: {}", list.len()));
             if loading {
                 crate::spin::spinner(ui);

@@ -65,3 +65,56 @@ mod tests {
         assert_eq!(super::scrub("steamid 76561198000000000, app 730"), "steamid <id>, app 730");
     }
 }
+
+/// Версия Windows из реестра (без личных данных): «Windows 10 Pro 22H2, сборка 19045».
+fn windows_version() -> String {
+    #[cfg(windows)]
+    {
+        use winreg::enums::HKEY_LOCAL_MACHINE;
+        if let Ok(k) = winreg::RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion") {
+            let get = |n: &str| k.get_value::<String, _>(n).unwrap_or_default();
+            return format!("{} {}, сборка {}", get("ProductName"), get("DisplayVersion"), get("CurrentBuild"));
+        }
+    }
+    "неизвестно".into()
+}
+
+/// Текст «диагностики» для сообщения об ошибке: версия, Windows, окно и масштаб, память и
+/// последние строки журнала. Без логина, SteamID, токенов и имени пользователя Windows
+/// (журнал уже очищен scrub, а сюда больше ничего личного не добавляется).
+pub fn diagnostics(extra: &[(&str, String)]) -> String {
+    let mut s = String::new();
+    s.push_str(&format!(
+        "Vaporust {} ({})\n",
+        env!("CARGO_PKG_VERSION"),
+        if cfg!(target_pointer_width = "64") { "64 бит" } else { "32 бит" }
+    ));
+    s.push_str(&format!("Windows: {}\n", windows_version()));
+    for (k, v) in extra {
+        s.push_str(&format!("{k}: {v}\n"));
+    }
+    s.push_str("\nПоследние записи журнала:\n");
+    let lines: Vec<String> = path()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .map(|t| t.lines().map(scrub).collect())
+        .unwrap_or_default();
+    if lines.is_empty() {
+        s.push_str("(пусто)\n");
+    }
+    for l in lines.iter().rev().take(30).rev() {
+        s.push_str(l);
+        s.push('\n');
+    }
+    s
+}
+
+#[cfg(test)]
+mod diag_tests {
+    #[test]
+    fn scrub_hides_ids_and_user() {
+        let s = super::scrub("друг 76561198000000000 и appid 730");
+        assert!(s.contains("<id>") && !s.contains("76561198000000000") && s.contains("730"), "{s}");
+        let d = super::diagnostics(&[("Окно", "960x630".into())]);
+        assert!(d.contains("Vaporust") && d.contains("Окно: 960x630"), "{d}");
+    }
+}

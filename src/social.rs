@@ -93,24 +93,36 @@ fn err<E: std::fmt::Display>(e: E) -> String {
 
 pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx: &egui::Context) {
     let (c, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-    tokio::spawn(async move {
+    crate::net::spawn_session(async move {
         match cmd {
             SocialCmd::ResolveVanity(name) => {
                 st.lock().unwrap().vanity.remove(&name);
                 let res = resolve_vanity(&name).await;
                 if let Ok(id) = res {
                     let p = c.user_profile(id).await.map_err(err);
+                    if crate::net::stale_task() {
+                        return; // ответ прошлого входа
+                    }
                     st.lock().unwrap().profiles.insert(id, p);
+                }
+                if crate::net::stale_task() {
+                    return; // ответ прошлого входа
                 }
                 st.lock().unwrap().vanity.insert(name, res);
                 ctx.request_repaint();
             }
             SocialCmd::Profile(id) => {
                 let res = c.user_profile(id).await.map_err(err);
+                if crate::net::stale_task() {
+                    return; // ответ прошлого входа
+                }
                 st.lock().unwrap().profiles.insert(id, res);
             }
             SocialCmd::AddFriend(id) => {
                 let res = c.add_friend(id).await;
+                if crate::net::stale_task() {
+                    return; // ответ прошлого входа
+                }
                 st.lock().unwrap().friend_msg = Some(match res {
                     Ok(a) => format!(
                         "Заявка отправлена{}.",
@@ -121,6 +133,9 @@ pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx
             }
             SocialCmd::Block(id, block) => {
                 let res = crate::social::block_user(&c, id, block).await;
+                if crate::net::stale_task() {
+                    return; // ответ прошлого входа
+                }
                 let mut s = st.lock().unwrap();
                 s.friend_msg = Some(match &res {
                     Ok(()) if block => "Пользователь заблокирован.".into(),
@@ -137,6 +152,9 @@ pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx
             }
             SocialCmd::RemoveFriend(id) => {
                 let res = c.remove_friend(id).await;
+                if crate::net::stale_task() {
+                    return; // ответ прошлого входа
+                }
                 let mut s = st.lock().unwrap();
                 s.friend_msg = Some(match res {
                     Ok(()) => "Готово.".into(),

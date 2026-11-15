@@ -104,6 +104,22 @@ pub struct WalletBalance {
     pub country: String,
     /// Human-readable balance (e.g. "12.34 EUR").
     pub formatted: String,
+    /// vaporust: market price rules of this wallet (from `g_rgWalletInfo`), if present.
+    pub fee_rules: Option<MarketFeeRules>,
+}
+
+/// vaporust: how Steam rounds market prices and fees for a wallet currency, as used by
+/// `ToValidMarketPrice` / `GetItemPriceFromTotal` in Steam's `economy_common.js`.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+pub struct MarketFeeRules {
+    /// `wallet_market_minimum`: smallest price and smallest fee, minor units.
+    pub market_minimum: i64,
+    /// `wallet_currency_increment`: price step, minor units.
+    pub currency_increment: i64,
+    /// `wallet_fee_percent`: Steam fee.
+    pub steam_fee_percent: f64,
+    /// `wallet_publisher_fee_percent_default`: game publisher fee.
+    pub publisher_fee_percent: f64,
 }
 
 impl SteamClient {
@@ -451,6 +467,20 @@ fn parse_my_buy_order(v: &Value) -> Option<MyBuyOrder> {
     })
 }
 
+/// vaporust: price rules from `g_rgWalletInfo`. None when Steam did not send the fee fields.
+fn parse_fee_rules(json: &Value) -> Option<MarketFeeRules> {
+    let int = |k: &str| json.get(k).and_then(as_i64_loose);
+    let float = |k: &str| {
+        json.get(k).and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok())))
+    };
+    Some(MarketFeeRules {
+        market_minimum: int("wallet_market_minimum").unwrap_or(1).max(1),
+        currency_increment: int("wallet_currency_increment").unwrap_or(1).max(1),
+        steam_fee_percent: float("wallet_fee_percent")?,
+        publisher_fee_percent: float("wallet_publisher_fee_percent_default").unwrap_or(0.10),
+    })
+}
+
 fn parse_wallet(html: &str) -> Result<WalletBalance> {
     // The market page embeds `g_rgWalletInfo = {…};` as an inline script var.
     static RE: LazyLock<regex::Regex> =
@@ -480,6 +510,7 @@ fn parse_wallet(html: &str) -> Result<WalletBalance> {
         balance_cents,
         currency,
         country,
+        fee_rules: parse_fee_rules(&json),
     })
 }
 

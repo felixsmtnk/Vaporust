@@ -10,6 +10,12 @@ const GITHUB: &str = "https://github.com/felixsmtnk/Vaporust";
 /// Ширина колонки с названиями настроек.
 const LABEL_W: f32 = 200.0;
 
+/// Ширина колонки названий: 200, а в узком окне (или при крупном масштабе) - меньше, чтобы
+/// значениям хватало места.
+fn label_w(ui: &egui::Ui) -> f32 {
+    (ui.available_width() * 0.36).clamp(110.0, LABEL_W)
+}
+
 /// Разделы настроек (слева), по порядку.
 pub const SECTIONS: [&str; 9] = ["Аккаунт", "Библиотека", "Загрузки", "Запуск игр", "Окно", "Производительность", "Уведомления", "Сеть", "О программе"];
 
@@ -47,17 +53,21 @@ fn card(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
 
 /// Строка «название - значение».
 fn row(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui)) {
+    let lw = label_w(ui);
+    // Значения (кнопки масштаба и т.п.), которым не хватает ширины, переносятся на следующую строку.
     ui.horizontal(|ui| {
-        ui.add_sized([LABEL_W, 22.0], egui::Label::new(egui::RichText::new(label).strong()).halign(egui::Align::LEFT));
-        add(ui);
+        ui.add_sized([lw, 22.0], egui::Label::new(egui::RichText::new(label).strong()).wrap().halign(egui::Align::LEFT));
+        // Перенос - внутри колонки значений, а не под названием.
+        ui.horizontal_wrapped(|ui| add(ui));
     });
     ui.add_space(6.0);
 }
 
 /// Пояснение под строкой, с отступом на ширину колонки названий.
 fn note(ui: &mut egui::Ui, text: &str) {
+    let lw = label_w(ui);
     ui.horizontal(|ui| {
-        ui.add_space(LABEL_W + ui.spacing().item_spacing.x);
+        ui.add_space(lw + ui.spacing().item_spacing.x);
         // Отдельная колонка: в горизонтальной строке длинный текст не переносится и обрезается.
         ui.vertical(|ui| {
             ui.set_max_width(ui.available_width());
@@ -99,6 +109,27 @@ impl LauncherApp {
             ctx.set_zoom_factor(want);
             self.zoom_applied = want;
         }
+        // Наименьший размер окна растет вместе с масштабом: при 150% в окне 760x460 разделы сверху
+        // налезали на кнопки окна. Но не больше экрана. (Размер задается в точках, а они уже учитывают
+        // масштаб, поэтому - на следующем кадре, когда масштаб применился.)
+        let ppp = ctx.pixels_per_point();
+        let screen = ctx.input(|i| i.viewport().monitor_size).unwrap_or(egui::vec2(1920.0, 1080.0));
+        let min = egui::vec2(760.0f32.min(screen.x * 0.95), 460.0f32.min(screen.y * 0.9));
+        if (ppp - self.min_ppp_sent).abs() > 0.001 {
+            self.min_ppp_sent = ppp;
+            ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(min));
+        }
+        // Окно меньше минимума (только что увеличили масштаб) - увеличить. Проверяем каждый кадр, а
+        // команду шлем не чаще двух раз в секунду: Windows применяет размер не сразу.
+        let (inner, minimized) = ctx.input(|i| (i.viewport().inner_rect, i.viewport().minimized == Some(true)));
+        if let Some(r) = inner.filter(|_| !minimized && !crate::notify::in_tray()) {
+            let small = r.width() < min.x - 1.0 || r.height() < min.y - 1.0;
+            if small && self.min_grow_at.is_none_or(|t| t.elapsed() > std::time::Duration::from_millis(500)) {
+                self.min_grow_at = Some(std::time::Instant::now());
+                ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(min));
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(r.width().max(min.x), r.height().max(min.y))));
+            }
+        }
     }
 
     /// Передать в Aurelia ограничение скорости загрузки и прокси.
@@ -127,7 +158,7 @@ impl LauncherApp {
             }
         });
         egui::CentralPanel::default().show_inside(ui, |ui| {
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        egui::ScrollArea::vertical().id_salt(("settings", self.settings_section)).auto_shrink([false, false]).show(ui, |ui| {
             ui.add_space(8.0);
             // Не шире видимой области: иначе пояснения переносятся по 820 px и обрезаются справа.
             ui.set_max_width(ui.available_width().min(820.0));
@@ -557,7 +588,7 @@ impl LauncherApp {
                 if let Some(d) = self.duplicates.clone().filter(|d| !d.is_empty()) {
                     for (_, name, libs) in d {
                         ui.horizontal_wrapped(|ui| {
-                            ui.add_space(LABEL_W + ui.spacing().item_spacing.x);
+                            ui.add_space(label_w(ui) + ui.spacing().item_spacing.x);
                             ui.label(format!("{name}:"));
                             for l in libs {
                                 if ui.small_button(crate::local::pretty_path(&l)).on_hover_text("Открыть папку").clicked() {
@@ -856,13 +887,36 @@ impl LauncherApp {
                         }
                     }
                     if ui
+                        .button("Скопировать диагностику")
+                        .on_hover_text("Версия, Windows, размер окна и масштаб, память и последние записи журнала - для сообщения об ошибке. Без логина, SteamID и ключей входа.")
+                        .clicked()
+                    {
+                        let c = ui.ctx().clone();
+                        let (screen, inner, ppp) = c.input(|i| (i.viewport().monitor_size, i.viewport().inner_rect, i.pixels_per_point()));
+                        let size = |v: Option<egui::Vec2>| v.map(|v| format!("{:.0}x{:.0}", v.x * ppp, v.y * ppp)).unwrap_or_else(|| "?".into());
+                        let (taskmgr, _) = crate::stats::memory();
+                        let text = crate::errlog::diagnostics(&[
+                            ("Экран (пикс.)", size(screen)),
+                            ("Окно (пикс.)", size(inner.map(|r| r.size()))),
+                            ("Масштаб интерфейса", format!("{:.0}% (точек на пиксель {:.2})", self.settings.ui_scale * 100.0, ppp)),
+                            ("Рамка окон", if self.settings.system_frame { "Windows" } else { "своя" }.into()),
+                            ("Память (Диспетчер задач)", format!("{:.0} МБ", taskmgr as f64 / 1048576.0)),
+                            ("Портативный режим", crate::portable::enabled().to_string()),
+                            ("Вход зашифрован", format!("{:?}", net.session_secure)),
+                            ("Нет связи со Steam", net.offline.to_string()),
+                            ("Игр с запуском без Steam", self.settings.no_steam.len().to_string()),
+                        ]);
+                        c.copy_text(text);
+                        crate::popup::push(crate::popup::Kind::Info, "Диагностика", "Скопировано: вставьте в сообщение об ошибке (Ctrl+V).");
+                    }
+                    if ui
                         .button("Сообщить об ошибке")
                         .on_hover_text("Страница GitHub: опишите, что случилось, и приложите журнал")
                         .clicked()
                     {
                         let title = "Ошибка в Vaporust";
                         let body = format!(
-                            "Версия: {} ({})%0A%0AЧто случилось:%0A%0AЧто делали перед этим:%0A%0A(приложите vaporust.log: Настройки -> О программе -> Журнал)",
+                            "Версия: {} ({})%0A%0AЧто случилось:%0A%0AЧто делали перед этим:%0A%0A(вставьте диагностику: Настройки -> О программе -> Скопировать диагностику)",
                             env!("CARGO_PKG_VERSION"),
                             if cfg!(target_pointer_width = "64") { "64 бит" } else { "32 бит" }
                         );

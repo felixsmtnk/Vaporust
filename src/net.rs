@@ -1807,16 +1807,19 @@ tokio::task_local! {
 /// Запустить фоновую задачу, привязанную к текущему входу: если пока она работает, пользователь
 /// вышел или вошел в другой аккаунт, ее записи в NetState отбрасываются (upd). Так ответ
 /// прошлого аккаунта (семья, недавние игры, профиль...) не попадет к новому.
-fn spawn_session<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
+pub(crate) fn spawn_session<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
 where
     F: std::future::Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    tokio::spawn(TASK_SESSION.scope(SESSION_GEN.load(Ordering::Relaxed), fut))
+    // Задача, запущенная из другой задачи входа, получает номер РОДИТЕЛЯ (task-local сам не
+    // наследуется): иначе подзадача, стартовавшая уже после смены аккаунта, записала бы ответ.
+    let gen = TASK_SESSION.try_with(|g| *g).unwrap_or_else(|_| SESSION_GEN.load(Ordering::Relaxed));
+    tokio::spawn(TASK_SESSION.scope(gen, fut))
 }
 
 /// Идет ли код в задаче прошлого входа.
-fn stale_task() -> bool {
+pub(crate) fn stale_task() -> bool {
     TASK_SESSION.try_with(|g| *g != SESSION_GEN.load(Ordering::Relaxed)).unwrap_or(false)
 }
 
@@ -2404,14 +2407,14 @@ fn load_props(client: &SteamClient, appid: u32, st: &Shared, ctx: &egui::Context
 
     {
         let (c, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-        tokio::spawn(async move {
+        spawn_session(async move {
             let r = c.fetch_game_languages(appid).await.map_err(es);
             set(&st, &ctx, Box::new(move |p| p.languages = Some(r)));
         });
     }
     {
         let (c, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-        tokio::spawn(async move {
+        spawn_session(async move {
             // Закрытые (с паролем) Steam все равно не показывает, пока их не открыли.
             let r = c
                 .branches_detailed(appid)
@@ -2429,21 +2432,21 @@ fn load_props(client: &SteamClient, appid: u32, st: &Shared, ctx: &egui::Context
     }
     {
         let (c, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-        tokio::spawn(async move {
+        spawn_session(async move {
             let r = load_dlc(&c, appid).await;
             set(&st, &ctx, Box::new(move |p| p.dlc = Some(r)));
         });
     }
     {
         let (c, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-        tokio::spawn(async move {
+        spawn_session(async move {
             let r = c.depot_descriptions(appid).await.map_err(es);
             set(&st, &ctx, Box::new(move |p| p.depots = Some(r)));
         });
     }
     {
         let (c, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-        tokio::spawn(async move {
+        spawn_session(async move {
             let r = async {
                 let mut files = c.cloud_client().map_err(es)?.get_file_list(appid).await.map_err(es)?;
                 files.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
@@ -3487,10 +3490,14 @@ mod shared_uninstall_live {
 mod session_tests {
     use super::*;
 
+    /// Оба теста меняют общий номер входа - по одному.
+    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     /// Ответ задачи прошлого входа, пришедший после выхода или нового входа, не записывается;
     /// задачи текущего входа и обычный код пишут как раньше.
     #[test]
     fn stale_task_writes_are_dropped() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         let rt = tokio::runtime::Runtime::new().unwrap();
         let st: Shared = Arc::new(SharedNet::default());
         let ctx = egui::Context::default();
@@ -3512,5 +3519,28 @@ mod session_tests {
         });
         upd(&st, &ctx, |s| s.message = "вне задач".into());
         assert_eq!(st.lock().unwrap().message, "вне задач");
+    }
+
+    /// QA-03: подзадача, запущенная из задачи входа, тоже считается задачей того входа - даже если
+    /// стартовала уже после смены аккаунта.
+    #[test]
+    fn child_tasks_inherit_session() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let st: Shared = Arc::new(SharedNet::default());
+        let ctx = egui::Context::default();
+        rt.block_on(async {
+            let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+            let (st2, ctx2) = (st.clone(), ctx.clone());
+            let parent = spawn_session(async move {
+                let _ = rx.await;
+                // Подзадача создается после смены входа.
+                spawn_session(async move { upd(&st2, &ctx2, |s| s.message = "ответ подзадачи".into()) }).await.unwrap();
+            });
+            SESSION_GEN.fetch_add(1, Ordering::Relaxed);
+            let _ = tx.send(());
+            parent.await.unwrap();
+            assert!(st.lock().unwrap().message.is_empty(), "подзадача прошлого входа ничего не записала");
+        });
     }
 }
