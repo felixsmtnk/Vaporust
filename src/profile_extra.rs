@@ -358,7 +358,7 @@ pub async fn load(client: &SteamClient, id: u64) -> Result<ProfileExtra, String>
     if let Ok(xml) = web.get_text(&format!("https://steamcommunity.com/profiles/{id}/?xml=1")).await {
         x.groups = parse_groups(&xml);
     }
-    if let Ok(html) = web.get_text(&format!("https://steamcommunity.com/profiles/{id}/?l=russian")).await {
+    if let Ok(html) = web.get_text(&format!("https://steamcommunity.com/profiles/{id}/?l={lang}", lang = crate::lang::STEAM)).await {
         x.showcases = parse_showcases(&html);
         x.counts = parse_counts(&html);
         x.page = parse_page(&html);

@@ -42,6 +42,7 @@ mod winframe;
 mod winpos;
 mod invent;
 mod invwin;
+mod lang;
 mod launchopts;
 mod libview;
 mod local;
@@ -1093,7 +1094,7 @@ impl LauncherApp {
     /// Все игры (купленные и установленные) без фильтров и сортировки.
     fn row_map(&self, net: &NetState) -> HashMap<u32, Row> {
         let mut map: HashMap<u32, Row> = HashMap::new();
-        for g in &net.owned {
+        for g in net.owned.iter() {
             map.insert(
                 g.app_id,
                 Row {
@@ -1133,7 +1134,7 @@ impl LauncherApp {
         }
         // Семейная библиотека: чужие игры, которых нет среди своих.
         let own: std::collections::HashSet<u32> = net.owned.iter().map(|g| g.app_id).collect();
-        for f in &net.family {
+        for f in net.family.iter() {
             if own.contains(&f.app_id) {
                 continue;
             }
@@ -1842,7 +1843,9 @@ impl LauncherApp {
                 ui.end_row();
             });
             ui.horizontal(|ui| {
-                let can = !net.busy && !self.login_user.is_empty() && !self.login_pass.is_empty();
+                // Пока ждем QR, можно передумать и войти паролем (ожидание QR прервется).
+                let waiting_qr = net.qr_url.is_some();
+                let can = (!net.busy || waiting_qr) && !self.login_user.is_empty() && !self.login_pass.is_empty();
                 if ui.add_enabled(can, egui::Button::new("Войти")).clicked() {
                     let code = self.login_code.trim().to_string();
                     let _ = self.tx.send(Cmd::Login {
@@ -1866,6 +1869,9 @@ impl LauncherApp {
                     ui.label("Отсканируйте код в мобильном приложении Steam:");
                 }
                 draw_qr(ui, url);
+                if ui.button("Отменить вход по QR").clicked() {
+                    let _ = self.tx.send(Cmd::CancelQr);
+                }
             }
         }
         if !net.message.is_empty() {

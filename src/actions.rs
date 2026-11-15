@@ -56,7 +56,7 @@ pub async fn review_save(c: &SteamClient, appid: u32, r: &MyReview) -> Result<()
         ("comment", r.text.clone()),
         ("rated_up", r.up.to_string()),
         ("is_public", r.public.to_string()),
-        ("language", "russian".into()),
+        ("language", crate::lang::STEAM.into()),
         ("received_compensation", "0".into()),
         ("disable_comments", "0".into()),
         ("sessionid", web.sessionid().to_string()),
@@ -229,7 +229,7 @@ pub async fn cart_remove(c: &SteamClient, line_id: u64, country: &str) -> Result
 /// Пакеты игры для корзины: (packageid, название варианта, цена) из appdetails.
 pub async fn app_packages(appid: u32, cc: &str) -> Result<Vec<(u32, String, String)>, String> {
     let http = aurelia::core::net::steam_web_client().map_err(|e| format!("{e:#}"))?;
-    let url = format!("https://store.steampowered.com/api/appdetails?appids={appid}&cc={cc}&l=russian");
+    let url = format!("https://store.steampowered.com/api/appdetails?appids={appid}&cc={cc}&l={lang}", lang = crate::lang::STEAM);
     let v: serde_json::Value = http.get(url).send().await.map_err(|e| format!("{e:#}"))?.json().await.map_err(|e| format!("{e:#}"))?;
     let groups = &v[appid.to_string()]["data"]["package_groups"];
     Ok(groups
@@ -263,7 +263,8 @@ pub struct Curator {
 pub async fn curators_for_app(appid: u32) -> Result<Vec<Curator>, String> {
     let http = aurelia::core::net::steam_web_client().map_err(|e| format!("{e:#}"))?;
     let url = format!(
-        "https://store.steampowered.com/curators/ajaxgetcurators/render/?query=&start=0&count=10&filter=top_curators_reviewing&appid={appid}&l=russian"
+        "https://store.steampowered.com/curators/ajaxgetcurators/render/?query=&start=0&count=10&filter=top_curators_reviewing&appid={appid}&l={lang}",
+        lang = crate::lang::STEAM
     );
     let v: serde_json::Value = http.get(url).send().await.map_err(|e| format!("{e:#}"))?.json().await.map_err(|e| format!("{e:#}"))?;
     Ok(parse_curators(v["results_html"].as_str().unwrap_or(""), appid))

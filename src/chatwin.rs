@@ -144,7 +144,7 @@ impl ChatWin {
         crate::notify::set_open_chat(id);
         // Окно открыто и активно - значит, все прочитано.
         if ctx.input(|i| i.focused) && net.chats.get(&id).is_some_and(|c| c.unread > 0) {
-            if let Some(c) = shared.lock().unwrap().chats.get_mut(&id) {
+            if let Some(c) = std::sync::Arc::make_mut(&mut shared.lock().unwrap().chats).get_mut(&id) {
                 c.unread = 0;
             }
             ctx.request_repaint_of(egui::ViewportId::ROOT);
@@ -538,7 +538,7 @@ impl ChatWin {
                 Ok(Some(path)) => send_image = Some(path),
                 Ok(None) => {} // в буфере текст - его вставит само поле ввода
                 Err(e) => {
-                    if let Some(c) = shared.lock().unwrap().chats.get_mut(&id) {
+                    if let Some(c) = std::sync::Arc::make_mut(&mut shared.lock().unwrap().chats).get_mut(&id) {
                         c.error = Some(e);
                     }
                 }

@@ -18,6 +18,8 @@ pub struct SellDlg {
     pub ctx: u32,
     pub assetid: String,
     pub name: String,
+    /// market_hash_name предмета (к нему привязывается итог продажи).
+    pub hash: String,
     pub max_amount: u64,
     pub amount: u64,
     /// Цена для покупателя, минимальные единицы.
@@ -39,9 +41,6 @@ pub struct MarketUi {
     /// На сколько быстрая продажа дешевле самого дешевого лота (минимальные единицы; 0 - на один
     /// шаг цены валюты). Берется из настроек каждый кадр.
     pub undercut: i64,
-    /// Последнее сообщение о действии: (текст, когда появилось, у какого предмета). Через 90 с или
-    /// на другом предмете не показывается (например, «ждет подтверждения» после отмены в телефоне).
-    pub msg_seen: Option<(String, std::time::Instant, (u32, String))>,
 }
 
 /// Цена из поля ввода, в копейках/центах. Строго: только цифры и не больше одного
@@ -122,6 +121,7 @@ pub fn market_block(ui: &mut egui::Ui, mk: &mut MarketUi, st: &crate::invent::In
             ctx,
             assetid: it.asset_id.clone(),
             name: it.name.clone(),
+            hash: it.market_hash_name.clone(),
             max_amount,
             amount: 1,
             pay,
@@ -210,14 +210,10 @@ fn effective(total: i64, r: &crate::trade::FeeRules) -> i64 {
 /// Хвост блока: сообщение о последнем действии и окно продажи.
 fn return_with_msg(ui: &mut egui::Ui, mk: &mut MarketUi, st: &crate::invent::InvState, key: &(u32, String)) {
     if let Some(msg) = &st.trade.msg {
-        // Новое сообщение - запомнить, когда и у какого предмета оно появилось.
-        if mk.msg_seen.as_ref().is_none_or(|(m, _, _)| m != msg) {
-            mk.msg_seen = Some((msg.clone(), std::time::Instant::now(), key.clone()));
-        }
-        let fresh = mk
-            .msg_seen
-            .as_ref()
-            .is_some_and(|(_, at, k)| k == key && at.elapsed() < std::time::Duration::from_secs(90));
+        // Итог продажи - только у того предмета, который выставляли, и 90 секунд (потом, например,
+        // «подтвердите в телефоне» уже неактуально - продажу могли отменить).
+        let fresh = st.trade.msg_item.as_ref() == Some(key)
+            && st.trade.msg_at.is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(90));
         if fresh {
             ui.add_space(4.0);
             ui.label(egui::RichText::new(msg).color(egui::Color32::from_rgb(240, 200, 80)));
@@ -306,6 +302,7 @@ fn sell_window(ctx: &egui::Context, mk: &mut MarketUi, st: &crate::invent::InvSt
                         amount: d.amount,
                         receive,
                         name: d.name.clone(),
+                        hash: d.hash.clone(),
                     });
                     keep = false;
                 }

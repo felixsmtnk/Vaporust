@@ -251,7 +251,7 @@ pub fn parse_guide(html: &str, id: u64) -> GuideView {
 pub async fn load_guide(client: &SteamClient, id: u64) -> Result<GuideView, String> {
     let web = webapi::web_session(client).await?;
     let html = web
-        .get_text(&format!("https://steamcommunity.com/sharedfiles/filedetails/?id={id}&l=russian"))
+        .get_text(&format!("https://steamcommunity.com/sharedfiles/filedetails/?id={id}&l={lang}", lang = crate::lang::STEAM))
         .await
         .map_err(|e| format!("{e:#}"))?;
     let g = parse_guide(&html, id);

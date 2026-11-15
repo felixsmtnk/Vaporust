@@ -57,7 +57,7 @@ pub async fn load(client: &SteamClient, me: u64) -> Result<Family, String> {
     let apps = webapi::get(
         client,
         "IFamilyGroupsService/GetSharedLibraryApps/v1",
-        &[("family_groupid", id.clone()), ("include_own", "true".into()), ("language", "russian".into())],
+        &[("family_groupid", id.clone()), ("include_own", "true".into()), ("language", crate::lang::STEAM.into())],
     )
     .await
     .unwrap_or_default();

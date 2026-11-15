@@ -61,7 +61,7 @@ pub fn parse(xml: &str) -> Option<GroupInfo> {
 
 /// Адрес страницы группы -> адрес XML.
 fn xml_url(url: &str) -> String {
-    format!("{}/memberslistxml/?xml=1&l=russian", url.trim_end_matches('/'))
+    format!("{}/memberslistxml/?xml=1&l={}", url.trim_end_matches('/'), crate::lang::STEAM)
 }
 
 pub async fn load(url: &str) -> Result<GroupInfo, String> {

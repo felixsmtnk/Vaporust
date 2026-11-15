@@ -131,7 +131,7 @@ Vaporust в **альфе**. Все основное проверено вруч�
 - **Нашли ошибку?** «Настройки -> О программе -> Скопировать диагностику» и вставьте текст в
   [сообщение](../../issues) (без логина и ключей входа).
 
-Что дальше - в [ROADMAP.md](ROADMAP.md).
+Что дальше - в [ROADMAP.md](ROADMAP.md), что уже вышло - в [CHANGELOG.md](CHANGELOG.md).
 
 ## Вопросы
 
@@ -174,6 +174,30 @@ Steam. Windows 7, Linux и macOS - нет. На Linux попробуйте [Aure
 </details>
 
 <details>
+<summary><b>Чем это лучше компактного режима Steam или Playnite?</b></summary>
+
+| | Компактный режим Steam | Playnite | **Vaporust** |
+|---|---|---|---|
+| Steam в фоне | целиком, со steamwebhelper | целиком, со steamwebhelper | только на время игры, steamwebhelper заморожен |
+| Установка и обновление игр Steam | через Steam | через Steam | сам, без запуска Steam |
+| Друзья и чат | окно Steam (браузер) | нет | свои, легкие |
+| Магазин, профиль, площадка | окна Steam (браузер) | нет | свои |
+| Игры других магазинов | нет | да | только как «сторонние игры» |
+
+Компактный режим и Playnite меняют только вид списка игр: сам Steam со своим встроенным
+браузером работает в фоне постоянно. Vaporust поднимает Steam только на время игры.
+</details>
+
+<details>
+<summary><b>Не сломает ли заморозка steamwebhelper оверлей или геймпад?</b></summary>
+
+Пока steamwebhelper заморожен, оверлей Steam (Shift+Tab), настройка геймпада через Steam Input
+и окна покупок внутри игры могут не открыться: они работают через этот же браузер Steam. Если они
+нужны в игре, выключите «Настройки -> Запуск игр -> Замораживать steamwebhelper». Сами игры,
+достижения и облачные сохранения от заморозки не зависят.
+</details>
+
+<details>
 <summary><b>Чем отличается от Aurelia?</b></summary>
 
 [Aurelia](https://github.com/Drackrath/Aurelia) - консольный клиент Steam, в первую очередь для
@@ -187,8 +211,10 @@ Aurelia, интерфейс и все остальное - свое.
   ее измененная копия лежит в `vendor/aurelia` (версия 0.2.5), изменения перечислены в
   [`VAPORUST_CHANGES.md`](vendor/aurelia/VAPORUST_CHANGES.md).
 - **Интерфейс** - [egui](https://github.com/emilk/egui), без браузера.
-- **Запуск** - настоящий Steam с флагами `-silent -no-browser`; Vaporust следит за процессами и
-  закрывает Steam после игры.
+- **Запуск** - настоящий Steam, скрыто (`-silent`). Флаг `-no-browser` современный Steam
+  игнорирует, поэтому память экономит не он: через 20 секунд после старта игры Vaporust
+  приостанавливает процессы steamwebhelper и выгружает их из оперативной памяти, а перед
+  закрытием Steam размораживает. Vaporust следит за процессами игры и закрывает Steam после нее.
 - **Обновление, язык, бета** - файлы качает Vaporust, а в файл игры (appmanifest) вписывает
   только новые версии, остальное остается как у Steam, поэтому Steam считает игру обновленной.
 - **Закрепление версии** - в файл игры пишутся последние версии, а настоящие хранятся у
@@ -279,7 +305,7 @@ started hidden and closed with the game, so achievements and cloud saves work as
 - Encrypted saved login, checksum-verified self-update, multiple accounts, 64- and 32-bit builds.
 - Networking by a lightly modified copy of **[Aurelia](https://github.com/Drackrath/Aurelia)**
   by Drackrath - huge thanks.
-- **Status: alpha (0.6.4-alpha).** The interface is in Russian for now; English is planned for the beta.
+- **Status: alpha (0.6.5-alpha).** The interface is in Russian for now; English is planned for the beta.
 
 **Disclaimer:** an independent, unofficial project, **not affiliated with, endorsed or sponsored
 by Valve Corporation or Steam**. Steam and Valve are trademarks of Valve Corporation. The

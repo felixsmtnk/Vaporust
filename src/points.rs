@@ -84,7 +84,7 @@ fn parse_item(d: &serde_json::Value) -> Option<RewardItem> {
 pub async fn query(client: &SteamClient, class: u32, search: &str, cursor: Option<&str>) -> Result<Page, String> {
     let mut p = vec![
         ("count", "60".to_string()),
-        ("language", "russian".to_string()),
+        ("language", crate::lang::STEAM.to_string()),
         ("community_item_classes[0]", class.to_string()),
     ];
     if !search.trim().is_empty() {

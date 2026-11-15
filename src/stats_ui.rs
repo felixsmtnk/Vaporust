@@ -36,29 +36,51 @@ fn read(p: &std::path::Path) -> Option<History> {
     std::fs::read_to_string(p).ok().and_then(|t| serde_json::from_str(&t).ok())
 }
 
-/// История аккаунта `owner`. Старый общий файл playtime.json (до разделения по аккаунтам)
-/// достается аккаунту, только если в Vaporust на этом ПК входили всего в один аккаунт и время
-/// игр в файле не больше нынешнего (иначе файл точно чужой). Иначе он остается как был.
-/// `totals` - (appid, всего минут) игр аккаунта сейчас.
-pub fn load_for(owner: u64, totals: &[(u32, u32)]) -> History {
-    let Some(p) = file_for(owner) else { return History { owner, ..Default::default() } };
-    if let Some(h) = read(&p) {
-        return History { owner, ..h };
-    }
-    if let Some(old) = data_dir().map(|d| d.join("playtime.json")) {
-        if let Some(h) = read(&old) {
-            let one_account = crate::accounts::load().list.len() <= 1;
-            if one_account && adopt_legacy(&h, totals) {
-                let h = History { owner, ..h };
-                // Старый файл убираем только если новый действительно записан.
-                if save(&h).is_ok() {
-                    let _ = std::fs::rename(&old, old.with_extension("json.migrated"));
-                }
-                return h;
-            }
+/// История аккаунта `owner` (свой файл). Старую общую историю (playtime.json из версий до
+/// разделения по аккаунтам) сама программа никому не отдает: чья она, достоверно не узнать.
+/// Ее переносит пользователь в «Статистике» (take_legacy) или отказывается (decline_legacy).
+pub fn load_for(owner: u64) -> History {
+    file_for(owner).and_then(|p| read(&p)).map(|h| History { owner, ..h }).unwrap_or(History { owner, ..Default::default() })
+}
+
+fn legacy_path() -> Option<PathBuf> {
+    data_dir().map(|d| d.join("playtime.json"))
+}
+
+/// Старая общая история, если она еще не перенесена и не отклонена.
+pub fn legacy() -> Option<History> {
+    legacy_path().and_then(|p| read(&p))
+}
+
+/// Перенести старую историю в историю аккаунта `owner` (по просьбе пользователя): дни
+/// складываются с уже записанными, последние известные времена берутся новые. Старый файл
+/// переименовывается только после успешной записи.
+pub fn take_legacy(owner: u64, current: &History) -> Result<History, String> {
+    let old_path = legacy_path().ok_or("нет папки данных")?;
+    let old = read(&old_path).ok_or("старой истории больше нет")?;
+    let mut h = current.clone();
+    h.owner = owner;
+    for (day, games) in old.days {
+        let d = h.days.entry(day).or_default();
+        for (app, min) in games {
+            *d.entry(app).or_default() += min;
         }
     }
-    History { owner, ..Default::default() }
+    if h.since.is_empty() || (!old.since.is_empty() && old.since < h.since) {
+        h.since = old.since;
+    }
+    for (app, total) in old.last {
+        h.last.entry(app).or_insert(total);
+    }
+    save(&h)?;
+    std::fs::rename(&old_path, old_path.with_extension("json.migrated")).map_err(|e| e.to_string())?;
+    Ok(h)
+}
+
+/// «Это не моя история»: старый файл больше не предлагать (он остается на диске как .declined).
+pub fn decline_legacy() -> Result<(), String> {
+    let p = legacy_path().ok_or("нет папки данных")?;
+    std::fs::rename(&p, p.with_extension("json.declined")).map_err(|e| e.to_string())
 }
 
 /// Похож ли старый общий файл на историю аккаунта с такими играми: не меньше 80% игр из файла
@@ -133,6 +155,9 @@ pub struct StatsUi {
     pub seen_sum: u64,
     /// Когда последний раз просили обновить библиотеку ради статистики.
     pub refresh_at: Option<std::time::Instant>,
+    /// Для какого аккаунта уже проверяли старую общую историю и есть ли она.
+    pub legacy_checked: Option<u64>,
+    pub legacy_present: bool,
 }
 
 fn hours(min: u32) -> String {
@@ -196,8 +221,7 @@ impl LauncherApp {
         if self.stats_ui.seen != net.owned.len() || self.stats_ui.seen_sum != sum {
             self.stats_ui.seen = net.owned.len();
             self.stats_ui.seen_sum = sum;
-            let owned: Vec<(u32, u32)> = net.owned.iter().map(|g| (g.app_id, g.playtime_forever_minutes)).collect();
-            let h = self.stats_ui.history.get_or_insert_with(|| load_for(me, &owned));
+            let h = self.stats_ui.history.get_or_insert_with(|| load_for(me));
             let today = chrono::Local::now().format("%Y-%m-%d").to_string();
             let totals: Vec<(u32, u32)> = net.owned.iter().map(|g| (g.app_id, g.playtime_forever_minutes)).collect();
             if record(h, &today, &totals) {
@@ -213,6 +237,54 @@ impl LauncherApp {
         }
     }
 
+    /// Старая общая история (из версий до разделения по аккаунтам): спросить, чья она.
+    fn legacy_offer(&mut self, ui: &mut egui::Ui, net: &NetState) {
+        let Some(me) = net.my_id else { return };
+        if self.stats_ui.legacy_checked == Some(me) && !self.stats_ui.legacy_present {
+            return;
+        }
+        if self.stats_ui.legacy_checked != Some(me) {
+            self.stats_ui.legacy_checked = Some(me);
+            self.stats_ui.legacy_present = legacy().is_some();
+        }
+        let Some(old) = legacy() else {
+            self.stats_ui.legacy_present = false;
+            return;
+        };
+        let totals: Vec<(u32, u32)> = net.owned.iter().map(|g| (g.app_id, g.playtime_forever_minutes)).collect();
+        let likely = adopt_legacy(&old, &totals);
+        egui::Frame::none().fill(crate::theme::CARD).rounding(4.0).inner_margin(10.0).show(ui, |ui| {
+            ui.label(egui::RichText::new("Найдена история времени из прошлых версий Vaporust").strong());
+            ui.label(format!(
+                "Ведется с {}, дней с записями: {}. Раньше она была общей для всех аккаунтов на этом ПК, поэтому Vaporust не знает, чья она.",
+                if old.since.is_empty() { "?" } else { &old.since },
+                old.days.len()
+            ));
+            if !likely {
+                ui.colored_label(egui::Color32::from_rgb(230, 170, 60), "Похоже, это история другого аккаунта: игры или время в ней не совпадают с этим аккаунтом.");
+            }
+            ui.horizontal(|ui| {
+                if ui.button("Это моя история - перенести").clicked() {
+                    let cur = self.stats_ui.history.clone().unwrap_or(History { owner: me, ..Default::default() });
+                    match take_legacy(me, &cur) {
+                        Ok(h) => {
+                            self.stats_ui.history = Some(h);
+                            self.stats_ui.legacy_present = false;
+                        }
+                        Err(e) => crate::popup::push(crate::popup::Kind::Info, "Статистика", format!("Не перенесено: {e}")),
+                    }
+                }
+                if ui.button("Это не моя").clicked() {
+                    match decline_legacy() {
+                        Ok(()) => self.stats_ui.legacy_present = false,
+                        Err(e) => crate::popup::push(crate::popup::Kind::Info, "Статистика", format!("Не получилось: {e}")),
+                    }
+                }
+            });
+        });
+        ui.add_space(8.0);
+    }
+
     pub(crate) fn stats_contents(&mut self, ui: &mut egui::Ui, net: &NetState) {
         if !self.stats_ui.asked && net.account.is_some() {
             self.stats_ui.asked = true;
@@ -220,13 +292,11 @@ impl LauncherApp {
         }
         let h = match (net.my_id, self.stats_ui.history.as_ref()) {
             (Some(me), Some(h)) if h.owner == me => h.clone(),
-            (Some(me), _) => {
-                let owned: Vec<(u32, u32)> = net.owned.iter().map(|g| (g.app_id, g.playtime_forever_minutes)).collect();
-                self.stats_ui.history.insert(load_for(me, &owned)).clone()
-            }
+            (Some(me), _) => self.stats_ui.history.insert(load_for(me)).clone(),
             _ => History::default(),
         };
         ui.heading("Статистика");
+        self.legacy_offer(ui, net);
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             let total: u32 = net.owned.iter().map(|g| g.playtime_forever_minutes).sum();
             let played = net.owned.iter().filter(|g| g.playtime_forever_minutes > 0).count();

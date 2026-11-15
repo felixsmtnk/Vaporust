@@ -61,7 +61,8 @@ pub async fn load(games: Vec<(u32, String)>) -> Result<Vec<FeedItem>, String> {
 /// с l=russian Steam отдает русскую версию, если разработчик ее написал, и полный текст.
 async fn events(appid: u32, count: u32) -> Result<Vec<FeedItem>, String> {
     let url = format!(
-        "https://store.steampowered.com/events/ajaxgetpartnereventspageable/?clan_accountid=0&appid={appid}&offset=0&count={count}&l=russian&origin=https:%2F%2Fstore.steampowered.com"
+        "https://store.steampowered.com/events/ajaxgetpartnereventspageable/?clan_accountid=0&appid={appid}&offset=0&count={count}&l={lang}&origin=https:%2F%2Fstore.steampowered.com",
+        lang = crate::lang::STEAM
     );
     let http = aurelia::core::net::steam_web_client().map_err(|e| format!("{e:#}"))?;
     let r = http.get(url).send().await.map_err(|e| format!("{e:#}"))?;

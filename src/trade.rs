@@ -51,6 +51,11 @@ pub struct TradeState {
     pub spread: std::collections::HashMap<(u32, String), Result<Spread, String>>,
     /// Итог последней продажи / снятия / обмена.
     pub msg: Option<String>,
+    /// К какому предмету относится сообщение ((appid, market_hash_name) - у продажи; None - у
+    /// снятия лота, заявок, обменов) и когда оно пришло. Ключ берется из самой операции, а не из
+    /// того, что открыто на экране, когда пришел ответ.
+    pub msg_item: Option<(u32, String)>,
+    pub msg_at: Option<std::time::Instant>,
     pub busy: bool,
     pub offers: Option<Result<Vec<Offer>, String>>,
 }
@@ -59,7 +64,7 @@ pub enum MarketCmd {
     History { appid: u32, hash: String },
     Spread { appid: u32, hash: String },
     /// Продать: сколько получите вы (минимальные единицы), штук.
-    Sell { appid: u32, ctx: u32, assetid: String, amount: u64, receive: i64, name: String },
+    Sell { appid: u32, ctx: u32, assetid: String, amount: u64, receive: i64, name: String, hash: String },
     RemoveListing { id: String, name: String },
     CancelOrder { id: String, name: String },
     Offers,
@@ -121,7 +126,10 @@ pub fn receive_for(total: i64, r: &FeeRules) -> i64 {
     let (ppct, spct) = (r.publisher_fee_percent, r.steam_fee_percent);
     let (inc, floor) = (r.currency_increment, r.market_minimum);
     let guess = (total as f64 / (1.0 + ppct + spct)).floor() as i64;
-    let max_base = total - 2 * floor;
+    // Минимум комиссии вычитается только у тех комиссий, что есть (у игры она может быть 0) -
+    // иначе при нулевой комиссии игры достижимая цена «не находилась».
+    let n_fees = [ppct, spct].iter().filter(|p| **p > 0.0).count() as i64;
+    let max_base = total - n_fees * floor;
     let mut base = to_valid(guess.min(max_base), r);
     for _ in 0..3 {
         let calc = pay_for(base, r);
@@ -177,32 +185,30 @@ pub fn parse_history(body: &str) -> Result<Vec<(i64, f64, u64)>, String> {
 }
 
 /// Число после ключа в JSON страницы (кавычки бывают экранированы: \"key\":123).
-fn page_num(t: &str, key: &str) -> Option<i64> {
-    let i = t.find(key)? + key.len();
-    let rest = &t[i..];
-    let start = rest.find(|c: char| c.is_ascii_digit())?;
-    if start > 4 {
-        return None;
-    }
-    let digits: String = rest[start..].chars().take_while(|c| c.is_ascii_digit()).collect();
-    digits.parse().ok()
-}
-
-/// Заявки со страницы предмета на площадке (новая страница Steam: amtMaxBuyOrder, amtMinSellOrder...).
-pub fn parse_spread_page(html: &str) -> Result<(Spread, u32), String> {
-    // Заявок на покупку может не быть совсем (amtMaxBuyOrder: null) - это не «не продается».
-    if !html.contains("amtMinSellOrder") && !html.contains("amtMaxBuyOrder") {
+/// Заявки предмета на площадке: ответ Steam на запрос orderbook - JSON
+/// {"data":{"success":true,"data":{"amtMaxBuyOrder":..,"amtMinSellOrder":..,"eCurrency":..,...}}}.
+/// Разбирается как JSON, а не поиском подстрок. Заявок может не быть (amtMaxBuyOrder: null) - это
+/// 0, а не ошибка. Валюта обязательна: без нее цены сравнивать не с чем.
+pub fn parse_spread_page(body: &str) -> Result<(Spread, u32), String> {
+    let v: Value = serde_json::from_str(body.trim()).map_err(|_| "Steam прислал непонятный ответ о заявках".to_string())?;
+    let outer = v.get("data").ok_or("Steam прислал непонятный ответ о заявках")?;
+    if outer.get("success").and_then(Value::as_bool) != Some(true) {
         return Err("предмет не продается на площадке".into());
     }
-    let buy = page_num(html, "amtMaxBuyOrder").unwrap_or(0);
+    let d = outer.get("data").ok_or("предмет не продается на площадке")?;
+    let int = |k: &str| d.get(k).and_then(|x| x.as_i64().or_else(|| x.as_str().and_then(|s| s.parse().ok())));
+    let currency = int("eCurrency").filter(|c| *c > 0).ok_or("Steam не сообщил валюту цен")? as u32;
+    if d.get("amtMinSellOrder").is_none() && d.get("amtMaxBuyOrder").is_none() {
+        return Err("предмет не продается на площадке".into());
+    }
     Ok((
         Spread {
-            highest_buy: buy,
-            lowest_sell: page_num(html, "amtMinSellOrder").unwrap_or(0),
-            buy_count: page_num(html, "cBuyOrders").unwrap_or(0) as u64,
-            sell_count: page_num(html, "cSellOrders").unwrap_or(0) as u64,
+            highest_buy: int("amtMaxBuyOrder").unwrap_or(0),
+            lowest_sell: int("amtMinSellOrder").unwrap_or(0),
+            buy_count: int("cBuyOrders").unwrap_or(0).max(0) as u64,
+            sell_count: int("cSellOrders").unwrap_or(0).max(0) as u64,
         },
-        page_num(html, "eCurrency").unwrap_or(1) as u32,
+        currency,
     ))
 }
 
@@ -232,10 +238,16 @@ fn wallet(st: &SharedInv) -> (u32, String) {
 
 pub fn handle(client: &SteamClient, cmd: MarketCmd, st: &SharedInv, ctx: &egui::Context) {
     let (c, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+    let item = match &cmd {
+        MarketCmd::Sell { appid, hash, .. } => Some((*appid, hash.clone())),
+        _ => None,
+    };
     tokio::spawn(async move {
         let set_msg = |m: String| {
             let mut s = st.lock().unwrap();
             s.trade.msg = Some(m);
+            s.trade.msg_item = item.clone();
+            s.trade.msg_at = Some(std::time::Instant::now());
             s.trade.busy = false;
         };
         let web = match crate::webapi::web_session(&c).await {
@@ -262,8 +274,10 @@ pub fn handle(client: &SteamClient, cmd: MarketCmd, st: &SharedInv, ctx: &egui::
                 let (cur, _) = wallet(&st);
                 let r = match web.get_raw(&url, &[("x-valve-request-type", "queryAction")]).await {
                     Ok((429, _)) => Err("Steam просит подождать (частые запросы)".to_string()),
+                    // Валюта цен должна совпасть с валютой кошелька (кошелек к этому времени
+                    // уже загружен: без него заявки не запрашиваются).
                     Ok((_, t)) => parse_spread_page(&t).and_then(|(sp, c)| {
-                        if c == cur || cur == 1 {
+                        if c == cur {
                             Ok(sp)
                         } else {
                             Err("Steam показал цены в другой валюте, обновите позже".to_string())
@@ -273,7 +287,7 @@ pub fn handle(client: &SteamClient, cmd: MarketCmd, st: &SharedInv, ctx: &egui::
                 };
                 st.lock().unwrap().trade.spread.insert(key, r);
             }
-            MarketCmd::Sell { appid, ctx: cx, assetid, amount, receive, name } => {
+            MarketCmd::Sell { appid, ctx: cx, assetid, amount, receive, name, .. } => {
                 let fields = [
                     ("sessionid", web.sessionid().to_string()),
                     ("appid", appid.to_string()),
@@ -303,7 +317,7 @@ pub fn handle(client: &SteamClient, cmd: MarketCmd, st: &SharedInv, ctx: &egui::
                 set_msg(m);
                 // Перечитать инвентарь этого раздела и свои лоты.
                 st.lock().unwrap().items.remove(&(appid, cx));
-                if let Ok(items) = aurelia::steam_client::inventory_via_lang(&web, appid, cx, "russian").await {
+                if let Ok(items) = aurelia::steam_client::inventory_via_lang(&web, appid, cx, crate::lang::STEAM).await {
                     st.lock().unwrap().items.insert((appid, cx), Ok(items));
                 }
                 if let Ok(body) = web.get_text("https://steamcommunity.com/market/mylistings/?norender=1&count=100&l=russian").await {
@@ -402,7 +416,7 @@ pub async fn load_offers(c: &SteamClient) -> Result<Vec<Offer>, String> {
             ("get_sent_offers", "1".into()),
             ("active_only", "1".into()),
             ("get_descriptions", "1".into()),
-            ("language", "russian".into()),
+            ("language", crate::lang::STEAM.into()),
         ],
     )
     .await?;
@@ -602,5 +616,19 @@ mod spread_tests {
         assert_eq!(crate::tradeui::undercut_amount(150, &uah), 200, "вверх до шага");
         assert_eq!(crate::tradeui::undercut_amount(2, &usd), 2);
         assert_eq!(crate::tradeui::undercut_amount(0, &usd), 1);
+    }
+}
+
+#[cfg(test)]
+mod zero_fee_tests {
+    /// Комиссия игры 0%: цена 300 при минимуме 100 достижима точно (200 + 100 комиссии Steam).
+    #[test]
+    fn zero_publisher_fee() {
+        let r = super::FeeRules { market_minimum: 100, currency_increment: 1, steam_fee_percent: 0.05, publisher_fee_percent: 0.0 };
+        let base = super::receive_for(300, &r);
+        assert_eq!(super::pay_for(base, &r), 300, "получите {base}");
+        for b in 100..3000 {
+            assert_eq!(super::receive_for(super::pay_for(b, &r), &r), b, "base {b}");
+        }
     }
 }

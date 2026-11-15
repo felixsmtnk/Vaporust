@@ -23,7 +23,7 @@ pub struct CoplayPlayer {
 pub async fn load(client: &SteamClient, me: u64) -> Result<Vec<CoplayGame>, String> {
     let web = crate::webapi::web_session(client).await?;
     let t = web
-        .get_text(&format!("https://steamcommunity.com/profiles/{me}/friends/coplay?l=russian"))
+        .get_text(&format!("https://steamcommunity.com/profiles/{me}/friends/coplay?l={lang}", lang = crate::lang::STEAM))
         .await
         .map_err(|e| format!("{e:#}"))?;
     Ok(parse(&t))

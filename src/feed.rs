@@ -139,7 +139,7 @@ pub fn parse(html: &str) -> Vec<Entry> {
 /// Страница ленты: `start` - время (0 - с сегодняшнего дня).
 pub async fn load(client: &SteamClient, me: u64, start: u64) -> Result<FeedPage, String> {
     let web = webapi::web_session(client).await?;
-    let mut url = format!("https://steamcommunity.com/profiles/{me}/ajaxgetusernews/?l=russian");
+    let mut url = format!("https://steamcommunity.com/profiles/{me}/ajaxgetusernews/?l={lang}", lang = crate::lang::STEAM);
     if start > 0 {
         url.push_str(&format!("&start={start}"));
     }

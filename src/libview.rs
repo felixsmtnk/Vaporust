@@ -113,6 +113,9 @@ pub fn list(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, sort: &mu
     ui.painter().hline(head.x_range(), head.bottom(), egui::Stroke::new(1.0, egui::Color32::from_rgb(50, 57, 69)));
 
     let row_h = 28.0;
+    // Без промежутка между строками и ДО show_rows: она считает высоту строки вместе с промежутком,
+    // а строки рисуются вплотную - иначе при прокрутке внизу копилось пустое место.
+    ui.spacing_mut().item_spacing.y = 0.0;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show_rows(ui, row_h, rows.len(), |ui, range| {
         ui.spacing_mut().item_spacing.y = 0.0;
         for r in &rows[range] {
@@ -242,16 +245,15 @@ pub fn grid(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, recent: &
 /// `section` - где плитка (0 полка «Недавние», 1 сетка): одна игра бывает в обоих местах, и
 /// анимация наведения у каждой своя - иначе подсвечивались обе.
 fn tile_ui(ui: &mut egui::Ui, r: &Row, c: &Ctx, covers: &Covers, tile: egui::Vec2, section: u8, out: &mut Option<Action>) {
-    let (base, resp) = ui.allocate_exact_size(tile, egui::Sense::click());
+    // Место в сетке - обычного размера, а щелчки и наведение ловим на увеличенной области: иначе
+    // у края увеличенной плитки (и ее кнопки) указатель «выпадал» из наведения и кнопка пропадала.
+    let (base, _) = ui.allocate_exact_size(tile, egui::Sense::hover());
+    let resp = ui.interact(base.expand2(base.size() * 0.03), egui::Id::new(("tile", section, r.appid)), egui::Sense::click());
     // При наведении вся плитка плавно чуть увеличивается (как в Steam) вместе с кнопкой. Это та же
     // картинка, только крупнее; перерисовка - лишь на время анимации (0.15 с).
     let t = ui.ctx().animate_bool_with_time(egui::Id::new(("tile_zoom", section, r.appid)), resp.hovered(), 0.15);
     let rect = base.expand2(base.size() * 0.03 * t);
     let painter = ui.painter().clone();
-    if t > 0.0 {
-        // Легкая тень под увеличенной плиткой.
-        painter.rect_filled(rect.translate(egui::vec2(0.0, 4.0 * t)), 4.0, egui::Color32::from_black_alpha((90.0 * t) as u8));
-    }
     match covers.get(r.appid) {
         Cover::Ready(tex) => {
             let tint = if r.installed { egui::Color32::WHITE } else { egui::Color32::from_gray(110 + (40.0 * t) as u8) };
@@ -412,6 +414,9 @@ fn collections_menu(resp: &egui::Response, r: &Row, c: &Ctx, out: &mut Option<Ac
 pub fn sidebar(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, selected: Option<u32>, icons: bool) -> Option<Action> {
     let mut out = None;
     let row_h = 26.0;
+    // Без промежутка между строками и ДО show_rows: она считает высоту строки вместе с промежутком,
+    // а строки рисуются вплотную - иначе при прокрутке внизу копилось пустое место.
+    ui.spacing_mut().item_spacing.y = 0.0;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show_rows(ui, row_h, rows.len(), |ui, range| {
         ui.spacing_mut().item_spacing.y = 0.0;
         for r in &rows[range] {

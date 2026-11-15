@@ -87,7 +87,7 @@ pub fn handle(client: &SteamClient, cmd: InvCmd, st: &SharedInv, ctx: &egui::Con
         };
         match cmd {
             InvCmd::Apps => {
-                let url = format!("https://steamcommunity.com/profiles/{}/inventory/?l=russian", web.steam_id());
+                let url = format!("https://steamcommunity.com/profiles/{}/inventory/?l={}", web.steam_id(), crate::lang::STEAM);
                 let res = match web.get_text(&url).await {
                     Ok(html) => parse_app_contexts(&html),
                     Err(e) => Err(err(e)),
@@ -104,7 +104,7 @@ pub fn handle(client: &SteamClient, cmd: InvCmd, st: &SharedInv, ctx: &egui::Con
                 st.lock().unwrap().apps = Some(res);
             }
             InvCmd::Items { appid, ctx: cx } => {
-                let res = sc::inventory_via_lang(&web, appid, cx, "russian").await.map_err(err);
+                let res = sc::inventory_via_lang(&web, appid, cx, crate::lang::STEAM).await.map_err(err);
                 let mut s = st.lock().unwrap();
                 s.loading.remove(&(appid, cx));
                 s.items.insert((appid, cx), res);
@@ -114,8 +114,8 @@ pub fn handle(client: &SteamClient, cmd: InvCmd, st: &SharedInv, ctx: &egui::Con
                 st.lock().unwrap().wallet = Some(res);
             }
             InvCmd::Listings => {
-                let url = "https://steamcommunity.com/market/mylistings/?norender=1&count=100&l=russian";
-                let res = match web.get_text(url).await {
+                let url = format!("https://steamcommunity.com/market/mylistings/?norender=1&count=100&l={}", crate::lang::STEAM);
+                let res = match web.get_text(&url).await {
                     Ok(body) => parse_my_market(&body),
                     Err(e) => Err(err(e)),
                 };
@@ -129,8 +129,9 @@ pub fn handle(client: &SteamClient, cmd: InvCmd, st: &SharedInv, ctx: &egui::Con
             InvCmd::Search { query, start } => {
                 // С нашей веб-сессией Steam отдает русские названия и цены в валюте кошелька.
                 let url = format!(
-                    "https://steamcommunity.com/market/search/render/?norender=1&l=russian&start={start}&count=10&query={}",
-                    url_encode(&query)
+                    "https://steamcommunity.com/market/search/render/?norender=1&l={lang}&start={start}&count=10&query={}",
+                    url_encode(&query),
+                    lang = crate::lang::STEAM
                 );
                 let res = match web.get_text(&url).await {
                     Ok(body) => parse_search(&body),

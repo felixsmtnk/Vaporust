@@ -253,11 +253,13 @@ impl LauncherApp {
     /// Просьбы со страниц магазина и Мастерской (награда, обзор, корзина).
     pub(crate) fn drain_ui_req(&mut self) {
         for c in std::mem::take(&mut *crate::trade::MARKET_REQ.lock().unwrap()) {
-            if let crate::trade::MarketCmd::Sell { .. } = c {
+            if let crate::trade::MarketCmd::Sell { appid, hash, .. } = &c {
                 let inv = self.net.lock().unwrap().inv.clone();
                 let mut s = inv.lock().unwrap();
                 s.trade.busy = true;
                 s.trade.msg = Some("Выставляю на продажу...".into());
+                s.trade.msg_item = Some((*appid, hash.clone()));
+                s.trade.msg_at = Some(std::time::Instant::now());
             }
             let _ = self.tx.send(Cmd::Market(c));
         }

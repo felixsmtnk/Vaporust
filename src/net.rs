@@ -27,6 +27,8 @@ pub enum Cmd {
         code: Option<String>,
     },
     LoginQr,
+    /// Прервать ожидание QR-кода (кнопка «Отменить»).
+    CancelQr,
     RefreshLibrary,
     Achievements(u32),
     /// Достижения друга в игре (appid, SteamID64) - для сравнения.
@@ -332,12 +334,14 @@ pub struct NetState {
     pub message: String,
     pub qr_url: Option<String>,
     pub qr_scanned: bool,
-    pub owned: Vec<OwnedGame>,
+    /// Тяжелые поля - за Arc: интерфейс копирует NetState при каждом изменении, и копия таких
+    /// полей - только счетчик ссылок. Меняются через Arc::make_mut (копия - только этого поля).
+    pub owned: Arc<Vec<OwnedGame>>,
     /// Игры семейной группы Steam (чужие, не купленные этим аккаунтом).
-    pub family: Vec<aurelia::steam_client::SharedApp>,
-    pub achievements: HashMap<u32, Result<Vec<GameAchievement>, String>>,
+    pub family: Arc<Vec<aurelia::steam_client::SharedApp>>,
+    pub achievements: Arc<HashMap<u32, Result<Vec<GameAchievement>, String>>>,
     /// Достижения друзей: (appid, SteamID64).
-    pub friend_achievements: HashMap<(u32, u64), Result<Vec<GameAchievement>, String>>,
+    pub friend_achievements: Arc<HashMap<(u32, u64), Result<Vec<GameAchievement>, String>>>,
     /// Текущая или последняя установка.
     pub install: Option<Install>,
     /// Растет, когда на диске что-то поменялось и библиотеку надо пересканировать.
@@ -345,7 +349,7 @@ pub struct NetState {
     /// Друзья (обновляет фоновая задача Aurelia).
     pub roster: Arc<RwLock<Roster>>,
     /// Переписки по SteamID64 друга.
-    pub chats: HashMap<u64, Conversation>,
+    pub chats: Arc<HashMap<u64, Conversation>>,
     /// Названия игр, узнанные по appid.
     pub app_names: HashMap<u32, String>,
     /// Свои смайлики и стикеры; None - еще не загружены.
@@ -523,8 +527,49 @@ pub fn spawn_worker(st: Shared, ctx: egui::Context) -> UnboundedSender<Cmd> {
                     return;
                 }
             };
-            while let Some(cmd) = rx.recv().await {
-                handle(&mut client, cmd, &st, &ctx).await;
+            // Команды по очереди. Исключение - вход по QR: он ждет до 5 минут, и все это время
+            // остальные команды принимаются. Вход паролем, новый QR или «Отменить» прерывают
+            // ожидание сразу, остальные команды выполняются после.
+            let mut later: std::collections::VecDeque<Cmd> = Default::default();
+            loop {
+                let cmd = match later.pop_front() {
+                    Some(c) => c,
+                    None => match rx.recv().await {
+                        Some(c) => c,
+                        None => break,
+                    },
+                };
+                if !matches!(cmd, Cmd::LoginQr) {
+                    handle(&mut client, cmd, &st, &ctx).await;
+                    continue;
+                }
+                let mut interrupted = false;
+                {
+                    let fut = handle(&mut client, cmd, &st, &ctx);
+                    tokio::pin!(fut);
+                    loop {
+                        tokio::select! {
+                            _ = &mut fut => break,
+                            c = rx.recv() => match c {
+                                Some(c @ (Cmd::Login { .. } | Cmd::LoginQr | Cmd::CancelQr)) => {
+                                    later.push_front(c);
+                                    interrupted = true;
+                                    break;
+                                }
+                                Some(c) => later.push_back(c),
+                                None => return,
+                            },
+                        }
+                    }
+                }
+                if interrupted {
+                    upd(&st, &ctx, |s| {
+                        s.qr_url = None;
+                        s.qr_scanned = false;
+                        s.busy = false;
+                        s.message.clear();
+                    });
+                }
             }
         });
     });
@@ -553,7 +598,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                         s.need_login = false;
                         s.message.clear();
                         if s.owned.is_empty() {
-                            s.owned = cached;
+                            s.owned = Arc::new(cached);
                         }
                     });
                 }
@@ -615,30 +660,36 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 }),
             }
         }
+        Cmd::CancelQr => {} // ожидание QR уже прервано в цикле команд
         Cmd::RefreshLibrary => {
             upd(st, ctx, |s| s.busy = true);
-            load_owned(client, st, ctx).await;
+            let (mut client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            spawn_session(async move { load_owned(&mut client, &st, &ctx).await });
         }
         Cmd::FriendAchievements(appid, who) => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             spawn_session(async move {
-                let res = client.fetch_achievements_for(appid, "russian", who).await.map_err(|e| format!("{e:#}"));
+                let res = client.fetch_achievements_for(appid, crate::lang::STEAM, who).await.map_err(|e| format!("{e:#}"));
                 upd(&st, &ctx, |s| {
-                    s.friend_achievements.insert((appid, who), res);
+                    Arc::make_mut(&mut s.friend_achievements).insert((appid, who), res);
                 });
             });
         }
         Cmd::Achievements(appid) => {
-            let res = client
-                .fetch_achievements(appid, "russian")
-                .await
+            // В фоне: медленный ответ не задерживает остальные команды.
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            spawn_session(async move {
+                let res = client
+                    .fetch_achievements(appid, crate::lang::STEAM)
+                    .await
                 .or_else(|e| {
                     let msg = format!("{e:#}");
                     // У игры нет достижений: Steam отвечает ошибкой NoMatch, а не пустым списком.
                     if msg.contains("NoMatch") { Ok(Vec::new()) } else { Err(msg) }
                 });
-            upd(st, ctx, |s| {
-                s.achievements.insert(appid, res);
+                upd(&st, &ctx, |s| {
+                    Arc::make_mut(&mut s.achievements).insert(appid, res);
+                });
             });
         }
         Cmd::Install {
@@ -677,9 +728,12 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             });
         }
         Cmd::OpenChat(friend) => {
+            // В фоне: пока грузится история одного чата, остальные команды не ждут.
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            spawn_session(async move {
             let res = client.chat_history(friend, 50, None).await;
-            upd(st, ctx, |s| {
-                let conv = s.chats.entry(friend).or_default();
+            upd(&st, &ctx, |s| {
+                let conv = Arc::make_mut(&mut s.chats).entry(friend).or_default();
                 conv.unread = 0;
                 match res {
                     Ok((msgs, more)) => {
@@ -703,6 +757,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                     }
                     Err(e) => conv.error = Some(format!("Не удалось загрузить историю: {e:#}")),
                 }
+            });
             });
         }
         Cmd::PageDlc(appid) => {
@@ -741,7 +796,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             let orig = text.clone();
             let res = client.send_chat_message(to, text.clone()).await;
             upd(st, ctx, |s| {
-                let conv = s.chats.entry(to).or_default();
+                let conv = Arc::make_mut(&mut s.chats).entry(to).or_default();
                 match res {
                     Ok(sent) => {
                         let time = if sent.server_timestamp > 0 {
@@ -770,7 +825,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             if refresh {
                 reload_history(client, to, st, ctx).await;
                 upd(st, ctx, |s| {
-                    let conv = s.chats.entry(to).or_default();
+                    let conv = Arc::make_mut(&mut s.chats).entry(to).or_default();
                     conv.status = None;
                     // Эффекта (или стикера) нет в аккаунте - сервер превращает команду в пустое сообщение.
                     let empty = conv.lines.iter().rev().find(|l| l.from_self).is_some_and(|l| l.text.trim().is_empty());
@@ -1471,11 +1526,11 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             let before = st.lock().unwrap().chats.get(&friend).and_then(|c| c.oldest);
             let Some(before) = before else { return };
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            upd(&st, &ctx, |s| s.chats.entry(friend).or_default().loading_older = true);
+            upd(&st, &ctx, |s| Arc::make_mut(&mut s.chats).entry(friend).or_default().loading_older = true);
             spawn_session(async move {
                 let r = client.chat_history(friend, 50, Some(before)).await;
                 upd(&st, &ctx, |s| {
-                    let conv = s.chats.entry(friend).or_default();
+                    let conv = Arc::make_mut(&mut s.chats).entry(friend).or_default();
                     conv.loading_older = false;
                     match r {
                         Ok((msgs, more)) => {
@@ -1670,7 +1725,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             spawn_session(async move {
                 let set_status = |v: Option<String>, err: Option<String>| {
                     upd(&st, &ctx, |s| {
-                        let c = s.chats.entry(to).or_default();
+                        let c = Arc::make_mut(&mut s.chats).entry(to).or_default();
                         c.status = v;
                         if err.is_some() {
                             c.error = err;
@@ -1740,7 +1795,7 @@ async fn logged_in(client: &mut SteamClient, session: SessionState, st: &Shared,
         s.offline = false;
         s.roster = roster.clone();
         s.my_id = my_id;
-        s.chats.clear();
+        Arc::make_mut(&mut s.chats).clear();
     });
     let secure = match secure_session().await {
         Ok(v) => v,
@@ -1933,7 +1988,7 @@ async fn second_plan(client: &SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Co
         Cmd::ChatReaction { friend, time, ordinal, kind, name, add } => {
             let r = a::chat_reaction(client, friend, time, ordinal, kind, &name, add).await;
             if let Err(e) = r {
-                upd(st, ctx, |s| s.chats.entry(friend).or_default().error = Some(format!("Реакция не поставлена: {e}")));
+                upd(st, ctx, |s| Arc::make_mut(&mut s.chats).entry(friend).or_default().error = Some(format!("Реакция не поставлена: {e}")));
             }
             reload_history(client, friend, st, ctx).await;
         }
@@ -2066,7 +2121,7 @@ async fn second_plan(client: &SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Co
 async fn reload_history(client: &SteamClient, friend: u64, st: &Shared, ctx: &egui::Context) {
     if let Ok((msgs, _)) = client.chat_history(friend, 50, None).await {
         upd(st, ctx, |s| {
-            let conv = s.chats.entry(friend).or_default();
+            let conv = Arc::make_mut(&mut s.chats).entry(friend).or_default();
             conv.lines = msgs
                 .into_iter()
                 .rev()
@@ -2167,7 +2222,7 @@ fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st: &Shared, 
                 ChatEvent::Typing(t) => {
                     let friend = u64::from(t.source);
                     upd(&st, &ctx, |s| {
-                        s.chats.entry(friend).or_default().typing_at = Some(Instant::now());
+                        Arc::make_mut(&mut s.chats).entry(friend).or_default().typing_at = Some(Instant::now());
                     });
                     continue;
                 }
@@ -2181,7 +2236,7 @@ fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st: &Shared, 
                 ..Default::default()
             };
             upd(&st, &ctx, |s| {
-                let conv = s.chats.entry(friend).or_default();
+                let conv = Arc::make_mut(&mut s.chats).entry(friend).or_default();
                 conv.lines.push(line);
                 conv.typing_at = None;
                 if !from_self {
@@ -2214,7 +2269,7 @@ async fn load_owned(client: &mut SteamClient, st: &Shared, ctx: &egui::Context) 
     match client.fetch_owned_games().await {
         Ok(games) => upd(st, ctx, |s| {
             s.message.clear();
-            s.owned = games;
+            s.owned = Arc::new(games);
             s.busy = false;
         }),
         Err(e) => upd(st, ctx, |s| {
@@ -2224,7 +2279,7 @@ async fn load_owned(client: &mut SteamClient, st: &Shared, ctx: &egui::Context) 
     }
     // Семейная библиотека: ошибка не мешает остальному (аккаунт может быть не в семье).
     if let Ok(family) = client.fetch_family_shared_apps().await {
-        upd(st, ctx, |s| s.family = family);
+        upd(st, ctx, |s| s.family = Arc::new(family));
     }
 }
 

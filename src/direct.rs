@@ -174,7 +174,7 @@ pub fn scan_drm(dir: &Path) -> DrmReport {
 
 /// Пометки магазина о защите: (сторонняя защита, сторонний аккаунт). Открытый API магазина.
 pub fn store_drm_notes(appid: u32) -> (Option<String>, Option<String>) {
-    let url = format!("https://store.steampowered.com/api/appdetails?appids={appid}&l=russian&filters=basic");
+    let url = format!("https://store.steampowered.com/api/appdetails?appids={appid}&l={lang}&filters=basic", lang = crate::lang::STEAM);
     let Ok(resp) = ehttp::fetch_blocking(&ehttp::Request::get(url)) else { return (None, None) };
     let Ok(v) = serde_json::from_slice::<serde_json::Value>(&resp.bytes) else { return (None, None) };
     let data = v.get(appid.to_string()).and_then(|x| x.get("data"));

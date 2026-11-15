@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 /// Язык текстов магазина.
-pub const LANG: &str = "russian";
+pub const LANG: &str = crate::lang::STEAM;
 
 /// Регионы цен, которые можно выбрать (код страны, название).
 pub const COUNTRIES: [(&str, &str); 10] = [
