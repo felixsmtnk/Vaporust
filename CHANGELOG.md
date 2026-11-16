@@ -5,6 +5,18 @@
 What went into each released version, newest first. Plans for the future are in
 [ROADMAP.md](ROADMAP.md), archives and full release notes are on the [Releases](../../releases) page.
 
+## ✅ 0.8.2-alpha: chat look and fixes
+
+*Released 2026-11-16.* A small update after the second Codex review.
+
+- Chat: two identical messages sent close together (for example two "yes" one second apart) are
+  always shown as two; messages are matched by the number Steam gives them, not by text and time.
+- Chat window in the new style: no extra close button in the search (the magnifier or Esc closes it),
+  emoticon and picture buttons inside the input field, a send button, emoticon panel with tabs and tiles.
+- Reviews: the chosen language is kept when the interface language changes; changing the language
+  or order starts the list over, so languages no longer mix.
+- The Vaporust update button really says "Update" now.
+
 ## ✅ 0.8.1-alpha: fixes after review
 
 *Released 2026-11-16.* Fixes after the Codex review of 0.8.0-alpha.
