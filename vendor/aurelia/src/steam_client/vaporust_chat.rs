@@ -1,14 +1,14 @@
-//! vaporust: дополнения к чату, которых нет в Aurelia 0.2.3.
-//! - список своих смайликов и стикеров (Player.GetEmoticonList);
-//! - загрузка картинки в чат (тот же порядок, что у node-steamcommunity sendImageToUser:
-//!   beginfileupload -> PUT на выданный адрес -> commitfileupload).
+//! vaporust: chat additions missing in Aurelia 0.2.3.
+//! - own emoticons and stickers (Player.GetEmoticonList);
+//! - uploading an image to the chat (the same order as node-steamcommunity sendImageToUser:
+//!   beginfileupload -> PUT to the given URL -> commitfileupload).
 
 use super::*;
 use steam_vent_proto::steammessages_player_steamclient::{
     CPlayer_GetEmoticonList_Request, CPlayer_GetEmoticonList_Response,
 };
 
-/// Ответ commit/begin: success бывает числом или строкой.
+/// commit/begin response: success may be a number or a string.
 fn success_of(v: &serde_json::Value) -> i64 {
     v.get("success")
         .and_then(|s| s.as_i64().or_else(|| s.as_str()?.parse().ok()))
@@ -16,9 +16,9 @@ fn success_of(v: &serde_json::Value) -> i64 {
 }
 
 impl SteamClient {
-    /// Свои смайлики и стикеры (имена без двоеточий), самые часто используемые первыми.
+    /// Own emoticons and stickers (names without colons), most used first.
     ///
-    /// Смайлики - Player.GetEmoticonList; стикеров в этом ответе нет (проверено), они в инвентаре.
+    /// Emoticons - Player.GetEmoticonList; this response has no stickers (checked), they are in the inventory.
     pub async fn fetch_emoticons_and_stickers(&self) -> Result<(Vec<String>, Vec<String>)> {
         let connection = self.require_connection()?;
         let resp: CPlayer_GetEmoticonList_Response = connection
@@ -34,8 +34,8 @@ impl SteamClient {
             .collect();
         emoticons.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
 
-        // Стикеры - предметы сообщества в инвентаре (app 753, context 6) с типом «... Sticker».
-        // Их имя и есть тип стикера для [sticker type="..."] (проверено: Buoyant Bobber).
+        // Stickers - community items in the inventory (app 753, context 6) with a type "... Sticker".
+        // Their name is the sticker type for [sticker type="..."] (checked: Buoyant Bobber).
         let stickers_res: Result<Vec<String>> = async {
             let web = self.web_session().await?;
             let items = super::market::inventory_via(&web, 753, 6).await?;
@@ -46,15 +46,15 @@ impl SteamClient {
                 .collect())
         }
         .await;
-        // Без стикеров смайлики все равно полезны: ошибку инвентаря не считаем фатальной.
+        // Emoticons are useful even without stickers: an inventory error is not fatal.
         let mut stickers = stickers_res.unwrap_or_default();
         stickers.sort();
         stickers.dedup();
         Ok((emoticons.into_iter().map(|(_, n)| n).collect(), stickers))
     }
 
-    /// Загрузить картинку в чат с другом. Возвращает адрес картинки на серверах Steam.
-    /// `ext` - "png" / "jpeg" / "gif" / "webp"; `width`/`height` - размеры картинки.
+    /// Upload an image to the chat with a friend. Returns the image URL on Steam servers.
+    /// `ext` - "png" / "jpeg" / "gif" / "webp"; `width`/`height` - image size.
     pub async fn upload_chat_image(
         &self,
         friend: u64,
@@ -90,7 +90,7 @@ impl SteamClient {
             v
         };
 
-        // 1. Начать загрузку.
+        // 1. Begin the upload.
         let (status, text) = web
             .post_form(
                 "https://steamcommunity.com/chat/beginfileupload/?l=english",
@@ -129,13 +129,13 @@ impl SteamClient {
         let timestamp = json_str(&begin["timestamp"]);
         let hmac = json_str(&begin["hmac"]);
 
-        // 2. Сам файл.
+        // 2. The file itself.
         let put = web.put_bytes(&format!("{scheme}://{host}{path}"), &headers, bytes).await?;
         if !(200..300).contains(&put) {
             bail!("image upload failed: HTTP {put}");
         }
 
-        // 3. Подтвердить.
+        // 3. Commit.
         let (status, text) = web
             .post_form(
                 "https://steamcommunity.com/chat/commitfileupload/",
@@ -162,21 +162,21 @@ impl SteamClient {
     }
 }
 
-/// vaporust: сообщение истории переписки с номером (ordinal) - для подгрузки более старых.
+/// vaporust: a chat history message with its number (ordinal) - for loading older ones.
 #[derive(Debug, Clone)]
 pub struct HistoryMessage {
     pub from_self: bool,
     pub message: String,
     pub timestamp: u32,
     pub ordinal: u32,
-    /// vaporust: реакции на сообщение: (тип 1 смайлик / 2 стикер, имя, кто поставил - номера аккаунтов).
+    /// vaporust: message reactions: (type 1 emoticon / 2 sticker, name, who reacted - account numbers).
     pub reactions: Vec<(i32, String, Vec<u32>)>,
 }
 
 impl SteamClient {
-    /// vaporust: история переписки. `before` = Some((время, ordinal)) самого старого уже
-    /// загруженного сообщения - тогда вернутся сообщения до него. Возвращает (сообщения от новых
-    /// к старым, есть ли еще более старые).
+    /// vaporust: conversation history. `before` = Some((time, ordinal)) of the oldest already
+    /// loaded message - then messages before it are returned. Returns (messages newest
+    /// to oldest, whether older ones exist).
     pub async fn chat_history(&self, target: u64, count: u32, before: Option<(u32, u32)>) -> Result<(Vec<HistoryMessage>, bool)> {
         use steam_vent_proto::steammessages_friendmessages_steamclient::{
             CFriendMessages_GetRecentMessages_Request, CFriendMessages_GetRecentMessages_Response,
@@ -211,7 +211,7 @@ impl SteamClient {
                     .map(|r| (r.reaction_type.map(|t| t.value()).unwrap_or(0), r.reaction().to_string(), r.reactors.clone()))
                     .collect(),
             })
-            // Сообщение-граница приходит повторно - отбрасываем.
+            // The boundary message comes again - drop it.
             .filter(|m| before.is_none_or(|(t, o)| (m.timestamp, m.ordinal) < (t, o)))
             .collect();
         Ok((v, more))

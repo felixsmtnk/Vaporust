@@ -1,26 +1,26 @@
-//! Лента событий друзей (как «Активность» на главной сообщества Steam): кто во что впервые
-//! сыграл, что купил, достижения, скриншоты, обзоры. Страницы ленты - по дням
-//! (/profiles/<я>/ajaxgetusernews/?start=<время>), каждая содержит готовый HTML.
+//! Friends activity feed (like "Activity" on the Steam community home): who played what for
+//! the first time, what they bought, achievements, screenshots, reviews. Feed pages go by day
+//! (/profiles/<me>/ajaxgetusernews/?start=<time>), each contains ready HTML.
 
 use crate::webapi;
 use aurelia::steam_client::SteamClient;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Entry {
-    /// Заголовок дня («12 ноя»).
+    /// Day header ("12 ноя").
     pub day: String,
     pub avatar: String,
     pub text: String,
-    /// Первая ссылка на игру в строке (страница магазина по щелчку).
+    /// First game link in the line (store page on click).
     pub appid: Option<u32>,
-    /// Картинки события (скриншоты, значки достижений).
+    /// Event images (screenshots, achievement icons).
     pub images: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct FeedPage {
     pub entries: Vec<Entry>,
-    /// С какого времени просить следующую (более старую) страницу.
+    /// From what time to request the next (older) page.
     pub next: Option<u64>,
 }
 
@@ -30,7 +30,7 @@ fn between<'a>(s: &'a str, a: &str, b: &str) -> Option<&'a str> {
     Some(&s[i..j])
 }
 
-/// Текст без тегов и с раскрытыми &amp; и т.п.
+/// Text without tags and with &amp; and the like decoded.
 fn text(s: &str) -> String {
     let mut out = String::new();
     let mut in_tag = false;
@@ -47,7 +47,7 @@ fn text(s: &str) -> String {
     }
     let out = out.replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">").replace("&nbsp;", " ");
     let out = out.split_whitespace().collect::<Vec<_>>().join(" ");
-    // Теги заменялись пробелом: убрать пробел перед знаками препинания («Игра .» -> «Игра.»).
+    // Tags were replaced with a space: remove the space before punctuation ("Game ." -> "Game.").
     let mut fixed = String::with_capacity(out.len());
     for ch in out.chars() {
         if matches!(ch, '.' | ',' | ':' | ';' | '!' | '?' | ')') && fixed.ends_with(' ') {
@@ -75,18 +75,18 @@ fn images_of(s: &str) -> Vec<String> {
     v
 }
 
-/// Разобрать HTML ленты одного запроса.
+/// Parse the feed HTML of one request.
 pub fn parse(html: &str) -> Vec<Entry> {
     let mut out = Vec::new();
     for day in html.split("class=\"blotter_day\"").skip(1) {
         let day_name = between(day, "blotter_day_header_date\">", "<").map(|d| d.trim().to_string()).unwrap_or_default();
-        // Короткие строки дня («сыграл впервые», «добавил в библиотеку»).
+        // Short day lines ("played for the first time", "added to the library").
         for line in day.split("class=\"blotter_daily_rollup_line\"").skip(1) {
             let line = line.split("class=\"blotter_daily_rollup_line\"").next().unwrap_or(line);
             let avatar = between(line, "<img src=\"", "\"").unwrap_or("").to_string();
             let span = between(line, "<span>", "</span>").unwrap_or(line);
             let mut t = text(span);
-            // Достижения: названия - в подсказках значков после текста («... в Игре:» + значки).
+            // Achievements: names are in the icon tooltips after the text ("... in Game:" + icons).
             let after = line.split("</span>").nth(1).unwrap_or("");
             let names: Vec<String> = after
                 .split("<img").skip(1)
@@ -105,7 +105,7 @@ pub fn parse(html: &str) -> Vec<Entry> {
                 out.push(Entry { day: day_name.clone(), avatar, text: t, appid: appid_of(span), images: Vec::new() });
             }
         }
-        // Крупные события (скриншоты, достижения, обзоры) - отдельные блоки.
+        // Large events (screenshots, achievements, reviews) - separate blocks.
         for block in day.split("class=\"blotter_block\"").skip(1) {
             if block.trim_start().starts_with('>') && block.contains("blotter_daily_rollup") {
                 continue;
@@ -136,7 +136,7 @@ pub fn parse(html: &str) -> Vec<Entry> {
     out
 }
 
-/// Страница ленты: `start` - время (0 - с сегодняшнего дня).
+/// Feed page: `start` - time (0 - from today).
 pub async fn load(client: &SteamClient, me: u64, start: u64) -> Result<FeedPage, String> {
     let web = webapi::web_session(client).await?;
     let mut url = format!("https://steamcommunity.com/profiles/{me}/ajaxgetusernews/?l={lang}", lang = crate::lang::STEAM);
@@ -149,7 +149,7 @@ pub async fn load(client: &SteamClient, me: u64, start: u64) -> Result<FeedPage,
     Ok(FeedPage { entries: parse(j["blotter_html"].as_str().unwrap_or("")), next })
 }
 
-/// Несколько дней подряд (лента бывает пустой в отдельные дни).
+/// Several days in a row (the feed can be empty on some days).
 pub async fn load_days(client: &SteamClient, me: u64, start: u64, min_entries: usize) -> Result<FeedPage, String> {
     let mut page = load(client, me, start).await?;
     let mut tries = 0;
@@ -208,7 +208,7 @@ mod tests {
 
 #[cfg(test)]
 mod dump {
-    /// VAPORUST_DUMP=<файл> cargo test feed_dump -- --ignored: сырой HTML ленты (для разбора).
+    /// VAPORUST_DUMP=<file> cargo test feed_dump -- --ignored: raw feed HTML (for parsing).
     #[test]
     #[ignore]
     fn feed_parse_file() {

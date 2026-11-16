@@ -1,26 +1,26 @@
-//! Торговая площадка и обмены (безопасная часть + продажа из инвентаря):
-//! история цены и заявки на покупку предмета, продажа (обычная, быстрая и мгновенная - как в
-//! Steam Inventory Helper), снятие своего лота, отмена своей заявки, обмены (принять, отклонить,
-//! отменить). Продажу и обмены Steam просит подтвердить в мобильном приложении - Vaporust этого
-//! не делает и не обходит.
+//! Community Market and trades (the safe part + selling from the inventory):
+//! item price history and buy orders, selling (normal, quick and instant - like in
+//! Steam Inventory Helper), removing own listing, cancelling own order, trades (accept, decline,
+//! cancel). Steam asks to confirm selling and trades in the mobile app - Vaporust does not
+//! do that and does not bypass it.
 
 use crate::invent::SharedInv;
 use aurelia::steam_client::SteamClient;
 use eframe::egui;
 use serde_json::Value;
 
-/// Заявки и лоты предмета (в минимальных единицах валюты кошелька).
+/// Item orders and listings (in minimal units of the wallet currency).
 #[derive(Clone, Debug, Default)]
 pub struct Spread {
-    /// Самая высокая заявка на покупку (за столько продастся сразу).
+    /// The highest buy order (it sells immediately for this much).
     pub highest_buy: i64,
-    /// Самый дешевый лот.
+    /// The cheapest listing.
     pub lowest_sell: i64,
     pub buy_count: u64,
     pub sell_count: u64,
 }
 
-/// Предмет обмена.
+/// A trade item.
 #[derive(Clone, Debug, Default)]
 pub struct OfferItem {
     pub name: String,
@@ -31,29 +31,29 @@ pub struct OfferItem {
 #[derive(Clone, Debug, Default)]
 pub struct Offer {
     pub id: String,
-    /// SteamID64 второго участника.
+    /// SteamID64 of the other party.
     pub partner: u64,
     pub message: String,
-    /// Мы отдаем / мы получаем.
+    /// We give / we receive.
     pub give: Vec<OfferItem>,
     pub get: Vec<OfferItem>,
-    /// Входящее (нам прислали).
+    /// Incoming (sent to us).
     pub incoming: bool,
-    /// ETradeOfferState: 2 активно, 9 ждет мобильного подтверждения, 11 удержание.
+    /// ETradeOfferState: 2 active, 9 awaiting mobile confirmation, 11 in escrow.
     pub state: u32,
     pub expires: u64,
 }
 
 #[derive(Default)]
 pub struct TradeState {
-    /// История цены: (appid, hash) -> [(unix-время, цена, продано штук)].
+    /// Price history: (appid, hash) -> [(unix time, price, units sold)].
     pub history: std::collections::HashMap<(u32, String), Result<Vec<(i64, f64, u64)>, String>>,
     pub spread: std::collections::HashMap<(u32, String), Result<Spread, String>>,
-    /// Итог последней продажи / снятия / обмена.
+    /// Result of the last sale / removal / trade.
     pub msg: Option<String>,
-    /// К какому предмету относится сообщение ((appid, market_hash_name) - у продажи; None - у
-    /// снятия лота, заявок, обменов) и когда оно пришло. Ключ берется из самой операции, а не из
-    /// того, что открыто на экране, когда пришел ответ.
+    /// Which item the message refers to ((appid, market_hash_name) - for a sale; None - for
+    /// listing removal, orders, trades) and when it arrived. The key comes from the operation itself, not from
+    /// what is open on screen when the answer arrives.
     pub msg_item: Option<(u32, String)>,
     pub msg_at: Option<std::time::Instant>,
     pub busy: bool,
@@ -63,33 +63,33 @@ pub struct TradeState {
 pub enum MarketCmd {
     History { appid: u32, hash: String },
     Spread { appid: u32, hash: String },
-    /// Продать: сколько получите вы (минимальные единицы), штук.
+    /// Sell: how much you receive (minimal units), quantity.
     Sell { appid: u32, ctx: u32, assetid: String, amount: u64, receive: i64, name: String, hash: String },
     RemoveListing { id: String, name: String },
     CancelOrder { id: String, name: String },
     Offers,
-    /// 0 - принять, 1 - отклонить, 2 - отменить свое.
+    /// 0 - accept, 1 - decline, 2 - cancel own.
     Offer { id: String, partner: u64, act: u8 },
 }
 
-// ---------- Цены и комиссия, как на сайте Steam (economy_common.js) ----------
+// ---------- Prices and fees, as on the Steam site (economy_common.js) ----------
 //
-// У каждой валюты кошелька свои правила: минимальная цена (она же минимальная комиссия) и шаг
-// цены. Steam берет их из g_rgWalletInfo (wallet_market_minimum, wallet_currency_increment,
-// wallet_fee_percent, wallet_publisher_fee_percent_default). Функции ниже - перенос
-// ToValidMarketPrice, CalculateFee, GetTotalWithFees и GetItemPriceFromTotal один в один.
-// Раньше Vaporust считал как для доллара (минимум 0,01), и для гривны предпросмотр врал:
-// «покупатель заплатит 1,02 ₴» вместо 3,00 ₴.
+// Each wallet currency has its own rules: the minimum price (also the minimum fee) and the price
+// step. Steam takes them from g_rgWalletInfo (wallet_market_minimum, wallet_currency_increment,
+// wallet_fee_percent, wallet_publisher_fee_percent_default). The functions below are a one-to-one port of
+// ToValidMarketPrice, CalculateFee, GetTotalWithFees and GetItemPriceFromTotal.
+// Previously Vaporust computed as for the dollar (minimum 0.01), and for the hryvnia the preview was wrong:
+// "the buyer pays 1,02 ₴" instead of 3,00 ₴.
 
 pub use aurelia::steam_client::MarketFeeRules as FeeRules;
 
-/// Правила, когда кошелек их не прислал: как у доллара. Только для тестов и подсказок -
-/// продажа без настоящих правил запрещена (см. tradeui).
+/// Rules when the wallet did not send them: as for the dollar. Only for tests and hints -
+/// selling without real rules is forbidden (see tradeui).
 pub fn default_rules() -> FeeRules {
     FeeRules { market_minimum: 1, currency_increment: 1, steam_fee_percent: 0.05, publisher_fee_percent: 0.10 }
 }
 
-/// ToValidMarketPrice: не меньше минимума и кратно шагу валюты.
+/// ToValidMarketPrice: not below the minimum and a multiple of the currency step.
 pub fn to_valid(price: i64, r: &FeeRules) -> i64 {
     let floor = r.market_minimum;
     let inc = r.currency_increment;
@@ -116,18 +116,18 @@ fn fee(base: i64, pct: f64, r: &FeeRules) -> i64 {
     }
 }
 
-/// Сколько заплатит покупатель, если вы получите receive (GetTotalWithFees).
+/// How much the buyer pays if you receive `receive` (GetTotalWithFees).
 pub fn pay_for(receive: i64, r: &FeeRules) -> i64 {
     to_valid(receive, r) + fee(receive, r.publisher_fee_percent, r) + fee(receive, r.steam_fee_percent, r)
 }
 
-/// Сколько получите вы, если покупатель платит total (GetItemPriceFromTotal).
+/// How much you receive if the buyer pays `total` (GetItemPriceFromTotal).
 pub fn receive_for(total: i64, r: &FeeRules) -> i64 {
     let (ppct, spct) = (r.publisher_fee_percent, r.steam_fee_percent);
     let (inc, floor) = (r.currency_increment, r.market_minimum);
     let guess = (total as f64 / (1.0 + ppct + spct)).floor() as i64;
-    // Минимум комиссии вычитается только у тех комиссий, что есть (у игры она может быть 0) -
-    // иначе при нулевой комиссии игры достижимая цена «не находилась».
+    // The minimum fee is subtracted only for fees that exist (a game's fee can be 0) -
+    // otherwise with a zero game fee a reachable price "was not found".
     let n_fees = [ppct, spct].iter().filter(|p| **p > 0.0).count() as i64;
     let max_base = total - n_fees * floor;
     let mut base = to_valid(guess.min(max_base), r);
@@ -159,9 +159,9 @@ fn num(v: &Value) -> i64 {
     v.as_i64().or_else(|| v.as_str().and_then(|s| s.replace(',', "").parse().ok())).unwrap_or(0)
 }
 
-/// «Nov 14 2026 01: +0» -> unix-время.
+/// "Nov 14 2026 01: +0" -> unix time.
 fn parse_hist_date(s: &str) -> Option<i64> {
-    let s = s.split(':').next()?.trim(); // «Nov 14 2026 01»
+    let s = s.split(':').next()?.trim(); // "Nov 14 2026 01"
     let dt = chrono::NaiveDateTime::parse_from_str(&format!("{s}:00:00"), "%b %d %Y %H:%M:%S").ok()?;
     Some(dt.and_utc().timestamp())
 }
@@ -184,11 +184,11 @@ pub fn parse_history(body: &str) -> Result<Vec<(i64, f64, u64)>, String> {
         .collect())
 }
 
-/// Число после ключа в JSON страницы (кавычки бывают экранированы: \"key\":123).
-/// Заявки предмета на площадке: ответ Steam на запрос orderbook - JSON
+/// Number after a key in the page JSON (quotes may be escaped: \"key\":123).
+/// Item orders on the market: Steam's answer to the orderbook request - JSON
 /// {"data":{"success":true,"data":{"amtMaxBuyOrder":..,"amtMinSellOrder":..,"eCurrency":..,...}}}.
-/// Разбирается как JSON, а не поиском подстрок. Заявок может не быть (amtMaxBuyOrder: null) - это
-/// 0, а не ошибка. Валюта обязательна: без нее цены сравнивать не с чем.
+/// Parsed as JSON, not by substring search. There may be no orders (amtMaxBuyOrder: null) - that is
+/// 0, not an error. The currency is required: without it prices cannot be compared.
 pub fn parse_spread_page(body: &str) -> Result<(Spread, u32), String> {
     let v: Value = serde_json::from_str(body.trim()).map_err(|_| "Steam прислал непонятный ответ о заявках".to_string())?;
     let outer = v.get("data").ok_or("Steam прислал непонятный ответ о заявках")?;
@@ -218,7 +218,7 @@ pub fn parse_spread(body: &str) -> Result<Spread, String> {
         return Err("заявки не загрузились".into());
     }
     let count = |k: &str| {
-        // buy_order_graph / sell_order_graph: [[цена, накоплено штук, подпись], ...] - последнее = всего.
+        // buy_order_graph / sell_order_graph: [[price, accumulated units, caption], ...] - the last = total.
         v[k].as_array().and_then(|a| a.last()).map(|x| num(&x[1]) as u64).unwrap_or(0)
     };
     Ok(Spread {
@@ -274,8 +274,8 @@ pub fn handle(client: &SteamClient, cmd: MarketCmd, st: &SharedInv, ctx: &egui::
                 let (cur, _) = wallet(&st);
                 let r = match web.get_raw(&url, &[("x-valve-request-type", "queryAction")]).await {
                     Ok((429, _)) => Err("Steam просит подождать (частые запросы)".to_string()),
-                    // Валюта цен должна совпасть с валютой кошелька (кошелек к этому времени
-                    // уже загружен: без него заявки не запрашиваются).
+                    // The price currency must match the wallet currency (by this time the wallet
+                    // is already loaded: without it orders are not requested).
                     Ok((_, t)) => parse_spread_page(&t).and_then(|(sp, c)| {
                         if c == cur {
                             Ok(sp)
@@ -315,7 +315,7 @@ pub fn handle(client: &SteamClient, cmd: MarketCmd, st: &SharedInv, ctx: &egui::
                     Err(e) => format!("Не выставлен: {e:#}"),
                 };
                 set_msg(m);
-                // Перечитать инвентарь этого раздела и свои лоты.
+                // Reread the inventory of this context and own listings.
                 st.lock().unwrap().items.remove(&(appid, cx));
                 if let Ok(items) = aurelia::steam_client::inventory_via_lang(&web, appid, cx, crate::lang::STEAM).await {
                     st.lock().unwrap().items.insert((appid, cx), Ok(items));
@@ -406,7 +406,7 @@ pub fn handle(client: &SteamClient, cmd: MarketCmd, st: &SharedInv, ctx: &egui::
     });
 }
 
-/// Активные обмены (входящие и свои) с названиями и картинками предметов.
+/// Active trades (incoming and own) with item names and images.
 pub async fn load_offers(c: &SteamClient) -> Result<Vec<Offer>, String> {
     let v = crate::webapi::get(
         c,
@@ -467,23 +467,23 @@ mod tests {
     #[test]
     fn fee_math() {
         let usd = default_rules();
-        // Как на площадке: покупатель платит 1,15 - вы получаете 1,00.
+        // As on the market: the buyer pays 1.15 - you receive 1.00.
         assert_eq!(pay_for(100, &usd), 115);
         assert_eq!(receive_for(115, &usd), 100);
-        // Минимум комиссий - по одной минимальной единице.
+        // Minimum fees - one minimal unit each.
         assert_eq!(pay_for(1, &usd), 3);
         assert_eq!(receive_for(3, &usd), 1);
         for base in 1..20000 {
             assert_eq!(receive_for(pay_for(base, &usd), &usd), base, "base {base}");
         }
-        // Валюта с минимумом и шагом 100 (пример из сверки с кодом Steam): 100 + 100 + 100.
+        // A currency with a minimum and step of 100 (example from checking against Steam's code): 100 + 100 + 100.
         let big = FeeRules { market_minimum: 100, currency_increment: 100, ..usd };
         assert_eq!(pay_for(100, &big), 300);
         assert_eq!(receive_for(300, &big), 100);
         for base in (100..20000).step_by(100) {
             assert_eq!(receive_for(pay_for(base, &big), &big), base, "base {base}");
         }
-        // Минимум 100, шаг 1 (как у гривны на лотах пользователя: 3,00 / получите 1,00).
+        // Minimum 100, step 1 (like the hryvnia on the user's listings: 3,00 / you receive 1,00).
         let uah = FeeRules { market_minimum: 100, currency_increment: 1, ..usd };
         assert_eq!(pay_for(100, &uah), 300);
         assert_eq!(receive_for(300, &uah), 100);
@@ -502,7 +502,7 @@ mod tests {
         assert_eq!((s.highest_buy, s.lowest_sell, s.buy_count, s.sell_count), (120, 150, 40, 2));
     }
 
-    /// Только чтение: история цены, заявки и обмены.
+    /// Read only: price history, orders and trades.
     #[test]
     #[ignore]
     fn market_read_live() {
@@ -532,7 +532,7 @@ pub use crate::tradeui::{cancel_order_button, market_block, offers_tab, remove_l
 
 #[cfg(test)]
 mod rules_live {
-    /// Живой тест (только чтение): правила цен кошелька пользователя. Печатает только правила.
+    /// Live test (read only): the price rules of the user's wallet. Prints only the rules.
     #[test]
     #[ignore]
     fn wallet_rules_live() {
@@ -554,7 +554,7 @@ mod rules_live {
 
 #[cfg(test)]
 mod spread_live {
-    /// Живой тест (только чтение): заявки по первым предметам CS2 из инвентаря - сырой ответ.
+    /// Live test (read only): orders for the first CS2 items in the inventory - raw response.
     #[test]
     #[ignore]
     fn cs2_spread_live() {
@@ -577,7 +577,7 @@ mod spread_live {
 
 #[cfg(test)]
 mod pubfee_live {
-    /// Живой тест (только чтение): ставки комиссии игр из g_rgAppContextData инвентаря.
+    /// Live test (read only): game fee rates from the inventory's g_rgAppContextData.
     #[test]
     #[ignore]
     fn pubfee_live() {
@@ -598,7 +598,7 @@ mod pubfee_live {
 
 #[cfg(test)]
 mod spread_tests {
-    /// Нет ни одной заявки на покупку (amtMaxBuyOrder: null) - это не «не продается».
+    /// No buy orders at all (amtMaxBuyOrder: null) - that is not "not for sale".
     #[test]
     fn no_buy_orders() {
         let t = r#"{"data":{"success":true,"data":{"amtMaxBuyOrder":null,"amtMinSellOrder":300,"eCurrency":18,"cBuyOrders":0,"cSellOrders":30318}}}"#;
@@ -621,7 +621,7 @@ mod spread_tests {
 
 #[cfg(test)]
 mod zero_fee_tests {
-    /// Комиссия игры 0%: цена 300 при минимуме 100 достижима точно (200 + 100 комиссии Steam).
+    /// Game fee 0%: price 300 with minimum 100 is reachable exactly (200 + 100 Steam fee).
     #[test]
     fn zero_publisher_fee() {
         let r = super::FeeRules { market_minimum: 100, currency_increment: 1, steam_fee_percent: 0.05, publisher_fee_percent: 0.0 };

@@ -91,7 +91,7 @@ mod updater;
 mod webapi;
 mod workshopui;
 
-/// Что показано в центре главного окна.
+/// What is shown in the center of the main window.
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub enum View {
     Library,
@@ -112,16 +112,16 @@ pub enum View {
     Stats,
     Community,
     Groups,
-    /// Страница группы сообщества.
+    /// Community group page.
     Group,
-    /// Редактирование своего профиля.
+    /// Editing own profile.
     ProfileEdit,
-    /// Достижения игры и свойства игры - страницами главного окна.
+    /// Game achievements and game properties - as pages of the main window.
     Achievements,
     Props,
-    /// Корзина магазина.
+    /// Store cart.
     Cart,
-    /// Саундтреки из библиотеки.
+    /// Soundtracks from the library.
     Music,
 }
 
@@ -138,131 +138,131 @@ use std::{
 use local::{Game, SteamInfo};
 use net::{Cmd, NetState, Shared};
 
-/// Особый «фильтр-коллекция»: игры семейной библиотеки Steam.
+/// Special "filter collection": games from the Steam family library.
 const FAMILY: &str = "__family";
-/// Особая «коллекция»: свои игры, которые ни разу не запускались.
+/// Special "collection": own games that were never launched.
 const UNPLAYED: &str = "__unplayed";
-/// Встроенные фильтры, как в Steam: установленные и готовые к игре; есть обновление.
+/// Built-in filters, as in Steam: installed and ready to play; has an update.
 const READY: &str = "__ready";
 const UPDATES: &str = "__updates";
 
-/// Одна строка библиотеки: объединение установленных и купленных игр.
+/// One library row: installed and owned games combined.
 #[derive(Clone)]
 struct Row {
     appid: u32,
     name: String,
-    /// Есть на диске (возможно, недокачана).
+    /// Present on disk (possibly not finished downloading).
     installed: bool,
-    /// Полностью установлена, можно играть.
+    /// Fully installed, playable.
     ready: bool,
-    /// Нужно обновление (по пометке Steam или проверке через Aurelia).
+    /// Needs an update (by Steam's mark or a check via Aurelia).
     needs_update: bool,
     playtime_min: Option<u32>,
-    /// Размер на диске, байт (0 - не установлена).
+    /// Size on disk, bytes (0 - not installed).
     size: u64,
-    /// Последний запуск, unix-время (0 - неизвестно).
+    /// Last launch, unix time (0 - unknown).
     last_played: u64,
-    /// Игра из семейной библиотеки Steam (не куплена этим аккаунтом).
+    /// Game from the Steam family library (not owned by this account).
     family: bool,
-    /// SteamID64 владельца семейной игры, если известен.
+    /// SteamID64 of the family game owner, if known.
     owner: Option<u64>,
 }
 
 struct LauncherApp {
-    // Локальный Steam
+    // Local Steam
     steam: Option<SteamInfo>,
     games: Vec<Game>,
     launch_status: Arc<Mutex<String>>,
     launching: Arc<AtomicBool>,
     cancel: Arc<AtomicBool>,
-    /// Задача со Steam закончилась: перечитать диск и проверить обновления.
+    /// A Steam task has finished: rescan the disk and check for updates.
     rescan_needed: Arc<AtomicBool>,
-    /// Проверка обновлений уже отправлена для текущего входа.
+    /// The update check has already been sent for the current login.
     updates_checked: bool,
-    /// Закрепленные игры, у которых маскировка версии уже обновлена для запуска.
+    /// Pinned games whose version masking is already refreshed for launch.
     pin_ok: std::collections::HashSet<u32>,
-    /// Закрепленные игры, для которых уже обновляли устаревшую маскировку (раз за сеанс).
+    /// Pinned games whose outdated masking was already refreshed (once per session).
     pin_stale_sent: std::collections::HashSet<u32>,
-    /// Обновления Vaporust: состояние проверки/установки; полоса скрыта кнопкой «Позже».
+    /// Vaporust updates: check/install state; the bar is hidden with the "Later" button.
     upd: updater::Shared,
     upd_hidden: bool,
-    /// Проверку запустил пользователь (тогда показываем и «нет обновлений», и ошибки).
+    /// The check was started by the user (then "no updates" and errors are shown too).
     upd_manual: bool,
-    /// Найденные дубли установок (вкладка «Настройки»).
+    /// Found duplicate installs ("Settings" tab).
     duplicates: Option<Vec<(u32, String, Vec<std::path::PathBuf>)>>,
-    /// Прокси сохранен (показать «действует после перезапуска»).
+    /// Proxy saved (show "takes effect after restart").
     proxy_note: bool,
-    /// Текст поля «Скорость загрузки» (МБ/с); None - взять из настроек.
+    /// Text of the "Download speed" field (MB/s); None - take it from settings.
     limit_text: Option<String>,
-    /// То же для скорости по расписанию.
+    /// The same for the scheduled speed.
     sched_text: Option<String>,
-    /// Статус для друзей уже объявлен для текущего входа.
+    /// Friends status was already announced for the current login.
     persona_sent: bool,
-    /// Коллекции уже запрошены для текущего входа.
+    /// Collections were already requested for the current login.
     colls_requested: bool,
-    /// Выбранная коллекция в библиотеке (None - все игры).
+    /// Selected collection in the library (None - all games).
     collection: Option<String>,
-    /// Какая рамка окна уже применена (Some(true) - обычная Windows).
+    /// Which window frame is already applied (Some(true) - normal Windows frame).
     pub(crate) frame_applied: Option<bool>,
-    /// Обход разделов со снимками (VAPORUST_TOUR, для разработки).
+    /// Section tour with screenshots (VAPORUST_TOUR, for development).
     pub(crate) tour: Option<tour::Tour>,
-    /// Раздел на прошлом кадре (для очистки кэша картинок при переходе).
+    /// Section in the previous frame (to clear the image cache on navigation).
     pub(crate) mem_place: Option<(View, Option<u32>)>,
-    /// Открытая страница игры в библиотеке.
+    /// Open game page in the library.
     pub(crate) lib_page: Option<u32>,
-    /// Для какой страницы игры уже запрошены достижения и новости.
+    /// For which game page achievements and news were already requested.
     pub(crate) page_loaded: Option<u32>,
-    /// Сколько непрочитанных было в прошлом кадре (для заголовка окна).
+    /// How many unread there were in the previous frame (for the window title).
     last_unread: u32,
-    /// Когда очередь последний раз запускала установку.
+    /// When the queue last started an install.
     queue_started: Option<std::time::Instant>,
-    /// Когда последний раз проверяли, что прятать от Steam.
+    /// When we last checked what to hide from Steam.
     stash_check: Option<std::time::Instant>,
     freeze_webhelper: bool,
 
-    // Сеть (Aurelia)
+    // Network (Aurelia)
     net: Shared,
-    /// Копия сетевого состояния для кадров и номер изменения, с которого она снята.
+    /// Copy of the network state for frames and the change number it was taken at.
     net_snap: NetState,
     net_gen: u64,
     net_snap_at: std::time::Instant,
-    /// Свой профиль запрошен (имя для верхней полосы).
+    /// Own profile requested (name for the top bar).
     own_profile_asked: bool,
-    /// Память уже отдана системе (окно в трее или идет игра) и когда последний раз.
+    /// Memory was already given back to the system (window in the tray or a game is running) and when last.
     trimmed: bool,
-    /// Окно добавления или правки сторонней игры.
+    /// Window for adding or editing a non-Steam game.
     custom_edit: Option<custom::Edit>,
-    /// Подтверждение удаления игры: (appid, название, размер на диске).
+    /// Uninstall confirmation: (appid, name, size on disk).
     pub(crate) uninstall_ask: Option<(u32, String, u64)>,
-    /// Окно своей заметки к игре: (appid, название, текст).
+    /// Own game note window: (appid, name, text).
     pub(crate) note_edit: Option<(u32, String, String)>,
-    /// Когда последний раз проверяли просьбу запустить игру (ярлык).
+    /// When we last checked for a request to launch a game (shortcut).
     run_check: Option<std::time::Instant>,
-    /// «Мои лицензии»: поиск; история кошелька уже запрошена.
+    /// "My licenses": search; wallet history already requested.
     lic_filter: String,
     wallet_asked: bool,
-    /// Раздел при запуске уже выбран.
+    /// The startup section is already chosen.
     start_applied: bool,
-    /// Масштаб, который Vaporust выставил сам (иначе его поменяли Ctrl+плюс/минус).
+    /// Scale that Vaporust set itself (otherwise it was changed with Ctrl+plus/minus).
     zoom_applied: f32,
-    /// Для какого масштаба (точек на пиксель) уже задан наименьший размер окна.
+    /// For which scale (points per pixel) the minimum window size is already set.
     min_ppp_sent: f32,
-    /// Когда последний раз увеличивали окно до наименьшего размера.
+    /// When the window was last enlarged to the minimum size.
     min_grow_at: Option<std::time::Instant>,
-    /// Шаг мастера первого запуска.
+    /// First-run wizard step.
     wizard_step: usize,
-    /// Какую игру запускает Vaporust (ее состояние показывается на странице игры).
+    /// Which game Vaporust is launching (its state is shown on the game page).
     status_app: Option<u32>,
-    /// Последнее показанное состояние (новое - всплывающим уведомлением).
+    /// Last shown state (a new one becomes a popup notification).
     status_seen: String,
-    /// Страница «Друзья».
+    /// "Friends" page.
     friends_page: friendspage::FriendsPage,
     trim_at: std::time::Instant,
     tx: tokio::sync::mpsc::UnboundedSender<Cmd>,
 
-    // Интерфейс
+    // Interface
     filter: String,
-    /// Фильтр по жанру (метке магазина) и признак, что подробности игр уже запрошены.
+    /// Genre filter (store tag) and a flag that game details were already requested.
     genre: Option<String>,
     genre_asked: bool,
     only_installed: bool,
@@ -271,117 +271,117 @@ struct LauncherApp {
     login_code: String,
     ach_open: Option<(u32, String)>,
     ach_state: AchState,
-    /// Открытое окно «Свойства игры».
+    /// Open "Game properties" window.
     props: Option<props::PropsWin>,
     closing: Arc<AtomicBool>,
-    /// Когда нажали «Закрыть игру» (appid, время): через 10 с можно закрыть принудительно.
+    /// When "Close game" was clicked (appid, time): after 10 s it can be closed forcefully.
     stop_asked: Option<(u32, std::time::Instant)>,
-    /// Сколько раз подряд загрузка продолжалась после обрыва связи.
+    /// How many times in a row the download resumed after a lost connection.
     resume_tries: u8,
-    /// Сведения об аккаунте уже запрошены (карточка в «Настройках»).
+    /// Account info already requested (card in "Settings").
     account_asked: bool,
-    /// Кэш «Steam запущен?» (опрос процессов не чаще раза в 2 с).
+    /// Cache of "is Steam running?" (process polling at most once per 2 s).
     steam_check: Option<(std::time::Instant, bool)>,
 
-    // Друзья и чат
+    // Friends and chat
     show_friends: bool,
     friend_filter: String,
-    /// Открытый чат (отдельное окно Windows).
+    /// Open chat (separate Windows window).
     chat: chatwin::SharedChat,
-    /// appid, названия которых уже запрошены.
+    /// appids whose names were already requested.
     requested_apps: std::collections::HashSet<u32>,
 
-    /// Обложки для плиточного вида (грузятся в фоне, только видимые).
+    /// Covers for the grid view (loaded in the background, visible only).
     covers: covers::Covers,
-    /// Поиск в Мастерской на странице игры.
+    /// Workshop search on the game page.
     ws_ui: workshopui::WsUi,
-    /// Открытое окно Мастерской: (appid, название игры).
+    /// Open Workshop window: (appid, game name).
     ws_open: Option<(u32, String)>,
-    /// Раздел «Скриншоты» (открыт, пока Some).
+    /// "Screenshots" section (open while Some).
     shots_win: Option<shots::ShotsWin>,
-    /// Вкладка «Хранилище» (пока открыта).
+    /// "Storage" tab (while open).
     storage_win: Option<storage::StorageWin>,
-    /// Окно «Активировать ключ»: введенный текст (None - окно закрыто).
+    /// "Activate a key" window: entered text (None - window closed).
     key_input: Option<String>,
     key_refreshed: bool,
-    /// Вкладка «Новости».
+    /// "News" tab.
     news_ui: newsfeed::NewsUi,
-    /// Уведомления Steam: когда спрашивали и какие уже видели (для всплывающих о новых).
+    /// Steam notifications: when we asked and which were already seen (for popups about new ones).
     notifs_at: Option<std::time::Instant>,
     notifs_seen: std::collections::HashSet<String>,
-    /// Вкладка «Значки».
+    /// "Badges" tab.
     badges_ui: badges::BadgesUi,
-    /// Вкладка «Очки Steam».
+    /// "Steam Points" tab.
     points_ui: points::PointsUi,
-    /// Вкладка «Семья».
+    /// "Family" tab.
     family_ui: family::FamilyUi,
     group_ui: grouppage::GroupUi,
     edit_ui: profileedit::EditUi,
     cart_ui: cartui::CartUi,
     music: music::Music,
-    /// Подтверждение установки по двойному щелчку: (appid, название).
+    /// Install confirmation on double click: (appid, name).
     install_ask: Option<(u32, String)>,
     dialogs: dialogs::Dialogs,
     accounts_open: bool,
     accounts_noted: Option<String>,
     award_asked: bool,
     award_pick: Option<(u32, u32)>,
-    /// Вкладка «Активность друзей».
+    /// "Friends activity" tab.
     activity_ui: activity::ActivityUi,
-    /// Вкладка «Статистика» и запись истории времени в играх.
+    /// "Statistics" tab and recording of playtime history.
     stats_ui: stats_ui::StatsUi,
-    /// Окно комментариев к скриншоту.
+    /// Screenshot comments window.
     shot_comments: Option<shotcomments::ShotComments>,
-    /// Вкладка «Сообщество» игры.
+    /// Game "Community" tab.
     community_ui: community::CommunityUi,
-    /// Вкладка «Групповые чаты».
+    /// "Group chats" tab.
     groups_ui: groupchat::GroupsUi,
-    /// Запуск с --tray: спрятать окно в трей, как только оно появится.
+    /// Started with --tray: hide the window to the tray as soon as it appears.
     start_hidden: bool,
-    /// Окно уже поставлено на сохраненное место.
+    /// The window is already placed at the saved position.
     window_placed: bool,
-    /// Автозапуск с Windows (кэш значения из реестра для галочки).
+    /// Start with Windows (cached registry value for the checkbox).
     autostart_on: Option<bool>,
-    /// Итог экспорта списка игр.
+    /// Result of the game list export.
     export_note: Option<String>,
-    /// Лицензии (даты покупок) уже запрошены.
+    /// Licenses (purchase dates) already requested.
     licenses_asked: bool,
-    /// Список «Где выполнен вход» раскрыт.
+    /// The "Where you are logged in" list is expanded.
     sessions_open: bool,
-    /// Открытый раздел настроек (settingsui::SECTIONS).
+    /// Open settings section (settingsui::SECTIONS).
     settings_section: u8,
-    /// Контекст egui (для фоновых потоков, которым нужно разбудить окно).
+    /// egui context (for background threads that need to wake the window).
     egui_ctx: egui::Context,
-    /// Мастерская, магазин, инвентарь открыты отдельным окном (Ctrl+щелчок).
+    /// Workshop, store, inventory opened in a separate window (Ctrl+click).
     ws_detached: bool,
     store_detached: bool,
     inv_detached: bool,
-    /// Что показано в центре главного окна.
+    /// What is shown in the center of the main window.
     view: View,
-    /// Окна профиля, «Добавить друга», подтверждения удаления.
+    /// Profile, "Add friend" and uninstall confirmation windows.
     social_ui: socialwin::SocialUi,
-    /// Открытое окно «Магазин Steam».
+    /// Open "Steam Store" window.
     store_win: Option<storewin::StoreWin>,
     inv_win: Option<invwin::InvWin>,
-    /// Остальные сохраняемые настройки (сортировка, статус, трей, звук).
+    /// Other saved settings (sorting, status, tray, sound).
     settings: settings::Settings,
-    /// Когда игры запускались последний раз (из localconfig.vdf Steam).
+    /// When games were last launched (from Steam's localconfig.vdf).
     last_played: HashMap<u32, u64>,
 
-    // Установка
+    // Installation
     libraries: Vec<std::path::PathBuf>,
     lib_idx: usize,
     seen_disk_changed: u64,
-    /// Когда последний раз перечитывали диск и было ли окно активно (для auto_rescan).
+    /// When the disk was last rescanned and whether the window was active (for auto_rescan).
     last_rescan: std::time::Instant,
     was_focused: bool,
-    /// Последняя проверка расписания загрузок.
+    /// Last download schedule check.
     sched_check: Option<std::time::Instant>,
-    /// Последняя попытка переподключиться в автономном режиме.
+    /// Last reconnect attempt in offline mode.
     offline_retry: Option<std::time::Instant>,
-    /// Уведомления о друзьях, скидках и загрузках.
+    /// Notifications about friends, discounts and downloads.
     notices: notices::Notices,
-    /// Ограничение скорости, отправленное в Aurelia (КБ/с).
+    /// Speed limit sent to Aurelia (KB/s).
     sent_limit: Option<u64>,
     install_note: String,
 }
@@ -390,7 +390,7 @@ impl LauncherApp {
     fn new(cc: &eframe::CreationContext) -> Self {
         popup::test_from_env();
         let ctx = &cc.egui_ctx;
-        // Настройки прошлого запуска (или значения по умолчанию).
+        // Settings from the previous run (or defaults).
         let saved: settings::Settings = cc
             .storage
             .and_then(|s| eframe::get_value::<settings::Settings>(s, settings::KEY))
@@ -399,13 +399,14 @@ impl LauncherApp {
                 s
             })
             .unwrap_or_default();
-        // Видеокарты Intel: с рамкой, нарисованной программой, Windows на части ноутбуков рисует
-        // поверх свой заголовок (черная полоса, мышь попадает мимо). Там по умолчанию обычная рамка
-        // Windows; проверяется один раз, дальше выбор пользователя в «Настройки -> Окно».
+        // Intel GPUs: with the frame drawn by the program, on some laptops Windows draws its own
+        // title bar on top (a black bar, the mouse misses). There the normal Windows frame is the
+        // default; checked once, then it is the user's choice in "Settings -> Window".
         let mut saved = saved;
         if !saved.frame_checked {
-            saved.frame_checked = true;
+            // Without OpenGL it cannot be checked - we will try on the next run.
             if let Some(gl) = cc.gl.as_ref() {
+                saved.frame_checked = true;
                 use eframe::glow::HasContext;
                 let (vendor, renderer) = unsafe { (gl.get_parameter_string(eframe::glow::VENDOR), gl.get_parameter_string(eframe::glow::RENDERER)) };
                 if crate::winframe::needs_system_frame(&vendor, &renderer) {
@@ -416,27 +417,27 @@ impl LauncherApp {
         }
         let net: Shared = Arc::default();
         let tx = net::spawn_worker(net.clone(), ctx.clone());
-        // В режиме без входа сеанс Steam не поднимаем вовсе (пароль и ключ входа не нужны).
+        // In no-login mode the Steam session is not started at all (no password or login key needed).
         if !saved.local_mode {
             let _ = tx.send(Cmd::Restore);
         }
-        // Цвета в духе клиента Steam.
+        // Colors in the style of the Steam client.
         theme::apply(ctx);
-        // Полосы прокрутки всегда видны (по умолчанию тонкие и появляются только при наведении).
+        // Scroll bars are always visible (by default they are thin and appear only on hover).
         ctx.style_mut(|s| {
             s.spacing.scroll = egui::style::ScrollStyle::solid();
-            // Без вертушек на загружаемых картинках: они перерисовывают окно каждый кадр; загрузчик
-            // сам перерисует окно, когда картинка придет.
+            // No spinners on loading images: they repaint the window every frame; the loader
+            // repaints the window itself when the image arrives.
             s.visuals.image_loading_spinners = false;
         });
-        // Загрузчики картинок для чата (http + png/jpeg/gif/webp).
+        // Image loaders for the chat (http + png/jpeg/gif/webp).
         egui_extras::install_image_loaders(ctx);
-        // Свой загрузчик поверх: картинки уменьшаются и раскодируются в фоне (экономия памяти).
+        // Our own loader on top: images are downscaled and decoded in the background (saves memory).
         imgload::install(ctx);
-        // Запасные шрифты Windows для символов, которых нет во встроенных (иначе квадратики).
+        // Windows fallback fonts for characters missing in the built-in ones (otherwise squares).
         fonts::install(ctx);
 
-        // HWND главного окна - для мигания в панели задач и для трея.
+        // HWND of the main window - for taskbar flashing and for the tray.
         {
             use raw_window_handle::{HasWindowHandle, RawWindowHandle};
             if let Ok(h) = cc.window_handle() {
@@ -474,13 +475,13 @@ impl LauncherApp {
             lib_page: None,
             mem_place: None,
             page_loaded: None,
-            // Окно создается без рамки: команду шлем, только если в настройках обычная рамка.
+            // The window is created without a frame: the command is sent only if settings ask for the normal frame.
             frame_applied: Some(false),
             tour: tour::Tour::from_env(),
             last_unread: 0,
             queue_started: None,
             stash_check: None,
-            // По умолчанию включено (по просьбе пользователя), дальше - как сохранено.
+            // On by default (at the user's request), then as saved.
             freeze_webhelper: saved.freeze_webhelper,
             net,
             net_snap: NetState::default(),
@@ -579,13 +580,13 @@ impl LauncherApp {
             settings: saved,
             last_played: HashMap::new(),
         };
-        // Обновления: убрать файл старой версии и проверить GitHub (если включено).
+        // Updates: remove the old version file and check GitHub (if enabled).
         updater::cleanup_old();
         if app.settings.check_updates {
             updater::check(&app.upd, ctx);
         }
         app.rescan();
-        // Выбранная в прошлый раз папка библиотеки.
+        // Library folder chosen last time.
         if let Some(lib) = app.settings.library.clone() {
             if let Some(i) = app.libraries.iter().position(|l| l.to_string_lossy() == lib) {
                 app.lib_idx = i;
@@ -594,9 +595,9 @@ impl LauncherApp {
         app
     }
 
-    /// Перечитать диск без кнопки: при возврате в окно и раз в 30 с, пока окно активно
-    /// (игры могли поставить или удалить через Steam). Статус внизу меняем, только если
-    /// число игр изменилось, чтобы не затирать сообщения вроде «Готово.».
+    /// Rescan the disk without a button: when returning to the window and every 30 s while it is active
+    /// (games may have been installed or removed via Steam). The status at the bottom changes only if
+    /// the game count changed, so messages like "Готово." are not overwritten.
     fn auto_rescan(&mut self, ctx: &egui::Context) {
         let focused = ctx.input(|i| i.focused);
         let regained = focused && !self.was_focused;
@@ -624,7 +625,7 @@ impl LauncherApp {
             .as_ref()
             .map(|s| local::scan_games(&s.dir))
             .unwrap_or_default();
-        // Закрепленные игры не предлагаем обновлять.
+        // Pinned games are not offered for update.
         for g in &mut self.games {
             if self.settings.pinned.contains_key(&g.appid) {
                 g.needs_update = false;
@@ -652,7 +653,7 @@ impl LauncherApp {
         }
     }
 
-    /// Недокачанная игра, начатая в Vaporust (Steam о ней не знает как о своей): ее библиотека.
+    /// An unfinished game started in Vaporust (Steam does not consider it its own): its library.
     fn movable_partial(&self, appid: u32) -> Option<std::path::PathBuf> {
         if !self.settings.holding.contains(&appid) {
             return None;
@@ -666,7 +667,7 @@ impl LauncherApp {
     fn install(&mut self, appid: u32, name: String) {
         self.install_note.clear();
         let steam_open = local::steam_running();
-        // Начатая во временной библиотеке (при открытом Steam) - продолжаем там же.
+        // Started in the temporary library (while Steam was open) - continue there.
         if let Some(real) = self.settings.staged.get(&appid).cloned() {
             if !self.settings.holding.contains(&appid) {
                 self.settings.holding.push(appid);
@@ -677,10 +678,10 @@ impl LauncherApp {
             let _ = self.tx.send(Cmd::Install { appid, name, library: staging });
             return;
         }
-        // Steam открыт: недокачанную в настоящей библиотеке трогать нельзя (Steam мог бы
-        // начать качать ее сам), а новую качаем во временную библиотеку, которую Steam не видит.
+        // Steam is open: an unfinished game in the real library must not be touched (Steam could
+        // start downloading it itself), and a new one goes to the temporary library Steam does not see.
         let partial_real = self.games.iter().any(|g| g.appid == appid);
-        // Своя недокачанная (начата в Vaporust) - переносим во временную папку и докачиваем там.
+        // Own unfinished one (started in Vaporust) - move it to the temporary folder and finish it there.
         if steam_open && self.settings.download_with_steam && partial_real {
             if let Some(lib) = self.movable_partial(appid) {
                 match local::to_staging(&lib, appid) {
@@ -700,7 +701,7 @@ impl LauncherApp {
             self.install_note = "Сначала закройте Steam (и игру, если она запущена), потом нажмите «Установить» еще раз.".into();
             return;
         }
-        // Недокачанную игру продолжаем в той же библиотеке, где она лежит.
+        // An unfinished game is resumed in the same library where it lies.
         let library = self
             .games
             .iter()
@@ -711,11 +712,11 @@ impl LauncherApp {
             self.install_note = "Не найдена папка библиотеки Steam.".into();
             return;
         };
-        // Пока игра не докачана, она «наша»: на паузе ее appmanifest прячется от Steam.
+        // While the game is unfinished it is "ours": when paused, its appmanifest is hidden from Steam.
         if !self.settings.holding.contains(&appid) {
             self.settings.holding.push(appid);
         }
-        // Если Vaporust закроют посреди загрузки, при следующем запуске она продолжится.
+        // If Vaporust is closed mid-download, it resumes on the next run.
         self.settings.current_download = Some(settings::QueueItem { appid, name: name.clone(), paused: false });
         let library = if steam_open {
             self.settings.staged.insert(appid, library.to_string_lossy().into_owned());
@@ -732,10 +733,10 @@ impl LauncherApp {
         });
     }
 
-    /// Прятать от Steam недокачанные загрузки Vaporust (на паузе, отмененные, прерванные),
-    /// иначе запущенный ради игры Steam сам начнет их качать. Проверка раз в 3 с.
+    /// Hide unfinished Vaporust downloads from Steam (paused, cancelled, interrupted),
+    /// otherwise the Steam started for a game would begin downloading them itself. Checked every 3 s.
     fn guard_partials(&mut self, net: &NetState) {
-        // Докачанные - больше не «наши», дальше ими занимается Steam.
+        // Finished ones are no longer "ours", Steam takes care of them from now on.
         self.settings.holding.retain(|a| !self.games.iter().any(|g| g.appid == *a && g.ready));
         if self.settings.holding.is_empty()
             || self.stash_check.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(3))
@@ -744,7 +745,7 @@ impl LauncherApp {
         }
         self.stash_check = Some(std::time::Instant::now());
         if self.launching.load(Ordering::Relaxed) || self.closing.load(Ordering::Relaxed) || self.steam_running() {
-            return; // при открытом Steam файлы трогать нельзя
+            return; // with Steam open, the files must not be touched
         }
         let active = net.install.as_ref().filter(|i| i.active()).map(|i| i.appid);
         let mut changed = false;
@@ -766,15 +767,15 @@ impl LauncherApp {
         }
     }
 
-    /// Поставить игру в очередь установки (или сразу начать, если ничего не качается).
+    /// Put a game into the install queue (or start right away if nothing is downloading).
     fn enqueue(&mut self, appid: u32, name: String, net: &NetState) {
         if let Some(q) = self.settings.downloads.iter_mut().find(|q| q.appid == appid) {
-            q.paused = false; // уже в очереди на паузе - «Докачать» снимает паузу
+            q.paused = false; // already queued and paused - "Resume" unpauses it
             return;
         }
-        // Пока открыт Steam, Vaporust не качает (Steam мог бы сам начать качать ту же игру):
-        // игра встает в очередь и начнется сама, как только Steam закроют. Раньше нажатие
-        // «Установить» в этом случае ничего видимого не делало.
+        // While Steam is open, Vaporust does not download (Steam could start downloading the same game):
+        // the game is queued and starts by itself as soon as Steam is closed. Previously clicking
+        // "Install" in this case did nothing visible.
         let partial_real = self.games.iter().any(|g| g.appid == appid) && !self.settings.staged.contains_key(&appid) && self.movable_partial(appid).is_none();
         if self.steam_running() && !self.launching.load(Ordering::Relaxed) && (!self.settings.download_with_steam || partial_real) {
             self.settings.downloads.push(settings::QueueItem { appid, name: name.clone(), paused: false });
@@ -803,8 +804,8 @@ impl LauncherApp {
         }
     }
 
-    /// Загрузка закончилась: больше не «текущая». Если ее оборвала сеть (а не «Отмена» или
-    /// «Пауза»), она встает первой в очередь и продолжится, когда связь вернется (до 3 раз подряд).
+    /// The download is over: no longer "current". If the network broke it (not "Cancel" or
+    /// "Pause"), it goes first in the queue and resumes when the connection is back (up to 3 times in a row).
     fn finish_tick(&mut self, net: &NetState) {
         let Some(cur) = self.settings.current_download.clone() else { return };
         let Some(inst) = net.install.as_ref().filter(|i| i.appid == cur.appid) else { return };
@@ -824,7 +825,7 @@ impl LauncherApp {
                     "Загрузка «{}» прервалась из-за связи: продолжится сама, когда Steam снова будет доступен.",
                     cur.name
                 );
-                // Не сразу: дать сети время вернуться.
+                // Not right away: give the network time to come back.
                 self.queue_started = Some(std::time::Instant::now() + std::time::Duration::from_secs(27));
             }
             Ok(()) => {
@@ -845,12 +846,12 @@ impl LauncherApp {
         }
     }
 
-    /// Запустить следующую игру из очереди, когда загрузка свободна.
+    /// Start the next game from the queue when the downloader is free.
     fn run_queue(&mut self, net: &NetState) {
         let busy = net.install.as_ref().is_some_and(|i| i.active());
-        // Команда установки доходит до сетевого потока не мгновенно: пауза 3 с между запусками.
+        // The install command does not reach the network thread instantly: a 3 s pause between starts.
         let cooling = self.queue_started.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(3));
-        // Первая игра в очереди, которая не на паузе.
+        // The first game in the queue that is not paused.
         let next = self.settings.downloads.iter().position(|q| !q.paused);
         if busy
             || cooling
@@ -874,18 +875,18 @@ impl LauncherApp {
         self.queue_started = Some(std::time::Instant::now());
     }
 
-    /// Сообщения о результате (удалена, закрыта, ошибка запуска) - всплывающим уведомлением:
-    /// в нижней полосе состояния больше нет, а ход запуска виден на странице игры.
+    /// Result messages (uninstalled, closed, launch error) - as a popup notification:
+    /// the status bar at the bottom is gone, and launch progress is shown on the game page.
     fn status_popup(&mut self) {
         let st = self.launch_status.lock().unwrap().clone();
         if st == self.status_seen {
             return;
         }
         let busy = self.launching.load(Ordering::Relaxed) || self.closing.load(Ordering::Relaxed);
-        // «Удаляю...», «Прошу закрыться...» - это ход дела, а не итог: не показываем.
+        // "Удаляю...", "Прошу закрыться..." are progress, not a result: not shown.
         let in_progress = st.ends_with("...") || st.ends_with('…');
         if !busy && !in_progress && !st.is_empty() && st != "Готово." {
-            // Игра из «кавычек» - ее картинка слева, щелчок открывает ее страницу.
+            // The game in quotes - its image on the left, a click opens its page.
             let game = st
                 .split_once('«')
                 .and_then(|(_, rest)| rest.split_once('»'))
@@ -902,7 +903,7 @@ impl LauncherApp {
         self.status_seen = st;
     }
 
-    /// Закрыть запущенную игру: мягко (как крестик окна) или принудительно.
+    /// Close the running game: gently (like the window's close button) or forcefully.
     fn stop_running(&mut self, appid: u32, force: bool) {
         let Some((id, name, dir)) = local::RUNNING.lock().unwrap().clone() else { return };
         if id != appid {
@@ -922,7 +923,7 @@ impl LauncherApp {
     fn steam_running(&mut self) -> bool {
         let now = std::time::Instant::now();
         match self.steam_check {
-            // Снимок процессов стоит ~5-7 мс - не чаще раза в 5 с (в покое это основная нагрузка).
+            // A process snapshot costs ~5-7 ms - at most once per 5 s (when idle this is the main load).
             Some((t, v)) if now.duration_since(t) < std::time::Duration::from_secs(5) => v,
             _ => {
                 let v = local::steam_running();
@@ -932,8 +933,8 @@ impl LauncherApp {
         }
     }
 
-    /// Автономный режим: снять флаг автономности Steam, когда Steam закрыт; без связи -
-    /// раз в минуту пробовать войти снова.
+    /// Offline mode: clear Steam's offline flag when Steam is closed; without a connection -
+    /// try to log in again once a minute.
     fn offline_tick(&mut self, net: &NetState) {
         if self.settings.steam_offline_set
             && !self.launching.load(Ordering::Relaxed)
@@ -982,20 +983,20 @@ impl LauncherApp {
         self.steam_task(appid, ctx, false);
     }
 
-    /// Обновить игру через скрытый Steam (без запуска игры).
-    /// «Обновить» в библиотеке: без Steam (Aurelia), если можно; иначе - через скрытый Steam.
+    /// Update a game via the hidden Steam (without launching the game).
+    /// "Update" in the library: without Steam (Aurelia) when possible; otherwise via the hidden Steam.
     pub(crate) fn start_update(&mut self, appid: u32, ctx: &egui::Context) {
         let Some(game) = self.games.iter().find(|g| g.appid == appid).cloned() else { return };
         let acf = local::appmanifest_path(&game);
         let info = local::read_acf(&acf);
-        // Ждет смены языка (выбрано в «Свойствах») - Vaporust сменит его сам (switch_language).
+        // Waiting for a language change (chosen in "Properties") - Vaporust switches it itself (switch_language).
         let switching = !info.user_language.is_empty()
             && !info.mounted_language.is_empty()
             && info.user_language != info.mounted_language;
-        // Смена беты - без Steam: Aurelia качает версии выбранной ветки для установленных хранилищ.
+        // Beta change - without Steam: Aurelia downloads the chosen branch versions for installed depots.
         let beta = (info.user_beta != info.mounted_beta).then(|| info.user_beta.clone());
         let logged_in = self.net.lock().unwrap().account.is_some();
-        // Игра в двух библиотеках: Aurelia берет первую по алфавиту копию - может обновить не ту.
+        // The game is in two libraries: Aurelia takes the alphabetically first copy - may update the wrong one.
         let duplicate = self
             .steam
             .as_ref()
@@ -1014,31 +1015,31 @@ impl LauncherApp {
         }
         self.install_note.clear();
         if switching {
-            // Сначала язык (бета, если тоже выбрана, - следующим нажатием «Обновить»).
+            // Language first (the beta, if also chosen, on the next "Update" click).
             let _ = self.tx.send(Cmd::SetLanguage { appid, name: game.name.clone(), acf, lang: info.user_language.clone() });
             return;
         }
         let _ = self.tx.send(Cmd::UpdateDirect { appid, name: game.name.clone(), acf, beta });
     }
 
-    /// Обновить через скрытый Steam (как раньше).
+    /// Update via the hidden Steam (as before).
     pub(crate) fn start_update_steam(&mut self, appid: u32, ctx: &egui::Context) {
         self.steam_task(appid, ctx, true);
     }
 
-    /// «Играть» или «Обновить»: обе задачи поднимают скрытый Steam, поэтому идут по одной.
+    /// "Play" or "Update": both tasks start the hidden Steam, so they go one at a time.
     fn steam_task(&mut self, appid: u32, ctx: &egui::Context, update: bool) {
         if self.launching.load(Ordering::Relaxed) || self.closing.load(Ordering::Relaxed) {
             return;
         }
-        // Игра без защиты Steam - запускаем напрямую (галочка в «Свойствах»).
+        // A game without Steam protection - launch directly (checkbox in "Properties").
         let family = is_family_only(&self.net.lock().unwrap(), appid);
         if !update && self.settings.no_steam.contains(&appid) && !family {
             let net = self.net.lock().unwrap().clone();
             self.direct_launch(appid, &net);
             return;
         }
-        // Закрепленную версию нельзя обновлять, а перед запуском ее надо подготовить.
+        // A pinned version cannot be updated, and it must be prepared before launch.
         if self.settings.pinned.contains_key(&appid) {
             if update {
                 *self.launch_status.lock().unwrap() = "Версия игры закреплена - открепите ее в «Свойствах», чтобы обновить.".into();
@@ -1055,8 +1056,8 @@ impl LauncherApp {
         let Some(game) = self.games.iter().find(|g| g.appid == appid).cloned() else {
             return;
         };
-        // Нет связи со Steam: пусть скрытый Steam сразу стартует автономно (без окна с вопросом).
-        // Флаг снимается, когда Steam снова закрыт (offline_tick).
+        // No connection to Steam: let the hidden Steam start offline right away (without a question window).
+        // The flag is cleared when Steam is closed again (offline_tick).
         if self.net.lock().unwrap().offline && !self.steam_running() {
             match local::set_steam_offline(&steam.dir, true) {
                 Ok(_) => self.settings.steam_offline_set = true,
@@ -1083,7 +1084,7 @@ impl LauncherApp {
             let res = if update {
                 local::update_via_steam(&steam, &game, opts, &cancel, &set)
             } else {
-                // Скрипты запуска: команда перед запуском (ждем ее), после выхода (не ждем).
+                // Launch scripts: a command before launch (we wait for it), after exit (we do not wait).
                 if !script.before.trim().is_empty() {
                     set("Выполняю команду перед запуском...");
                 }
@@ -1107,13 +1108,13 @@ impl LauncherApp {
                 }
             }
             launching.store(false, Ordering::Relaxed);
-            // Steam мог обновить игры - перечитать диск и заново проверить обновления.
+            // Steam may have updated games - rescan the disk and check for updates again.
             rescan.store(true, Ordering::Relaxed);
             ctx.request_repaint();
         });
     }
 
-    /// Все игры (купленные и установленные) без фильтров и сортировки.
+    /// All games (owned and installed) without filters and sorting.
     fn row_map(&self, net: &NetState) -> HashMap<u32, Row> {
         let mut map: HashMap<u32, Row> = HashMap::new();
         for g in net.owned.iter() {
@@ -1154,7 +1155,7 @@ impl LauncherApp {
                     owner: None,
                 });
         }
-        // Семейная библиотека: чужие игры, которых нет среди своих.
+        // Family library: other members' games that are not among our own.
         let own: std::collections::HashSet<u32> = net.owned.iter().map(|g| g.app_id).collect();
         for f in net.family.iter() {
             if own.contains(&f.app_id) {
@@ -1178,14 +1179,14 @@ impl LauncherApp {
         for r in map.values_mut() {
             r.last_played = self.last_played.get(&r.appid).copied().unwrap_or(0);
         }
-        // Сторонние игры (кнопка «Добавить игру»).
+        // Non-Steam games ("Add a game" button).
         for r in self.custom_rows() {
             map.insert(r.appid, r);
         }
         map
     }
 
-    /// Строки библиотеки с фильтрами (поиск, «только установленные», коллекция) и сортировкой.
+    /// Library rows with filters (search, "installed only", collection) and sorting.
     fn rows(&self, net: &NetState) -> Vec<Row> {
         let map = self.row_map(net);
         let colls = net.collections.as_deref().unwrap_or(&[]);
@@ -1200,8 +1201,8 @@ impl LauncherApp {
         let mut rows: Vec<Row> = map
             .into_values()
             .filter(|r| !self.only_installed || r.installed)
-            // Коллекция: выбранная - только ее игры; «все игры» - без «Скрытых», как в Steam.
-            // «Семейная библиотека» - только игры семьи; в «Все игры» - по галочке в настройках.
+            // Collection: when selected - only its games; "all games" - without "Hidden", as in Steam.
+            // "Family library" - only family games; in "All games" - by the checkbox in settings.
             .filter(|r| match (self.collection.as_deref(), selected) {
                 (Some(FAMILY), _) => r.family,
                 (Some(UNPLAYED), _) => !r.family && r.playtime_min == Some(0) && !hidden.contains(&r.appid),
@@ -1212,7 +1213,7 @@ impl LauncherApp {
             })
             .filter(|r| r.name.to_lowercase().contains(&filter))
             .collect();
-        // Жанр: первые 8 меток магазина игры (как самые заметные метки на странице в Steam).
+        // Genre: the game's first 8 store tags (like the most prominent tags on the Steam page).
         if let Some(g) = &self.genre {
             let st = net.store.lock().unwrap();
             rows.retain(|r| {
@@ -1221,7 +1222,7 @@ impl LauncherApp {
         }
         let by_name = |a: &Row, b: &Row| a.name.to_lowercase().cmp(&b.name.to_lowercase());
         match self.settings.sort {
-            // Как в Steam: просто по имени (только установленные - галочкой).
+            // As in Steam: just by name (installed only - by the checkbox).
             settings::Sort::Name => rows.sort_by(by_name),
             settings::Sort::LastPlayed => {
                 rows.sort_by(|a, b| b.last_played.cmp(&a.last_played).then(b.installed.cmp(&a.installed)).then(by_name(a, b)))
@@ -1235,16 +1236,16 @@ impl LauncherApp {
     }
 
     fn friends_panel(&mut self, ui: &mut egui::Ui, net: &NetState) {
-        // Снимок списка друзей: (id, имя, статус, игра, непрочитанные).
+        // Friend list snapshot: (id, name, status, game, unread).
         let mut unknown_apps: Vec<u32> = Vec::new();
         let mut list: Vec<(u64, String, u32, Option<String>, u32)> = {
             let roster = net.roster.read().unwrap();
             roster
                 .values()
-                // 3 = друг (EFriendRelationship); группы Steam (тип аккаунта 7) в этом же списке - их не показываем.
+                // 3 = friend (EFriendRelationship); Steam groups (account type 7) are in the same list - we hide them.
                 .filter(|f| f.relationship == 3 && (f.steam_id >> 52) & 0xF == 1)
                 .map(|f| {
-                    // Название игры: от Steam, из своей библиотеки, из уже узнанных, иначе номер.
+                    // Game name: from Steam, from our library, from already resolved ones, otherwise the id.
                     let game = f.game_name.clone().filter(|g| !g.is_empty()).or_else(|| {
                         let a = f.game_app_id.filter(|a| *a != 0)?;
                         let known = net
@@ -1257,14 +1258,14 @@ impl LauncherApp {
                             format!("игра {a}")
                         }))
                     });
-                    // Свой ник для друга (задан в Steam) - главным, имя в Steam - в скобках, как в Steam.
-                    // Имя еще не пришло (у друзей не в сети Steam присылает его чуть позже) - не показываем номер.
+                    // Own nickname for the friend (set in Steam) comes first, the Steam name in parentheses, as in Steam.
+                    // The name has not arrived yet (Steam sends it a bit later for offline friends) - do not show the id.
                     let persona = f.persona_name.clone().filter(|n| !n.is_empty()).unwrap_or_else(|| "загружается...".into());
                     let shown = match &f.nickname {
                         Some(n) => format!("{n} ({persona})"),
                         None => persona,
                     };
-                    // Подробный статус из игры (карта, счет), если игра его сообщает.
+                    // Detailed in-game status (map, score), if the game reports it.
                     let game = match (game, &f.rich_status) {
                         (Some(g), Some(rs)) => Some(format!("{g} · {rs}")),
                         (g, _) => g,
@@ -1279,13 +1280,13 @@ impl LauncherApp {
                 })
                 .collect()
         };
-        // Неизвестные названия запрашиваем один раз.
+        // Unknown names are requested once.
         unknown_apps.retain(|a| self.requested_apps.insert(*a));
         if !unknown_apps.is_empty() {
             let _ = self.tx.send(Cmd::ResolveApps(unknown_apps));
         }
         let online = list.iter().filter(|f| f.2 != 0).count();
-        // Порядок: с новыми сообщениями, в игре, в сети, не в сети; внутри - по имени.
+        // Order: with new messages, in game, online, offline; within each - by name.
         let rank = |f: &(u64, String, u32, Option<String>, u32)| {
             if f.4 > 0 {
                 0
@@ -1297,14 +1298,14 @@ impl LauncherApp {
                 3
             }
         };
-        // Избранные - наверху (после друзей с новыми сообщениями).
+        // Favorites on top (after friends with new messages).
         let favs = self.settings.fav_friends.clone();
         list.sort_by(|a, b| {
             let fa = a.4 == 0 && favs.contains(&a.0);
             let fb = b.4 == 0 && favs.contains(&b.0);
             (a.4 == 0).cmp(&(b.4 == 0)).then(fb.cmp(&fa)).then(rank(a).cmp(&rank(b))).then(a.1.to_lowercase().cmp(&b.1.to_lowercase()))
         });
-        // Аватарки (хэш из статуса друга): avatars.fastly.steamstatic.com/<хэш>.jpg - 32x32.
+        // Avatars (hash from the friend status): avatars.fastly.steamstatic.com/<hash>.jpg - 32x32.
         let avatars: HashMap<u64, String> = net
             .roster
             .read()
@@ -1314,7 +1315,7 @@ impl LauncherApp {
             .collect();
         let notes = self.settings.friend_notes.clone();
 
-        // Заголовок с меню, заявки в друзья.
+        // Header with the menu, friend requests.
         self.friends_header(ui, net);
         if list.is_empty() {
             ui.horizontal(|ui| {
@@ -1334,7 +1335,7 @@ impl LauncherApp {
         let filter = self.friend_filter.to_lowercase();
         let mut open = None;
         let mut friend_act = None;
-        // Группы, как в Steam: избранные, в игре, в сети, не в сети (со сворачиванием).
+        // Groups, as in Steam: favorites, in game, online, offline (collapsible).
         let group_of = |f: &(u64, String, u32, Option<String>, u32)| -> u8 {
             if favs.contains(&f.0) {
                 3
@@ -1360,7 +1361,7 @@ impl LauncherApp {
             if members.is_empty() {
                 continue;
             }
-            // Заголовок группы: щелчок сворачивает (при поиске все группы раскрыты).
+            // Group header: a click collapses it (all groups are expanded while searching).
             let closed = filter.is_empty() && self.settings.friend_groups_closed.contains(&gid);
             let head = ui
                 .horizontal(|ui| {
@@ -1398,10 +1399,10 @@ impl LauncherApp {
                 if *unread > 0 {
                     title = title.strong();
                 }
-                // Вся строка (аватар, имя, статус) - одна кнопка на всю ширину панели.
+                // The whole row (avatar, name, status) is one button across the panel width.
                 let block = ui
                     .horizontal(|ui| {
-                    // Аватар с рамкой цвета статуса, как в Steam.
+                    // Avatar with a status-colored border, as in Steam.
                     let (ar, _) = ui.allocate_exact_size(egui::vec2(32.0, 32.0), egui::Sense::hover());
                     match avatars.get(id) {
                         Some(u) => {
@@ -1436,7 +1437,7 @@ impl LauncherApp {
                 let resp = ui
                     .interact(rect, ui.id().with(("friend", *id)), egui::Sense::click())
                     .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    // Мини-профиль при наведении, как в Steam: крупный аватар, имя, статус, заметка.
+                    // Mini profile on hover, as in Steam: large avatar, name, status, note.
                     .on_hover_ui(|ui| {
                         ui.horizontal(|ui| {
                             let (ar, _) = ui.allocate_exact_size(egui::vec2(64.0, 64.0), egui::Sense::hover());
@@ -1469,7 +1470,7 @@ impl LauncherApp {
                 if resp.clicked() {
                     open = Some((*id, name.clone()));
                 }
-                // Правый щелчок: профиль, написать, удалить из друзей.
+                // Right click: profile, message, remove from friends.
                 socialwin::friend_menu(&resp, *id, name, favs.contains(id), &mut friend_act);
                 ui.add_space(4.0);
             }
@@ -1494,22 +1495,22 @@ impl LauncherApp {
         if !net.chats.get(&id).is_some_and(|c| c.history_loaded) {
             let _ = self.tx.send(Cmd::OpenChat(id));
         }
-        // Тот же друг - просто оставляем окно; другой - переключаем окно на него.
-        // Окно уже открыто - новая беседа открывается вкладкой (как в Steam).
+        // The same friend - just keep the window; another one - switch the window to them.
+        // The window is already open - a new conversation opens as a tab (as in Steam).
         let mut chat = self.chat.lock().unwrap();
         match chat.as_mut() {
             Some(c) => c.switch_to(id, name),
             None => *chat = Some(chatwin::ChatWin::new(id, name)),
         }
         drop(chat);
-        // Если окно чата уже открыто, вынести его на передний план (команда несуществующему окну
-        // создала бы пустое «egui window»).
+        // If the chat window is already open, bring it to the front (a command to a nonexistent window
+        // would create an empty "egui window").
         if notify::chat_open() {
             ctx.send_viewport_cmd_to(chatwin::viewport_id(), egui::ViewportCommand::Focus);
         }
     }
 
-    /// «Уже скачана...»: выбрать папку игры в steamapps\common и добавить ее в Steam.
+    /// "Already downloaded...": pick the game folder in steamapps\common and add it to Steam.
     fn import_game(&mut self, appid: u32, name: String) {
         if self.steam_running() {
             *self.launch_status.lock().unwrap() = "Закройте Steam, чтобы добавить игру (кнопка «Закрыть Steam» внизу).".into();
@@ -1521,7 +1522,7 @@ impl LauncherApp {
         else {
             return;
         };
-        // Ожидаем <библиотека>\steamapps\common\<папка игры>.
+        // We expect <library>\steamapps\common\<game folder>.
         let library = dir
             .parent()
             .filter(|p| p.file_name().is_some_and(|n| n.eq_ignore_ascii_case("common")))
@@ -1541,9 +1542,9 @@ impl LauncherApp {
         }
     }
 
-    /// Раздел вместо библиотеки: магазин, инвентарь или Мастерская.
+    /// A section instead of the library: store, inventory or Workshop.
     fn section_view(&mut self, ui: &mut egui::Ui, net: &NetState) {
-        // Раздел открыт отдельным окном - здесь только подсказка.
+        // The section is open in a separate window - only a hint here.
         let detached = match self.view {
             View::Store => self.store_detached.then_some("Магазин"),
             View::Inventory => self.inv_detached.then_some("Инвентарь"),
@@ -1602,14 +1603,14 @@ impl LauncherApp {
         }
     }
 
-    /// Левая колонка библиотеки, как в Steam: «Главная», поиск, коллекция, фильтры и список игр.
-    /// Поиск и фильтры библиотеки: в левой колонке или (toolbar) строкой над таблицей.
+    /// Library left column, as in Steam: "Home", search, collection, filters and the game list.
+    /// Library search and filters: in the left column or (toolbar) as a row above the table.
     fn library_filters(&mut self, ui: &mut egui::Ui, net: &NetState, toolbar: bool) {
-        // Без числа: поиск идет по всем играм библиотеки (свои, семейные, сторонние), а число
-        // «своих» (228) рядом с заголовком «Все игры (345)» сбивало с толку.
+        // No count: the search covers all library games (own, family, non-Steam), and the count
+        // of "own" ones (228) next to the "All games (345)" title was confusing.
         let hint = "Поиск по названию";
         ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text(hint).desired_width(if toolbar { 220.0 } else { f32::INFINITY }));
-                    // Коллекции Steam (правый щелчок по игре - добавить в коллекцию).
+                    // Steam collections (right click on a game - add to a collection).
                     if let Some(colls) = net.collections.as_ref() {
                         let current = self
                             .collection
@@ -1622,7 +1623,7 @@ impl LauncherApp {
                             .or_else(|| (self.collection.as_deref() == Some(UPDATES)).then(|| "Есть обновление".to_string()))
                             .unwrap_or_else(|| "Все игры".into());
                         let family_n = self.row_map(&net).values().filter(|r| r.family).count();
-                        // Своя (не встроенная и не по фильтру) коллекция: переименовать, удалить.
+                        // Own collection (not built-in and not filter-based): rename, delete.
                         let own = self
                             .collection
                             .as_ref()
@@ -1731,8 +1732,8 @@ impl LauncherApp {
         }
     }
 
-    /// Выбор жанра. Метки берутся из магазина: при первом открытии списка запрашиваются
-    /// подробности всех игр библиотеки (по 50 за запрос).
+    /// Genre choice. Tags come from the store: the first time the list is opened, details of
+    /// all library games are requested (50 per request).
     fn genre_combo(&mut self, ui: &mut egui::Ui, net: &NetState, toolbar: bool) {
         let ids: Vec<u32> = self.row_map(net).keys().copied().filter(|id| *id < crate::custom::BASE).collect();
         let (genres, loaded) = {
@@ -1792,7 +1793,7 @@ impl LauncherApp {
         ui.add_space(4.0);
         self.library_filters(ui, net, false);
         ui.add_space(2.0);
-        // В табличном виде игры уже показаны таблицей справа - второй список не нужен.
+        // In the table view games are already shown as the table on the right - a second list is not needed.
         let table = self.settings.view == settings::View::List || !self.settings.covers;
         if table {
             return out;
@@ -1804,8 +1805,8 @@ impl LauncherApp {
         out
     }
 
-    /// В фоне (окно в трее или идет игра, а Vaporust не активен) - выгрузить картинки и отдать
-    /// память системе: она нужнее игре. Повторяем раз в минуту, пока Vaporust в фоне.
+    /// In the background (window in the tray or a game running, and Vaporust not active) - unload images
+    /// and give memory back to the system: the game needs it more. Repeated once a minute while in the background.
     fn memory_tick(&mut self, ctx: &egui::Context) {
         let game = local::RUNNING.lock().unwrap().is_some();
         let background = notify::in_tray() || (game && !ctx.input(|i| i.focused));
@@ -1829,11 +1830,11 @@ impl LauncherApp {
         if net.account.is_some() {
             self.top_nav(ui, net);
         } else if self.settings.local_mode {
-            // Режим без входа: только установленные игры и запуск через Steam.
+            // No-login mode: only installed games and launching via Steam.
             ui.horizontal_wrapped(|ui| {
                 ui.label(egui::RichText::new("Режим без входа в аккаунт").strong());
                 ui.weak("Установленные игры из файлов Steam, запуск через Steam. Пароль Steam в Vaporust не вводится.");
-                // Верхнего меню без входа нет: библиотека и настройки - здесь.
+                // There is no top menu without login: library and settings are here.
                 if ui.selectable_label(self.view == View::Library, "Библиотека").clicked() {
                     self.view = View::Library;
                 }
@@ -1888,7 +1889,7 @@ impl LauncherApp {
                 ui.end_row();
             });
             ui.horizontal(|ui| {
-                // Пока ждем QR, можно передумать и войти паролем (ожидание QR прервется).
+                // While waiting for the QR code, the user can change their mind and log in with a password (the QR wait is interrupted).
                 let waiting_qr = net.qr_url.is_some();
                 let can = (!net.busy || waiting_qr) && !self.login_user.is_empty() && !self.login_pass.is_empty();
                 if ui.add_enabled(can, egui::Button::new("Войти")).clicked() {
@@ -1935,7 +1936,7 @@ impl LauncherApp {
         }
     }
 
-    /// Достижения игры - страница главного окна (раздел «Библиотека»).
+    /// Game achievements - a page of the main window ("Library" section).
     fn achievements_contents(&mut self, ui: &mut egui::Ui, net: &NetState) {
         let Some((appid, name)) = self.ach_open.clone() else {
             return;
@@ -1972,7 +1973,7 @@ impl LauncherApp {
                                 .text(format!("{}%", done * 100 / list.len().max(1))),
                         );
                     });
-                    // Порядок, фильтр, сравнение с другом.
+                    // Order, filter, comparison with a friend.
                     ui.horizontal_wrapped(|ui| {
                         egui::ComboBox::from_id_salt("ach_sort")
                             .selected_text(ACH_SORTS[st.sort as usize])
@@ -2013,7 +2014,7 @@ impl LauncherApp {
                             }
                         });
                     });
-                    // Достижения друга: ✔/✖ по имени API.
+                    // Friend achievements: ✔/✖ by API name.
                     let friend_map: Option<HashMap<&str, bool>> = match st.friend.map(|f| net.friend_achievements.get(&(appid, f))) {
                         Some(Some(Ok(v))) => {
                             let got = v.iter().filter(|a| a.unlocked).count();
@@ -2142,20 +2143,20 @@ fn fmt_hours(min: u32) -> String {
     }
 }
 
-/// `:имя:` своих смайликов -> ːимяː, как их набирают в Steam.
+/// `:name:` of own emoticons -> ːnameː, the way they are typed in Steam.
 fn emoticons_to_bbcode(text: &str, net: &NetState) -> String {
     let Some((emoticons, _)) = &net.emoticons else {
         return text.to_string();
     };
     let mut out = text.to_string();
     for name in emoticons {
-        // Steam ждет смайлик как ːимяː (U+02D0); тег [emoticon] сервер вырезает.
+        // Steam expects an emoticon as ːnameː (U+02D0); the server strips the [emoticon] tag.
         out = out.replace(&format!(":{name}:"), &format!("ː{name}ː"));
     }
     out
 }
 
-/// Нажата ли сейчас клавиша V (физически).
+/// Whether the V key is physically pressed right now.
 #[cfg(windows)]
 fn key_v_down() -> bool {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
@@ -2167,9 +2168,9 @@ fn key_v_down() -> bool {
     false
 }
 
-/// Картинка из буфера обмена во временный PNG-файл. Подходит и картинка
-/// (скриншот, «Копировать изображение» в браузере), и файл-картинка, скопированный в Проводнике.
-/// Ok(None) - в буфере нет картинки.
+/// Clipboard image to a temporary PNG file. Works both for an image
+/// (screenshot, "Copy image" in a browser) and for an image file copied in Explorer.
+/// Ok(None) - no image in the clipboard.
 fn clipboard_image_file() -> Result<Option<std::path::PathBuf>, String> {
     let mut cb = arboard::Clipboard::new().map_err(|e| format!("Буфер обмена недоступен: {e}"))?;
     if let Ok(img) = cb.get_image() {
@@ -2197,13 +2198,13 @@ fn clipboard_image_file() -> Result<Option<std::path::PathBuf>, String> {
     Ok(None)
 }
 
-/// Один кусок сообщения чата: текст, ссылка, картинка, смайлик или стикер.
-/// Картинки грузятся с серверов Steam при первом показе (egui_extras), пока грузятся - крутится значок.
+/// One piece of a chat message: text, link, image, emoticon or sticker.
+/// Images load from Steam servers on first display (egui_extras), a spinner turns while loading.
 fn draw_seg(ui: &mut egui::Ui, seg: chatfmt::Seg, anims: &mut anim::Cache, who: &str) {
     use chatfmt::Seg;
     match seg {
         Seg::Spoiler(t) => {
-            // Как в Steam: скрыто темной плашкой, щелчок показывает (до перерисовки окна).
+            // As in Steam: hidden by a dark bar, a click reveals it (until the window repaints).
             let id = ui.id().with(("spoiler", &t));
             let shown = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
             if shown {
@@ -2225,7 +2226,7 @@ fn draw_seg(ui: &mut egui::Ui, seg: chatfmt::Seg, anims: &mut anim::Cache, who: 
             });
         }
         Seg::Quote { author, text } => {
-            // Цитата: полоска слева, кто сказал и текст.
+            // Quote: a stripe on the left, who said it and the text.
             let resp = egui::Frame::none().inner_margin(egui::Margin { left: 10.0, right: 4.0, top: 2.0, bottom: 2.0 }).show(ui, |ui| {
                 ui.vertical(|ui| {
                     if let Some(a) = author {
@@ -2251,7 +2252,7 @@ fn draw_seg(ui: &mut egui::Ui, seg: chatfmt::Seg, anims: &mut anim::Cache, who: 
                 .on_hover_text(format!(":{name}:"));
         }
         Seg::RoomEffect(kind) => {
-            // Как в Steam: значок эффекта, «… запускает воздушные шарики!» и кнопка повтора.
+            // As in Steam: effect icon, "... launches balloons!" and a replay button.
             ui.add(egui::Image::new(effects::icon_url(&kind)).fit_to_exact_size(egui::vec2(28.0, 28.0)));
             ui.label(egui::RichText::new(effects::label(&kind, who)).italics());
             let known = effects::KNOWN.iter().any(|(n, _)| n.eq_ignore_ascii_case(&kind));
@@ -2260,22 +2261,22 @@ fn draw_seg(ui: &mut egui::Ui, seg: chatfmt::Seg, anims: &mut anim::Cache, who: 
             }
         }
         Seg::Sticker(name) => {
-            // Точный размер (с max_size egui ужимает до высоты строки); APNG анимируем сами.
+            // Exact size (with max_size egui shrinks it to the line height); APNG is animated by us.
             anims
                 .show(ui, &chatfmt::sticker_url(&name), egui::vec2(128.0, 128.0))
                 .on_hover_text(format!("Стикер: {name}"));
         }
         Seg::Image { url, size } => {
-            // Размер известен - сразу резервируем место, чтобы переписка не прыгала при загрузке.
+            // Size known - reserve the space right away so the conversation does not jump while loading.
             let max = egui::vec2(360.0, 280.0);
-            // Показываем уменьшенную копию Steam (до 512 точек), а не оригинал: меньше памяти и работы видеокарте.
+            // Show Steam's reduced copy (up to 512 points), not the original: less memory and GPU work.
             let img = egui::Image::new(imgload::still_if_needed(&chatfmt::thumbnail_url(&url))).sense(egui::Sense::click());
             let img = match size {
                 Some((w, h)) => {
                     let k = (max.x / w).min(max.y / h).min(1.0);
                     img.fit_to_exact_size(egui::vec2(w * k, h * k))
                 }
-                // Размер неизвестен: квадрат по меньшей стороне, картинка впишется в него.
+                // Size unknown: a square by the smaller side, the image fits into it.
                 None => img.fit_to_exact_size(egui::vec2(max.y, max.y)),
             };
             let resp = ui
@@ -2289,7 +2290,7 @@ fn draw_seg(ui: &mut egui::Ui, seg: chatfmt::Seg, anims: &mut anim::Cache, who: 
     }
 }
 
-/// Дата последнего запуска: «сегодня», «вчера» или «03.11.2026».
+/// Last launch date: "сегодня", "вчера" or "03.11.2026".
 fn fmt_day(unix: u64) -> String {
     use chrono::{Local, TimeZone};
     let Some(t) = Local.timestamp_opt(unix as i64, 0).single() else {
@@ -2303,7 +2304,7 @@ fn fmt_day(unix: u64) -> String {
     }
 }
 
-/// Время сообщения: «14:05» сегодня, «03.11 14:05» раньше.
+/// Message time: "14:05" today, "03.11 14:05" earlier.
 fn fmt_time(unix: u64) -> String {
     use chrono::{Local, TimeZone};
     match Local.timestamp_opt(unix as i64, 0).single() {
@@ -2324,19 +2325,19 @@ fn fmt_eta(secs: u64) -> String {
 }
 
 impl eframe::App for LauncherApp {
-    /// Фон под панелями: полностью прозрачный (у окна уведомлений видны скругленные углы;
-    /// у обычных окон фон и так закрыт панелями, а прозрачность окна выключена).
+    /// Background under the panels: fully transparent (the notification window shows rounded corners;
+    /// in normal windows the background is covered by panels anyway, and window transparency is off).
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         [0.0, 0.0, 0.0, 0.0]
     }
 
-    /// Прокрутку и раскрытые блоки между запусками не запоминаем: библиотека, как в Steam,
-    /// открывается сверху. Все нужное (вид, масштаб, окно) хранится в своих настройках.
+    /// Scroll positions and expanded blocks are not remembered between runs: the library, as in Steam,
+    /// opens at the top. Everything needed (view, scale, window) is kept in our own settings.
     fn persist_egui_memory(&self) -> bool {
         false
     }
 
-    /// eframe вызывает при выходе и периодически (раз в 30 с).
+    /// eframe calls this on exit and periodically (every 30 s).
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         self.settings.window = if self.settings.remember_window {
             winpos::read(self.settings.window).or(self.settings.window)
@@ -2355,8 +2356,8 @@ impl eframe::App for LauncherApp {
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let frame_start = std::time::Instant::now();
-        // Память: при переходе в другой раздел картинки прежнего не нужны - чистим кэш;
-        // и следим за пределом кэша картинок.
+        // Memory: when switching sections, images of the previous one are not needed - clear the cache;
+        // and keep an eye on the image cache limit.
         let place = (self.view, self.lib_page);
         if self.mem_place != Some(place) {
             if self.mem_place.is_some() {
@@ -2369,8 +2370,8 @@ impl eframe::App for LauncherApp {
         imgload::ECONOMY.store(self.settings.economy, Ordering::Relaxed);
         imgload::budget_tick(ctx);
         self.memory_tick(ctx);
-        // Снимок сетевого состояния на кадр, чтобы не держать блокировку. Копируем заново только
-        // когда состояние поменялось (и на всякий случай раз в 2 с), иначе берем прошлую копию.
+        // Network state snapshot per frame so the lock is not held. Copied again only
+        // when the state changed (and every 2 s just in case), otherwise the previous copy is used.
         let gen = self.net.gen();
         if gen != self.net_gen || self.net_snap_at.elapsed() >= std::time::Duration::from_secs(2) {
             self.net_snap = self.net.lock().unwrap().clone();
@@ -2381,7 +2382,7 @@ impl eframe::App for LauncherApp {
         let net_gen = std::mem::replace(&mut self.net_gen, u64::MAX);
         self.tour_tick(ctx, &net);
 
-        // Непрочитанные сообщения: число в заголовке окна; когда все прочитано - убрать точку в трее.
+        // Unread messages: a count in the window title; when everything is read - remove the tray dot.
         let unread: u32 = net.chats.values().map(|c| c.unread).sum();
         if unread != self.last_unread {
             self.last_unread = unread;
@@ -2392,7 +2393,7 @@ impl eframe::App for LauncherApp {
                 tray::set_unread(false);
             }
         }
-        // Размер и положение окна из прошлого запуска (до ухода в трей при автозапуске).
+        // Window size and position from the previous run (before going to the tray on autostart).
         if !self.window_placed && notify::main_hwnd() != 0 {
             self.window_placed = true;
             if let Some(p) = self.settings.window.filter(|_| self.settings.remember_window) {
@@ -2401,14 +2402,14 @@ impl eframe::App for LauncherApp {
                 }
             }
         }
-        // Автозапуск с Windows (--tray): окно сразу в трей, как только у него появился HWND.
+        // Start with Windows (--tray): the window goes to the tray as soon as it has an HWND.
         if self.start_hidden && notify::main_hwnd() != 0 {
             self.start_hidden = false;
             tray::hide_main();
         }
-        // Галочка «Крестик сворачивает в трей» живет в меню трея; сохраняем ее в настройках.
+        // The "Close button minimizes to tray" checkbox lives in the tray menu; we save it in settings.
         self.settings.close_to_tray = tray::close_to_tray();
-        // Крестик прячет окно в трей, если так настроено (кроме «Выход» из меню трея).
+        // The close button hides the window to the tray if configured (except "Exit" from the tray menu).
         if ctx.input(|i| i.viewport().close_requested())
             && tray::close_to_tray()
             && !tray::exit_requested()
@@ -2418,31 +2419,31 @@ impl eframe::App for LauncherApp {
         }
 
         self.auto_rescan(ctx);
-        // Установка закончилась (успешно или нет) - перечитываем диск.
+        // The install has finished (successfully or not) - rescan the disk.
         if net.disk_changed != self.seen_disk_changed {
             self.seen_disk_changed = net.disk_changed;
             self.rescan();
         }
-        // Steam закончил игру или обновление - перечитать диск и перепроверить обновления.
+        // Steam finished a game or an update - rescan the disk and recheck updates.
         if self.rescan_needed.swap(false, Ordering::Relaxed) {
             self.rescan();
             self.updates_checked = false;
         }
-        // Коллекции Steam - один раз после входа.
+        // Steam collections - once after login.
         if net.account.is_none() {
             self.colls_requested = false;
         } else if !self.colls_requested {
             self.colls_requested = true;
             let _ = self.tx.send(Cmd::Coll(colls::CollCmd::Load));
         }
-        // Сохраненный статус для друзей - после каждого входа.
+        // Saved friends status - after every login.
         if net.account.is_none() {
             self.persona_sent = false;
         } else if !self.persona_sent {
             self.persona_sent = true;
             let _ = self.tx.send(Cmd::SetPersona(self.settings.persona));
             self.send_aurelia_config();
-            // Свои эффекты комнаты: сразу - из сохраненного списка, свежий - из инвентаря в фоне.
+            // Own room effects: right away from the saved list, a fresh one from the inventory in the background.
             if net.chat_effects.is_none() {
                 self.net.lock().unwrap().chat_effects = Some(self.settings.chat_effects.clone());
             }
@@ -2451,7 +2452,7 @@ impl eframe::App for LauncherApp {
         if let Some(e) = net.chat_effects.as_ref().filter(|e| **e != self.settings.chat_effects) {
             self.settings.chat_effects = e.clone();
         }
-        // Проверка обновлений один раз после входа (и после работы Steam).
+        // Update check once after login (and after Steam work).
         if net.account.is_none() {
             self.updates_checked = false;
         } else if !self.updates_checked && !self.games.is_empty() {
@@ -2459,19 +2460,19 @@ impl eframe::App for LauncherApp {
             let list = self.games.iter().filter(|g| g.ready).map(|g| (g.appid, g.dir.clone())).collect();
             let _ = self.tx.send(Cmd::CheckUpdates(list));
         }
-        // Закрепленные версии: запуск после подготовки, откат, устаревшая маскировка.
+        // Pinned versions: launch after preparation, rollback, outdated masking.
         self.pin_tick(ctx, &mut net);
-        // Запуск без Steam: пришла таблица запуска.
+        // Launch without Steam: the launch table has arrived.
         self.direct_tick();
         let installing = net.install.as_ref().is_some_and(|i| i.active());
-        // Перерисовка: во время загрузки или запуска игры - раз в секунду (полоса прогресса, статус),
-        // в покое - раз в 5 с (кнопка «Закрыть Steam», если Steam запустили вручную).
-        // Пока идет игра, а окно Vaporust не активно, - реже (статус в фоне никто не смотрит).
+        // Repaint: during a download or game launch - once a second (progress bar, status),
+        // when idle - every 5 s (the "Close Steam" button if Steam was started manually).
+        // While a game runs and the Vaporust window is not active - less often (nobody looks at the status).
         let game_bg = local::RUNNING.lock().unwrap().is_some() && !ctx.input(|i| i.focused);
         let busy = installing || (!game_bg && (self.launching.load(Ordering::Relaxed) || self.closing.load(Ordering::Relaxed)));
         ctx.request_repaint_after(std::time::Duration::from_secs(if busy { 1 } else { 5 }));
 
-        // Рамка окон: своя или обычная Windows (переключается сразу).
+        // Window frame: own or the normal Windows one (switches right away).
         winframe::set_system(self.settings.system_frame);
         if self.frame_applied != Some(self.settings.system_frame) {
             self.frame_applied = Some(self.settings.system_frame);
@@ -2479,13 +2480,13 @@ impl eframe::App for LauncherApp {
         }
         winframe::heal_client_size(ctx);
         winframe::diag_once(ctx);
-        // Windows упорно рисует свой заголовок поверх своей рамки - включить обычную рамку Windows.
+        // Windows insists on drawing its title bar over our frame - switch to the normal Windows frame.
         if let Some(m) = winframe::caption_forced() {
             self.settings.system_frame = true;
             errlog::write("окно", &format!("Windows рисует свой заголовок ({m}): включена обычная рамка Windows"));
             ctx.request_repaint();
         }
-        // Проверка рамки - в первые 10 с после запуска (дальше перерисовка как обычно, без лишних кадров).
+        // Frame check - during the first 10 s after start (then repaint as usual, without extra frames).
         if !self.settings.system_frame && ctx.input(|i| i.time) < 10.0 {
             ctx.request_repaint_after(std::time::Duration::from_millis(500));
         }
@@ -2495,9 +2496,9 @@ impl eframe::App for LauncherApp {
             } else {
                 concat!("Vaporust ", env!("CARGO_PKG_VERSION")).to_string()
             };
-            let _ = &title; // название окна - на панели задач (ViewportCommand::Title выше)
-            // Как в Steam: отдельной полосы заголовка нет - кнопки окна в строке разделов справа,
-            // окно перетаскивается за пустое место этой строки.
+            let _ = &title; // the window name is on the taskbar (ViewportCommand::Title above)
+            // As in Steam: there is no separate title bar - window buttons are on the right of the section row,
+            // the window is dragged by the empty space of that row.
             winframe::frame_only(ctx);
             let own_frame = !winframe::system();
             let top_frame = egui::Frame::none().fill(theme::TOP).inner_margin(if own_frame {
@@ -2510,10 +2511,10 @@ impl eframe::App for LauncherApp {
                 winframe::drag_behind(ui, drag_id);
                 ui.horizontal(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        // Колокольчик вплотную к кнопкам окна, как одна группа.
+                        // The bell right next to the window buttons, as one group.
                         ui.spacing_mut().item_spacing.x = 0.0;
                         winframe::window_buttons(ui, 34.0);
-                        // Колокольчик - той же ячейкой и на той же линии, что кнопки окна.
+                        // The bell is in the same cell and on the same line as the window buttons.
                         self.steam_notifs_button(ui, &net);
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             self.account_panel(ui, &net);
@@ -2533,7 +2534,7 @@ impl eframe::App for LauncherApp {
                 ui.add_space(2.0);
                 let full = ui.max_rect();
                 let row = ui.horizontal(|ui| {
-                    // Слева, как в Steam, - «Добавить игру».
+                    // On the left, as in Steam - "Add a game".
                     ui.menu_button(egui::RichText::new("+ Добавить игру").size(13.0), |ui| {
                         ui.set_min_width(220.0);
                         if ui.button("Добавить стороннюю игру...").on_hover_text("Игра или программа не из Steam").clicked() {
@@ -2555,7 +2556,7 @@ impl eframe::App for LauncherApp {
                             ui.close_menu();
                         }
                     });
-                    // Справа, как в Steam, - «Друзья и чат».
+                    // On the right, as in Steam - "Friends and chat".
                     if net.account.is_some() {
                         let unread: u32 = net.chats.values().map(|c| c.unread).sum();
                         let label = if unread > 0 { format!("Друзья и чат ({unread})") } else { "Друзья и чат".to_string() };
@@ -2564,12 +2565,12 @@ impl eframe::App for LauncherApp {
                         });
                     }
                 }).response.rect;
-                // Посередине, как в Steam, - «Загрузки».
+                // In the middle, as in Steam - "Downloads".
                 let center = egui::Rect::from_center_size(egui::pos2(full.center().x, row.center().y), egui::vec2(280.0, row.height()));
                 ui.allocate_new_ui(egui::UiBuilder::new().max_rect(center).layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight)), |ui| {
                     self.downloads_button(ui, &net);
                 });
-                // Заморозка steamwebhelper и прочие галочки - в «Настройках» (меню «Аккаунт»).
+                // Freezing steamwebhelper and other checkboxes are in "Settings" ("Account" menu).
                 ui.add_space(2.0);
             });
 
@@ -2582,8 +2583,8 @@ impl eframe::App for LauncherApp {
             }
 
             let ctrl = ctx.input(|i| i.modifiers.ctrl);
-            // Библиотека как в Steam: слева список игр с поиском и фильтрами, справа «Главная»
-            // (плитка или список) или страница выбранной игры.
+            // Library as in Steam: the game list with search and filters on the left, "Home" on the right
+            // (grid or list) or the selected game's page.
             let launching = self.launching.load(Ordering::Relaxed) || self.closing.load(Ordering::Relaxed);
             let rows = if self.view == View::Library { self.rows(&net) } else { Vec::new() };
             let queued: std::collections::HashSet<u32> =
@@ -2605,7 +2606,7 @@ impl eframe::App for LauncherApp {
                 status: &status_text,
             };
             let mut side_action = None;
-            // Компактный вид (таблица): без левой колонки, фильтры - строкой над таблицей.
+            // Compact view (table): no left column, filters as a row above the table.
             let table_mode = self.settings.view == settings::View::List || !self.settings.covers;
             if self.view == View::Library && !table_mode {
                 let side = egui::Frame::none().fill(theme::SIDEBAR).inner_margin(egui::Margin::symmetric(6.0, 6.0));
@@ -2617,16 +2618,16 @@ impl eframe::App for LauncherApp {
                     .show(ctx, |ui| side_action = self.library_sidebar(ui, &net, &rows, &vc));
             }
             egui::CentralPanel::default().show(ctx, |ui| {
-                // Магазин, инвентарь, Мастерская - вместо библиотеки, в этом же окне.
-                // У каждой страницы (и у каждой игры) своя прокрутка: иначе новая страница открывалась
-                // на месте, до которого прокрутили предыдущую (egui различает области прокрутки по id).
+                // Store, inventory, Workshop - instead of the library, in the same window.
+                // Each page (and each game) has its own scroll: otherwise a new page opened
+                // at the position the previous one was scrolled to (egui tells scroll areas apart by id).
                 let page_key = (self.view, self.lib_page, self.ach_open.as_ref().map(|a| a.0));
                 if self.view != View::Library {
                     ui.push_id(page_key, |ui| self.section_view(ui, &net));
                     return;
                 }
                 let page_row = self.lib_page.and_then(|id| self.row_map(&net).remove(&id));
-                // Для строки «играли за две недели» на странице игры - один раз загрузить активность друзей.
+                // For the "played in two weeks" line on the game page - load friends activity once.
                 if page_row.is_some() && !self.activity_ui.asked && net.account.is_some() && !net.roster.read().unwrap().is_empty() {
                     self.activity_ui.asked = true;
                     self.ask_activity(&net);
@@ -2635,12 +2636,12 @@ impl eframe::App for LauncherApp {
                     self.licenses_asked = true;
                     let _ = self.tx.send(Cmd::Licenses);
                 }
-                // В табличном виде левой колонки нет - вернуться к таблице кнопкой.
+                // The table view has no left column - go back to the table with a button.
                 if page_row.is_some() && table_mode && ui.button("< Все игры").clicked() {
                     self.lib_page = None;
                 }
                 let action = if let Some(r) = &page_row {
-                    // Страница игры: новости и онлайн - из данных магазина, достижения - из сети.
+                    // Game page: news and player count from store data, achievements from the network.
                     let store = net.store.lock().unwrap();
                     let ex = store.extras.get(&r.appid);
                     let note = self.settings.game_notes.get(&r.appid).cloned().unwrap_or_default();
@@ -2656,7 +2657,7 @@ impl eframe::App for LauncherApp {
                     };
                     libview::page(ui, r, &vc, &self.covers, &data, self.settings.covers)
                 } else {
-                    // «Главная»: заголовок, вид, «Во что поиграть?», затем плитка или список.
+                    // "Home": title, view, "What to play?", then the grid or the list.
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
                         let title = match &self.collection {
@@ -2699,19 +2700,19 @@ impl eframe::App for LauncherApp {
                         });
                     });
                     ui.add_space(4.0);
-                    // Таблица: поиск и фильтры строкой под заголовком (в плитке они в левой колонке, тоже под «Главная»).
+                    // Table: search and filters as a row under the title (in the grid view they are in the left column, also under "Home").
                     if table_mode {
-                        ui.horizontal_wrapped(|ui| self.library_filters(ui, &net, true)); // в узком окне фильтры переносятся
+                        ui.horizontal_wrapped(|ui| self.library_filters(ui, &net, true)); // in a narrow window the filters wrap
                         ui.add_space(4.0);
                     }
-                    // Без обложек (настройка «Производительность») - всегда список.
+                    // Without covers ("Performance" setting) - always the list.
                     if self.settings.view == settings::View::List || !self.settings.covers {
                         libview::list(ui, &rows, &vc, &self.covers, &mut self.settings.sort, self.settings.covers)
                     } else {
                         if self.collection.is_none() && self.filter.trim().is_empty() && self.genre.is_none() {
                             self.whats_new_shelf(ui, &net);
                         }
-                        // Полка «Недавние игры» - на «Все игры» без поиска, как в Steam.
+                        // The "Recent games" shelf - on "All games" without a search, as in Steam.
                         let recent: Vec<Row> = if self.collection.is_none() && self.filter.trim().is_empty() && self.genre.is_none() {
                             let mut r: Vec<Row> = rows.iter().filter(|r| r.last_played > 0).cloned().collect();
                             r.sort_by(|a, b| b.last_played.cmp(&a.last_played));
@@ -2724,8 +2725,8 @@ impl eframe::App for LauncherApp {
                     }
                 };
                 let action = side_action.take().or(action);
-                // Страница игры открыта (любым путем: щелчок, уведомление, меню) - один раз
-                // запросить достижения, новости и онлайн.
+                // A game page was opened (by any path: click, notification, menu) - request
+                // achievements, news and player count once.
                 if let Some(p) = self.lib_page {
                     if self.page_loaded != Some(p) && net.account.is_some() && !custom::is_custom(p) {
                         self.page_loaded = Some(p);
@@ -2733,9 +2734,9 @@ impl eframe::App for LauncherApp {
                             let _ = self.tx.send(Cmd::Achievements(p));
                         }
                         let _ = self.tx.send(Cmd::Store(store::StoreCmd::Page(p)));
-                        // Разработчик, издатель, дата выхода - из подробностей магазина.
+                        // Developer, publisher, release date - from store details.
                         let _ = self.tx.send(Cmd::Store(store::StoreCmd::Details(vec![p])));
-                        // DLC игры (что куплено) - для страницы.
+                        // Game DLC (what is owned) - for the page.
                         let _ = self.tx.send(Cmd::PageDlc(p));
                     }
                 } else {
@@ -2756,7 +2757,7 @@ impl eframe::App for LauncherApp {
                         self.view = View::Achievements;
                     }
                     Some(libview::Action::Page(appid)) => {
-                        // Достижения и новости запросятся выше, при показе страницы.
+                        // Achievements and news are requested above, when the page is shown.
                         self.lib_page = Some(appid);
                     }
                     Some(libview::Action::Store(appid)) => self.open_store(Some(appid), ctrl),
@@ -2795,8 +2796,8 @@ impl eframe::App for LauncherApp {
                 }
             });
         } else {
-            // В трее окно за краем экрана: интерфейс библиотеки не рисуем (экономия процессора),
-            // логика ниже (очередь, расписание, уведомления, чат) работает как обычно.
+            // In the tray the window is off-screen: the library UI is not drawn (saves CPU),
+            // the logic below (queue, schedule, notifications, chat) works as usual.
             egui::CentralPanel::default().show(ctx, |_| {});
         }
         self.schedule_tick(&net);
@@ -2813,7 +2814,7 @@ impl eframe::App for LauncherApp {
         self.status_popup();
         self.popup_clicks(ctx, &net);
         self.finish_tick(&net);
-        // Ход загрузки - на значке в трее (полоска и подсказка).
+        // Download progress - on the tray icon (bar and tooltip).
         tray::set_download(
             net.install
                 .as_ref()
@@ -2822,7 +2823,7 @@ impl eframe::App for LauncherApp {
         );
         self.zoom_tick(ctx);
         aurelia::steam_client::CELL_OVERRIDE.store(self.settings.download_cell, std::sync::atomic::Ordering::Relaxed);
-        // Раздел при запуске (настройка «При запуске открывать»).
+        // Startup section (the "Open on startup" setting).
         if !self.start_applied {
             self.start_applied = true;
             if self.settings.start_view == 1 {
@@ -2848,12 +2849,12 @@ impl eframe::App for LauncherApp {
 }
 
 fn main() -> eframe::Result<()> {
-    // Ярлык игры («--run <appid>»): если Vaporust уже открыт, передать ему просьбу и выйти.
+    // Game shortcut ("--run <appid>"): if Vaporust is already open, pass it the request and exit.
     if gamemisc::hand_over_run() {
         return Ok(());
     }
     gamemisc::mark_running();
-    // Портативный режим (portable.txt рядом с exe): данные - в папке VaporustData.
+    // Portable mode (portable.txt next to the exe): data goes into the VaporustData folder.
     let persistence_path = portable::init();
     accounts::init();
     errlog::install_panic_hook();
@@ -2861,17 +2862,17 @@ fn main() -> eframe::Result<()> {
         persistence_path,
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([960.0, 630.0])
-            // Не даем сжать окно до нечитаемого (и восстановить таким из сохраненных настроек).
+            // Do not let the window shrink to unreadable (or be restored like that from saved settings).
             .with_min_inner_size([760.0, 460.0])
-            // Постоянный идентификатор: по нему eframe хранит настройки (%APPDATA%Vaporust),
-            // поэтому они не теряются при смене версии в заголовке.
+            // Permanent identifier: eframe stores settings under it (%APPDATA%Vaporust),
+            // so they are not lost when the version in the title changes.
             .with_app_id("Vaporust")
-            // Своя рамка (winframe); обычная Windows включается в настройках с первого кадра.
+            // Own frame (winframe); the normal Windows one is enabled in settings from the first frame.
             .with_decorations(false)
             .with_icon(icons::icon(icons::Kind::Launcher)),
-        // Сначала - обычное окно посередине; сохраненные размер и положение ставит winpos (с
-        // проверкой, что окно помещается на монитор). Встроенное запоминание eframe выключено: окно
-        // открывалось то крошечным, то на весь экран.
+        // First - a normal window in the middle; saved size and position are applied by winpos (with
+        // a check that the window fits on the monitor). eframe's built-in memory is off: the window
+        // opened either tiny or full screen.
         persist_window: false,
         centered: true,
         ..Default::default()
@@ -2883,17 +2884,17 @@ fn main() -> eframe::Result<()> {
     )
 }
 
-/// Игра доступна только через семейную библиотеку (своей копии на аккаунте нет).
+/// The game is available only via the family library (no own copy on the account).
 pub(crate) fn is_family_only(net: &net::NetState, appid: u32) -> bool {
     !net.owned.iter().any(|g| g.app_id == appid) && net.family.iter().any(|f| f.app_id == appid)
 }
 
-/// Продолжить ли оборвавшуюся загрузку самой: не «Отмена»/«Пауза», ошибка сети, не больше 3 раз подряд.
+/// Whether to resume a broken download by itself: not "Cancel"/"Pause", a network error, at most 3 times in a row.
 fn should_resume(err: &str, user_stop: bool, tries: u8) -> bool {
     !user_stop && network_error(err) && tries < 3
 }
 
-/// Ошибка загрузки похожа на обрыв связи (а не на нехватку места, доступ и т.п.).
+/// The download error looks like a lost connection (not lack of space, access and the like).
 fn network_error(e: &str) -> bool {
     let t = e.to_lowercase();
     ["timed out", "timeout", "connection", "network", "cdn", "dns", "reset", "unreachable", "сет", "связ", "offline"]
@@ -2901,7 +2902,7 @@ fn network_error(e: &str) -> bool {
         .any(|w| t.contains(w))
 }
 
-/// Окно достижений: порядок, фильтр, друг для сравнения.
+/// Achievements window: order, filter, friend for comparison.
 #[derive(Default)]
 struct AchState {
     sort: u8,
@@ -2913,8 +2914,8 @@ const ACH_SORTS: [&str; 4] = ["Как в игре", "Сначала редкие
 const ACH_FILTERS: [&str; 3] = ["Все", "Полученные", "Не полученные"];
 
 impl LauncherApp {
-    /// Дополнительные разделы (скриншоты, хранилище, значки...) открываются по одному: открыть
-    /// новый - закрыть прежний, чтобы вкладки не копились в верхней панели. `keep` - открываемый.
+    /// Extra sections (screenshots, storage, badges...) open one at a time: opening
+    /// a new one closes the previous, so tabs do not pile up in the top bar. `keep` - the one being opened.
     pub(crate) fn close_extras(&mut self, keep: View) {
         if keep != View::Screenshots {
             self.shots_win = None;

@@ -1,15 +1,15 @@
-//! Методы Web API Steam с токеном входа (access_token) - так их вызывает сам клиент Steam
-//! и сайт: уведомления, значки, очки Steam, семья. Токен живет около суток, кэшируем его на час.
+//! Steam Web API methods with the login token (access_token) - the way the Steam client itself
+//! and the site call them: notifications, badges, Steam Points, family. The token lives about a day, we cache it for an hour.
 
 use aurelia::steam_client::SteamClient;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-/// Токен вместе с SteamID аккаунта, для которого он выдан: после выхода или входа в другой
-/// аккаунт чужой токен не используется.
+/// The token together with the SteamID of the account it was issued for: after a logout or a login into another
+/// account someone else's token is never used.
 static TOKEN: Mutex<Option<(u64, String, Instant)>> = Mutex::new(None);
 
-/// Забыть токен (выход из аккаунта, новый вход).
+/// Forget the token (logout, new login).
 pub fn clear_token() {
     *TOKEN.lock().unwrap() = None;
 }
@@ -25,7 +25,7 @@ async fn token(client: &SteamClient) -> Result<String, String> {
             return Ok(t);
         }
     }
-    // Сразу после входа Steam иногда не успевает ответить - вторая попытка через 3 с.
+    // Right after login Steam sometimes does not answer in time - a second attempt after 3 s.
     let t = match client.web_access_token().await {
         Ok(t) => t,
         Err(_) => {
@@ -37,7 +37,7 @@ async fn token(client: &SteamClient) -> Result<String, String> {
     Ok(t)
 }
 
-/// GET-метод: `iface/method/v1` и параметры. Ответ - поле "response".
+/// GET method: `iface/method/v1` and parameters. The answer is the "response" field.
 pub async fn get(client: &SteamClient, method: &str, params: &[(&str, String)]) -> Result<serde_json::Value, String> {
     let t = token(client).await?;
     let http = aurelia::core::net::steam_web_client().map_err(err)?;
@@ -48,7 +48,7 @@ pub async fn get(client: &SteamClient, method: &str, params: &[(&str, String)]) 
         url.push('=');
         url.push_str(&urlenc(v));
     }
-    // В адресе - ключ входа: из текста ошибки адрес убираем (without_url), чтобы ключ не попал на экран.
+    // The URL contains the login key: the URL is removed from the error text (without_url) so the key never shows on screen.
     let resp = http.get(url).send().await.map_err(|e| err(e.without_url()))?;
     let status = resp.status().as_u16();
     if status == 401 || status == 403 {
@@ -64,7 +64,7 @@ pub async fn get(client: &SteamClient, method: &str, params: &[(&str, String)]) 
     Ok(v.get("response").cloned().unwrap_or(v))
 }
 
-/// POST-метод (действия: отметить прочитанным, купить за очки и т.п.).
+/// POST method (actions: mark as read, buy for points and the like).
 pub async fn post(client: &SteamClient, method: &str, params: &[(&str, String)]) -> Result<serde_json::Value, String> {
     let t = token(client).await?;
     let http = aurelia::core::net::steam_web_client().map_err(err)?;
@@ -101,8 +101,8 @@ fn urlenc(s: &str) -> String {
 
 #[cfg(test)]
 mod live {
-    /// Живой тест (только чтение): какие методы Web API отвечают с нашим токеном. Печатает только
-    /// размеры и ключи ответа, без личных данных.
+    /// Live test (read only): which Web API methods answer with our token. Prints only
+    /// response sizes and keys, no personal data.
     #[test]
     #[ignore]
     fn webapi_live() {
@@ -133,8 +133,8 @@ mod live {
 
 
 
-/// Веб-сеанс сайта Steam на кэшированном токене (не выпрашивать новый токен на каждый запрос:
-/// при частых запросах Steam перестает их выдавать - «Response timed out»).
+/// Steam site web session on the cached token (do not beg for a new token on every request:
+/// with frequent requests Steam stops issuing them - "Response timed out").
 pub async fn web_session(client: &SteamClient) -> Result<aurelia::web::web_session::WebSession, String> {
     let t = token(client).await?;
     let me = client.my_steam_id().ok_or("нет входа")?;

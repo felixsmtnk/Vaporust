@@ -1,31 +1,31 @@
-//! Интерфейс площадки в инвентаре: заявки и график цены у предмета, продажа (своя цена,
-//! быстрая, мгновенная), «Снять с продажи», «Отменить заявку», вкладка «Обмены».
+//! Market UI in the inventory: item orders and price chart, selling (own price,
+//! quick, instant), "Remove listing", "Cancel order", the "Trades" tab.
 
 use crate::trade::{MarketCmd, OfferItem};
 use eframe::egui;
 
-/// Просьбы интерфейса инвентаря к сети (отправляет LauncherApp::drain_ui_req).
+/// Requests from the inventory UI to the network (sent by LauncherApp::drain_ui_req).
 pub static MARKET_REQ: std::sync::Mutex<Vec<MarketCmd>> = std::sync::Mutex::new(Vec::new());
 
 fn req(c: MarketCmd) {
     MARKET_REQ.lock().unwrap().push(c);
 }
 
-/// Окно продажи: что, сколько, цена для покупателя, откуда пришла цена.
+/// Sell window: what, how many, buyer price, where the price came from.
 #[derive(Clone)]
 pub struct SellDlg {
     pub appid: u32,
     pub ctx: u32,
     pub assetid: String,
     pub name: String,
-    /// market_hash_name предмета (к нему привязывается итог продажи).
+    /// The item's market_hash_name (the sale result is tied to it).
     pub hash: String,
     pub max_amount: u64,
     pub amount: u64,
-    /// Цена для покупателя, минимальные единицы.
+    /// Buyer price, minimal units.
     pub pay: i64,
     pub pay_text: String,
-    /// 0 - своя цена, 1 - быстрая, 2 - мгновенная.
+    /// 0 - own price, 1 - quick, 2 - instant.
     pub mode: u8,
 }
 
@@ -33,19 +33,19 @@ pub struct SellDlg {
 pub struct MarketUi {
     pub asked: std::collections::HashSet<(u32, String)>,
     pub sell: Option<SellDlg>,
-    /// Ждут второго нажатия: снять лот / отменить заявку (номер).
+    /// Waiting for a second click: remove listing / cancel order (id).
     pub confirm: Option<String>,
     pub offers_asked: bool,
-    /// Обмен: (номер, действие 0 принять / 1 отклонить / 2 отменить) - ждет подтверждения.
+    /// Trade: (id, action 0 accept / 1 decline / 2 cancel) - awaiting confirmation.
     pub offer_confirm: Option<(String, u8)>,
-    /// На сколько быстрая продажа дешевле самого дешевого лота (минимальные единицы; 0 - на один
-    /// шаг цены валюты). Берется из настроек каждый кадр.
+    /// How much cheaper quick sell is than the lowest listing (minimal units; 0 - by one
+    /// currency price step). Taken from settings every frame.
     pub undercut: i64,
 }
 
-/// Цена из поля ввода, в копейках/центах. Строго: только цифры и не больше одного
-/// разделителя («,» или «.») с 1-2 знаками после него, например «12», «12,5», «0.99».
-/// Любой другой текст («1.2.3», «12,345», «10р», «-5») - None, а не догадка.
+/// Price from the input field, in kopecks/cents. Strict: only digits and at most one
+/// separator ("," or ".") with 1-2 digits after it, for example "12", "12,5", "0.99".
+/// Any other text ("1.2.3", "12,345", "10р", "-5") - None, not a guess.
 fn parse_money(s: &str) -> Option<i64> {
     let t = s.trim();
     let (int, frac) = match t.find([',', '.']) {
@@ -60,7 +60,7 @@ fn parse_money(s: &str) -> Option<i64> {
         return None;
     }
     if t.contains([',', '.']) && frac.is_empty() {
-        return None; // «12,» - недописанная цена
+        return None; // "12," - an unfinished price
     }
     let whole: i64 = if int.is_empty() { 0 } else { int.parse().ok()? };
     let cents: i64 = match frac.len() {
@@ -76,7 +76,7 @@ fn fmt_plain(cents: i64) -> String {
     format!("{},{:02}", cents / 100, cents % 100)
 }
 
-/// Блок площадки у выбранного предмета: заявки, график цены, продажа.
+/// Market block of the selected item: orders, price chart, selling.
 pub fn market_block(ui: &mut egui::Ui, mk: &mut MarketUi, st: &crate::invent::InvState, appid: u32, ctx: u32, it: &aurelia::steam_client::InventoryItem) {
     let key = (appid, it.market_hash_name.clone());
     if st.wallet.is_some() && mk.asked.insert(key.clone()) {
@@ -132,17 +132,17 @@ pub fn market_block(ui: &mut egui::Ui, mk: &mut MarketUi, st: &crate::invent::In
             mode,
         };
         ui.add_space(4.0);
-        // Правила цен своей валюты (минимум, шаг, комиссии) приходят с кошельком. Без них цены не
-        // посчитать честно - продажу не предлагаем.
+        // Price rules of own currency (minimum, step, fees) come with the wallet. Without them prices
+        // cannot be computed honestly - selling is not offered.
         let Some(r) = rules(st, appid) else {
             ui.weak("Продажа недоступна: Steam не прислал правила цен для вашей валюты. Обновите кошелек (вкладка «Мои лоты») или продайте на сайте Steam.");
             return_with_msg(ui, mk, st, &key);
             return;
         };
         if let Some(Ok(sp)) = spread {
-            // Быстрая: дешевле самого дешевого лота на заданную сумму (по умолчанию - на один шаг цены
-            // валюты), но не ниже лучшей заявки и минимальной цены. Если самый дешевый лот уже по
-            // минимальной цене - быстрая продажа по ней же (дешевле Steam не разрешит).
+            // Quick: cheaper than the lowest listing by the given amount (one currency price step by
+            // default), but not below the best order and the minimum price. If the lowest listing is already
+            // at the minimum price - quick sell at that same price (Steam does not allow cheaper).
             let min_total = crate::trade::pay_for(r.market_minimum, &r);
             if sp.lowest_sell > 0 {
                 let cut = undercut_amount(mk.undercut, &r);
@@ -161,7 +161,7 @@ pub fn market_block(ui: &mut egui::Ui, mk: &mut MarketUi, st: &crate::invent::In
                     mk.sell = Some(base(1, pay));
                 }
             }
-            // Мгновенная: по самой высокой заявке - продается сразу.
+            // Instant: at the highest buy order - sells right away.
             if sp.highest_buy >= min_total {
                 let pay = effective(sp.highest_buy, &r);
                 if ui
@@ -182,9 +182,9 @@ pub fn market_block(ui: &mut egui::Ui, mk: &mut MarketUi, st: &crate::invent::In
     return_with_msg(ui, mk, st, &key);
 }
 
-/// Правила цен для предмета игры: минимум и шаг - из кошелька, комиссия игры - своя, если у игры
-/// она есть (market_pubfee_rate), иначе общая из кошелька. None - кошелек еще не загружен или
-/// Steam не прислал правила.
+/// Price rules for a game's item: minimum and step - from the wallet, the game fee - its own if the game
+/// has one (market_pubfee_rate), otherwise the common one from the wallet. None - the wallet is not loaded yet or
+/// Steam did not send the rules.
 fn rules(st: &crate::invent::InvState, appid: u32) -> Option<crate::trade::FeeRules> {
     let mut r = st.wallet.as_ref()?.as_ref().ok()?.fee_rules?;
     let app_fee = st.apps.as_ref().and_then(|a| a.as_ref().ok()).and_then(|apps| apps.iter().find(|a| a.appid == appid)).and_then(|a| a.pubfee);
@@ -194,8 +194,8 @@ fn rules(st: &crate::invent::InvState, appid: u32) -> Option<crate::trade::FeeRu
     Some(r)
 }
 
-/// На сколько дешевле быстрая продажа: заданная сумма, округленная вверх до шага цены валюты
-/// (меньше шага Steam не разрешит), 0 - один шаг.
+/// How much cheaper quick sell is: the given amount rounded up to the currency price step
+/// (Steam does not allow less than a step), 0 - one step.
 pub fn undercut_amount(setting: i64, r: &crate::trade::FeeRules) -> i64 {
     let step = r.currency_increment.max(1);
     if setting <= 0 {
@@ -204,17 +204,17 @@ pub fn undercut_amount(setting: i64, r: &crate::trade::FeeRules) -> i64 {
     ((setting + step - 1) / step) * step
 }
 
-/// Цена для покупателя, которую Steam выставит на самом деле, если покупатель готов заплатить
-/// `total`: Steam сначала переводит ее в «вы получите», а потом обратно с комиссиями и шагом цены.
+/// The buyer price Steam will actually set if the buyer is ready to pay
+/// `total`: Steam first converts it to "you receive", then back with fees and the price step.
 fn effective(total: i64, r: &crate::trade::FeeRules) -> i64 {
     crate::trade::pay_for(crate::trade::receive_for(total, r), r)
 }
 
-/// Хвост блока: сообщение о последнем действии и окно продажи.
+/// Block tail: a message about the last action and the sell window.
 fn return_with_msg(ui: &mut egui::Ui, mk: &mut MarketUi, st: &crate::invent::InvState, key: &(u32, String)) {
     if let Some(msg) = &st.trade.msg {
-        // Итог продажи - только у того предмета, который выставляли, и 90 секунд (потом, например,
-        // «подтвердите в телефоне» уже неактуально - продажу могли отменить).
+        // The sale result - only on the item that was listed, and for 90 seconds (after that, for example,
+        // "confirm on your phone" is no longer relevant - the sale may have been cancelled).
         let fresh = st.trade.msg_item.as_ref() == Some(key)
             && st.trade.msg_at.is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(90));
         if fresh {
@@ -226,14 +226,14 @@ fn return_with_msg(ui: &mut egui::Ui, mk: &mut MarketUi, st: &crate::invent::Inv
     sell_window(ui.ctx(), mk, st);
 }
 
-/// Окно подтверждения продажи: цена для покупателя, что получите вы, количество.
+/// Sale confirmation window: buyer price, what you receive, quantity.
 fn sell_window(ctx: &egui::Context, mk: &mut MarketUi, st: &crate::invent::InvState) {
     let Some(mut d) = mk.sell.take() else { return };
     let Some(r) = rules(st, d.appid) else { return };
     let cur = crate::invent::wallet_currency(st);
     let m = |c: i64| crate::invent::money(c, cur);
     let mut keep = true;
-    // Escape - отмена (запрос не отправляется).
+    // Escape - cancel (no request is sent).
     if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         return;
     }
@@ -251,12 +251,12 @@ fn sell_window(ctx: &egui::Context, mk: &mut MarketUi, st: &crate::invent::InvSt
             ui.horizontal(|ui| {
                 ui.label("Покупатель заплатит:");
                 if ui.add(egui::TextEdit::singleline(&mut d.pay_text).desired_width(80.0)).changed() {
-                    d.mode = 0; // своя цена: уже не «быстрая» и не «мгновенная»
+                    d.mode = 0; // own price: no longer "quick" or "instant"
                 }
             });
-            // Цена каждый кадр берется из того, что написано в поле сейчас: при ошибке не
-            // остается прежнее число, а продажа выключена. Дальше - ровно то, что сделает Steam:
-            // «вы получите» по правилам валюты и цена для покупателя после округления.
+            // The price is taken every frame from what is in the field now: on an error the previous
+            // number does not stay, and selling is disabled. Then exactly what Steam will do:
+            // "you receive" by the currency rules and the buyer price after rounding.
             let parsed = parse_money(&d.pay_text);
             if let Some(p) = parsed {
                 d.pay = p;
@@ -320,7 +320,7 @@ fn sell_window(ctx: &egui::Context, mk: &mut MarketUi, st: &crate::invent::InvSt
     }
 }
 
-/// Линия цены за последние 30 дней, с подсказкой при наведении.
+/// Price line for the last 30 days, with a tooltip on hover.
 fn price_chart(ui: &mut egui::Ui, h: &[(i64, f64, u64)], cur: u32) {
     let now = chrono::Utc::now().timestamp();
     let pts: Vec<&(i64, f64, u64)> = h.iter().filter(|p| p.0 > now - 30 * 86400).collect();
@@ -356,9 +356,9 @@ fn price_chart(ui: &mut egui::Ui, h: &[(i64, f64, u64)], cur: u32) {
     }
 }
 
-/// «Снять с продажи» у своего лота (второе нажатие подтверждает).
+/// "Remove listing" on own listing (a second click confirms).
 pub fn remove_lot_button(ui: &mut egui::Ui, mk: &mut MarketUi, id: &str, name: &str) {
-    if id.is_empty() || !crate::exp::on() {
+    if id.is_empty() {
         return;
     }
     ui.horizontal(|ui| {
@@ -371,15 +371,15 @@ pub fn remove_lot_button(ui: &mut egui::Ui, mk: &mut MarketUi, id: &str, name: &
             if ui.button("Нет").clicked() {
                 mk.confirm = None;
             }
-        } else if ui.small_button("Снять с продажи").clicked() {
+        } else if crate::exp::small_button(ui, "Снять с продажи").clicked() {
             mk.confirm = Some(id.to_string());
         }
     });
 }
 
-/// «Отменить заявку» у своей заявки на покупку.
+/// "Cancel order" on own buy order.
 pub fn cancel_order_button(ui: &mut egui::Ui, mk: &mut MarketUi, id: &str, name: &str) {
-    if id.is_empty() || !crate::exp::on() {
+    if id.is_empty() {
         return;
     }
     ui.horizontal(|ui| {
@@ -392,7 +392,7 @@ pub fn cancel_order_button(ui: &mut egui::Ui, mk: &mut MarketUi, id: &str, name:
             if ui.button("Нет").clicked() {
                 mk.confirm = None;
             }
-        } else if ui.small_button("Отменить заявку").clicked() {
+        } else if crate::exp::small_button(ui, "Отменить заявку").clicked() {
             mk.confirm = Some(id.to_string());
         }
     });
@@ -415,7 +415,7 @@ fn offer_items(ui: &mut egui::Ui, title: &str, items: &[OfferItem]) {
     });
 }
 
-/// Вкладка «Обмены»: активные входящие и свои предложения.
+/// "Trades" tab: active incoming and own offers.
 pub fn offers_tab(ui: &mut egui::Ui, st: &crate::invent::InvState, mk: &mut MarketUi) {
     if !mk.offers_asked {
         mk.offers_asked = true;

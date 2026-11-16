@@ -1,9 +1,9 @@
-//! Скрипты запуска: свои команды перед запуском игры и после ее выхода (для каждой игры свои).
+//! Launch scripts: own commands before a game launches and after it exits (per game).
 //!
-//! В Aurelia скрипт оборачивает команду запуска (Linux). Vaporust запускает игры через Steam,
-//! поэтому вместо обертки - команды до и после: например, включить программу для модов,
-//! сменить разрешение экрана, закрыть лишние программы. Команда выполняется как в cmd.exe
-//! (можно несколько через &&, можно запустить .bat), в папке игры. Переменные окружения:
+//! In Aurelia a script wraps the launch command (Linux). Vaporust launches games through Steam,
+//! so instead of a wrapper there are commands before and after: for example start a mod tool,
+//! change the screen resolution, close unneeded programs. The command runs as in cmd.exe
+//! (several via && are allowed, a .bat can be started), in the game folder. Environment variables:
 //! VAPORUST_APPID, VAPORUST_GAME_NAME, VAPORUST_GAME_DIR.
 
 use serde::{Deserialize, Serialize};
@@ -14,9 +14,9 @@ use std::time::{Duration, Instant};
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct GameScripts {
-    /// Команда перед запуском; игра запускается, когда она закончится (до 2 минут).
+    /// Command before launch; the game starts when it finishes (up to 2 minutes).
     pub before: String,
-    /// Команда после выхода из игры (Vaporust ее не ждет).
+    /// Command after the game exits (Vaporust does not wait for it).
     pub after: String,
 }
 
@@ -31,7 +31,7 @@ fn command(text: &str, appid: u32, name: &str, dir: &Path) -> Command {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        // Сама команда без окна консоли; программы, которые она запускает, - со своими окнами.
+        // The command itself without a console window; programs it starts get their own windows.
         c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
         c.raw_arg(format!("/D /C {text}"));
     }
@@ -44,8 +44,8 @@ fn command(text: &str, appid: u32, name: &str, dir: &Path) -> Command {
     c
 }
 
-/// Выполнить команду «перед запуском» и дождаться ее (не дольше 2 минут).
-/// Ok(None) - все хорошо, Ok(Some(текст)) - предупреждение (запуск продолжается).
+/// Run the "before launch" command and wait for it (at most 2 minutes).
+/// Ok(None) - all good, Ok(Some(text)) - a warning (the launch continues).
 pub fn run_before(s: &GameScripts, appid: u32, name: &str, dir: &Path) -> Option<String> {
     let text = s.before.trim();
     if text.is_empty() {
@@ -71,7 +71,7 @@ pub fn run_before(s: &GameScripts, appid: u32, name: &str, dir: &Path) -> Option
     }
 }
 
-/// Запустить команду «после выхода» (не дожидаясь ее).
+/// Start the "after exit" command (without waiting for it).
 pub fn run_after(s: &GameScripts, appid: u32, name: &str, dir: &Path) -> Option<String> {
     let text = s.after.trim();
     if text.is_empty() {

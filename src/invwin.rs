@@ -1,5 +1,5 @@
-//! Окно «Инвентарь» (отдельное окно Windows): предметы по играм, кошелек, свои лоты
-//! и поиск по торговой площадке. Продажа и покупка - на сайте Steam в браузере.
+//! "Inventory" window (a separate Windows window): items by game, wallet, own listings
+//! and Community Market search. Selling and buying happen on the Steam site in a browser.
 
 use crate::invent::{self, InvCmd, InvState};
 use crate::net::{Cmd, NetState};
@@ -18,23 +18,23 @@ enum Tab {
 
 pub struct InvWin {
     tab: Tab,
-    /// Выбранная игра (все ее разделы инвентаря показываются вместе).
+    /// Selected game (all its inventory sections are shown together).
     app: Option<u32>,
     filter: String,
-    /// Выбранный предмет (class_id).
+    /// Selected item (class_id).
     selected: Option<String>,
     query: String,
-    /// Цены, которые уже запрошены (чтобы не спрашивать каждый кадр).
+    /// Prices already requested (so we do not ask every frame).
     asked_prices: HashSet<(u32, String)>,
-    /// Площадка: что уже запрошено (заявки и история), окно продажи, подтверждения.
+    /// Market: what is already requested (orders and history), sell window, confirmations.
     pub(crate) mk: crate::trade::MarketUi,
 }
 
-/// Одинаковые предметы (один class_id) - одной плиткой с общим количеством.
+/// Identical items (one class_id) - one tile with the total amount.
 struct Stack<'a> {
     item: &'a InventoryItem,
     amount: u64,
-    /// Раздел инвентаря (для ссылки на предмет в Steam).
+    /// Inventory section (for the item link in Steam).
     ctx: u32,
 }
 
@@ -57,7 +57,7 @@ fn stacks<'a>(parts: &[(u32, &'a [InventoryItem])], filter: &str) -> Vec<Stack<'
     out
 }
 
-/// Разделы инвентаря игры (из списка игр; пока его нет - пусто).
+/// Inventory sections of the game (from the game list; empty while it is missing).
 fn app_ctxs(st: &InvState, appid: u32) -> Vec<u32> {
     match &st.apps {
         Some(Ok(apps)) => apps
@@ -69,13 +69,13 @@ fn app_ctxs(st: &InvState, appid: u32) -> Vec<u32> {
     }
 }
 
-/// Иконка предмета нужного размера (сервер Steam уменьшает сам).
+/// Item icon of the needed size (the Steam server scales it).
 fn icon(url: &str, px: u32) -> String {
     format!("{url}/{px}fx{px}f")
 }
 
 impl LauncherApp {
-    /// Открыть инвентарь: в главном окне или (detached) в отдельном.
+    /// Open the inventory: in the main window or (detached) in a separate one.
     pub(crate) fn open_inventory(&mut self, detached: bool) {
         if detached {
             self.inv_detached = true;
@@ -93,7 +93,7 @@ impl LauncherApp {
                 asked_prices: HashSet::new(),
                 mk: Default::default(),
             });
-            // Кошелек - первым: по нему выбирается валюта цен.
+            // Wallet first: it decides the price currency.
             for c in [InvCmd::Wallet, InvCmd::Apps, InvCmd::Listings] {
                 let _ = self.tx.send(Cmd::Inv(c));
             }
@@ -124,7 +124,7 @@ impl LauncherApp {
         }
     }
 
-    /// Содержимое инвентаря: и в главном окне, и в отдельном.
+    /// Inventory contents: both in the main window and in the separate one.
     pub(crate) fn inventory_contents(&mut self, ui: &mut egui::Ui, net: &NetState) {
         if let Some(w) = self.inv_win.as_mut() {
             w.mk.undercut = self.settings.quick_undercut;
@@ -135,7 +135,7 @@ impl LauncherApp {
         let my_id = net.my_id.unwrap_or(0);
         let Some(w) = self.inv_win.as_mut() else { return };
 
-        // Первая игра выбирается сама, как только пришел список.
+        // The first game is selected automatically once the list arrives.
         if w.app.is_none() {
             if let Some(Ok(apps)) = &st.apps {
                 if let Some(a) = apps.first() {
@@ -198,7 +198,7 @@ impl LauncherApp {
                 }
                 InvCmd::Search { query, start } => {
                     s.searching = true;
-                    // Новый поиск - с чистого листа; «Показать еще» оставляет загруженное.
+                    // A new search starts from scratch; "Show more" keeps what is loaded.
                     if *start == 0 {
                         s.search = Some((query.clone(), Ok((0, Vec::new()))));
                     }
@@ -211,7 +211,7 @@ impl LauncherApp {
 }
 
 fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds: &mut Vec<InvCmd>) {
-    // Слева - игры с предметами.
+    // On the left - games with items.
     egui::SidePanel::left("inv_apps").resizable(true).default_width(200.0).show_inside(ui, |ui| {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match &st.apps {
             None => {
@@ -222,8 +222,8 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
             }
             Some(Ok(apps)) => {
                 for a in apps {
-                    // Разделы игры (у CS2 - обычные и «защищенные от обмена», у Steam -
-                    // подарки и предметы сообщества) показываем одним списком.
+                    // Game sections (CS2 has normal and "trade protected", Steam has
+                    // gifts and community items) are shown as one list.
                     let count: u64 = a.contexts.iter().map(|c| c.2).sum();
                     let sel = w.app == Some(a.appid);
                     ui.horizontal(|ui| {
@@ -251,7 +251,7 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
         });
         return;
     };
-    // Предметы всех разделов игры; пока какой-то раздел грузится - крутится значок.
+    // Items of all game sections; while some section loads, a spinner turns.
     let mut parts: Vec<(u32, &[InventoryItem])> = Vec::new();
     let mut error: Option<&String> = None;
     let mut loading = false;
@@ -277,7 +277,7 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
     let total: usize = parts.iter().map(|p| p.1.len()).sum();
     let list = stacks(&parts, &w.filter);
 
-    // Справа - выбранный предмет.
+    // On the right - the selected item.
     let chosen = w.selected.as_ref().and_then(|id| list.iter().find(|s| &s.item.class_id == id));
     if let Some(s) = chosen {
         let it = s.item;
@@ -300,7 +300,7 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
                     ui.separator();
                     match st.prices.get(&key) {
                         None => {
-                            // Цену спрашиваем, когда известен кошелек: в его валюте.
+                            // The price is requested once the wallet is known: in its currency.
                             if st.wallet.is_some() && w.asked_prices.insert(key.clone()) {
                                 cmds.push(InvCmd::Price { appid, name: it.market_hash_name.clone() });
                             }
@@ -345,7 +345,7 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
     }
 
     egui::CentralPanel::default().show_inside(ui, |ui| {
-        // Ширина поиска - по месту (при открытом предмете справа его мало), число переносится.
+        // Search width fits the space (little when an item is open on the right), the count wraps.
         ui.horizontal_wrapped(|ui| {
             let fw = (ui.available_width() - 110.0).clamp(90.0, 220.0);
             ui.add(egui::TextEdit::singleline(&mut w.filter).hint_text("Поиск по предметам").desired_width(fw));
@@ -359,7 +359,7 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
             ui.weak(if total == 0 { "Здесь пусто." } else { "Ничего не найдено." });
             return;
         }
-        // Плитка; грузятся и рисуются только видимые ряды.
+        // Tiles; only visible rows are loaded and drawn.
         let cell = egui::vec2(96.0, 118.0);
         let cols = ((ui.available_width() - 16.0) / (cell.x + 6.0)).floor().max(1.0) as usize;
         let rows = list.len().div_ceil(cols);
@@ -404,7 +404,7 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
     });
 }
 
-/// Строка списка: картинка 40x40, название-ссылка на площадку, подпись и справа цена.
+/// List row: 40x40 image, name linking to the market, caption and price on the right.
 fn item_row(ui: &mut egui::Ui, icon_url: &Option<String>, name: &str, url: String, sub: &str, price: &str, price_hint: &str) {
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(egui::vec2(40.0, 40.0), egui::Sense::hover());
@@ -556,7 +556,7 @@ fn market_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, cmds: &mut Vec<I
 }
 
 impl InvWin {
-    /// Обход разделов (tour.rs): выбрать игру и предмет.
+    /// Section tour (tour.rs): select a game and an item.
     pub(crate) fn tour_select(&mut self, app: u32, class: String) {
         self.tab = Tab::Items;
         self.app = Some(app);

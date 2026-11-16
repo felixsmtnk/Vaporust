@@ -1,13 +1,13 @@
-//! Тесты на сбои: нехватка места, обрыв загрузки, испорченные файлы Steam и архивы.
-//! Главное, что проверяется: программа не падает и ничего не портит и не удаляет, если
-//! что-то пошло не так.
+//! Failure tests: lack of space, interrupted download, corrupted Steam files and archives.
+//! The main thing checked: the program does not crash and does not damage or delete anything when
+//! something goes wrong.
 
 #![cfg(test)]
 
 use std::fs;
 use std::path::PathBuf;
 
-/// Своя временная папка на тест (удаляется в конце).
+/// Own temporary folder per test (removed at the end).
 struct TempDir(PathBuf);
 
 impl TempDir {
@@ -37,7 +37,7 @@ const ACF: &str = "\"AppState\"\n{\n\t\"appid\"\t\t\"70\"\n\t\"StateFlags\"\t\t\
 \t\"SizeOnDisk\"\t\t\"1000\"\n\t\"buildid\"\t\t\"42\"\n\t\"InstalledDepots\"\n\t{\n\t\t\"1\"\n\t\t{\n\t\t\t\"manifest\"\t\t\"111\"\n\
 \t\t\t\"size\"\t\t\"900\"\n\t\t}\n\t}\n\t\"UserConfig\"\n\t{\n\t\t\"language\"\t\t\"english\"\n\t}\n}\n";
 
-/// Всевозможный мусор вместо файла.
+/// All kinds of garbage instead of a file.
 fn junk_variants() -> Vec<Vec<u8>> {
     let mut v: Vec<Vec<u8>> = vec![
         Vec::new(),
@@ -48,7 +48,7 @@ fn junk_variants() -> Vec<Vec<u8>> {
         b"\"AppState\"\n{\n\t\"appid\"".to_vec(),
         "\u{feff}\"AppState\"\n{\n\t\"StateFlags\"\t\t\"не число\"\n}\n".as_bytes().to_vec(),
     ];
-    // Обрезанный посередине настоящий файл (оборвалась запись).
+    // A real file truncated in the middle (the write was interrupted).
     for n in 1..8 {
         v.push(ACF.as_bytes()[..ACF.len() * n / 8].to_vec());
     }
@@ -58,22 +58,22 @@ fn junk_variants() -> Vec<Vec<u8>> {
 #[test]
 fn not_enough_space() {
     const GB: u64 = 1 << 30;
-    // 10 ГБ игры, свободно 5 - отказ с понятным текстом.
+    // 10 GB game, 5 free - refused with a clear message.
     let e = crate::net::space_error(10 * GB, 0, Some(5 * GB)).expect("должен быть отказ");
     assert!(e.contains("Не хватает места") && e.contains("10.00 ГБ") && e.contains("5.00 ГБ"), "{e}");
-    // Продолжение: 8 ГБ уже скачано, нужно еще 2 - хватает.
+    // Resuming: 8 GB already downloaded, 2 more needed - enough.
     assert!(crate::net::space_error(10 * GB, 8 * GB, Some(5 * GB)).is_none());
-    // Ровно впритык - хватает; узнать свободное место не удалось - не мешаем.
+    // Exactly enough - fine; free space could not be determined - do not block.
     assert!(crate::net::space_error(5 * GB, 0, Some(5 * GB)).is_none());
     assert!(crate::net::space_error(10 * GB, 0, None).is_none());
-    // Скачано больше, чем весит игра (обновление уменьшило ее) - не переполнение.
+    // Downloaded more than the game size (an update made it smaller) - not an overflow.
     assert!(crate::net::space_error(GB, 3 * GB, Some(0)).is_none());
 }
 
 #[test]
 fn download_interrupted() {
     use crate::should_resume;
-    // Обрыв связи - продолжаем сами, но не больше 3 раз подряд.
+    // Connection lost - resume by ourselves, but no more than 3 times in a row.
     for e in [
         "operation timed out",
         "error sending request: connection reset by peer",
@@ -85,7 +85,7 @@ fn download_interrupted() {
         assert!(!should_resume(e, false, 3), "{e}: после 3 попыток хватит");
         assert!(!should_resume(e, true, 0), "{e}: пользователь сам остановил");
     }
-    // Не сеть - не повторяем (иначе крутилось бы зря).
+    // Not a network error - do not retry (it would loop for nothing).
     for e in [
         "Не хватает места на диске: нужно 10.00 ГБ, свободно 5.00 ГБ.",
         "There is not enough space on the disk. (os error 112)",
@@ -100,14 +100,14 @@ fn download_interrupted() {
 #[test]
 fn broken_appmanifest() {
     let t = TempDir::new("acf");
-    // Нет файла.
+    // No file.
     let missing = t.0.join("appmanifest_1.acf");
     let info = crate::local::read_acf(&missing);
     assert_eq!(info.state_flags, 0);
     assert!(crate::local::acf_top(&missing, "installdir").is_none());
     assert!(crate::local::set_acf_top(&missing, "AutoUpdateBehavior", "1").is_err());
     assert!(!missing.exists(), "запись в отсутствующий файл не создает его");
-    // Мусор и обрезанные файлы: чтение не падает.
+    // Garbage and truncated files: reading does not crash.
     for (i, junk) in junk_variants().into_iter().enumerate() {
         let p = t.file(&format!("appmanifest_{i}.acf"), &junk);
         let _ = crate::local::read_acf(&p);
@@ -117,7 +117,7 @@ fn broken_appmanifest() {
         let _ = crate::local::acf_buildid(&p);
         let _ = crate::local::acf_top(&p, "installdir");
     }
-    // Целый файл читается правильно.
+    // An intact file is read correctly.
     let p = t.file("appmanifest_70.acf", ACF.as_bytes());
     let info = crate::local::read_acf(&p);
     assert_eq!(info.state_flags, 4);
@@ -144,14 +144,14 @@ fn broken_localconfig_is_not_overwritten() {
     let t = TempDir::new("localconfig");
     let good = "\"UserLocalConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"Valve\"\n\t\t{\n\t\t\t\"Steam\"\n\t\t\t{\n\t\t\t\t\"apps\"\n\t\t\t\t{\n\
                 \t\t\t\t\t\"70\"\n\t\t\t\t\t{\n\t\t\t\t\t\t\"LaunchOptions\"\t\t\"-gl\"\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n";
-    // Файл оборвался до конца раздела apps: правка отказывается и файл не трогает.
+    // The file ends before the end of the apps section: the edit refuses and does not touch the file.
     let cut = &good[..good.find("\"70\"").unwrap()];
     let p = t.file("localconfig.vdf", cut.as_bytes());
     let _ = crate::launchopts::read(&p, 70);
     let _ = crate::launchopts::read_last_played(&p);
     assert!(crate::launchopts::write(&p, 70, "-novid").is_err());
     assert_eq!(fs::read_to_string(&p).unwrap(), cut, "испорченный файл не переписан");
-    // Мусор - тоже без падений и без записи.
+    // Garbage - also no crash and no write.
     for junk in junk_variants() {
         let p = t.file("junk.vdf", &junk);
         let _ = crate::launchopts::read(&p, 70);
@@ -179,8 +179,8 @@ fn broken_shortcuts_vdf() {
     )];
     let bytes = crate::shortcuts::write(&root);
     assert!(crate::shortcuts::parse(&bytes).is_ok());
-    // Любой обрезанный кусок - ошибка, а не падение и не «пустой список» (иначе при добавлении
-    // ярлыка мы бы переписали файл без старых ярлыков).
+    // Any truncated piece is an error, not a crash and not an "empty list" (otherwise when adding
+    // a shortcut we would rewrite the file without the old shortcuts).
     for n in 0..bytes.len() {
         assert!(crate::shortcuts::parse(&bytes[..n]).is_err(), "обрезано до {n} байт");
     }
@@ -205,7 +205,7 @@ fn zip_with(files: &[(&str, &[u8])]) -> Vec<u8> {
 fn broken_save_backup() {
     let t = TempDir::new("backup");
     let save = t.file("save/slot1.sav", b"progress");
-    // Испорченный архив, архив без списка файлов, пустой файл - отказ, сохранения не тронуты.
+    // Corrupted archive, archive without a file list, empty file - refused, saves untouched.
     for (name, data) in [
         ("junk.zip", b"not a zip at all".to_vec()),
         ("empty.zip", Vec::new()),
@@ -215,13 +215,13 @@ fn broken_save_backup() {
         assert!(crate::backup::restore(&z).is_err(), "{name}");
         assert_eq!(fs::read(&save).unwrap(), b"progress", "{name}");
     }
-    // Копия папки без файлов - понятный отказ, не пустой архив.
+    // Backing up a folder without files - a clear refusal, not an empty archive.
     let missing = vec![t.0.join("nothing.sav")];
     assert!(crate::backup::backup_to(&t.0.join("copies"), &missing).is_err());
-    // Копия в недоступное место (вместо папки - файл) - ошибка, а не тишина.
+    // Backup into an inaccessible place (a file instead of a folder) - an error, not silence.
     let blocker = t.file("blocker", b"x");
     assert!(crate::backup::backup_to(&blocker, &[save.clone()]).is_err());
-    // Обычная копия и восстановление работают.
+    // Normal backup and restore work.
     let (zip, n) = crate::backup::backup_to(&t.0.join("copies"), &[save.clone()]).unwrap();
     assert_eq!(n, 1);
     fs::write(&save, b"broken").unwrap();
@@ -235,7 +235,7 @@ fn broken_update_archive() {
     let exe = t.file("vaporust.exe", b"current version");
     let me = fs::read(std::env::current_exe().unwrap()).unwrap();
     let other_arch = {
-        // Тот же exe, но с пометкой «32 бит» вместо «64» (или наоборот).
+        // The same exe, but marked "32 bit" instead of "64" (or vice versa).
         let mut x = me.clone();
         let pe = u32::from_le_bytes(x[0x3c..0x40].try_into().unwrap()) as usize;
         let m = if cfg!(target_pointer_width = "64") { 0x014cu16 } else { 0x8664u16 };
@@ -253,7 +253,7 @@ fn broken_update_archive() {
         assert_eq!(fs::read(&exe).unwrap(), b"current version", "{what}: программа не тронута");
         assert!(!exe.with_extension("exe.old").exists(), "{what}");
     }
-    // Настоящий exe нашей разрядности ставится.
+    // A real exe of our bitness is installed.
     crate::updater::replace_exe(&exe, &zip_with(&[("Vaporust/vaporust.exe", &me)])).unwrap();
     assert_eq!(fs::read(&exe).unwrap().len(), me.len());
     assert_eq!(fs::read(exe.with_extension("exe.old")).unwrap(), b"current version");
@@ -261,7 +261,7 @@ fn broken_update_archive() {
 
 #[test]
 fn staging_conflict_keeps_files() {
-    // Во временной папке остался кусок прошлой попытки: перенос отказывается и ничего не теряет.
+    // A piece of a previous attempt is left in the temporary folder: the move refuses and loses nothing.
     let t = TempDir::new("staging");
     let lib = t.0.clone();
     let acf = "\"AppState\"\n{\n\t\"installdir\"\t\t\"Game\"\n}\n";
@@ -273,12 +273,12 @@ fn staging_conflict_keeps_files() {
     assert!(crate::local::to_staging(&lib, 60).is_err());
     assert_eq!(fs::read(lib.join("steamapps/common/Game/data.bin")).unwrap(), b"new");
     assert!(lib.join("steamapps/appmanifest_60.acf").exists(), "appmanifest на месте");
-    // Обратный перенос, когда в библиотеке уже есть такая папка, - тоже отказ без потерь.
+    // Moving back when the library already has such a folder - also refused without losses.
     fs::write(st.join("appmanifest_60.acf"), acf).unwrap();
     assert!(crate::local::unstage(&lib, 60).is_err());
     assert_eq!(fs::read(st.join("common/Game/data.bin")).unwrap(), b"old");
     assert_eq!(fs::read(lib.join("steamapps/common/Game/data.bin")).unwrap(), b"new");
-    // Временной папки нет совсем.
+    // No temporary folder at all.
     let empty = TempDir::new("staging_empty");
     assert!(crate::local::unstage(&empty.0, 60).is_err());
 }
@@ -288,7 +288,7 @@ fn restore_is_all_or_nothing() {
     let t = TempDir::new("restore_atomic");
     let a = t.file("save/a.sav", b"A-now");
     let b = t.file("save/b.sav", b"B-now");
-    // В списке два файла, а в архиве только первый: ничего не заменяется.
+    // The list has two files but the archive only the first: nothing is replaced.
     let manifest = format!("0_a.sav\t{}\n1_b.sav\t{}\n", a.display(), b.display());
     let z = t.file(
         "partial.zip",
@@ -297,7 +297,7 @@ fn restore_is_all_or_nothing() {
     assert!(crate::backup::restore(&z).is_err());
     assert_eq!(fs::read(&a).unwrap(), b"A-now", "первый файл не тронут");
     assert_eq!(fs::read(&b).unwrap(), b"B-now");
-    // На месте второго файла папка (не читается): отказ ДО записи, первый не тронут.
+    // A folder in place of the second file (unreadable): refused BEFORE writing, the first is untouched.
     let blocked = t.0.join("save").join("dir.sav");
     fs::create_dir_all(blocked.join("inner")).unwrap();
     let manifest = format!("0_a.sav\t{}\n1_d.sav\t{}\n", a.display(), blocked.display());
@@ -308,7 +308,7 @@ fn restore_is_all_or_nothing() {
     let e = crate::backup::restore(&z).unwrap_err();
     assert!(e.contains("Ничего не восстановлено"), "{e}");
     assert_eq!(fs::read(&a).unwrap(), b"A-now");
-    // Сбой при записи второго файла (он только для чтения): первый возвращается как был.
+    // Failure writing the second file (read-only): the first is restored as it was.
     let ro = t.file("save/ro.sav", b"RO-now");
     let mut perm = fs::metadata(&ro).unwrap().permissions();
     perm.set_readonly(true);
@@ -323,7 +323,7 @@ fn restore_is_all_or_nothing() {
     assert_eq!(fs::read(&a).unwrap(), b"A-now", "откат первого файла");
     assert_eq!(fs::read(&ro).unwrap(), b"RO-now");
     assert!(!t.0.join("save").join("a.sav.vaporust-tmp").exists(), "временных файлов не осталось");
-    // Новый файл, которого раньше не было, при откате удаляется.
+    // A new file that did not exist before is deleted on rollback.
     let fresh = t.0.join("save").join("new.sav");
     let manifest = format!("0_n.sav\t{}\n1_r.sav\t{}\n", fresh.display(), ro.display());
     let z = t.file(
@@ -337,8 +337,8 @@ fn restore_is_all_or_nothing() {
     fs::set_permissions(&ro, perm).unwrap();
 }
 
-/// QA-01: файл, который нельзя прочитать (игра держит его открытым без общего чтения), не должен
-/// считаться «несуществующим» и удаляться при откате.
+/// QA-01: a file that cannot be read (the game holds it open without shared read) must not
+/// be treated as "nonexistent" and deleted on rollback.
 #[cfg(windows)]
 #[test]
 fn restore_keeps_unreadable_file() {
@@ -352,7 +352,7 @@ fn restore_keeps_unreadable_file() {
         "locked.zip",
         &zip_with(&[("files/0_a.sav", b"A-old"), ("files/1_b.sav", b"B"), ("vaporust_backup.txt", manifest.as_bytes())]),
     );
-    // Чтение запрещено, запись и удаление разрешены (FILE_SHARE_WRITE | FILE_SHARE_DELETE).
+    // Reading denied, writing and deleting allowed (FILE_SHARE_WRITE | FILE_SHARE_DELETE).
     let lock = fs::OpenOptions::new().read(true).share_mode(0x2 | 0x4).open(&a).unwrap();
     let e = crate::backup::restore(&z).unwrap_err();
     drop(lock);

@@ -1,9 +1,9 @@
-//! Магазин Steam: данные и сетевые запросы (через Aurelia).
+//! Steam store: data and network requests (via Aurelia).
 //!
-//! Списки (поиск, скидки, список желаемого) хранят только appid; подробности об играх
-//! (`StoreAppInfo`: цена, описание, картинки…) подгружаются лениво - для тех игр, что
-//! видны в окне, порциями по 50. Все лежит в отдельном Arc<Mutex<StoreState>>, а не в
-//! NetState, который копируется на каждом кадре.
+//! Lists (search, discounts, wishlist) store only appids; game details
+//! (`StoreAppInfo`: price, description, images...) are loaded lazily - for the games
+//! visible in the window, in batches of 50. Everything lives in a separate Arc<Mutex<StoreState>>, not in
+//! NetState, which is copied on every frame.
 
 use aurelia::steam_client::{DealsScope, SteamClient, StoreAppInfo};
 use aurelia::web::discovery::NewsItem;
@@ -11,10 +11,10 @@ use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-/// Язык текстов магазина.
+/// Store text language.
 pub const LANG: &str = crate::lang::STEAM;
 
-/// Регионы цен, которые можно выбрать (код страны, название).
+/// Selectable price regions (country code, name).
 pub const COUNTRIES: [(&str, &str); 10] = [
     ("UA", "Украина (₴)"),
     ("RU", "Россия (₽)"),
@@ -33,27 +33,27 @@ pub struct Extras {
     pub players: Option<i32>,
     pub news: Option<Result<Vec<NewsItem>, String>>,
     pub similar: Option<Vec<u32>>,
-    /// Системные требования (Windows): минимальные и рекомендуемые, текстом.
+    /// System requirements (Windows): minimum and recommended, as text.
     pub requirements: Option<(String, String)>,
-    /// Ссылка на трейлер (видео, открывается в браузере), жанры и страница поддержки игры.
+    /// Trailer link (video, opens in a browser), genres and the game support page.
     pub trailer: Option<String>,
     pub genres: Vec<String>,
     pub support: Option<String>,
-    /// Отзывы со страницы сообщества (подгружаются по кнопке).
+    /// Reviews from the community page (loaded on a button click).
     pub reviews: Option<Reviews>,
 }
 
-/// Отзывы игры: выбранный порядок и язык, загруженные страницы.
+/// Game reviews: the chosen order and language, loaded pages.
 #[derive(Default, Clone)]
 pub struct Reviews {
-    /// Порядок (номер в REVIEW_SORTS).
+    /// Order (index in REVIEW_SORTS).
     pub sort: u8,
-    /// false - на русском, true - на всех языках.
+    /// false - in Russian, true - in all languages.
     pub lang: u8,
     pub pages: u32,
     pub list: Vec<Review>,
     pub more: bool,
-    /// Курсор следующей страницы (Steam листает отзывы по нему).
+    /// Next page cursor (Steam pages reviews by it).
     pub cursor: Option<String>,
     pub loading: bool,
     pub error: Option<String>,
@@ -68,110 +68,110 @@ pub struct Review {
     pub text: String,
     pub url: String,
     pub avatar: String,
-    /// Сколько посчитали полезным / забавным.
+    /// How many found it helpful / funny.
     pub helpful_n: u32,
     pub funny_n: u32,
-    /// Награды (реакции за очки Steam): (номер реакции, сколько).
+    /// Awards (Steam points reactions): (reaction id, count).
     pub awards: Vec<(u32, u32)>,
-    /// «Продуктов на аккаунте: N».
+    /// "Products on account: N".
     pub products: String,
 }
 
 #[derive(Default)]
 pub struct StoreState {
-    /// Страна цен; пусто - еще не определена.
+    /// Price country; empty - not determined yet.
     pub country: String,
-    /// Подробности об играх по appid (для текущей страны).
+    /// Game details by appid (for the current country).
     pub apps: HashMap<u32, StoreAppInfo>,
-    /// Уже запрошенные подробности (чтобы не просить повторно).
+    /// Details already requested (so we do not ask again).
     pub requested: HashSet<u32>,
-    /// Поиск: (запрос, результат).
+    /// Search: (query, result).
     pub search: Option<(String, Result<Vec<u32>, String>)>,
     pub searching: bool,
     pub deals: Option<Result<Vec<u32>, String>>,
-    /// Свой список желаемого, по приоритету.
+    /// Own wishlist, by priority.
     pub wishlist: Option<Result<Vec<u32>, String>>,
-    /// События и распродажи Steam: (appid, что за событие, до какого времени).
+    /// Steam events and sales: (appid, what event, until when).
     pub events: Option<Result<Vec<(u32, String, u64)>, String>>,
-    /// Доп. данные страницы игры: онлайн, новости, отзывы, похожие.
+    /// Extra game page data: player count, news, reviews, similar games.
     pub extras: HashMap<u32, Extras>,
-    /// Ошибка последнего действия (например, добавления в желаемое).
+    /// Error of the last action (for example adding to the wishlist).
     pub error: Option<String>,
-    /// Список желаемого друга: (SteamID, имя, список по приоритету).
+    /// A friend's wishlist: (SteamID, name, list by priority).
     pub friend_wishlist: Option<(u64, String, Option<Result<Vec<u32>, String>>)>,
-    /// Скидки на игры из списка желаемого (для уведомлений); растет sales_gen при каждой проверке.
+    /// Discounts on wishlisted games (for notifications); sales_gen grows on every check.
     pub sales: Vec<Sale>,
     pub sales_gen: u64,
-    /// Список желаемого при последней проверке: (appid, название, еще не вышла).
+    /// Wishlist at the last check: (appid, name, not released yet).
     pub wish_status: Vec<(u32, String, bool)>,
-    /// Отзывы по ссылке: полный текст и номер; итог оценки.
+    /// Reviews by URL: full text and id; the vote result.
     pub review_full: HashMap<String, Result<(String, u64, String), String>>,
-    /// Свои оценки отзывов в этом сеансе: ссылка -> 0 полезен, 1 бесполезен, 2 забавный.
+    /// Own review votes in this session: URL -> 0 helpful, 1 not helpful, 2 funny.
     pub review_mine: HashMap<String, u8>,
     pub review_vote: HashMap<String, String>,
-    /// Чарты: номер -> (appid, пометка).
+    /// Charts: number -> (appid, label).
     pub charts: HashMap<u8, Result<Vec<(u32, String)>, String>>,
-    /// Игры, скрытые из рекомендаций («Не интересует»); None - список еще не загружен.
+    /// Games hidden from recommendations ("Not interested"); None - the list is not loaded yet.
     pub ignored: Option<HashSet<u32>>,
-    /// Очередь открытий.
+    /// Discovery queue.
     pub discovery: Option<Result<Vec<u32>, String>>,
-    /// Названия пакетов (корзина).
+    /// Package names (cart).
     pub package_names: HashMap<u32, String>,
-    /// Кураторы с обзором игры.
+    /// Curators who reviewed the game.
     pub curators: HashMap<u32, Result<Vec<crate::actions::Curator>, String>>,
 }
 
-/// Игра из списка желаемого со скидкой.
+/// A wishlisted game on sale.
 #[derive(Clone)]
 pub struct Sale {
     pub appid: u32,
     pub name: String,
     pub pct: i32,
-    /// Цена со скидкой (текстом, в валюте региона).
+    /// Discounted price (as text, in the region currency).
     pub price: String,
-    /// Конец скидки (unix), 0 - неизвестен.
+    /// End of the discount (unix), 0 - unknown.
     pub end: u64,
 }
 
 pub type SharedStore = Arc<Mutex<StoreState>>;
 
-/// Команды магазина (обрабатываются в сетевом потоке).
+/// Store commands (handled in the network thread).
 pub enum StoreCmd {
     Search(String),
     Deals,
-    /// События и распродажи (скидки дня/выходных, выход игр, обновления).
+    /// Events and sales (daily/weekend deals, releases, updates).
     Events,
     Wishlist,
-    /// Проверить скидки на игры из списка желаемого (для уведомлений).
+    /// Check discounts on wishlisted games (for notifications).
     WishlistSales,
-    /// Список желаемого друга (если он открыт настройками приватности).
+    /// A friend's wishlist (if their privacy settings allow it).
     FriendWishlist(u64),
-    /// Отзывы игры: порядок (REVIEW_SORTS), все языки?, страница (с 1).
+    /// Game reviews: order (REVIEW_SORTS), all languages?, page (from 1).
     Reviews { appid: u32, sort: u8, lang: u8, page: u32 },
-    /// Полный текст отзыва (по его ссылке) и оценка отзыва (0 полезен, 1 бесполезен, 2 забавный).
+    /// Full review text (by its URL) and a review vote (0 helpful, 1 not helpful, 2 funny).
     ReviewFull(String),
     ReviewVote { url: String, kind: u8 },
-    /// Подробности для этих игр (лениво, для видимых в списке).
+    /// Details for these games (lazily, for those visible in the list).
     Details(Vec<u32>),
-    /// Название пакета (для корзины).
+    /// Package name (for the cart).
     PackageName(u32),
-    /// Страница игры: подробности + онлайн, новости, отзывы, похожие.
+    /// Game page: details + player count, news, reviews, similar games.
     Page(u32),
-    /// Добавить в список желаемого (true) или убрать.
+    /// Add to the wishlist (true) or remove.
     WishlistSet(u32, bool),
-    /// Сменить регион цен (сбрасывает подробности).
+    /// Change the price region (resets details).
     Country(String),
-    /// Чарт Steam (номер в CHARTS).
+    /// A Steam chart (index in CHARTS).
     Charts(u8),
-    /// Очередь открытий: отметить просмотренными `skip`, `rebuild` - собрать новую.
+    /// Discovery queue: mark `skip` as viewed, `rebuild` - build a new one.
     Discovery { rebuild: bool, skip: Vec<u32> },
-    /// «Не интересует»: скрыть игру из рекомендаций магазина (true) или вернуть.
+    /// "Not interested": hide a game from store recommendations (true) or bring it back.
     Ignore(u32, bool),
-    /// Какие игры уже скрыты из рекомендаций (один раз за сеанс).
+    /// Which games are already hidden from recommendations (once per session).
     IgnoredList,
 }
 
-/// Русское название вида события Steam (MarketingMessage).
+/// Russian name of a Steam event kind (MarketingMessage).
 pub fn event_kind(kind: &str) -> String {
     match kind {
         "MidweekDeal" => "скидка середины недели",
@@ -193,9 +193,9 @@ fn err<E: std::fmt::Display>(e: E) -> String {
     format!("{e:#}")
 }
 
-/// Определить страну цен, если еще не задана (по IP подключения к Steam).
-/// Регион цен: выбранный вручную, иначе страна кошелька Steam (регион аккаунта), иначе страна
-/// подключения (по IP - в поездке она другая).
+/// Determine the price country if not set yet (by the IP of the Steam connection).
+/// Price region: chosen manually, otherwise the Steam wallet country (account region), otherwise the
+/// connection country (by IP - different when traveling).
 async fn country(client: &SteamClient, st: &SharedStore) -> String {
     let known = st.lock().unwrap().country.clone();
     if !known.is_empty() {
@@ -217,7 +217,7 @@ async fn country(client: &SteamClient, st: &SharedStore) -> String {
     s.country.clone()
 }
 
-/// Загрузить подробности для игр, которых еще нет в кэше (порциями по 50).
+/// Load details for games not in the cache yet (in batches of 50).
 async fn load_details(client: &SteamClient, ids: Vec<u32>, st: &SharedStore, ctx: &egui::Context) {
     let cc = country(client, st).await;
     let need: Vec<u32> = {
@@ -257,7 +257,7 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                     load_details(&c, ids.clone(), &st, &ctx).await;
                 }
                 let mut s = st.lock().unwrap();
-                // Пока искали, могли ввести новый запрос - оставляем только свежий.
+                // A new query may have been entered during the search - keep only the fresh one.
                 if s.search.as_ref().is_some_and(|(t, _)| *t == term) {
                     s.search = Some((term, res));
                     s.searching = false;
@@ -309,8 +309,8 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                 st.lock().unwrap().events = Some(res);
             }
             StoreCmd::Wishlist => {
-                // Порядок как в Steam («по вашему предпочтению»): сначала игры с местом (priority 1, 2...),
-                // остальные - по дате добавления, старые первыми. Не вышло - список Aurelia.
+                // Order as in Steam ("your preference"): first games with a position (priority 1, 2...),
+                // the rest by date added, oldest first. If that fails - Aurelia's list.
                 let res = match c.my_steam_id() {
                     Some(me) => match wishlist_ranked(&c, me).await {
                         Ok(v) => Ok(v),
@@ -327,7 +327,7 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                 let cc = country(&c, &st).await;
                 let mut sales = Vec::new();
                 let mut status = Vec::new();
-                // Свежие цены (без кэша страницы магазина): скидки меняются.
+                // Fresh prices (without the store page cache): discounts change.
                 for chunk in ids.chunks(50) {
                     if let Ok(apps) = c.fetch_store_apps(chunk, LANG, &cc).await {
                         for a in apps {
@@ -391,15 +391,15 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                 if let Some(sim) = similar {
                     load_details(&c, sim, &st, &ctx).await;
                 }
-                // Отзывы отдельно не грузим: store.steampowered.com/appreviews сейчас отвечает
-                // перенаправлением на главную (проверено 2026-11-12). Итог по отзывам приходит
-                // в StoreAppInfo.review_summary, полные отзывы - по ссылке в браузере.
+                // Reviews are not loaded separately: store.steampowered.com/appreviews currently answers
+                // with a redirect to the home page (checked 2026-11-12). The review summary comes
+                // in StoreAppInfo.review_summary, full reviews - via a link in the browser.
                 let news = match aurelia::core::net::steam_web_client() {
                     Ok(http) => aurelia::web::discovery::fetch_news(&http, appid, 5, 600).await.map_err(err),
                     Err(e) => Err(err(e)),
                 };
                 st.lock().unwrap().extras.entry(appid).or_default().news = Some(news);
-                // Системные требования - из открытого API магазина (api/appdetails), по-русски.
+                // System requirements - from the public store API (api/appdetails), in Russian.
                 if let Some(d) = fetch_appdetails(appid).await {
                     let mut s = st.lock().unwrap();
                     let e = s.extras.entry(appid).or_default();
@@ -414,11 +414,11 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                 {
                     let mut s = st.lock().unwrap();
                     let r = s.extras.entry(appid).or_default().reviews.get_or_insert_with(Default::default);
-                    // Тот же запрос уже идет (раздел открыт, ответа еще нет) - не повторяем.
+                    // The same request is already running (the section is open, no answer yet) - do not repeat.
                     if r.loading && r.sort == sort && r.lang == lang {
                         return;
                     }
-                    // Сменили порядок или язык - начинаем заново.
+                    // The order or language changed - start over.
                     if page == 1 || r.sort != sort || r.lang != lang {
                         *r = Reviews { sort, lang, ..Default::default() };
                     }
@@ -430,7 +430,7 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                 let mut s = st.lock().unwrap();
                 let r = s.extras.entry(appid).or_default().reviews.get_or_insert_with(Default::default);
                 if r.sort != sort || r.lang != lang {
-                    return; // пока грузили, выбрали другой порядок или язык
+                    return; // another order or language was chosen while loading
                 }
                 r.loading = false;
                 match res {
@@ -519,7 +519,7 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
     });
 }
 
-/// Кусок описания игры для отображения.
+/// A piece of the game description for display.
 #[derive(Debug, PartialEq)]
 pub enum Block {
     Heading(String),
@@ -527,8 +527,8 @@ pub enum Block {
     Bullet(String),
 }
 
-/// Описание из магазина в блоки. Понимает и HTML (`<h2>`, `<p>`, `<li>`), и BBCode Steam
-/// (`[h2]`, `[p]`, `[*]`, `[list]`); картинки и видео (`[img]`, `[video]`, `<img>`) пропускает.
+/// Store description into blocks. Understands both HTML (`<h2>`, `<p>`, `<li>`) and Steam BBCode
+/// (`[h2]`, `[p]`, `[*]`, `[list]`); skips images and videos (`[img]`, `[video]`, `<img>`).
 pub fn description_blocks(src: &str) -> Vec<Block> {
     const KNOWN: &[&str] = &[
         "p", "br", "h1", "h2", "h3", "h4", "h5", "b", "i", "u", "s", "strong", "em", "strike", "list",
@@ -576,14 +576,14 @@ pub fn description_blocks(src: &str) -> Vec<Block> {
         let closing = tag.starts_with('/');
         let name = tag.trim_start_matches('/').split([' ', '=', '/']).next().unwrap_or("").to_lowercase();
         if !KNOWN.contains(&name.as_str()) {
-            // Не тег (например, «[18+]» в тексте) - оставляем как есть.
+            // Not a tag (for example "[18+]" in the text) - keep as is.
             buf.push(open);
             rest = after;
             continue;
         }
         rest = &after[end + 1..];
         match (closing, name.as_str()) {
-            // Картинки и видео: в BBCode пропускаем вместе с содержимым до закрывающего тега.
+            // Images and videos: in BBCode skipped together with the contents up to the closing tag.
             (false, "img" | "video" | "dynamiclink" | "previewyoutube") if open == '[' => {
                 let end_tag = format!("[/{name}]");
                 if let Some(p) = rest.find(&end_tag) {
@@ -612,7 +612,7 @@ pub fn description_blocks(src: &str) -> Vec<Block> {
                     mode = Mode::Para;
                 }
             }
-            _ => {} // оформление (b, i, url...) - сам тег убираем, текст оставляем
+            _ => {} // formatting (b, i, url...) - drop the tag itself, keep the text
         }
     }
     flush(&mut buf, mode, &mut blocks);
@@ -630,7 +630,7 @@ fn decode_entities(s: &str) -> String {
         .replace('\u{a0}', " ")
 }
 
-/// Описание или новость одной строкой (для кратких превью).
+/// A description or a news item on one line (for short previews).
 pub fn plain_text(src: &str) -> String {
     description_blocks(src)
         .into_iter()
@@ -642,8 +642,8 @@ pub fn plain_text(src: &str) -> String {
         .join(" ")
 }
 
-/// Маленькая картинка игры для списков (120x45, ~5 КБ).
-/// Уменьшенный скриншот (600x338) вместо полного: в ~7 раз легче.
+/// Small game image for lists (120x45, ~5 KB).
+/// A reduced screenshot (600x338) instead of the full one: ~7 times lighter.
 pub fn screenshot_thumb(url: &str) -> String {
     let base = url.split('?').next().unwrap_or(url);
     match base.strip_suffix(".jpg") {
@@ -697,7 +697,7 @@ mod tests {
 
 #[cfg(test)]
 mod events_live {
-    /// Живой тест (только чтение): события и распродажи Steam для региона UA.
+    /// Live test (read only): Steam events and sales for the UA region.
     #[test]
     #[ignore]
     fn store_events_live() {
@@ -712,7 +712,7 @@ mod events_live {
     }
 }
 
-/// Сведения из открытого API магазина (store.steampowered.com/api/appdetails), по-русски.
+/// Info from the public store API (store.steampowered.com/api/appdetails), in Russian.
 #[derive(Default)]
 pub(crate) struct AppDetails {
     pub(crate) requirements: Option<(String, String)>,
@@ -731,11 +731,11 @@ async fn fetch_appdetails(appid: u32) -> Option<AppDetails> {
 
 pub(crate) fn parse_appdetails(v: &serde_json::Value, appid: u32) -> AppDetails {
     let Some(data) = v.get(appid.to_string()).and_then(|a| a.get("data")) else { return AppDetails::default() };
-    // Системные требования для Windows. Нет требований - Steam присылает пустой массив вместо объекта.
+    // System requirements for Windows. No requirements - Steam sends an empty array instead of an object.
     let req = &data["pc_requirements"];
     let get = |k: &str| req.get(k).and_then(|x| x.as_str()).map(plain_text).unwrap_or_default();
     let (min, rec) = (get("minimum"), get("recommended"));
-    // Трейлер: первое видео, ссылка на файл (mp4 или webm), иначе потоковая (hls).
+    // Trailer: the first video, a file link (mp4 or webm), otherwise a stream (hls).
     let trailer = data["movies"].as_array().and_then(|m| m.first()).and_then(|m| {
         [&m["mp4"]["max"], &m["webm"]["max"], &m["hls_h264"], &m["dash_h264"]]
             .into_iter()
@@ -754,7 +754,7 @@ pub(crate) fn parse_appdetails(v: &serde_json::Value, appid: u32) -> AppDetails 
     }
 }
 
-/// Порядок отзывов, как на сайте Steam: (browsefilter, подпись).
+/// Review order, as on the Steam site: (browsefilter, caption).
 pub const REVIEW_SORTS: [(&str, &str); 8] = [
     ("toprated", "Полезные за все время"),
     ("trendyear", "Полезные за год"),
@@ -766,7 +766,7 @@ pub const REVIEW_SORTS: [(&str, &str); 8] = [
     ("funny", "Забавные"),
 ];
 
-/// Языки отзывов: (код Steam, название).
+/// Review languages: (Steam code, name).
 pub const REVIEW_LANGS: [(&str, &str); 13] = [
     ("russian", "На русском"),
     ("all", "На всех языках"),
@@ -783,9 +783,9 @@ pub const REVIEW_LANGS: [(&str, &str); 13] = [
     ("koreana", "Корейский"),
 ];
 
-/// Страница отзывов из сообщества Steam (как ее подгружает сам сайт при прокрутке): по 10 отзывов.
-/// Следующие страницы - по курсору из формы MoreContentForm предыдущего ответа.
-/// «Полезные за все время» без входа Steam не листает (всегда первые 10) - проверено.
+/// Reviews page from the Steam community (the way the site loads it on scroll): 10 reviews each.
+/// Next pages - by the cursor from the MoreContentForm of the previous response.
+/// "Most helpful of all time" is not paged by Steam without login (always the first 10) - checked.
 async fn fetch_reviews(
     appid: u32,
     sort: u8,
@@ -817,14 +817,14 @@ async fn fetch_reviews(
     Ok((parse_reviews(&html), next))
 }
 
-/// Страница отзыва: полный текст и номер отзыва (для оценок).
+/// Review page: full text and review id (for votes).
 pub async fn review_page(client: &SteamClient, url: &str) -> Result<(String, u64, String), String> {
     let web = crate::webapi::web_session(client).await?;
     let html = web.get_text(&format!("{}?l=russian", url.trim_end_matches('/'))).await.map_err(err)?;
     parse_review_page(&html)
 }
 
-/// Разбор страницы отзыва: (полный текст, номер отзыва, часы на момент отзыва).
+/// Parsing a review page: (full text, review id, hours at review time).
 pub fn parse_review_page(html: &str) -> Result<(String, u64, String), String> {
     let text = between(html, "id=\"ReviewText\">", "</div>").map(strip_html).unwrap_or_default();
     let id = between(html, "RecommendationVoteUpBtn", "\"")
@@ -833,7 +833,7 @@ pub fn parse_review_page(html: &str) -> Result<(String, u64, String), String> {
     Ok((text, id, hours_at_review(html)))
 }
 
-/// «(42.0 ч. в момент написания)» со страницы отзыва -> «42.0 ч. на момент отзыва».
+/// "(42.0 ч. в момент написания)" from the review page -> "42.0 ч. на момент отзыва".
 pub fn hours_at_review(html: &str) -> String {
     let Some(pos) = html.find("в момент написания") else { return String::new() };
     let before = &html[..pos];
@@ -842,7 +842,7 @@ pub fn hours_at_review(html: &str) -> String {
     if h.is_empty() || h.len() > 40 { String::new() } else { format!("{h} на момент отзыва") }
 }
 
-/// Оценить отзыв: 0 - полезен, 1 - бесполезен, 2 - забавный.
+/// Vote on a review: 0 - helpful, 1 - not helpful, 2 - funny.
 pub async fn vote_review(client: &SteamClient, id: u64, kind: u8) -> Result<(), String> {
     let web = crate::webapi::web_session(client).await?;
     let (url, mut fields) = if kind == 2 {
@@ -870,7 +870,7 @@ fn urlenc(s: &str) -> String {
         .collect()
 }
 
-/// &quot; &amp; и т.п. -> символы.
+/// &quot; &amp; and the like -> characters.
 fn entities(s: &str) -> String {
     s.replace("&quot;", "\"")
         .replace("&#39;", "'")
@@ -880,7 +880,7 @@ fn entities(s: &str) -> String {
         .replace("&amp;", "&")
 }
 
-/// HTML-кусок -> текст: <br> -> перевод строки, теги убираются.
+/// HTML piece -> text: <br> -> line break, tags removed.
 fn strip_html(s: &str) -> String {
     let s = s.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n");
     let mut out = String::new();
@@ -903,7 +903,7 @@ fn between<'a>(s: &'a str, start: &str, end: &str) -> Option<&'a str> {
     Some(&s[i..j])
 }
 
-/// Разбор карточек отзывов (apphub_Card) со страницы сообщества.
+/// Parsing review cards (apphub_Card) from the community page.
 pub fn parse_reviews(html: &str) -> Vec<Review> {
     html.split("apphub_Card modalContentLink")
         .skip(1)
@@ -914,7 +914,7 @@ pub fn parse_reviews(html: &str) -> Vec<Review> {
             let body = between(card, "<div class=\"apphub_CardTextContent\">", "<div class=\"UserReviewCardContent_Footer\"")?;
             let date = between(body, "<div class=\"date_posted\">", "</div>").map(strip_html).unwrap_or_default();
             let text = body.split_once("</div>").map(|(_, t)| t).unwrap_or(body);
-            // Хвост карточки: закрывающие </div> текста и карточки.
+            // Card tail: the closing </div> of the text and the card.
             let text = strip_html(text.trim_end().trim_end_matches("</div>"));
             let author = between(card, "apphub_CardContentAuthorName", "</a>")
                 .and_then(|a| a.rsplit_once('>').map(|(_, n)| entities(n.trim())))
@@ -942,7 +942,7 @@ pub fn parse_reviews(html: &str) -> Vec<Review> {
 
 #[cfg(test)]
 mod reviews_tests {
-    /// VAPORUST_DUMP=страница отзывов (сохраненная) - разбор карточек.
+    /// VAPORUST_DUMP=a saved reviews page - card parsing.
     #[test]
     #[ignore]
     fn parse_saved_reviews() {
@@ -957,7 +957,7 @@ mod reviews_tests {
 
 #[cfg(test)]
 mod reviews_live {
-    /// Три страницы «Полезные за год» (Half-Life) - отзывы не должны повторяться.
+    /// Three pages of "Most helpful this year" (Half-Life) - reviews must not repeat.
     #[test]
     #[ignore]
     fn reviews_paging_live() {
@@ -977,20 +977,20 @@ mod reviews_live {
     }
 }
 
-/// Чарты Steam: (название, пояснение).
+/// Steam charts: (name, explanation).
 pub const CHARTS: [(&str, &str); 3] = [
     ("Лидеры продаж", "Самые продаваемые сейчас в вашем регионе (по выручке, как на странице Steam)."),
     ("Больше всего игроков", "Игры, в которые прямо сейчас играет больше всего людей."),
     ("Популярные новинки", "Лидеры продаж, вышедшие за последние 3 месяца."),
 ];
 
-/// appid из адреса картинки магазина (…/steam/apps/<appid>/…); у наборов и комплектов - None.
+/// appid from a store image URL (.../steam/apps/<appid>/...); None for bundles and packages.
 fn appid_from_logo(url: &str) -> Option<u32> {
     let rest = url.split("/apps/").nth(1)?;
     rest.split('/').next()?.parse().ok()
 }
 
-/// Список чарта: (appid, пометка). Открытые запросы магазина Steam, без входа.
+/// Chart list: (appid, label). Public Steam store requests, no login.
 pub async fn fetch_chart(kind: u8, cc: &str) -> Result<Vec<(u32, String)>, String> {
     let http = aurelia::core::net::steam_web_client().map_err(err)?;
     if kind == 1 {
@@ -1007,7 +1007,7 @@ pub async fn fetch_chart(kind: u8, cc: &str) -> Result<Vec<(u32, String)>, Strin
             .collect());
     }
     if kind == 2 {
-        // Фильтр «новинки» поиск Steam не применяет - берем лидеров продаж, вышедших за 3 месяца.
+        // Steam search does not apply the "new releases" filter - take top sellers released within 3 months.
         let since = chrono::Utc::now().timestamp() - 92 * 86_400;
         let mut out = Vec::new();
         for start in [0, 100, 200] {
@@ -1035,7 +1035,7 @@ pub async fn fetch_chart(kind: u8, cc: &str) -> Result<Vec<(u32, String)>, Strin
         .collect())
 }
 
-/// «12 Nov, 2026» -> unix-время (полночь UTC); None, если дата не точная («Coming soon», «Q1 2027»).
+/// "12 Nov, 2026" -> unix time (midnight UTC); None if the date is not exact ("Coming soon", "Q1 2027").
 pub(crate) fn parse_en_date(s: &str) -> Option<i64> {
     let s = s.replace(',', "");
     let mut it = s.split_whitespace();
@@ -1050,7 +1050,7 @@ pub(crate) fn parse_en_date(s: &str) -> Option<i64> {
     Some(d.and_hms_opt(0, 0, 0)?.and_utc().timestamp())
 }
 
-/// Лидеры продаж с датами выхода (HTML-выдача поиска магазина): (appid, дата выхода).
+/// Top sellers with release dates (store search HTML results): (appid, release date).
 async fn topsellers_with_dates(cc: &str, start: u32) -> Result<Vec<(u32, Option<i64>)>, String> {
     let http = aurelia::core::net::steam_web_client().map_err(err)?;
     let url = format!(
@@ -1062,7 +1062,7 @@ async fn topsellers_with_dates(cc: &str, start: u32) -> Result<Vec<(u32, Option<
         .split("data-ds-appid=\"")
         .skip(1)
         .filter_map(|chunk| {
-            let id: u32 = chunk.split('"').next()?.parse().ok()?; // у наборов здесь список через запятую
+            let id: u32 = chunk.split('"').next()?.parse().ok()?; // bundles have a comma-separated list here
             let date = chunk
                 .split("search_released")
                 .nth(1)
@@ -1130,7 +1130,7 @@ mod date_tests {
 
 #[cfg(test)]
 mod reviews_rich_live {
-    /// Живой тест (только чтение): отзывы с наградами, счетчиками и аватарами; полный текст и номер отзыва.
+    /// Live test (read only): reviews with awards, counters and avatars; full text and review id.
     #[test]
     #[ignore]
     fn reviews_rich_live() {
@@ -1156,15 +1156,15 @@ mod reviews_rich_live {
     }
 }
 
-/// Steam в коротком тексте новости вырезает разметку без пробелов, и абзацы слипаются:
-/// «is out!There are». Вернуть пробел после конца предложения перед заглавной буквой.
+/// In a short news text Steam strips markup without spaces, and paragraphs stick together:
+/// "is out!There are". Put a space back after a sentence end before a capital letter.
 pub fn unglue(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 16);
     let mut prev: Option<char> = None;
     let mut prev2: Option<char> = None;
     for c in s.chars() {
         if let Some(p) = prev {
-            // «U.S.A» и «т.е.» не трогаем: перед точкой одна заглавная буква без пробела.
+            // "U.S.A" and "т.е." are left alone: a single capital letter before the dot with no space.
             let abbrev = p == '.' && prev2.is_some_and(|q| q.is_uppercase());
             if matches!(p, '.' | '!' | '?') && c.is_uppercase() && !abbrev {
                 out.push(' ');
@@ -1187,7 +1187,7 @@ mod unglue_tests {
     }
 }
 
-/// «Не интересует» в магазине Steam: скрыть игру из рекомендаций (on) или вернуть.
+/// "Not interested" in the Steam store: hide a game from recommendations (on) or bring it back.
 async fn ignore(c: &SteamClient, appid: u32, on: bool) -> Result<(), String> {
     let web = crate::webapi::web_session(c).await?;
     let fields = [
@@ -1210,7 +1210,7 @@ async fn ignore(c: &SteamClient, appid: u32, on: bool) -> Result<(), String> {
     }
 }
 
-/// Игры, скрытые из рекомендаций: dynamicstore/userdata (rgIgnoredApps).
+/// Games hidden from recommendations: dynamicstore/userdata (rgIgnoredApps).
 async fn ignored_list(c: &SteamClient) -> Result<HashSet<u32>, String> {
     let web = crate::webapi::web_session(c).await?;
     let text = web
@@ -1222,7 +1222,7 @@ async fn ignored_list(c: &SteamClient) -> Result<HashSet<u32>, String> {
 }
 
 fn parse_ignored(v: &serde_json::Value) -> HashSet<u32> {
-    // rgIgnoredApps бывает объектом {"appid": 0} или массивом.
+    // rgIgnoredApps can be an object {"appid": 0} or an array.
     match &v["rgIgnoredApps"] {
         serde_json::Value::Object(m) => m.keys().filter_map(|k| k.parse().ok()).collect(),
         serde_json::Value::Array(a) => a.iter().filter_map(|x| x.as_u64().map(|n| n as u32)).collect(),
@@ -1256,7 +1256,7 @@ mod ignored_tests {
     }
 }
 
-/// Название пакета магазина (packagedetails, без входа).
+/// Store package name (packagedetails, no login).
 async fn package_name(id: u32) -> Result<String, String> {
     let http = aurelia::core::net::steam_web_client().map_err(|e| format!("{e:#}"))?;
     let url = format!("https://store.steampowered.com/api/packagedetails?packageids={id}&l=russian");
@@ -1264,7 +1264,7 @@ async fn package_name(id: u32) -> Result<String, String> {
     v[id.to_string()]["data"]["name"].as_str().map(String::from).ok_or_else(|| "нет данных".into())
 }
 
-/// Список желаемого в порядке Steam: (priority > 0 по возрастанию), затем по дате добавления.
+/// Wishlist in Steam's order: (priority > 0 ascending), then by date added.
 pub async fn wishlist_ranked(c: &SteamClient, me: u64) -> Result<Vec<u32>, String> {
     let v = crate::webapi::get(c, "IWishlistService/GetWishlist/v1", &[("steamid", me.to_string())]).await?;
     let num = |x: &serde_json::Value| x.as_u64().or_else(|| x.as_str()?.parse().ok()).unwrap_or(0);

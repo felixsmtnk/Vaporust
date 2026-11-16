@@ -1,31 +1,31 @@
-//! Вкладка «Настройки»: библиотека, запуск игр, окно, магазин, о программе.
-//! Все сохраняется автоматически (eframe persistence). Статус и звук сообщений -
-//! в панели друзей, поэтому здесь их нет.
+//! "Settings" tab: library, game launch, window, store, about.
+//! Everything is saved automatically (eframe persistence). Message status and sound are
+//! in the friends panel, so they are not here.
 
 use crate::net::{self, Cmd, NetState};
 use crate::{local, portable, settings, tray, LauncherApp};
 use eframe::egui;
 
 const GITHUB: &str = "https://github.com/felixsmtnk/Vaporust";
-/// Ширина колонки с названиями настроек.
+/// Width of the setting names column.
 const LABEL_W: f32 = 200.0;
 
-/// Ширина колонки названий: 200, а в узком окне (или при крупном масштабе) - меньше, чтобы
-/// значениям хватало места.
+/// Names column width: 200, and smaller in a narrow window (or at a large scale) so
+/// values have enough room.
 fn label_w(ui: &egui::Ui) -> f32 {
     (ui.available_width() * 0.36).clamp(110.0, LABEL_W)
 }
 
-/// Разделы настроек (слева), по порядку.
+/// Settings sections (on the left), in order.
 pub const SECTIONS: [&str; 9] = ["Аккаунт", "Библиотека", "Загрузки", "Запуск игр", "Окно", "Производительность", "Уведомления", "Сеть", "О программе"];
 
 thread_local! {
-    /// Какой раздел сейчас открыт и какие заголовки уже нарисованы в этом кадре.
+    /// Which section is open now and which headers are already drawn in this frame.
     static CURRENT: std::cell::RefCell<(String, Vec<String>)> = const { std::cell::RefCell::new((String::new(), Vec::new())) };
 }
 
-/// Часть раздела `title`: рисуется, только если этот раздел выбран слева. Заголовок - один
-/// раз, даже если раздел собран из нескольких частей.
+/// Part of section `title`: drawn only if this section is selected on the left. The header - once,
+/// even if the section is assembled from several parts.
 fn card(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
     let (show, first) = CURRENT.with(|c| {
         let mut c = c.borrow_mut();
@@ -51,24 +51,24 @@ fn card(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
     ui.add_space(8.0);
 }
 
-/// Строка «название - значение».
+/// A "name - value" row.
 pub(crate) fn row(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui)) {
     let lw = label_w(ui);
-    // Значения (кнопки масштаба и т.п.), которым не хватает ширины, переносятся на следующую строку.
+    // Values (scale buttons and the like) that do not fit wrap to the next line.
     ui.horizontal(|ui| {
         ui.add_sized([lw, 22.0], egui::Label::new(egui::RichText::new(label).strong()).wrap().halign(egui::Align::LEFT));
-        // Перенос - внутри колонки значений, а не под названием.
+        // Wrapping happens inside the values column, not under the name.
         ui.horizontal_wrapped(|ui| add(ui));
     });
     ui.add_space(6.0);
 }
 
-/// Пояснение под строкой, с отступом на ширину колонки названий.
+/// Explanation under a row, indented by the names column width.
 fn note(ui: &mut egui::Ui, text: &str) {
     let lw = label_w(ui);
     ui.horizontal(|ui| {
         ui.add_space(lw + ui.spacing().item_spacing.x);
-        // Отдельная колонка: в горизонтальной строке длинный текст не переносится и обрезается.
+        // A separate column: in a horizontal row long text does not wrap and gets cut off.
         ui.vertical(|ui| {
             ui.set_max_width(ui.available_width());
             ui.add(egui::Label::new(egui::RichText::new(text).weak().small()).wrap());
@@ -78,10 +78,10 @@ fn note(ui: &mut egui::Ui, text: &str) {
 }
 
 impl LauncherApp {
-    /// Масштаб интерфейса: настройка -> egui; Ctrl+плюс/минус (egui меняет сам) -> настройка.
+    /// Interface scale: setting -> egui; Ctrl+plus/minus (egui changes it itself) -> setting.
     pub(crate) fn zoom_tick(&mut self, ctx: &egui::Context) {
-        // Свои шаги масштаба вместо egui (у него шаг 10% без предела): Ctrl+плюс/минус - соседний
-        // шаг из настроек, Ctrl+0 - 100%.
+        // Own scale steps instead of egui's (it uses 10% steps without a limit): Ctrl+plus/minus - the next
+        // step from settings, Ctrl+0 - 100%.
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
         let cur = SCALES.iter().position(|v| (v - self.settings.ui_scale).abs() < 0.01).unwrap_or(2);
         let (plus, minus, reset) = ctx.input_mut(|i| {
@@ -99,7 +99,7 @@ impl LauncherApp {
         } else if reset {
             self.settings.ui_scale = 1.0;
         }
-        // Значение не из списка (старые настройки) - к ближайшему шагу.
+        // A value not from the list (old settings) - to the nearest step.
         if !SCALES.iter().any(|v| (v - self.settings.ui_scale).abs() < 0.01) {
             let s = self.settings.ui_scale;
             self.settings.ui_scale = *SCALES.iter().min_by(|a, b| (*a - s).abs().total_cmp(&(*b - s).abs())).unwrap_or(&1.0);
@@ -109,9 +109,9 @@ impl LauncherApp {
             ctx.set_zoom_factor(want);
             self.zoom_applied = want;
         }
-        // Наименьший размер окна растет вместе с масштабом: при 150% в окне 760x460 разделы сверху
-        // налезали на кнопки окна. Но не больше экрана. (Размер задается в точках, а они уже учитывают
-        // масштаб, поэтому - на следующем кадре, когда масштаб применился.)
+        // The minimum window size grows with the scale: at 150% in a 760x460 window the sections on top
+        // overlapped the window buttons. But not larger than the screen. (The size is in points, which already include
+        // the scale, so - on the next frame, once the scale is applied.)
         let ppp = ctx.pixels_per_point();
         let screen = ctx.input(|i| i.viewport().monitor_size).unwrap_or(egui::vec2(1920.0, 1080.0));
         let min = egui::vec2(760.0f32.min(screen.x * 0.95), 460.0f32.min(screen.y * 0.9));
@@ -119,8 +119,8 @@ impl LauncherApp {
             self.min_ppp_sent = ppp;
             ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(min));
         }
-        // Окно меньше минимума (только что увеличили масштаб) - увеличить. Проверяем каждый кадр, а
-        // команду шлем не чаще двух раз в секунду: Windows применяет размер не сразу.
+        // The window is below the minimum (the scale was just increased) - enlarge it. Checked every frame, but
+        // the command is sent at most twice a second: Windows does not apply the size immediately.
         let (inner, minimized) = ctx.input(|i| (i.viewport().inner_rect, i.viewport().minimized == Some(true)));
         if let Some(r) = inner.filter(|_| !minimized && !crate::notify::in_tray()) {
             let small = r.width() < min.x - 1.0 || r.height() < min.y - 1.0;
@@ -132,17 +132,17 @@ impl LauncherApp {
         }
     }
 
-    /// Передать в Aurelia ограничение скорости загрузки и прокси.
+    /// Pass the download speed limit and proxy to Aurelia.
     pub(crate) fn send_aurelia_config(&mut self) {
         let proxy = Some(self.settings.proxy.trim().to_string()).filter(|p| !p.is_empty());
-        // С учетом расписания: в его часы может действовать своя скорость.
+        // With the schedule taken into account: in its hours a separate speed may apply.
         let kb = crate::schedule::effective_limit_kb(&self.settings);
         self.sent_limit = Some(kb);
         let _ = self.tx.send(Cmd::AureliaConfig { limit_kbit: kb * 8, proxy });
     }
 
     pub(crate) fn settings_contents(&mut self, ui: &mut egui::Ui, net: &NetState) {
-        // Слева - разделы (как в настройках Steam), справа - выбранный раздел.
+        // Sections on the left (as in Steam settings), the selected section on the right.
         let current = SECTIONS.get(self.settings_section as usize).copied().unwrap_or(SECTIONS[0]);
         CURRENT.with(|c| *c.borrow_mut() = (current.to_string(), Vec::new()));
         egui::SidePanel::left("settings_sections").resizable(false).exact_width(170.0).show_inside(ui, |ui| {
@@ -160,14 +160,14 @@ impl LauncherApp {
         egui::CentralPanel::default().show_inside(ui, |ui| {
         egui::ScrollArea::vertical().id_salt(("settings", self.settings_section)).auto_shrink([false, false]).show(ui, |ui| {
             ui.add_space(8.0);
-            // Не шире видимой области: иначе пояснения переносятся по 820 px и обрезаются справа.
+            // Not wider than the visible area: otherwise explanations wrap at 820 px and get cut off on the right.
             ui.set_max_width(ui.available_width().min(820.0));
             if current == "Аккаунт" && net.account.is_none() {
                 ui.label(egui::RichText::new("Аккаунт").size(20.0).strong());
                 ui.weak("Войдите в аккаунт Steam, чтобы увидеть сведения о нем.");
             }
 
-            // ---------- Аккаунт ----------
+            // ---------- Account ----------
             if let (Some(login), Some(me)) = (net.account.clone(), net.my_id) {
                 if !self.account_asked {
                     self.account_asked = true;
@@ -252,7 +252,7 @@ impl LauncherApp {
                         "Продажа и обмены, закрепление и откат версии, комментарии, оценки, награды, группы, \
                          блокировка, правка профиля. Проверены мало, многие видны другим людям.",
                     );
-                    // Быстрая продажа на площадке: на сколько дешевле самого дешевого лота.
+                    // Quick sell on the market: how much cheaper than the lowest listing.
                     let (cur, step) = match &wallet {
                         Some(Ok(w)) => (w.currency, w.fee_rules.map(|r| r.currency_increment).unwrap_or(1)),
                         _ => (1, 1),
@@ -329,7 +329,7 @@ impl LauncherApp {
                     });
                 });
 
-                // Лицензии и история покупок - как «Сведения об аккаунте» в Steam (только просмотр).
+                // Licenses and purchase history - like "Account details" in Steam (view only).
                 card(ui, "Аккаунт", |ui| {
                     ui.add_space(6.0);
                     ui.label(egui::RichText::new("Покупки").size(15.0).strong());
@@ -402,7 +402,7 @@ impl LauncherApp {
                 });
             }
 
-            // ---------- Библиотека ----------
+            // ---------- Library ----------
             card(ui, "Библиотека", |ui| {
                 row(ui, "Вид", |ui| {
                     ui.selectable_value(&mut self.settings.view, settings::View::Grid, "Плитка");
@@ -468,12 +468,12 @@ impl LauncherApp {
                 note(ui, "Steam увидит новую папку при следующем запуске. Переносить игры между папками - в «Свойства» -> «Установленные файлы».");
             });
 
-            // ---------- Загрузки ----------
+            // ---------- Downloads ----------
             card(ui, "Загрузки", |ui| {
-                // Регион загрузки: номер «ячейки» серверов Steam (cell id). Steam хранит свой выбор в
-                // config.vdf (CellIDServerOverride) - его можно взять оттуда.
+                // Download region: the Steam server "cell" number (cell id). Steam keeps its choice in
+                // config.vdf (CellIDServerOverride) - it can be taken from there.
                 let steam_cell = self.steam.as_ref().and_then(|s| crate::local::steam_cell_override(&s.dir));
-                // Список городов с серверами Steam - один раз за сеанс (опрос каталога серверов Steam).
+                // List of cities with Steam servers - once per session (querying the Steam server directory).
                 thread_local! {
                     static REGIONS_ASKED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
                 }
@@ -550,7 +550,7 @@ impl LauncherApp {
                     }
                 });
 
-                // ---------- Расписание загрузок ----------
+                // ---------- Download schedule ----------
                 row(ui, "Расписание загрузок", |ui| {
                     ui.label("с");
                     apply |= hour_box(ui, "sched_from", &mut self.settings.sched_from);
@@ -581,7 +581,7 @@ impl LauncherApp {
                 }
             });
 
-            // ---------- Библиотека (продолжение) ----------
+            // ---------- Library (continued) ----------
             card(ui, "Библиотека", |ui| {
                 row(ui, "Список игр", |ui| {
                     if ui.button("Сохранить в таблицу (CSV)").on_hover_text("Все игры: установлена ли, размер, часы, коллекции - для Excel").clicked() {
@@ -662,7 +662,7 @@ impl LauncherApp {
                 note(ui, "Заново загрузить из Steam список купленных игр и время в игре (например, после покупки).");
             });
 
-            // ---------- Запуск игр ----------
+            // ---------- Game launch ----------
             card(ui, "Запуск игр", |ui| {
                 row(ui, "Обновление игр", |ui| {
                     ui.radio_value(&mut self.settings.update_via_steam, false, "Без Steam");
@@ -701,7 +701,7 @@ impl LauncherApp {
                 );
             });
 
-            // ---------- Производительность ----------
+            // ---------- Performance ----------
             card(ui, "Производительность", |ui| {
                 row(ui, "Анимации", |ui| {
                     ui.checkbox(&mut self.settings.animations, "Стикеры, GIF, эффекты в чате, значки загрузки");
@@ -743,7 +743,7 @@ impl LauncherApp {
                 note(ui, "Часть памяти занимает сам драйвер видеокарты (на ПК с видеокартой NVIDIA до 30-40 МБ даже у пустого окна).");
             });
 
-            // ---------- Окно ----------
+            // ---------- Window ----------
             card(ui, "Окно", |ui| {
                 row(ui, "При запуске открывать", |ui| {
                     ui.radio_value(&mut self.settings.start_view, 0, "Библиотеку");
@@ -803,7 +803,7 @@ impl LauncherApp {
                 });
             });
 
-            // ---------- Уведомления ----------
+            // ---------- Notifications ----------
             card(ui, "Уведомления", |ui| {
                 row(ui, "Уведомления", |ui| {
                     ui.checkbox(&mut self.settings.notify_on, "Включены");
@@ -841,7 +841,7 @@ impl LauncherApp {
                 );
             });
 
-            // ---------- Сеть ----------
+            // ---------- Network ----------
             card(ui, "Сеть", |ui| {
                 row(ui, "Прокси", |ui| {
                     ui.add(
@@ -865,8 +865,8 @@ impl LauncherApp {
                 );
             });
 
-            // ---------- О программе ----------
-            // (Регион цен выбирается в самом магазине.)
+            // ---------- About ----------
+            // (The price region is chosen in the store itself.)
             card(ui, "О программе", |ui| {
                 row(ui, "Версия", |ui| {
                     ui.label(concat!("Vaporust ", env!("CARGO_PKG_VERSION"), " (альфа)"));
@@ -892,7 +892,7 @@ impl LauncherApp {
                     }
                     let dir = if portable::enabled() { portable::data_dir() } else { portable::normal_dir() };
                     if let Some(dir) = dir {
-                        // Корневая папка (настройки, кэш, копии) и папка с данными программы.
+                        // Root folder (settings, cache, backups) and the program data folder.
                         if let Some(root) = dir.parent().filter(|r| r.ends_with("Vaporust")) {
                             if ui.button("Vaporust").on_hover_text(root.display().to_string()).clicked() {
                                 local::open_folder(root);
@@ -981,13 +981,13 @@ impl LauncherApp {
     }
 }
 
-/// КБ/с -> «1.5» (МБ/с, без лишних нулей).
+/// KB/s -> "1.5" (MB/s, without trailing zeros).
 fn fmt_mb(kb: u64) -> String {
     let s = format!("{:.2}", kb as f64 / 1000.0);
     s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
-/// Текст поля (МБ/с, допускается запятая) -> КБ/с. Пусто = 0. None - не число.
+/// Field text (MB/s, a comma is allowed) -> KB/s. Empty = 0. None - not a number.
 fn parse_mb(text: &str) -> Option<u64> {
     let t = text.trim().replace(',', ".");
     if t.is_empty() {
@@ -1015,7 +1015,7 @@ mod tests {
     }
 }
 
-/// Поле «__ МБ/с» + «Применить». Возвращает true, когда значение применено.
+/// "__ MB/s" field + "Apply". Returns true when the value is applied.
 fn limit_field(ui: &mut egui::Ui, buf: &mut Option<String>, value: &mut u64) -> bool {
     let kb = *value;
     let text = buf.get_or_insert_with(|| if kb == 0 { String::new() } else { fmt_mb(kb) });
@@ -1039,7 +1039,7 @@ fn limit_field(ui: &mut egui::Ui, buf: &mut Option<String>, value: &mut u64) -> 
     applied
 }
 
-/// Выбор часа «01:00». Возвращает true при изменении.
+/// Choosing an hour "01:00". Returns true on change.
 fn hour_box(ui: &mut egui::Ui, id: &str, h: &mut u8) -> bool {
     let before = *h;
     egui::ComboBox::from_id_salt(id).width(64.0).selected_text(crate::schedule::hh(*h)).show_ui(ui, |ui| {
@@ -1050,5 +1050,5 @@ fn hour_box(ui: &mut egui::Ui, id: &str, h: &mut u8) -> bool {
     *h != before
 }
 
-/// Шаги масштаба интерфейса (настройки, мастер, Ctrl+плюс/минус).
+/// Interface scale steps (settings, wizard, Ctrl+plus/minus).
 pub const SCALES: [f32; 7] = [0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0];

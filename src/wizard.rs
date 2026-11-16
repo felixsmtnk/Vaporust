@@ -1,5 +1,5 @@
-//! Мастер первого запуска: несколько шагов с главными настройками (их же можно поменять
-//! потом в «Настройках»). Показывается один раз; «Пропустить» тоже считается.
+//! First-run wizard: a few steps with the main settings (the same ones can be changed
+//! later in "Settings"). Shown once; "Skip" also counts.
 
 use crate::{settings, tray, LauncherApp};
 use eframe::egui;
@@ -38,7 +38,7 @@ impl LauncherApp {
                             .color(egui::Color32::from_rgb(230, 190, 90)),
                         );
                         ui.add_space(6.0);
-                        // Как работать: с входом в аккаунт или без (пароль Steam не вводится).
+                        // How to work: with an account login or without one (no Steam password is entered).
                         let before = self.settings.local_mode;
                         ui.radio_value(&mut self.settings.local_mode, false, "Войти в аккаунт Steam: все возможности");
                         ui.radio_value(&mut self.settings.local_mode, true, "Без входа: только установленные игры, пароль не нужен");
@@ -95,7 +95,7 @@ impl LauncherApp {
                         ui.label(egui::RichText::new("Steam").size(17.0).strong());
                         ui.add_space(6.0);
                         ui.checkbox(
-                            &mut self.settings.freeze_webhelper,
+                            &mut self.freeze_webhelper,
                             "Во время игры замораживать интерфейс Steam (steamwebhelper) - меньше памяти",
                         );
                         ui.add_space(4.0);

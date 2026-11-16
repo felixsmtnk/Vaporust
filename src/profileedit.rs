@@ -1,6 +1,6 @@
-//! Редактирование своего профиля внутри программы (как «Редактировать профиль» в Steam):
-//! имя, настоящее имя, свой адрес, «о себе», страна; аватар; настройки приватности.
-//! И свой ник для друга. Все действия - через сайт сообщества с нашей веб-сессией.
+//! Editing own profile inside the program (like "Edit profile" in Steam):
+//! name, real name, custom URL, "about me", country; avatar; privacy settings.
+//! And own nickname for a friend. All actions go through the community site with our web session.
 
 use crate::net::{Cmd, NetState};
 use crate::LauncherApp;
@@ -9,14 +9,14 @@ use eframe::egui;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Privacy {
-    /// 1 - только я, 2 - друзья, 3 - все.
+    /// 1 - only me, 2 - friends, 3 - everyone.
     pub profile: u8,
     pub inventory: u8,
     pub gifts: u8,
     pub games: u8,
     pub playtime: u8,
     pub friends: u8,
-    /// Комментарии: 1 - все, 0 - друзья, 2 - никто (только я).
+    /// Comments: 1 - everyone, 0 - friends, 2 - nobody (only me).
     pub comments: u8,
 }
 
@@ -38,7 +38,7 @@ fn unescape_attr(s: &str) -> String {
     s.replace("&quot;", "\"").replace("&lt;", "<").replace("&gt;", ">").replace("&#39;", "'").replace("&amp;", "&")
 }
 
-/// Данные из атрибута data-profile-edit страницы /edit/info.
+/// Data from the data-profile-edit attribute of the /edit/info page.
 pub fn parse(html: &str) -> Option<ProfileEdit> {
     let i = html.find("data-profile-edit=\"")? + "data-profile-edit=\"".len();
     let j = html[i..].find('"')? + i;
@@ -88,7 +88,7 @@ fn check(status: u16, body: &str) -> Result<(), String> {
     }
 }
 
-/// Сохранить имя, адрес, «о себе», место.
+/// Save name, URL, "about me", location.
 pub async fn save(c: &SteamClient, e: &ProfileEdit) -> Result<(), String> {
     let me = c.my_steam_id().ok_or("нет входа")?;
     let web = crate::webapi::web_session(c).await?;
@@ -116,7 +116,7 @@ pub async fn save(c: &SteamClient, e: &ProfileEdit) -> Result<(), String> {
     check(st, &body)
 }
 
-/// Настройки приватности.
+/// Privacy settings.
 pub async fn save_privacy(c: &SteamClient, p: &Privacy) -> Result<(), String> {
     let me = c.my_steam_id().ok_or("нет входа")?;
     let web = crate::webapi::web_session(c).await?;
@@ -138,7 +138,7 @@ pub async fn save_privacy(c: &SteamClient, p: &Privacy) -> Result<(), String> {
     check(st, &body)
 }
 
-/// Загрузить новый аватар (jpg/png, как «Загрузить аватар» на сайте).
+/// Upload a new avatar (jpg/png, like "Upload avatar" on the site).
 pub async fn upload_avatar(c: &SteamClient, path: &std::path::Path) -> Result<(), String> {
     let me = c.my_steam_id().ok_or("нет входа")?;
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
@@ -178,7 +178,7 @@ pub async fn upload_avatar(c: &SteamClient, path: &std::path::Path) -> Result<()
     check(st, &text)
 }
 
-/// Свой ник для друга (виден только вам), пусто - убрать.
+/// Own nickname for a friend (visible only to you), empty - remove.
 pub async fn set_nickname(c: &SteamClient, friend: u64, nick: &str) -> Result<(), String> {
     let web = crate::webapi::web_session(c).await?;
     let fields = [("nickname", nick.to_string()), ("sessionid", web.sessionid().to_string())];
@@ -361,7 +361,7 @@ impl LauncherApp {
             }
         });
         if let Some(c) = cmd {
-            // После сохранения перечитаем: «как было» станет новым.
+            // After saving we reread: "as it was" becomes the new state.
             self.edit_ui.original = None;
             self.edit_ui.data = None;
             self.edit_ui.asked = true;
@@ -389,7 +389,7 @@ mod tests {
 
 #[cfg(test)]
 mod live {
-    /// Только чтение: данные своего профиля для правки (имя и приватность в вывод не печатаем).
+    /// Read only: own profile data for editing (name and privacy are not printed).
     #[test]
     #[ignore]
     fn profile_edit_load_live() {

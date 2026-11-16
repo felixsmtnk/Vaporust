@@ -1,10 +1,10 @@
-//! Экспорт библиотеки в таблицу CSV (открывается в Excel и LibreOffice): разделитель «;»
-//! и метка UTF-8 в начале - так русский Excel сам понимает столбцы и кириллицу.
+//! Export the library to a CSV table (opens in Excel and LibreOffice): ";" separator
+//! and a UTF-8 mark at the start - so Russian Excel detects the columns and Cyrillic by itself.
 
 use crate::net::NetState;
 use crate::LauncherApp;
 
-/// Поле CSV: в кавычках, если внутри есть ; " или перевод строки.
+/// CSV field: quoted if it contains ; " or a line break.
 fn field(s: &str) -> String {
     if s.contains([';', '"', '\n', '\r']) {
         format!("\"{}\"", s.replace('"', "\"\""))
@@ -13,7 +13,7 @@ fn field(s: &str) -> String {
     }
 }
 
-/// Строки таблицы: (appid, название, установлена, размер, минут, семья, коллекции).
+/// Table rows: (appid, name, installed, size, minutes, family, collections).
 pub fn csv(rows: &[(u32, String, bool, u64, Option<u32>, bool, String)]) -> String {
     let mut out = String::from("\u{feff}appid;Название;Установлена;Размер, ГБ;Часов в игре;Семейная библиотека;Коллекции\r\n");
     for (appid, name, installed, size, min, family, colls) in rows {
@@ -31,7 +31,7 @@ pub fn csv(rows: &[(u32, String, bool, u64, Option<u32>, bool, String)]) -> Stri
 }
 
 impl LauncherApp {
-    /// Спросить, куда сохранить, и записать таблицу всех игр. Возвращает текст для пользователя.
+    /// Ask where to save and write the table of all games. Returns text for the user.
     pub(crate) fn export_library(&self, net: &NetState) -> Option<String> {
         let path = rfd::FileDialog::new()
             .set_title("Сохранить список игр")

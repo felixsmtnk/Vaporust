@@ -1,4 +1,4 @@
-//! Разведка запросов Steam (только для разработки, только чтение): VAPORUST_DUMP=<папка>
+//! Probing Steam requests (development only, read only): VAPORUST_DUMP=<folder>
 //! cargo test probe_live -- --ignored --nocapture
 
 #[cfg(test)]
@@ -36,7 +36,7 @@ mod live {
             let me = c.my_steam_id().unwrap();
             let web = crate::webapi::web_session(&c).await.unwrap();
             let http = aurelia::core::net::steam_web_client().unwrap();
-            // Страницы (с входом): сохраняем целиком для разбора.
+            // Pages (with login): saved whole for parsing.
             for (name, url) in [
                 ("edit_info", format!("https://steamcommunity.com/profiles/{me}/edit/info")),
                 ("edit_settings", format!("https://steamcommunity.com/profiles/{me}/edit/settings")),
@@ -49,7 +49,7 @@ mod live {
                     Ok(t) => {
                         std::fs::write(dir.join(format!("{name}.html")), &t).unwrap();
                         println!("== {name}: {} байт", t.len());
-                        // Скрипты магазина: ищем в них методы Web API.
+                        // Store scripts: look for Web API methods in them.
                         if name == "wishlist" || name == "cart" || name == "app" {
                             for src in t.split("<script").filter_map(|s| s.split("src=\"").nth(1)).filter_map(|s| s.split('"').next()) {
                                 if !src.contains(".js") || !src.contains("steamstatic") {

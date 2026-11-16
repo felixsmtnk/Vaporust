@@ -42,4 +42,4 @@ Vaporust - альфа, старые версии не обновляются.
 - Выйти в Vaporust: меню «Vaporust» -> «Выйти из аккаунта» (сохраненный вход удаляется).
 - Отозвать все входы на стороне Steam: [store.steampowered.com/account/authorizeddevices](https://store.steampowered.com/account/authorizeddevices)
   или «Деавторизовать все другие устройства» в настройках Steam Guard.
-- Перед удалением Vaporust: «Настройки -> О программе -> Вернуть Steam как было».
+- Перед удалением Vaporust: «Настройки -> О программе -> Убрать изменения Vaporust в Steam».

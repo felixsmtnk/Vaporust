@@ -1,5 +1,5 @@
-//! Работа с сетью Steam через библиотеку Aurelia.
-//! Отдельный поток с tokio: интерфейс шлет команды, поток обновляет общее состояние.
+//! Working with the Steam network via the Aurelia library.
+//! A separate thread with tokio: the UI sends commands, the thread updates the shared state.
 
 use aurelia::core::models::{
     DepotPlatform, DownloadProgressState, DownloadState, OwnedGame, QrEvent, SessionState,
@@ -27,186 +27,186 @@ pub enum Cmd {
         code: Option<String>,
     },
     LoginQr,
-    /// Прервать ожидание QR-кода (кнопка «Отменить»).
+    /// Stop waiting for the QR code ("Cancel" button).
     CancelQr,
     RefreshLibrary,
     Achievements(u32),
-    /// Достижения друга в игре (appid, SteamID64) - для сравнения.
+    /// A friend's achievements in a game (appid, SteamID64) - for comparison.
     FriendAchievements(u32, u64),
-    /// Установить игру в указанную библиотеку Steam.
+    /// Install a game into the given Steam library.
     Install {
         appid: u32,
         name: String,
         library: PathBuf,
     },
-    /// Загрузить историю переписки с другом.
+    /// Load the conversation history with a friend.
     OpenChat(u64),
-    /// Отправить сообщение другу.
+    /// Send a message to a friend.
     SendChat { to: u64, text: String },
-    /// Узнать названия игр по appid (для игр, в которые играют друзья).
+    /// Look up game names by appid (for games friends are playing).
     ResolveApps(Vec<u32>),
-    /// DLC игры для ее страницы в библиотеке: какие куплены, и их названия.
+    /// Game DLC for its library page: which are owned, and their names.
     PageDlc(u32),
-    /// Загрузить свои смайлики и стикеры (для панели выбора).
+    /// Load own emoticons and stickers (for the picker panel).
     LoadEmoticons,
-    /// Обновить игру без Steam (Aurelia). acf - ее appmanifest.
-    /// Сменить язык игры без Steam (lang - как в UserConfig: "russian"…).
+    /// Update a game without Steam (Aurelia). acf - its appmanifest.
+    /// Change a game's language without Steam (lang - as in UserConfig: "russian"...).
     SetLanguage { appid: u32, name: String, acf: PathBuf, lang: String },
-    /// beta - Some(ветка), если это смена беты: после загрузки отметить ее установленной (MountedConfig).
+    /// beta - Some(branch) if this is a beta change: after the download mark it installed (MountedConfig).
     UpdateDirect { appid: u32, name: String, acf: PathBuf, beta: Option<String> },
-    /// Свои эффекты комнаты (из инвентаря Steam) - перечитываются при открытии вкладки «Эффекты».
+    /// Own room effects (from the Steam inventory) - reread when the "Effects" tab is opened.
     LoadChatEffects,
-    /// Свои скриншоты в облаке Steam: игра (0 - все), страница (с 1).
-    /// Скриншоты в облаке Steam: чьи (0 - свои), игра (0 - все), страница.
+    /// Own screenshots in the Steam cloud: game (0 - all), page (from 1).
+    /// Screenshots in the Steam cloud: whose (0 - own), game (0 - all), page.
     CloudShots { user: u64, appid: u32, page: u32 },
-    /// Сведения об аккаунте (страна по IP, SteamID).
+    /// Account info (country by IP, SteamID).
     AccountInfo,
-    /// Уведомления Steam (колокольчик) и «прочитать все».
+    /// Steam notifications (the bell) and "mark all read".
     SteamNotifs,
     SteamNotifsRead,
-    /// Картинки предметов из уведомлений: загрузить инвентари (инвентарь, раздел).
+    /// Item images from notifications: load inventories (inventory, context).
     NotifIcons(Vec<(u32, u32)>),
-    /// Уровень, значки, карточки; создать значок из набора.
+    /// Level, badges, cards; craft a badge from a set.
     Badges,
     CraftBadge { appid: u32, foil: bool },
-    /// Очки Steam: баланс, страница каталога, покупка.
+    /// Steam Points: balance, catalog page, purchase.
     PointsBalance,
     PointsQuery { class: u32, search: String, cursor: Option<String> },
     PointsRedeem(crate::points::RewardItem),
     PointsOwned,
-    /// Семья Steam: участники и игры.
+    /// Steam Family: members and games.
     Family,
-    /// Недавние игры друзей.
+    /// Friends' recent games.
     Activity(Vec<(u64, String)>),
-    /// Свои игры за две недели (для «Статистики»).
+    /// Own games over two weeks (for "Statistics").
     MyRecent,
-    /// Профиль целиком (уровень, рамка, игры, группы, комментарии) и комментарий в профиль.
+    /// Whole profile (level, frame, games, groups, comments) and a comment on a profile.
     ProfileExtra(u64),
-    /// Страница группы сообщества по адресу.
+    /// Community group page by URL.
     GroupInfo(String),
-    /// Вступить в группу или выйти из нее.
+    /// Join or leave a group.
     GroupMembership { url: String, info: crate::grouppage::GroupInfo, join: bool },
     PostComment { id: u64, text: String },
-    /// Удалить комментарий из профиля (id - чей профиль).
+    /// Delete a comment from a profile (id - whose profile).
     DeleteComment { id: u64, gid: String },
-    /// Подгрузить комментарии профиля начиная с start.
+    /// Load profile comments starting from start.
     MoreComments { id: u64, start: u32 },
-    /// Скриншот: комментарии, свой комментарий, оценка.
+    /// Screenshot: comments, own comment, vote.
     ShotComments { owner: u64, id: u64 },
     ShotComment { owner: u64, id: u64, text: String },
     ShotVote { id: u64, up: bool },
-    /// Сообщество игры: темы обсуждений (страница), тема, ответ, руководства.
+    /// Game community: discussion topics (page), topic, reply, guides.
     CommTopics { appid: u32, page: u32 },
     CommTopic(String),
     CommReply { topic: Box<crate::community::TopicView>, text: String },
     CommGuides { appid: u32, search: String },
-    /// Открыть руководство в программе.
+    /// Open a guide in the program.
     CommGuide(u64),
-    /// Групповые чаты: список, сообщения канала, отправка.
-    /// Лента событий друзей: с какого времени (0 - заново).
+    /// Group chats: list, channel messages, sending.
+    /// Friends activity feed: from what time (0 - from scratch).
     Feed { start: u64 },
-    /// Лицензии аккаунта (даты покупок) - для подсказки о возврате.
+    /// Account licenses (purchase dates) - for the refund hint.
     Licenses,
-    /// История кошелька и покупок (только просмотр).
+    /// Wallet and purchase history (view only).
     WalletHistory,
-    /// Свой профиль: загрузить данные для правки, сохранить, приватность, аватар; ник другу.
+    /// Own profile: load data for editing, save, privacy, avatar; friend nickname.
     ProfileEditLoad,
     ProfileEditSave(crate::profileedit::ProfileEdit),
     PrivacySave(crate::profileedit::Privacy),
     AvatarUpload(std::path::PathBuf),
     SetNickname(u64, String),
-    /// Реакция на сообщение в чате (поставить/убрать).
+    /// Reaction to a chat message (add/remove).
     ChatReaction { friend: u64, time: u32, ordinal: u32, kind: i32, name: String, add: bool },
-    /// Создать групповой чат с друзьями; пригласить друга в группу.
+    /// Create a group chat with friends; invite a friend into the group.
     CreateChatGroup { name: String, invitees: Vec<u64> },
     InviteToChatGroup { group: u64, friend: u64 },
-    /// Свой обзор игры: загрузить, сохранить.
+    /// Own game review: load, save.
     ReviewLoad(u32),
     ReviewSave { appid: u32, review: crate::actions::MyReview },
-    /// Новая тема в обсуждениях игры.
+    /// New topic in the game's discussions.
     CreateTopic { appid: u32, title: String, text: String },
-    /// Награды за очки: список, наградить (тип цели, цель, награда).
+    /// Points awards: list, give an award (target type, target, award).
     AwardConfig,
     Award { target_type: u32, target: String, reaction: u32 },
-    /// Новый порядок списка желаемого: (appid, место).
+    /// New wishlist order: (appid, position).
     WishlistReorder(Vec<(u32, u32)>),
-    /// Корзина: загрузить, положить игру (пакет), убрать строку.
+    /// Cart: load, add a game (package), remove a line.
     CartLoad,
     CartAdd(u32),
     CartRemove(u64),
-    /// Варианты покупки игры (пакеты) - для «В корзину».
+    /// Purchase options of a game (packages) - for "Add to cart".
     AppPackages(u32),
-    /// Кураторы с обзором игры.
+    /// Curators who reviewed the game.
     Curators(u32),
-    /// Семья Steam: пригласить, отменить приглашение.
+    /// Steam Family: invite, cancel an invite.
     FamilyInvite { family: String, steamid: u64, role: u32 },
     FamilyCancel { family: String, steamid: u64 },
-    /// Мастерская: коллекции игры, состав коллекции, оценка и избранное мода.
+    /// Workshop: game collections, collection contents, mod vote and favorite.
     WsCollections { appid: u32, text: String },
     WsCollectionItems(u64),
     WsVote { id: u64, up: bool },
     WsFavorite { id: u64, appid: u32, add: bool },
-    /// Список регионов загрузки (города с серверами Steam).
+    /// List of download regions (cities with Steam servers).
     DownloadRegions,
-    /// «Недавние игроки» (с кем играли).
+    /// "Recent players" (who you played with).
     Coplay,
-    /// Где выполнен вход в аккаунт.
+    /// Where the account is logged in.
     Sessions,
-    /// Подгрузить более раннюю переписку с другом.
+    /// Load an earlier part of the conversation with a friend.
     OlderChat(u64),
     ChatGroups,
     GroupMessages { group: u64, chat: u64 },
     GroupSend { group: u64, chat: u64, text: String },
-    /// Лента новостей этих игр (appid, название).
+    /// News feed of these games (appid, name).
     NewsFeed(Vec<(u32, String)>),
-    /// Активировать ключ продукта Steam.
+    /// Activate a Steam product key.
     ActivateKey(String),
-    /// Отправить картинку из файла.
+    /// Send an image from a file.
     SendImage { to: u64, path: PathBuf },
-    /// Профили, заявки в друзья, приглашение в игру, Мастерская.
+    /// Profiles, friend requests, game invite, Workshop.
     Social(crate::social::SocialCmd),
-    /// Коллекции Steam: загрузить, добавить/убрать игру, создать.
+    /// Steam collections: load, add/remove a game, create.
     Coll(crate::colls::CollCmd),
-    /// Команда магазина Steam (поиск, страница игры, список желаемого...).
+    /// Steam store command (search, game page, wishlist...).
     Store(crate::store::StoreCmd),
     Inv(crate::invent::InvCmd),
-    /// Площадка и обмены (продажа, снятие лота, отмена заявки, обмены).
+    /// Market and trades (selling, removing a listing, cancelling an order, trades).
     Market(crate::trade::MarketCmd),
-    /// Статус для друзей (EPersonaState: 1 в сети, 2 не беспокоить, 3 отошел, 7 невидимка).
+    /// Friends status (EPersonaState: 1 online, 2 busy, 3 away, 7 invisible).
     SetPersona(u32),
-    /// Проверить, каким установленным играм (appid, папка) нужно обновление.
+    /// Check which installed games (appid, folder) need an update.
     CheckUpdates(Vec<(u32, PathBuf)>),
-    /// Загрузить данные для окна «Свойства».
+    /// Load data for the "Properties" window.
     LoadProps(u32),
-    /// Включить/выключить DLC (base - игра, для перезагрузки списка).
+    /// Enable/disable a DLC (base - the game, to reload the list).
     SetDlc { base: u32, dlc: u32, enabled: bool },
-    /// Проверить целостность файлов игры.
+    /// Verify the integrity of game files.
     Verify { appid: u32, name: String },
-    /// Перенести игру в другую библиотеку Steam.
+    /// Move a game to another Steam library.
     Move { appid: u32, name: String, dest: PathBuf },
-    /// Удалить игру с диска.
+    /// Uninstall a game from disk.
     Uninstall { appid: u32, name: String },
-    /// Удалить игру из папки, общей с другими играми (others): только ее собственные файлы.
+    /// Remove a game from a folder shared with other games (others): only its own files.
     UninstallShared { appid: u32, name: String, dir: PathBuf, others: Vec<u32> },
-    /// Закрепленная версия: записать в appmanifest последние версии хранилищ ветки, чтобы
-    /// настоящий Steam считал игру обновленной. launch - после этого запустить игру.
+    /// Pinned version: write the branch's latest depot versions into appmanifest so that
+    /// the real Steam considers the game up to date. launch - launch the game afterwards.
     PinRefresh { appid: u32, path: PathBuf, branch: String, launch: bool },
-    /// Откат: скачать указанные (старые) версии хранилищ (depot -> manifest ID).
+    /// Rollback: download the given (old) depot versions (depot -> manifest ID).
     Downgrade { appid: u32, name: String, library: PathBuf, overrides: HashMap<u32, u64> },
-    /// Ручная синхронизация облачных сохранений. remote - userdata/<аккаунт>/<appid>/remote,
-    /// dir - папка игры; direction: 0 скачать, 1 отправить, 2 в обе стороны; take: при
-    /// расхождении взять облачную (Some(true)) или свою (Some(false)) копию, None - только показать.
+    /// Manual sync of cloud saves. remote - userdata/<account>/<appid>/remote,
+    /// dir - the game folder; direction: 0 download, 1 upload, 2 both ways; take: on
+    /// conflict take the cloud (Some(true)) or the local (Some(false)) copy, None - only show.
     CloudSync { appid: u32, remote: PathBuf, dir: PathBuf, direction: u8, take: Option<bool> },
-    /// Таблица запуска игры для запуска без Steam.
+    /// Game launch table for launching without Steam.
     DirectSpec(u32),
-    /// Настройки Aurelia: ограничение скорости загрузки (кбит/с, 0 - нет) и прокси.
+    /// Aurelia settings: download speed limit (kbit/s, 0 - none) and proxy.
     AureliaConfig { limit_kbit: u64, proxy: Option<String> },
-    /// Добавить уже скачанную игру (файлы в library/steamapps/common/<папка>) и проверить файлы.
+    /// Add an already downloaded game (files in library/steamapps/common/<folder>) and verify the files.
     Import { appid: u32, name: String, library: PathBuf },
     Logout,
 }
 
-/// Итог Cmd::PinRefresh для главного окна.
+/// Result of Cmd::PinRefresh for the main window.
 #[derive(Clone)]
 pub struct PinDone {
     pub appid: u32,
@@ -214,68 +214,68 @@ pub struct PinDone {
     pub result: Result<(), String>,
 }
 
-/// Одно сообщение в переписке.
+/// One message in a conversation.
 #[derive(Clone, Default)]
 pub struct ChatLine {
     pub from_self: bool,
     pub text: String,
-    /// Unix-время, секунды.
+    /// Unix time, seconds.
     pub time: u64,
-    /// Номер сообщения в секунде (для реакций); 0 - неизвестен (живое сообщение до перечитывания).
+    /// Message number within the second (for reactions); 0 - unknown (a live message before a reread).
     pub ordinal: u32,
-    /// Реакции: (тип 1 смайлик / 2 стикер, имя, кто поставил - номера аккаунтов).
+    /// Reactions: (type 1 emoticon / 2 sticker, name, who reacted - account numbers).
     pub reactions: Vec<(i32, String, Vec<u32>)>,
 }
 
-/// Переписка с одним другом.
+/// Conversation with one friend.
 #[derive(Clone, Default)]
 pub struct Conversation {
     pub lines: Vec<ChatLine>,
-    /// Непрочитанные входящие.
+    /// Unread incoming messages.
     pub unread: u32,
     pub history_loaded: bool,
-    /// Ошибка загрузки/отправки, если была.
+    /// Load/send error, if any.
     pub error: Option<String>,
-    /// Когда друг последний раз печатал (для «печатает...»).
+    /// When the friend last typed (for "typing...").
     pub typing_at: Option<Instant>,
-    /// Что сейчас происходит (например, «Отправляю картинку...»).
+    /// What is happening now (for example "Отправляю картинку...").
     pub status: Option<String>,
-    /// Сообщение об успешном действии (например, «Приглашение отправлено»).
+    /// Success message (for example "Приглашение отправлено").
     pub status_note: Option<String>,
-    /// Самое старое загруженное сообщение (время, ordinal) и есть ли еще более старые.
+    /// The oldest loaded message (time, ordinal) and whether there are older ones.
     pub oldest: Option<(u32, u32)>,
     pub more_history: bool,
     pub loading_older: bool,
 }
 
-/// Итог ручной синхронизации облака (для окна «Свойства»).
+/// Result of a manual cloud sync (for the "Properties" window).
 #[derive(Clone, Default)]
 pub struct CloudOutcome {
     pub downloaded: usize,
     pub uploaded: usize,
-    /// Расходятся: (файл, размер у вас, размер в облаке).
+    /// Differing: (file, local size, cloud size).
     pub conflicts: Vec<(String, u64, u64)>,
     pub skipped: usize,
     pub failed: Vec<String>,
 }
 
-/// Описание хранилища из данных Steam: имя, система (oslist), язык, DLC-appid.
+/// Depot description from Steam data: name, OS (oslist), language, DLC appid.
 pub type DepotDesc = (Option<String>, Option<String>, Option<String>, Option<u32>);
 
-/// Данные окна «Свойства» одной игры; None - еще грузится.
+/// "Properties" window data of one game; None - still loading.
 #[derive(Clone, Default)]
 pub struct PropsData {
     pub languages: Option<Result<Vec<String>, String>>,
-    /// Открытые ветки: (имя, описание от разработчика).
+    /// Public branches: (name, developer description).
     pub branches: Option<Result<Vec<(String, Option<String>)>, String>>,
     pub dlc: Option<Result<Vec<DlcRow>, String>>,
     pub cloud: Option<Result<Vec<CloudFile>, String>>,
-    /// Описания хранилищ: depot -> (имя, система, язык, DLC).
+    /// Depot descriptions: depot -> (name, OS, language, DLC).
     pub depots: Option<Result<HashMap<u32, DepotDesc>, String>>,
-    /// Итог последней ручной синхронизации облака; cloud_busy - идет синхронизация.
+    /// Result of the last manual cloud sync; cloud_busy - a sync is running.
     pub cloud_sync: Option<Result<CloudOutcome, String>>,
     pub cloud_busy: bool,
-    /// Ошибка последнего действия (например, переключения DLC).
+    /// Error of the last action (for example a DLC toggle).
     pub error: Option<String>,
 }
 
@@ -294,7 +294,7 @@ pub struct CloudFile {
     pub time: u64,
 }
 
-/// Ход установки одной игры.
+/// Install progress of one game.
 #[derive(Clone)]
 pub struct Install {
     pub appid: u32,
@@ -302,12 +302,12 @@ pub struct Install {
     pub stage: String,
     pub done: u64,
     pub total: u64,
-    /// Скорость, байт/с (сглаженная).
+    /// Speed, bytes/s (smoothed).
     pub speed: f64,
-    /// None, пока идет; Some(Ok) - готово; Some(Err) - ошибка или отмена.
+    /// None while running; Some(Ok) - done; Some(Err) - error or cancel.
     pub result: Option<Result<(), String>>,
     pub abort: Arc<AtomicBool>,
-    /// Что написать при успехе («установлена.», «файлы в порядке.»...).
+    /// What to show on success ("установлена.", "файлы в порядке."...).
     pub done_text: String,
 }
 
@@ -319,55 +319,55 @@ impl Install {
 
 #[derive(Default, Clone)]
 pub struct NetState {
-    /// Имя вошедшего аккаунта; None, если не вошли.
+    /// Logged-in account name; None if not logged in.
     pub account: Option<String>,
-    /// Показать форму входа.
+    /// Show the login form.
     pub need_login: bool,
-    /// Нет связи со Steam (вход сохранен): автономный режим, библиотека из кэша.
+    /// No connection to Steam (login saved): offline mode, library from the cache.
     pub offline: bool,
-    /// Текст ошибки, из-за которой включен автономный режим (для подсказки).
+    /// Text of the error that turned on offline mode (for the hint).
     pub offline_reason: String,
-    /// Как хранится сохраненный вход: Some(true) - зашифрован ключом Windows, Some(false) -
-    /// хранилище ключей недоступно и файл остался открытым, None - еще не проверено.
+    /// How the saved login is stored: Some(true) - encrypted with a Windows key, Some(false) -
+    /// the key store is unavailable and the file stayed open, None - not checked yet.
     pub session_secure: Option<bool>,
     pub busy: bool,
     pub message: String,
     pub qr_url: Option<String>,
     pub qr_scanned: bool,
-    /// Тяжелые поля - за Arc: интерфейс копирует NetState при каждом изменении, и копия таких
-    /// полей - только счетчик ссылок. Меняются через Arc::make_mut (копия - только этого поля).
+    /// Heavy fields are behind Arc: the UI copies NetState on every change, and copying such
+    /// fields is just a reference count. They change via Arc::make_mut (copying only that field).
     pub owned: Arc<Vec<OwnedGame>>,
-    /// Игры семейной группы Steam (чужие, не купленные этим аккаунтом).
+    /// Games of the Steam family group (others', not owned by this account).
     pub family: Arc<Vec<aurelia::steam_client::SharedApp>>,
     pub achievements: Arc<HashMap<u32, Result<Vec<GameAchievement>, String>>>,
-    /// Достижения друзей: (appid, SteamID64).
+    /// Friends' achievements: (appid, SteamID64).
     pub friend_achievements: Arc<HashMap<(u32, u64), Result<Vec<GameAchievement>, String>>>,
-    /// Текущая или последняя установка.
+    /// Current or last install.
     pub install: Option<Install>,
-    /// Растет, когда на диске что-то поменялось и библиотеку надо пересканировать.
+    /// Grows when something changed on disk and the library needs a rescan.
     pub disk_changed: u64,
-    /// Друзья (обновляет фоновая задача Aurelia).
+    /// Friends (updated by an Aurelia background task).
     pub roster: Arc<RwLock<Roster>>,
-    /// Переписки по SteamID64 друга.
+    /// Conversations by friend SteamID64.
     pub chats: Arc<HashMap<u64, Conversation>>,
-    /// Названия игр, узнанные по appid.
-    pub app_names: HashMap<u32, String>,
-    /// Свои смайлики и стикеры; None - еще не загружены.
+    /// Game names resolved by appid.
+    pub app_names: Arc<HashMap<u32, String>>,
+    /// Own emoticons and stickers; None - not loaded yet.
     pub emoticons: Option<(Vec<String>, Vec<String>)>,
-    /// Свои эффекты комнаты (имена для /roomeffect), из инвентаря Steam.
+    /// Own room effects (names for /roomeffect), from the Steam inventory.
     pub chat_effects: Option<Vec<String>>,
-    /// Скриншоты в облаке Steam: (игра-фильтр, всего, загруженные страницы); None - не загружали.
+    /// Screenshots in the Steam cloud: (game filter, total, loaded pages); None - not loaded.
     pub cloud_shots: Option<Result<(u32, u32, Vec<aurelia::steam_client::CloudScreenshot>), String>>,
     pub cloud_shots_busy: bool,
-    /// Чьи скриншоты в cloud_shots (0 - свои).
+    /// Whose screenshots are in cloud_shots (0 - own).
     pub cloud_shots_user: u64,
-    /// Сведения об аккаунте из Aurelia (вкладка «Настройки» -> «Аккаунт»).
+    /// Account info from Aurelia ("Settings" -> "Account" tab).
     pub account_data: Option<aurelia::steam_client::AccountData>,
-    /// Активация ключа: идет / итог.
+    /// Key activation: in progress / result.
     pub key_busy: bool,
-    /// Уведомления Steam.
+    /// Steam notifications.
     pub steam_notifs: Option<Result<crate::steamnotif::Notifs, String>>,
-    /// Картинки предметов для уведомлений: номер предмета -> адрес картинки.
+    /// Item images for notifications: item id -> image URL.
     pub notif_icons: HashMap<String, String>,
     pub badges: Option<Result<crate::badges::Badges, String>>,
     pub badges_msg: Option<String>,
@@ -376,7 +376,7 @@ pub struct NetState {
     pub points_busy: bool,
     pub points_msg: Option<String>,
     pub points_owned: Option<crate::points::Owned>,
-    /// Эффекты чата, купленные в этом сеансе (инвентарь Steam отдает их с задержкой).
+    /// Chat effects bought in this session (the Steam inventory returns them with a delay).
     pub bought_effects: Vec<String>,
     pub family_group: Option<Result<crate::family::Family, String>>,
     pub activity: Option<Result<Vec<crate::activity::FriendRecent>, String>>,
@@ -403,9 +403,9 @@ pub struct NetState {
     pub coplay: Option<Result<Vec<crate::coplay::CoplayGame>, String>>,
     pub profile_edit: Option<Result<crate::profileedit::ProfileEdit, String>>,
     pub profile_edit_msg: Option<String>,
-    /// Свои обзоры по играм (None внутри - еще не писали).
+    /// Own reviews per game (None inside - not written yet).
     pub my_reviews: HashMap<u32, Result<Option<crate::actions::MyReview>, String>>,
-    /// Итог последнего действия в сообществе/магазине (обзор, тема, награда, корзина, порядок...).
+    /// Result of the last community/store action (review, topic, award, cart, order...).
     pub action_msg: Option<String>,
     pub award_config: Option<Result<Vec<(u32, u32)>, String>>,
     pub cart: Option<Result<crate::actions::Cart, String>>,
@@ -414,46 +414,46 @@ pub struct NetState {
     pub ws_collections: HashMap<(u32, String), Result<Vec<crate::actions::WsCollection>, String>>,
     pub ws_collection_items: HashMap<u64, Result<Vec<u64>, String>>,
     pub sessions: Option<Result<Vec<crate::sessions::Session>, String>>,
-    /// Лента новостей своих игр.
+    /// News feed of own games.
     pub news_feed: Option<Result<Vec<crate::newsfeed::FeedItem>, String>>,
     pub news_busy: bool,
     pub key_result: Option<crate::keys::KeyResult>,
-    /// Данные окон «Свойства» по appid.
+    /// "Properties" window data by appid.
     pub props: HashMap<u32, PropsData>,
-    /// Закрепление версии: итог последней Cmd::PinRefresh (главное окно забирает).
+    /// Version pinning: result of the last Cmd::PinRefresh (taken by the main window).
     pub pin_done: Option<PinDone>,
-    /// Откат закончился успешно - главное окно закрепляет эту игру.
+    /// A rollback finished successfully - the main window pins this game.
     pub pin_after: Option<u32>,
-    /// Таблица запуска для запуска без Steam: (appid, Ok(Some) - нашлась, Ok(None) - нет записи для Windows).
+    /// Launch table for launching without Steam: (appid, Ok(Some) - found, Ok(None) - no Windows entry).
     pub direct_spec: Option<(u32, Result<Option<crate::direct::LaunchSpec>, String>)>,
-    /// Игры, которым нужно обновление (None - еще не проверяли).
+    /// Games that need an update (None - not checked yet).
     pub updates: Option<std::collections::HashSet<u32>>,
-    /// SteamID64 вошедшего аккаунта.
+    /// SteamID64 of the logged-in account.
     pub my_id: Option<u64>,
-    /// Профили пользователей по SteamID64.
+    /// User profiles by SteamID64.
     pub profiles: HashMap<u64, Result<aurelia::steam_client::UserProfile, String>>,
-    /// Ссылки /id/<имя> -> SteamID64 (окно «Добавить друга»).
+    /// /id/<name> links -> SteamID64 ("Add friend" window).
     pub vanity: HashMap<String, Result<u64, String>>,
-    /// Результат последнего действия с друзьями (заявка, удаление).
+    /// Result of the last friend action (request, removal).
     pub friend_msg: Option<String>,
-    /// Кого заблокировали в этом сеансе (Steam сообщит о блокировке не сразу).
+    /// Who was blocked in this session (Steam reports a block with a delay).
     pub blocked: std::collections::HashSet<u64>,
-    /// Мастерская (отдельно: списки бывают большими).
+    /// Workshop (separate: lists can be large).
     pub workshop: crate::social::SharedWorkshop,
-    /// Коллекции Steam (None - еще не загружены).
+    /// Steam collections (None - not loaded yet).
     pub collections: Option<Vec<crate::colls::Coll>>,
     pub collections_error: Option<String>,
-    /// Данные магазина (отдельно: их много, а NetState копируется каждый кадр).
+    /// Store data (separate: there is a lot of it, and NetState is copied every frame).
     pub store: crate::store::SharedStore,
-    /// Инвентарь, кошелек, торговая площадка (отдельно, как магазин).
+    /// Inventory, wallet, Community Market (separate, like the store).
     pub inv: crate::invent::SharedInv,
 }
 
 pub type Shared = Arc<SharedNet>;
 
-/// Сетевое состояние под замком со счетчиком изменений: каждая запись (DerefMut) увеличивает
-/// счетчик, и интерфейс копирует состояние к себе только когда оно поменялось, а не каждый кадр
-/// (в нем переписки, новости, достижения - копировать на каждом кадре дорого).
+/// Network state under a lock with a change counter: every write (DerefMut) increments
+/// the counter, and the UI copies the state only when it changed, not every frame
+/// (it holds conversations, news, achievements - copying them every frame is expensive).
 #[derive(Default)]
 pub struct SharedNet {
     inner: Mutex<NetState>,
@@ -480,26 +480,26 @@ impl std::ops::DerefMut for NetGuard<'_> {
 }
 
 impl SharedNet {
-    /// Как у Mutex: `.lock().unwrap()` (ошибки не бывает - отравленный замок просто берем).
+    /// Like a Mutex: `.lock().unwrap()` (it never fails - a poisoned lock is simply taken).
     pub fn lock(&self) -> Result<NetGuard<'_>, std::convert::Infallible> {
         Ok(NetGuard { g: self.inner.lock().unwrap_or_else(|e| e.into_inner()), gen: &self.gen })
     }
 
-    /// Номер изменения: меняется при каждой записи.
+    /// Change number: changes on every write.
     pub fn gen(&self) -> u64 {
         self.gen.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
 fn upd(st: &Shared, ctx: &egui::Context, f: impl FnOnce(&mut NetState)) {
-    // Ответ задачи прошлого входа (вышли или вошли в другой аккаунт) - не записываем. Проверка -
-    // под той же блокировкой, что и запись: иначе между проверкой и записью мог смениться вход.
+    // A response of a task from a previous login (logged out or logged into another account) - not written. The check
+    // is under the same lock as the write: otherwise the login could change between the check and the write.
     let Some(mut g) = lock_current(st) else { return };
     f(&mut g);
     drop(g);
     ctx.request_repaint();
-    // Окно чата - отдельный viewport: его тоже будим (новые сообщения, статусы), но только
-    // если оно открыто - иначе eframe на миг создает пустое окно «egui window».
+    // The chat window is a separate viewport: we wake it too (new messages, statuses), but only
+    // if it is open - otherwise eframe briefly creates an empty "egui window".
     if crate::notify::chat_open() {
         ctx.request_repaint_of(crate::chatwin::viewport_id());
     }
@@ -527,9 +527,9 @@ pub fn spawn_worker(st: Shared, ctx: egui::Context) -> UnboundedSender<Cmd> {
                     return;
                 }
             };
-            // Команды по очереди. Исключение - вход по QR: он ждет до 5 минут, и все это время
-            // остальные команды принимаются. Вход паролем, новый QR или «Отменить» прерывают
-            // ожидание сразу, остальные команды выполняются после.
+            // Commands run in order. The exception is QR login: it waits up to 5 minutes, and all that time
+            // other commands are accepted. A password login, a new QR or "Cancel" interrupt
+            // the wait right away, other commands run afterwards.
             let mut later: std::collections::VecDeque<Cmd> = Default::default();
             loop {
                 let cmd = match later.pop_front() {
@@ -577,7 +577,7 @@ pub fn spawn_worker(st: Shared, ctx: egui::Context) -> UnboundedSender<Cmd> {
 }
 
 async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Context) {
-    // Запасная защита: экспериментальные действия без переключателя не выполняются.
+    // Safety net: experimental actions are not run without the switch.
     if crate::exp::guarded(&cmd) && !crate::exp::on() {
         upd(st, ctx, |s| s.message = "Это экспериментальная функция: включите ее в «Настройки -> Аккаунт».".into());
         return;
@@ -590,10 +590,10 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             });
             match client.restore_session().await {
                 Ok(session) => logged_in(client, session, st, ctx).await,
-                // Нет связи со Steam, но вход сохранен: автономный режим - библиотека из кэша Aurelia
-                // (список игр и время в игре на момент последнего входа); UI сам пробует переподключиться.
+                // No connection to Steam, but the login is saved: offline mode - library from the Aurelia cache
+                // (game list and playtime as of the last login); the UI tries to reconnect by itself.
                 Err(e) if client.is_offline() || network_failure(&e).await => {
-                    // Свой кэш этого аккаунта (по SteamID из сохраненного входа), а не общий кэш Aurelia.
+                    // This account's own cache (by SteamID from the saved login), not Aurelia's shared cache.
                     let me = aurelia::core::config::load_session().await.ok().and_then(|s| s.steam_id);
                     let cached = load_library_cache(me);
                     let why = format!("{e:#}");
@@ -667,7 +667,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 }),
             }
         }
-        Cmd::CancelQr => {} // ожидание QR уже прервано в цикле команд
+        Cmd::CancelQr => {} // the QR wait was already interrupted in the command loop
         Cmd::RefreshLibrary => {
             upd(st, ctx, |s| s.busy = true);
             let (mut client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
@@ -683,7 +683,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             });
         }
         Cmd::Achievements(appid) => {
-            // В фоне: медленный ответ не задерживает остальные команды.
+            // In the background: a slow response does not hold up other commands.
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             spawn_session(async move {
                 let res = client
@@ -691,7 +691,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                     .await
                 .or_else(|e| {
                     let msg = format!("{e:#}");
-                    // У игры нет достижений: Steam отвечает ошибкой NoMatch, а не пустым списком.
+                    // The game has no achievements: Steam answers with a NoMatch error, not an empty list.
                     if msg.contains("NoMatch") { Ok(Vec::new()) } else { Err(msg) }
                 });
                 upd(&st, &ctx, |s| {
@@ -721,7 +721,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                     done_text: "установлена.".into(),
                 });
             });
-            // Установка идет в отдельной задаче, чтобы остальные команды не ждали.
+            // The install runs in a separate task so other commands do not wait.
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             tokio::spawn(async move {
                 let res = run_install(client, appid, library, abort, &st, &ctx).await;
@@ -735,7 +735,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             });
         }
         Cmd::OpenChat(friend) => {
-            // В фоне: пока грузится история одного чата, остальные команды не ждут.
+            // In the background: while one chat's history loads, other commands do not wait.
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             spawn_session(async move {
             let res = client.chat_history(friend, 50, None).await;
@@ -746,8 +746,8 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                     Ok((msgs, more)) => {
                         conv.oldest = msgs.iter().map(|m| (m.timestamp, m.ordinal)).min();
                         conv.more_history = more;
-                        // Steam отдает от новых к старым. Сообщения, пришедшие или отправленные, пока
-                        // история грузилась, могут быть новее ее снимка - их сохраняем (merge_history).
+                        // Steam returns newest to oldest. Messages received or sent while
+                        // the history was loading may be newer than its snapshot - we keep them (merge_history).
                         let history: Vec<ChatLine> = msgs
                             .into_iter()
                             .rev()
@@ -774,13 +774,13 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 let list = load_dlc(&client, appid).await;
                 let ids: Vec<u32> = list.as_ref().map(|l| l.iter().map(|d| d.app_id).collect()).unwrap_or_default();
                 upd(&st, &ctx, |s| s.props.entry(appid).or_default().dlc = Some(list));
-                // Названия DLC (не больше 40, чтобы не засыпать Steam запросами).
+                // DLC names (at most 40, so Steam is not flooded with requests).
                 let known: Vec<u32> = st.lock().unwrap().app_names.keys().copied().collect();
                 for id in ids.into_iter().filter(|i| !known.contains(i)).take(40) {
                     let (name, _) = client.resolve_install_game_info(id).await;
                     if !name.starts_with("App ") {
                         upd(&st, &ctx, |s| {
-                            s.app_names.insert(id, name);
+                            Arc::make_mut(&mut s.app_names).insert(id, name);
                         });
                     }
                 }
@@ -791,10 +791,10 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             spawn_session(async move {
                 for id in ids {
                     let (name, _) = client.resolve_install_game_info(id).await;
-                    // Aurelia возвращает «App N», если название не нашлось.
+                    // Aurelia returns "App N" if the name was not found.
                     if !name.starts_with("App ") {
                         upd(&st, &ctx, |s| {
-                            s.app_names.insert(id, name);
+                            Arc::make_mut(&mut s.app_names).insert(id, name);
                         });
                     }
                 }
@@ -812,8 +812,8 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                         } else {
                             now_unix()
                         };
-                        // Команды (/sticker) и смайлики сервер переписывает; показываем сразу,
-                        // а точный вид подтянется из истории ниже.
+                        // The server rewrites commands (/sticker) and emoticons; show them right away,
+                        // the exact look comes from the history below.
                         let special = text.starts_with('/') || text.contains('ː');
                         conv.lines.push(ChatLine {
                             from_self: true,
@@ -835,7 +835,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 upd(st, ctx, |s| {
                     let conv = Arc::make_mut(&mut s.chats).entry(to).or_default();
                     conv.status = None;
-                    // Эффекта (или стикера) нет в аккаунте - сервер превращает команду в пустое сообщение.
+                    // The account does not have the effect (or sticker) - the server turns the command into an empty message.
                     let empty = conv.lines.iter().rev().find(|l| l.from_self).is_some_and(|l| l.text.trim().is_empty());
                     if empty && orig.starts_with("/roomeffect ") {
                         conv.error = Some("Эффект не отправлен: его нет в вашем аккаунте Steam (у друга могло появиться пустое сообщение).".into());
@@ -862,8 +862,8 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::SetPersona(state) => {
             let c = client.clone();
             spawn_session(async move {
-                // Наблюдатель друзей при входе сам объявляет статус из конфига Aurelia
-                // (невидимка); ждем его и объявляем свой поверх.
+                // The friends watcher announces the status from the Aurelia config by itself on login
+                // (invisible); we wait for it and announce ours on top.
                 tokio::time::sleep(Duration::from_secs(3)).await;
                 let _ = c.announce_persona(state).await;
             });
@@ -894,7 +894,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             let (st2, ctx2) = (st.clone(), ctx.clone());
             start_op(appid, format!("Смена языка: {name}"), "язык изменен.", st, ctx, move |abort| async move {
                 switch_language(&c, appid, &acf, &lang, &abort, &st2, &ctx2).await?;
-                // Файлы на месте - убрать желтую «Обновить» с карточки.
+                // Files are in place - remove the yellow "Update" from the card.
                 upd(&st2, &ctx2, |s| {
                     if let Some(u) = s.updates.as_mut() {
                         u.retain(|a| *a != appid);
@@ -904,9 +904,9 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             });
         }
         Cmd::UpdateDirect { appid, name, acf, beta } => {
-            // Обновление без Steam: Aurelia качает новые версии уже установленных хранилищ.
-            // Ее appmanifest пишется с нуля (теряет язык, SharedDepots, InstallScripts…), поэтому
-            // потом возвращаем исходный файл и вписываем в него только новые версии и сборку.
+            // Update without Steam: Aurelia downloads new versions of already installed depots.
+            // Its appmanifest is written from scratch (loses language, SharedDepots, InstallScripts...), so
+            // afterwards we restore the original file and write only the new versions and build into it.
             let c = client.clone();
             let (st2, ctx2) = (st.clone(), ctx.clone());
             start_op(appid, format!("Обновление: {name}"), "обновлена.", st, ctx, move |abort| async move {
@@ -967,7 +967,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                         .latest_depot_versions(appid, &branch)
                         .await
                         .map_err(|e| format!("Не удалось узнать последнюю версию игры: {e:#}"))?;
-                    // Только хранилища, которые реально стоят у игры.
+                    // Only depots the game actually has installed.
                     let installed = crate::local::installed_depots(&path);
                     let target: std::collections::BTreeMap<u32, u64> = installed
                         .keys()
@@ -989,7 +989,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 c.import_install(appid, library, DepotPlatform::Windows)
                     .await
                     .map_err(|e| format!("Не удалось добавить игру: {e:#}"))?;
-                // Файлы могли быть старой версии - проверка докачает отличия.
+                // Files may be of an old version - verification downloads the differences.
                 let state = Arc::new(RwLock::new(DownloadState::default()));
                 if let Ok(mut s) = state.write() {
                     s.abort_signal = abort.clone();
@@ -1002,7 +1002,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             });
         }
         Cmd::AureliaConfig { limit_kbit, proxy } => {
-            // Сразу для идущих загрузок; config.json - чтобы Aurelia не вернула старое значение.
+            // Right away for running downloads; config.json - so Aurelia does not bring back the old value.
             aurelia::steam_client::set_download_limit_now(limit_kbit);
             tokio::spawn(async move {
                 if let Ok(mut cfg) = aurelia::core::config::LauncherConfig::load().await {
@@ -1033,7 +1033,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             tokio::spawn(async move {
                 let res = async {
                     let cloud = c.cloud_client().map_err(es)?;
-                    // Aurelia 0.2.5: правила облака (UFS) с переопределениями корней для Windows и SteamID.
+                    // Aurelia 0.2.5: cloud rules (UFS) with root overrides for Windows and the SteamID.
                     let ufs = c.fetch_ufs_config(appid).await.unwrap_or_default();
                     let resolver = CloudPathResolver::new(remote, Some(dir))
                         .with_root_overrides(&ufs.root_overrides, "windows")
@@ -1059,7 +1059,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                     })
                 }
                 .await;
-                // Обновить список файлов в облаке после отправки.
+                // Refresh the cloud file list after uploading.
                 let files = c.cloud_client().ok();
                 let list = match files {
                     Some(cl) => Some(cl.get_file_list(appid).await),
@@ -1182,7 +1182,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                     }
                 }
                 let r = crate::steamnotif::load(&client).await;
-                // Ошибку сети не показываем поверх уже загруженного списка.
+                // A network error is not shown over an already loaded list.
                 upd(&st, &ctx, |s| {
                     if r.is_ok() || !matches!(s.steam_notifs, Some(Ok(_))) {
                         s.steam_notifs = Some(r);
@@ -1232,7 +1232,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 upd(&st, &ctx, |s| {
                     s.points_busy = false;
                     match (r, s.points_page.take()) {
-                        // «Показать еще» - дописать к той же странице.
+                        // "Show more" - append to the same page.
                         (Ok(mut p), Some(Ok(mut old))) if more && old.class == p.class && old.search == p.search => {
                             old.items.append(&mut p.items);
                             old.cursor = p.cursor;
@@ -1248,7 +1248,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             spawn_session(async move {
                 if let Ok(mut o) = crate::points::owned(&client).await {
                     upd(&st, &ctx, |s| {
-                        // Купленное в этом сеансе Steam может еще не отдавать - не терять.
+                        // Steam may not return items bought in this session yet - do not lose them.
                         if let Some(prev) = &s.points_owned {
                             o.profile.extend(prev.profile.iter().copied());
                             o.names.extend(prev.names.iter().cloned());
@@ -1277,7 +1277,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                     }
                     if ok {
                         s.points_owned.get_or_insert_with(Default::default).add(&item);
-                        // Сразу в панель чата: инвентарь Steam обновляется с задержкой.
+                        // Straight into the chat panel: the Steam inventory updates with a delay.
                         match item.class {
                             12 => {
                                 let e = crate::effects::from_item_name(&item.name);
@@ -1348,7 +1348,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             spawn_session(async move {
                 let r = crate::grouppage::membership(&client, &info, join).await;
-                // Перечитать свой профиль (список групп) и саму группу.
+                // Reread own profile (group list) and the group itself.
                 let me = client.my_steam_id();
                 let fresh = match me {
                     Some(me) => Some((me, crate::profile_extra::load(&client, me).await)),
@@ -1397,7 +1397,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             spawn_session(async move {
                 if let Ok((total, more)) = crate::profile_extra::load_comments(&client, id, start).await {
                     upd(&st, &ctx, |s| {
-                        // Страница комментариев (по 10), как в Steam.
+                        // Comment page (10 each), as in Steam.
                         if let Some(Ok(x)) = s.profile_extra.get_mut(&id) {
                             x.comments_total = total;
                             x.comments = more;
@@ -1519,7 +1519,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 upd(&st, &ctx, |s| {
                     s.feed_busy = false;
                     match (r, s.feed.take()) {
-                        // «Показать раньше» - дописать.
+                        // "Show earlier" - append.
                         (Ok(mut p), Some(Ok(mut old))) if start > 0 => {
                             old.entries.append(&mut p.entries);
                             old.next = p.next;
@@ -1546,7 +1546,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                                 conv.oldest = Some(o);
                             }
                             conv.more_history = more && !msgs.is_empty();
-                            // Пришли от новых к старым - в начало переписки, по порядку.
+                            // They come newest to oldest - prepend to the conversation, in order.
                             let older: Vec<ChatLine> = msgs
                                 .into_iter()
                                 .rev()
@@ -1630,7 +1630,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             spawn_session(async move {
                 let r = client.my_chat_groups().await.map_err(|e| format!("{e:#}"));
-                // Как открытое окно чата в Steam: иначе история каналов может не отдаваться.
+                // Like an open chat window in Steam: otherwise channel history may not be returned.
                 if let Ok(g) = &r {
                     let _ = client.activate_chat_groups(&g.iter().map(|x| x.group_id).collect::<Vec<_>>()).await;
                 }
@@ -1642,7 +1642,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             spawn_session(async move {
                 let r = client.group_messages(group, chat, 60).await.map_err(|e| format!("{e:#}"));
                 upd(&st, &ctx, |s| {
-                    // Сбой обновления не стирает уже показанные сообщения.
+                    // A failed refresh does not wipe already shown messages.
                     if r.is_ok() || !matches!(s.group_messages.get(&(group, chat)), Some(Ok(_))) {
                         s.group_messages.insert((group, chat), r);
                     }
@@ -1680,7 +1680,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 }
                 .map_err(|e| {
                     let t = es(e);
-                    // Закрытый профиль Steam отвечает InvalidParam.
+                    // A private Steam profile answers InvalidParam.
                     if user != 0 && t.contains("InvalidParam") { "профиль или скриншоты скрыты настройками приватности".to_string() } else { t }
                 });
                 upd(&st, &ctx, |s| {
@@ -1688,7 +1688,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                     let same_user = s.cloud_shots_user == user;
                     s.cloud_shots_user = user;
                     s.cloud_shots = Some(match r {
-                        // Следующая страница того же фильтра - дописываем.
+                        // Next page of the same filter - append.
                         Ok((total, v)) => match s.cloud_shots.take() {
                             Some(Ok((a, _, mut old))) if a == appid && page > 1 && same_user => {
                                 old.extend(v);
@@ -1702,8 +1702,8 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             });
         }
         Cmd::LoadChatEffects => {
-            // Эффекты комнаты: Steam не сообщает отдельному сеансу, какие куплены, - они лежат в
-            // инвентаре (753/6), как стикеры: тип «Winter Sale Event 2019 Chat Effect», имя «Confetti».
+            // Room effects: Steam does not tell a separate session which are bought - they are in the
+            // inventory (753/6), like stickers: type "Winter Sale Event 2019 Chat Effect", name "Confetti".
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             spawn_session(async move {
                 let Ok(web) = crate::webapi::web_session(&client).await else { return };
@@ -1752,8 +1752,8 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                     Ok(u) => u,
                     Err(e) => return set_status(None, Some(format!("Картинка не отправлена: {e:#}"))),
                 };
-                // Похоже, при подтверждении загрузки Steam сам публикует картинку в чат.
-                // Проверяем: если ее нет в истории, отправляем сообщение сами.
+                // It seems that on upload confirmation Steam posts the image to the chat itself.
+                // Check: if it is not in the history, send the message ourselves.
                 tokio::time::sleep(Duration::from_millis(1500)).await;
                 let posted = client
                     .recent_chat_messages(to, 5)
@@ -1771,8 +1771,8 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             });
         }
         Cmd::Logout => {
-            PROBE_GEN.fetch_add(1, Ordering::Relaxed); // проверка связи прошлого входа больше не нужна
-            SESSION_GEN.fetch_add(1, Ordering::Relaxed); // задачи прошлого входа больше ничего не пишут
+            PROBE_GEN.fetch_add(1, Ordering::Relaxed); // the previous login's connection check is no longer needed
+            SESSION_GEN.fetch_add(1, Ordering::Relaxed); // tasks of the previous login no longer write anything
             crate::webapi::clear_token();
             let _ = client.logout().await;
             upd(st, ctx, |s| {
@@ -1795,7 +1795,7 @@ async fn logged_in(client: &mut SteamClient, session: SessionState, st: &Shared,
     let roster = Arc::new(RwLock::new(Roster::new()));
     let my_id = client.my_steam_id();
     crate::webapi::clear_token();
-    // Новый вход: задачи прошлого входа больше ничего не пишут (spawn_session, слушатель чата).
+    // New login: tasks of the previous login no longer write anything (spawn_session, chat listener).
     SESSION_GEN.fetch_add(1, Ordering::Relaxed);
     upd(st, ctx, |s| {
         s.account = Some(name);
@@ -1814,7 +1814,7 @@ async fn logged_in(client: &mut SteamClient, session: SessionState, st: &Shared,
     };
     upd(st, ctx, |s| s.session_secure = Some(secure));
     if !secure {
-        // Редкий случай (хранилище ключей Windows недоступно) - но о нем нужно знать сразу.
+        // A rare case (the Windows key store is unavailable) - but it must be known right away.
         crate::popup::push(
             crate::popup::Kind::Info,
             "Вход не зашифрован",
@@ -1826,12 +1826,12 @@ async fn logged_in(client: &mut SteamClient, session: SessionState, st: &Shared,
     load_owned(client, st, ctx).await;
 }
 
-/// Сохраненный вход (session.json Aurelia) держать зашифрованным: в нем ключ, по которому
-/// Steam пускает без пароля. Aurelia по умолчанию пишет его открытым текстом (шифрование
-/// включает только ее консольная команда secure-session), поэтому после каждого входа
-/// включаем encrypt_session и пересохраняем файл. Ключ лежит в диспетчере учетных данных
-/// Windows (только для этого пользователя Windows). Ok(false) - хранилище ключей недоступно
-/// (или отключено AURELIA_DISABLE_KEYRING), файл остался открытым.
+/// Keep the saved login (Aurelia's session.json) encrypted: it holds the key with which
+/// Steam lets you in without a password. Aurelia writes it in plain text by default (encryption
+/// is enabled only by its console command secure-session), so after every login
+/// we turn on encrypt_session and save the file again. The key lives in the Windows Credential
+/// Manager (for this Windows user only). Ok(false) - the key store is unavailable
+/// (or disabled by AURELIA_DISABLE_KEYRING), the file stayed open.
 async fn secure_session() -> anyhow::Result<bool> {
     use aurelia::core::config::{load_launcher_config, load_session, save_launcher_config, save_session, session_path};
     use aurelia::core::session_crypto::{keyring_secret_or_create, EncryptedSession};
@@ -1855,69 +1855,75 @@ async fn secure_session() -> anyhow::Result<bool> {
     Ok(EncryptedSession::from_json(&raw).is_some())
 }
 
-/// Объединить загруженную историю чата с тем, что уже есть на экране: история - основа, а
-/// строки, которых в ней нет и которые не старше ее последнего сообщения (пришли или отправлены,
-/// пока история грузилась), добавляются в конец. Дубли - то же направление, тот же текст и
-/// время в пределах 2 минут (у отправленного своего сообщения время - по часам этого ПК).
+/// Merge the loaded chat history with what is already on screen: the history is the base, and
+/// lines missing from it that are not older than its last message (received or sent
+/// while the history loaded) are appended. A duplicate is a history line with the same direction,
+/// text and time within 2 minutes; each history line covers only one on-screen
+/// line (two identical "yes" in a row are two messages, not a duplicate).
 pub(crate) fn merge_history(history: Vec<ChatLine>, current: Vec<ChatLine>) -> Vec<ChatLine> {
     let newest = history.iter().map(|l| l.time).max().unwrap_or(0);
+    let hist_len = history.len();
+    let mut used = vec![false; hist_len];
     let mut out = history;
     for l in current {
         if l.time + 120 < newest {
-            continue; // старое - уже есть в истории
+            continue; // old - already in the history
         }
-        let dup = out.iter().any(|h| h.from_self == l.from_self && h.text == l.text && h.time.abs_diff(l.time) <= 120);
-        if !dup {
-            out.push(l);
+        let m = (0..hist_len).find(|&i| {
+            !used[i] && out[i].from_self == l.from_self && out[i].text == l.text && out[i].time.abs_diff(l.time) <= 120
+        });
+        match m {
+            Some(i) => used[i] = true,
+            None => out.push(l),
         }
     }
     out.sort_by_key(|l| l.time);
     out
 }
 
-/// Номер сеанса проверки связи: новый вход останавливает проверку прошлого сеанса.
+/// Connection check session number: a new login stops the check of the previous session.
 static PROBE_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// Номер входа: фоновые задачи прошлого входа (сообщения чата) после выхода или нового входа
-/// больше ничего не записывают.
+/// Login number: background tasks of the previous login (chat messages) no longer write anything
+/// after a logout or a new login.
 static SESSION_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 tokio::task_local! {
-    /// Номер входа, при котором запущена фоновая задача (см. spawn_session).
+    /// Login number under which a background task was started (see spawn_session).
     static TASK_SESSION: u64;
 }
 
-/// Запустить фоновую задачу, привязанную к текущему входу: если пока она работает, пользователь
-/// вышел или вошел в другой аккаунт, ее записи в NetState отбрасываются (upd). Так ответ
-/// прошлого аккаунта (семья, недавние игры, профиль...) не попадет к новому.
+/// Start a background task bound to the current login: if while it runs the user
+/// logs out or into another account, its writes to NetState are discarded (upd). This way a response
+/// for the previous account (family, recent games, profile...) does not reach the new one.
 pub(crate) fn spawn_session<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
 where
     F: std::future::Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    // Задача, запущенная из другой задачи входа, получает номер РОДИТЕЛЯ (task-local сам не
-    // наследуется): иначе подзадача, стартовавшая уже после смены аккаунта, записала бы ответ.
+    // A task started from another login task gets the PARENT's number (task-local is not
+    // inherited by itself): otherwise a subtask started after the account switch would write its response.
     let gen = TASK_SESSION.try_with(|g| *g).unwrap_or_else(|_| SESSION_GEN.load(Ordering::Relaxed));
     tokio::spawn(TASK_SESSION.scope(gen, fut))
 }
 
-/// Блокировка состояния, если код идет не в задаче прошлого входа (иначе None - ответ устарел).
-/// Проверка под блокировкой: новый вход меняет номер входа до своей записи состояния, а запись
-/// ждет этой же блокировки, поэтому устаревший ответ не может лечь поверх нового.
+/// State lock, if the code is not running in a previous-login task (otherwise None - the response is stale).
+/// The check is under the lock: a new login changes the login number before writing its state, and the write
+/// waits for the same lock, so a stale response cannot land on top of a new one.
 pub(crate) fn lock_current(st: &Shared) -> Option<NetGuard<'_>> {
     let g = st.lock().unwrap();
     (!stale_task()).then_some(g)
 }
 
-/// Идет ли код в задаче прошлого входа.
+/// Whether the code runs in a previous-login task.
 pub(crate) fn stale_task() -> bool {
     TASK_SESSION.try_with(|g| *g != SESSION_GEN.load(Ordering::Relaxed)).unwrap_or(false)
 }
 
-/// Раз в 20 с проверять, есть ли связь со Steam (соединение с steamcommunity.com:443). Две
-/// неудачи подряд - автономный режим, как при запуске без сети: полоса «Нет связи со Steam»,
-/// а offline_tick в интерфейсе раз в минуту пробует войти снова. Раньше пропажу интернета
-/// Vaporust замечал только после перезапуска.
+/// Every 20 s check whether Steam is reachable (a connection to steamcommunity.com:443). Two
+/// failures in a row - offline mode, as when starting without network: the "No connection to Steam" bar,
+/// and offline_tick in the UI tries to log in again once a minute. Previously Vaporust noticed
+/// a lost internet connection only after a restart.
 fn start_link_probe(st: &Shared, ctx: &egui::Context) {
     let gen = PROBE_GEN.fetch_add(1, Ordering::Relaxed) + 1;
     let (st, ctx) = (st.clone(), ctx.clone());
@@ -1959,8 +1965,8 @@ fn start_link_probe(st: &Shared, ctx: &egui::Context) {
     });
 }
 
-/// Перечитать последние сообщения переписки (после отправки картинки).
-/// Команды второго плана (профиль, чат, сообщество, магазин, семья, Мастерская).
+/// Reread the latest conversation messages (after sending an image).
+/// Second-tier commands (profile, chat, community, store, family, Workshop).
 async fn second_plan(client: &SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Context) {
     use crate::actions as a;
     let msg = |r: Result<(), String>, ok: &str| match r {
@@ -2166,8 +2172,8 @@ async fn reload_history(client: &SteamClient, friend: u64, st: &Shared, ctx: &eg
     }
 }
 
-/// Прочитать картинку для отправки: (байты, тип для Steam, ширина, высота).
-/// PNG/JPEG/GIF/WebP уходят как есть, остальное (BMP и т.п.) перекодируется в PNG.
+/// Read an image for sending: (bytes, type for Steam, width, height).
+/// PNG/JPEG/GIF/WebP are sent as is, others (BMP and the like) are re-encoded to PNG.
 fn prepare_image(path: &std::path::Path) -> Result<(Vec<u8>, &'static str, u32, u32), String> {
     use image::ImageFormat;
     let bytes = std::fs::read(path).map_err(|e| format!("Не удалось прочитать файл: {e}"))?;
@@ -2202,16 +2208,16 @@ pub fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
-/// Фоновые задачи на время сессии: список друзей и входящие сообщения.
-/// Обе заканчиваются сами, когда соединение закрывается (выход из аккаунта).
+/// Background tasks for the session: friend list and incoming messages.
+/// Both end by themselves when the connection closes (logout).
 fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st: &Shared, ctx: &egui::Context) {
-    let names = roster.clone(); // имена отправителей для уведомлений
-    // Друзья: Aurelia сама объявляет статус (по умолчанию «невидимка») и следит за изменениями.
+    let names = roster.clone(); // sender names for notifications
+    // Friends: Aurelia announces the status itself ("invisible" by default) and watches for changes.
     {
         let (client, ctx) = (client.clone(), ctx.clone());
         tokio::spawn(async move {
-            // Перерисовка раз в 4 с, пока работает наблюдатель, чтобы статусы друзей обновлялись
-            // (чаще не нужно: в покое это основная причина кадров).
+            // Repaint every 4 s while the watcher runs so friend statuses refresh
+            // (more often is not needed: when idle this is the main source of frames).
             let ctx2 = ctx.clone();
             let ticker = tokio::spawn(async move {
                 loop {
@@ -2223,11 +2229,11 @@ fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st: &Shared, 
             ticker.abort();
         });
     }
-    // Входящие сообщения.
+    // Incoming messages.
     let Ok(chat) = client.chat_client() else {
         return;
     };
-    let gen = SESSION_GEN.load(Ordering::Relaxed); // номер входа ставит logged_in
+    let gen = SESSION_GEN.load(Ordering::Relaxed); // the login number is set by logged_in
     let (st, ctx) = (st.clone(), ctx.clone());
     tokio::spawn(async move {
         use steam_vent_chat::ChatEvent;
@@ -2237,10 +2243,10 @@ fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st: &Shared, 
             if SESSION_GEN.load(Ordering::Relaxed) != gen {
                 break;
             }
-            let Ok(ev) = ev else { continue }; // пропущенные уведомления - слушаем дальше
+            let Ok(ev) = ev else { continue }; // missed notifications - keep listening
             let (from_self, m) = match ev {
                 ChatEvent::Message(m) => (false, m),
-                // Свое сообщение, отправленное с другого устройства (например, из Steam на телефоне).
+                // Own message sent from another device (for example from Steam on a phone).
                 ChatEvent::EchoMessage(m) => (true, m),
                 ChatEvent::GameInvite(mut m) => {
                     m.message = "[приглашение в игру]".into();
@@ -2259,7 +2265,7 @@ fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st: &Shared, 
             let friend = u64::from(m.source);
             let line = ChatLine {
                 from_self,
-                text: m.message, // с BBCode: разбирает chatfmt
+                text: m.message, // with BBCode: parsed by chatfmt
                 time: if m.server_timestamp > 0 { m.server_timestamp } else { now_unix() },
                 ..Default::default()
             };
@@ -2272,7 +2278,7 @@ fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st: &Shared, 
                 }
             });
             if !from_self {
-                // Звук, мигание в панели задач, точка в трее и всплывающее уведомление.
+                // Sound, taskbar flashing, tray dot and a popup notification.
                 let (name, accent) = names
                     .read()
                     .ok()
@@ -2292,15 +2298,15 @@ fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st: &Shared, 
     });
 }
 
-/// Свой кэш списка игр - отдельный файл для каждого аккаунта (у Aurelia он один на всех).
-/// Из него берется библиотека, когда нет связи со Steam.
+/// Own game list cache - a separate file per account (Aurelia has one for everybody).
+/// The library is taken from it when there is no connection to Steam.
 fn library_cache_file(steam_id: u64) -> Option<std::path::PathBuf> {
     let base = if crate::portable::enabled() { crate::portable::data_dir() } else { crate::portable::normal_dir() };
     base.map(|d| d.join(format!("library_{steam_id}.json")))
 }
 
-/// Записать кэш, только пока ответ относится к текущему входу (под блокировкой состояния):
-/// поздний ответ прошлого аккаунта не должен попасть в кэш нового.
+/// Write the cache only while the response belongs to the current login (under the state lock):
+/// a late response for the previous account must not get into the new one's cache.
 fn save_library_cache(st: &Shared, steam_id: Option<u64>, games: &[aurelia::core::models::OwnedGame]) {
     let Some(p) = steam_id.and_then(library_cache_file) else { return };
     let Some(_guard) = lock_current(st) else { return };
@@ -2313,7 +2319,7 @@ fn save_library_cache(st: &Shared, steam_id: Option<u64>, games: &[aurelia::core
     }
 }
 
-/// Кэш списка игр аккаунта (для работы без связи).
+/// The account's game list cache (for working offline).
 fn load_library_cache(steam_id: Option<u64>) -> Vec<aurelia::core::models::OwnedGame> {
     steam_id
         .and_then(library_cache_file)
@@ -2338,7 +2344,7 @@ async fn load_owned(client: &mut SteamClient, st: &Shared, ctx: &egui::Context) 
             s.busy = false;
         }),
     }
-    // Семейная библиотека: ошибка не мешает остальному (аккаунт может быть не в семье).
+    // Family library: an error does not affect the rest (the account may not be in a family).
     if let Ok(family) = client.fetch_family_shared_apps().await {
         upd(st, ctx, |s| s.family = Arc::new(family));
     }
@@ -2364,8 +2370,8 @@ pub fn fmt_bytes(b: u64) -> String {
     }
 }
 
-/// Хватит ли места: игре нужно `disk_size`, уже скачано `already` (продолжение установки места
-/// не требует), свободно `free` (None - узнать не удалось, не мешаем).
+/// Is there enough space: the game needs `disk_size`, `already` is downloaded (resuming an install
+/// needs no space for it), `free` is free (None - could not be determined, do not block).
 pub(crate) fn space_error(disk_size: u64, already: u64, free: Option<u64>) -> Option<String> {
     let free = free?;
     let need = disk_size.saturating_sub(already);
@@ -2382,14 +2388,14 @@ async fn run_install(
     st: &Shared,
     ctx: &egui::Context,
 ) -> Result<(), String> {
-    // Если загрузку прятали от Steam (пауза/отмена) - вернуть appmanifest на место.
+    // If the download was hidden from Steam (pause/cancel) - put the appmanifest back.
     crate::local::unstash_manifest(&library, appid);
     set_install(st, ctx, |i| i.stage = "Узнаю размер игры...".into());
     let est = client
         .estimate_install_size(appid, DepotPlatform::Windows)
         .await
         .map_err(|e| format!("Не удалось узнать размер игры: {e:#}"))?;
-    // Уже скачанное (продолжение установки) место не требует.
+    // What is already downloaded (resuming an install) needs no space.
     let game_files = crate::local::installed_size(&library, appid);
     if let Some(e) = space_error(est.disk_size, game_files, crate::local::free_space(&library)) {
         return Err(e);
@@ -2400,7 +2406,7 @@ async fn run_install(
     }
 
     let state = Arc::new(RwLock::new(DownloadState::default()));
-    // Флаг отмены Aurelia подменяем на наш, чтобы кнопка «Отмена» работала сразу.
+    // We replace Aurelia's cancel flag with ours so the "Cancel" button works immediately.
     if let Ok(mut s) = state.write() {
         s.abort_signal = abort.clone();
     }
@@ -2415,8 +2421,8 @@ async fn run_install(
     drain_progress(rx, &abort, CANCELLED, st, ctx).await
 }
 
-/// Общий цикл прогресса Aurelia (установка, проверка файлов, перенос): обновляет полосу
-/// прогресса внизу окна, считает скорость. `cancelled` - текст на случай отмены.
+/// Common Aurelia progress loop (install, file verification, move): updates the progress
+/// bar at the bottom of the window, computes speed. `cancelled` - text for a cancellation.
 async fn drain_progress(
     mut rx: tokio::sync::mpsc::Receiver<aurelia::core::models::DownloadProgress>,
     abort: &Arc<AtomicBool>,
@@ -2424,7 +2430,7 @@ async fn drain_progress(
     st: &Shared,
     ctx: &egui::Context,
 ) -> Result<(), String> {
-    // Скорость: замер раз в ~2 с со сглаживанием.
+    // Speed: measured every ~2 s with smoothing.
     let mut last: Option<(Instant, u64)> = None;
     let mut speed = 0.0f64;
     while let Some(p) = rx.recv().await {
@@ -2478,8 +2484,8 @@ async fn drain_progress(
     })
 }
 
-/// Длинная операция над игрой в слоте `install` (одна за раз): полоса прогресса внизу,
-/// по окончании - текст результата и перескан диска.
+/// A long operation on a game in the `install` slot (one at a time): progress bar at the bottom,
+/// at the end - the result text and a disk rescan.
 fn start_op<F, Fut>(appid: u32, name: String, done_text: &str, st: &Shared, ctx: &egui::Context, f: F)
 where
     F: FnOnce(Arc<AtomicBool>) -> Fut + Send + 'static,
@@ -2515,12 +2521,12 @@ where
     });
 }
 
-/// Ошибку Aurelia (anyhow) в текст с причинами.
+/// Aurelia error (anyhow) into text with causes.
 fn es<E: std::fmt::Display>(e: E) -> String {
     format!("{e:#}")
 }
 
-/// Загрузить все для окна «Свойства» (параллельно, по мере готовности).
+/// Load everything for the "Properties" window (in parallel, as it becomes ready).
 fn load_props(client: &SteamClient, appid: u32, st: &Shared, ctx: &egui::Context) {
     upd(st, ctx, |s| {
         s.props.insert(appid, PropsData::default());
@@ -2539,7 +2545,7 @@ fn load_props(client: &SteamClient, appid: u32, st: &Shared, ctx: &egui::Context
     {
         let (c, st, ctx) = (client.clone(), st.clone(), ctx.clone());
         spawn_session(async move {
-            // Закрытые (с паролем) Steam все равно не показывает, пока их не открыли.
+            // Steam does not show private (password) branches anyway until they are unlocked.
             let r = c
                 .branches_detailed(appid)
                 .await
@@ -2596,7 +2602,7 @@ async fn load_dlc(c: &SteamClient, appid: u32) -> Result<Vec<DlcRow>, String> {
 
 #[cfg(test)]
 mod live {
-    /// Ручная проверка на настоящем аккаунте (только чтение):
+    /// Manual check on a real account (read only):
     /// cargo test live_emoticons -- --ignored --nocapture
     #[test]
     #[ignore]
@@ -2614,7 +2620,7 @@ mod live {
 
 #[cfg(test)]
 mod live_props {
-    /// cargo test live_props_data -- --ignored --nocapture (только чтение)
+    /// cargo test live_props_data -- --ignored --nocapture (read only)
     #[test]
     #[ignore]
     fn live_props_data() {
@@ -2639,7 +2645,7 @@ mod live_props {
 
 #[cfg(test)]
 mod live_updates {
-    /// cargo test live_updates_check -- --ignored --nocapture (только чтение)
+    /// cargo test live_updates_check -- --ignored --nocapture (read only)
     #[test]
     #[ignore]
     fn live_updates_check() {
@@ -2660,7 +2666,7 @@ mod live_updates {
 
 #[cfg(test)]
 mod live_store {
-    /// cargo test live_store_data -- --ignored --nocapture (только чтение)
+    /// cargo test live_store_data -- --ignored --nocapture (read only)
     #[test]
     #[ignore]
     fn live_store_data() {
@@ -2697,7 +2703,7 @@ mod live_store {
 
 #[cfg(test)]
 mod live_collections {
-    /// cargo test live_collections_pull -- --ignored --nocapture (из Steam только чтение)
+    /// cargo test live_collections_pull -- --ignored --nocapture (read only from Steam)
     #[test]
     #[ignore]
     fn live_collections_pull() {
@@ -2716,7 +2722,7 @@ mod live_collections {
 
 #[cfg(test)]
 mod live_social {
-    /// cargo test live_social_data -- --ignored --nocapture (только чтение)
+    /// cargo test live_social_data -- --ignored --nocapture (read only)
     #[test]
     #[ignore]
     fn live_social_data() {
@@ -2742,8 +2748,8 @@ mod live_social {
 
 #[cfg(test)]
 mod limit_live {
-    /// Живой тест ограничения скорости: качает игру во временную папку (VAPORUST_DUMP)
-    /// при лимите VAPORUST_LIMIT кбит/с 20 секунд и печатает, сколько насчитал прогресс.
+    /// Live speed limit test: downloads a game into a temporary folder (VAPORUST_DUMP)
+    /// with the VAPORUST_LIMIT kbit/s limit for 20 seconds and prints what the progress counted.
     #[test]
     #[ignore]
     fn download_limit_live() {
@@ -2801,7 +2807,7 @@ mod limit_live {
 
 #[cfg(test)]
 mod family_live {
-    /// Живой тест: игры семейной группы Steam (без своих).
+    /// Live test: games of the Steam family group (without own ones).
     #[test]
     #[ignore]
     fn family_apps_live() {
@@ -2822,7 +2828,7 @@ mod family_live {
     }
 }
 
-/// Последнее сообщение беседы (с BBCode; для уведомления).
+/// Last message of a conversation (with BBCode; for the notification).
 fn conv_text(st: &Shared, friend: u64) -> String {
     let s = st.lock().unwrap();
     s.chats
@@ -2834,7 +2840,7 @@ fn conv_text(st: &Shared, friend: u64) -> String {
 
 #[cfg(test)]
 mod effects_live {
-    /// Живой тест: какие типы предметов есть в инвентаре Steam (753/6) - ищем эффекты чата.
+    /// Live test: which item types are in the Steam inventory (753/6) - looking for chat effects.
     #[test]
     #[ignore]
     fn inventory_types_live() {
@@ -2866,7 +2872,7 @@ mod effects_live {
 
 #[cfg(test)]
 mod logon_burst_live {
-    /// Живой тест: какие сообщения сервер присылает сразу после входа (буфер необработанных).
+    /// Live test: which messages the server sends right after login (buffer of unhandled ones).
     #[test]
     #[ignore]
     fn logon_burst_live() {
@@ -2875,7 +2881,7 @@ mod logon_burst_live {
             let mut c = aurelia::steam_client::SteamClient::new().unwrap();
             c.restore_session().await.unwrap();
             let _ = c.connection().unwrap().take_unprocessed();
-            c.announce_persona(7).await.unwrap(); // невидимка, как у пользователя
+            c.announce_persona(7).await.unwrap(); // invisible, like the user's
             for wait in [0u64, 3, 6] {
                 tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
                 let kinds: Vec<String> =
@@ -2888,7 +2894,7 @@ mod logon_burst_live {
 
 #[cfg(test)]
 mod shots_live {
-    /// Живой тест: свои скриншоты в облаке Steam.
+    /// Live test: own screenshots in the Steam cloud.
     #[test]
     #[ignore]
     fn shots_live() {
@@ -2924,8 +2930,8 @@ mod shots_live {
 }
 
 
-/// После обновления Aurelia: вернуть исходный appmanifest (язык, SharedDepots, InstallScripts…)
-/// и, если обновление удалось, вписать в него новые версии хранилищ и сборку из файла Aurelia.
+/// After an Aurelia update: restore the original appmanifest (language, SharedDepots, InstallScripts...)
+/// and, if the update succeeded, write the new depot versions and build from Aurelia's file into it.
 pub fn merge_after_update(acf: &std::path::Path, original: &str, ok: bool) -> Result<(), String> {
     let updated = crate::local::installed_depots(acf);
     let build = crate::local::acf_buildid(acf);
@@ -2941,11 +2947,11 @@ pub fn merge_after_update(acf: &std::path::Path, original: &str, ok: bool) -> Re
 
 #[cfg(test)]
 mod update_direct_live {
-    /// Живой тест обновления без Steam в ОТДЕЛЬНОЙ библиотеке (VAPORUST_DUMP), ваши игры не трогаются:
-    /// своя папка настроек Aurelia,
-    /// «старая» версия = поддельный номер в appmanifest + язык и SharedDepots, затем обновление и проверка.
-    /// ВНИМАНИЕ: Aurelia ищет appmanifest и в C:Program Files (x86)Steam (сортировка по алфавиту) -
-    /// поэтому только игра, которой нет в настоящих библиотеках (по умолчанию Ricochet, 5 МБ).
+    /// Live test of updating without Steam in a SEPARATE library (VAPORUST_DUMP), your games are not touched:
+    /// own Aurelia settings folder,
+    /// "old" version = a fake number in appmanifest + language and SharedDepots, then update and check.
+    /// WARNING: Aurelia also looks for appmanifest in C:\Program Files (x86)\Steam (alphabetical sort) -
+    /// so only a game that is not in the real libraries (Ricochet by default, 5 MB).
     #[test]
     #[ignore]
     fn update_direct_live() {
@@ -2960,7 +2966,7 @@ mod update_direct_live {
             std::fs::copy(real.join(f), cfg_dir.join(f)).unwrap();
         }
         std::env::set_var("AURELIA_CONFIG_DIR", &cfg_dir);
-        // Только игра, которой НЕТ в библиотеках Steam: Aurelia всегда ищет и в C:Program Files (x86)Steam.
+        // Only a game that is NOT in the Steam libraries: Aurelia always also looks in C:\Program Files (x86)\Steam.
         let appid: u32 = std::env::var("VAPORUST_APP").ok().and_then(|v| v.parse().ok()).unwrap_or(60);
         let steam = crate::local::find_steam().unwrap();
         assert!(
@@ -3000,7 +3006,7 @@ mod update_direct_live {
                 let rx = c.install_game(appid, DepotPlatform::Windows, opts, st).await.unwrap();
                 assert!(drain(rx).await, "установка не удалась");
             }
-            // «Старая» версия + то, что Aurelia теряет при перезаписи.
+            // "Old" version + what Aurelia loses when rewriting.
             let real_versions = crate::local::installed_depots(&acf);
             let fake: std::collections::BTreeMap<u32, u64> = real_versions.keys().map(|d| (*d, 1111)).collect();
             crate::local::write_depot_versions(&acf, &fake, Some("1"), 6).unwrap();
@@ -3009,7 +3015,7 @@ mod update_direct_live {
             text.insert_str(end, "\t\"UserConfig\"\n\t{\n\t\t\"language\"\t\t\"russian\"\n\t}\n\t\"SharedDepots\"\n\t{\n\t\t\"228988\"\t\t\"228980\"\n\t}\n");
             std::fs::write(&acf, &text).unwrap();
             let original = std::fs::read_to_string(&acf).unwrap();
-            // Обновление - как Cmd::UpdateDirect.
+            // Update - like Cmd::UpdateDirect.
             let st = std::sync::Arc::new(std::sync::RwLock::new(DownloadState::default()));
             let t = std::time::Instant::now();
             let rx = c.update_game(appid, st).await.unwrap();
@@ -3032,7 +3038,7 @@ mod update_direct_live {
 
 #[cfg(test)]
 mod small_games_live {
-    /// Маленькие купленные/семейные игры, которых нет на диске (для безопасных тестов загрузки).
+    /// Small owned/family games that are not on disk (for safe download tests).
     #[test]
     #[ignore]
     fn small_games_live() {
@@ -3062,7 +3068,7 @@ mod small_games_live {
 
 #[cfg(test)]
 mod lang_depots_live {
-    /// Языковые хранилища игр (VAPORUST_APPS через запятую).
+    /// Language depots of games (VAPORUST_APPS, comma-separated).
     #[test]
     #[ignore]
     fn lang_depots_live() {
@@ -3083,15 +3089,15 @@ mod lang_depots_live {
     }
 }
 
-/// Смена языка без Steam. `lang` - новый язык (как в UserConfig: "russian", "english"…).
+/// Language change without Steam. `lang` - the new language (as in UserConfig: "russian", "english"...).
 ///
-/// 1. Хранилища старого языка убираются из appmanifest; если такие были - проверка файлов
-///    (старый язык мог перезаписать основные файлы - проверка возвращает оригиналы).
-/// 2. Свои хранилища нового языка скачиваются (явно с версией: иначе Aurelia берет только английские).
-///    Общие хранилища нового языка (depotfromapp) - только ссылкой в SharedDepots, если игра-владелец
-///    уже установлена в этой же библиотеке и хранилище у нее есть; иначе - отказ (это умеет Steam).
-/// 3. Исходный appmanifest возвращается (Aurelia пишет свой с нуля) и правится: хранилища, язык
-///    в UserConfig и MountedConfig, StateFlags 4.
+/// 1. Old-language depots are removed from appmanifest; if there were any - file verification
+///    (the old language may have overwritten base files - verification restores the originals).
+/// 2. Own new-language depots are downloaded (explicitly with a version: otherwise Aurelia takes only English).
+///    Shared new-language depots (depotfromapp) - only as a link in SharedDepots, if the owner game
+///    is already installed in the same library and has the depot; otherwise refused (Steam can do it).
+/// 3. The original appmanifest is restored (Aurelia writes its own from scratch) and edited: depots, language
+///    in UserConfig and MountedConfig, StateFlags 4.
 pub async fn switch_language(
     c: &SteamClient,
     appid: u32,
@@ -3122,10 +3128,10 @@ pub async fn switch_language(
     let windows_ok = |os: &Option<String>| os.as_ref().is_none_or(|o| o.to_lowercase().contains("windows"));
 
     let mut edit = local::DepotEdit::default();
-    // Старый язык: свои хранилища - убрать (с проверкой файлов), общие - убрать ссылку.
+    // Old language: own depots - remove (with file verification), shared - remove the link.
     edit.remove_installed = installed.keys().copied().filter(|d| lang_of(*d).is_some_and(|l| l != lang)).collect();
     edit.remove_shared = shared.keys().copied().filter(|d| lang_of(*d).is_some_and(|l| l != lang)).collect();
-    // Новый язык.
+    // New language.
     let mut new_own: Vec<(u32, u64)> = Vec::new();
     for (d, l, os, from, dlc, manifest) in &depots {
         if l != lang || dlc.is_some() || !windows_ok(os) || installed.contains_key(d) || shared.contains_key(d) {
@@ -3137,7 +3143,7 @@ pub async fn switch_language(
                 new_own.push((*d, m));
             }
             Some(owner) => {
-                // Общее хранилище: подходит, только если игра-владелец рядом и оно у нее установлено.
+                // Shared depot: fits only if the owner game is next to it and has it installed.
                 let owner_acf = library.join("steamapps").join(format!("appmanifest_{owner}.acf"));
                 if local::installed_depots(&owner_acf).contains_key(d) {
                     edit.add_shared.push((*d, *owner));
@@ -3157,10 +3163,10 @@ pub async fn switch_language(
         std::fs::write(&tmp, t).and_then(|_| std::fs::rename(&tmp, acf)).map_err(|e| format!("Не удалось вернуть файл игры: {e}"))
     };
 
-    // 1. Убрать старый язык и проверить файлы.
+    // 1. Remove the old language and verify files.
     if !edit.remove_installed.is_empty() {
-        // Как Steam: удалить файлы старого языка, которых нет в оставшихся хранилищах игры
-        // (в том числе общих). Не удалось узнать какой-то список - ничего не удаляем.
+        // As Steam does: delete old-language files that are not in the game's remaining depots
+        // (shared ones included). If some list could not be obtained - delete nothing.
         if let Err(e) = remove_language_files(c, appid, acf, &library, &installed, &shared, &edit.remove_installed).await {
             eprintln!("файлы старого языка не удалены: {e}");
         }
@@ -3173,7 +3179,7 @@ pub async fn switch_language(
         res?;
     }
 
-    // 2. Скачать свои хранилища нового языка.
+    // 2. Download own new-language depots.
     if !new_own.is_empty() {
         let opts = InstallOptions {
             library_override: Some(library.to_string_lossy().into_owned()),
@@ -3197,20 +3203,20 @@ pub async fn switch_language(
         }
     }
 
-    // 3. Записать изменения в исходный appmanifest.
+    // 3. Write the changes into the original appmanifest.
     local::edit_depot_lists(acf, &edit)?;
     local::set_user_config(acf, "language", lang)?;
     local::set_mounted_config(acf, "language", lang)?;
-    // set_user_config помечает «нужно обновление» - файлы уже на месте.
+    // set_user_config marks "update needed" - the files are already in place.
     local::write_depot_versions(acf, &Default::default(), None, 4)?;
     Ok(())
 }
 
 #[cfg(test)]
 mod language_live {
-    /// Смена языка без Steam в ОТДЕЛЬНОЙ библиотеке (VAPORUST_DUMP) на Ricochet (60), которой нет в Steam:
-    /// english -> french (свое хранилище 62 качается, общее 72 от Half-Life - ссылкой на поддельный
-    /// appmanifest_70 во временной папке) -> english (62 убирается, проверка файлов).
+    /// Language change without Steam in a SEPARATE library (VAPORUST_DUMP) on Ricochet (60), which is not in Steam:
+    /// english -> french (own depot 62 is downloaded, shared 72 from Half-Life - as a link to a fake
+    /// appmanifest_70 in the temp folder) -> english (62 is removed, files verified).
     #[test]
     #[ignore]
     fn language_live() {
@@ -3256,7 +3262,7 @@ mod language_live {
                 crate::local::set_user_config(&acf, "language", "english").unwrap();
                 crate::local::set_mounted_config(&acf, "language", "english").unwrap();
             }
-            // Поддельный «Half-Life» рядом: у него есть французское хранилище 72.
+            // A fake "Half-Life" next to it: it has the French depot 72.
             std::fs::write(
                 lib.join("steamapps").join("appmanifest_70.acf"),
                 "\"AppState\"\n{\n\t\"appid\"\t\t\"70\"\n\t\"InstalledDepots\"\n\t{\n\t\t\"72\"\n\t\t{\n\t\t\t\"manifest\"\t\t\"491735997354925434\"\n\t\t\t\"size\"\t\t\"1\"\n\t\t}\n\t}\n}\n",
@@ -3294,7 +3300,7 @@ mod language_live {
     }
 }
 
-/// Удалить файлы хранилищ `removed`, которых нет ни в одном оставшемся хранилище игры (своих и общих).
+/// Delete files of the `removed` depots that are in none of the game's remaining depots (own and shared).
 async fn remove_language_files(
     c: &SteamClient,
     appid: u32,
@@ -3348,7 +3354,7 @@ async fn remove_language_files(
 
 #[cfg(test)]
 mod installed_langs_live {
-    /// Установленные игры со своими языковыми хранилищами (для проверки смены языка без Steam).
+    /// Installed games with their own language depots (for testing language change without Steam).
     #[test]
     #[ignore]
     fn installed_langs_live() {
@@ -3382,8 +3388,8 @@ mod installed_langs_live {
 
 #[cfg(test)]
 mod offline_live {
-    /// «Нет сети» без отключения интернета: копия настроек Aurelia во временной папке и все запросы
-    /// через несуществующий прокси. Ожидаем: вход не удался именно как «офлайн», кэш библиотеки есть.
+    /// "No network" without disconnecting the internet: a copy of Aurelia settings in a temp folder and all requests
+    /// through a nonexistent proxy. Expected: login failed exactly as "offline", the library cache exists.
     #[test]
     #[ignore]
     fn offline_live() {
@@ -3419,9 +3425,9 @@ mod offline_live {
     }
 }
 
-/// Вход не удался из-за сети, а не из-за самого входа? Aurelia не всегда это различает
-/// (без интернета у нее есть запасной список серверов, и ошибка бывает «таймаут» вида Unknown).
-/// Считаем сетевой любую ошибку при сохраненном входе, если это не отказ во входе.
+/// Did the login fail because of the network, not the login itself? Aurelia does not always tell them apart
+/// (without internet it has a fallback server list, and the error may be a "timeout" of kind Unknown).
+/// With a saved login, any error counts as a network one unless it is a login refusal.
 async fn network_failure(e: &anyhow::Error) -> bool {
     use aurelia::core::error::ErrorKind as K;
     let kind = aurelia::core::error::classify(e).kind;
@@ -3441,7 +3447,7 @@ async fn network_failure(e: &anyhow::Error) -> bool {
 
 #[cfg(test)]
 mod ach_live {
-    /// Живой тест (только чтение): свои достижения L4D2 и у нескольких друзей. Печатает только числа.
+    /// Live test (read only): own L4D2 achievements and those of a few friends. Prints numbers only.
     #[test]
     #[ignore]
     fn friend_achievements_live() {
@@ -3463,7 +3469,7 @@ mod ach_live {
     }
 }
 
-/// appmanifest игры в steamapps: обычный или спрятанный от Steam (недокачанная загрузка Vaporust).
+/// The game's appmanifest in steamapps: normal or hidden from Steam (an unfinished Vaporust download).
 fn manifest_of(steamapps: &std::path::Path, appid: u32) -> std::path::PathBuf {
     let acf = steamapps.join(format!("appmanifest_{appid}.acf"));
     if acf.exists() {
@@ -3472,10 +3478,10 @@ fn manifest_of(steamapps: &std::path::Path, appid: u32) -> std::path::PathBuf {
     steamapps.join(format!("appmanifest_{appid}{}", crate::local::STASH_EXT))
 }
 
-/// Удалить игру, которая делит папку с другими играми (например, Counter-Strike, Half-Life,
-/// Blue Shift и Opposing Force лежат в одной папке common\Half-Life). Удаляются только файлы
-/// хранилищ этой игры, которых нет у игр-соседей; пустые после этого папки тоже убираются.
-/// Списки файлов берутся у Steam; если хоть один получить не удалось - ничего не удаляется.
+/// Uninstall a game that shares its folder with other games (for example Counter-Strike, Half-Life,
+/// Blue Shift and Opposing Force live in one common\Half-Life folder). Only files of this game's
+/// depots that the neighbor games do not have are deleted; folders left empty are removed too.
+/// File lists come from Steam; if even one cannot be obtained - nothing is deleted.
 async fn uninstall_shared(
     c: &SteamClient,
     appid: u32,
@@ -3491,8 +3497,8 @@ async fn uninstall_shared(
     remove_listed(appid, game_dir, &steamapps, &remove)
 }
 
-/// Какие файлы (пути внутри папки игры) удалить у игры из общей папки: файлы ее хранилищ,
-/// которых нет у соседей. Ничего не удаляет.
+/// Which files (paths inside the game folder) to delete for a game in a shared folder: its depot files
+/// that the neighbors do not have. Deletes nothing.
 async fn shared_remove_list(
     c: &SteamClient,
     appid: u32,
@@ -3507,9 +3513,9 @@ async fn shared_remove_list(
             .await
             .map_err(|e| format!("список файлов хранилища {depot}: {e:#}"))
     };
-    // Файлы соседей (их собственные и общие хранилища) - не трогаем.
+    // Neighbors' files (their own and shared depots) - not touched.
     let mut keep = std::collections::HashSet::new();
-    // Хранилища этой игры, которыми пользуются соседи (SharedDepots у них), - тоже не трогаем.
+    // This game's depots used by neighbors (their SharedDepots) - not touched either.
     let mut protected = std::collections::HashSet::new();
     for &other in others {
         let acf = manifest_of(&steamapps, other);
@@ -3526,7 +3532,7 @@ async fn shared_remove_list(
             }
         }
     }
-    // Сначала собрать все списки, потом удалять: при ошибке сети диск остается как был.
+    // Collect all lists first, then delete: on a network error the disk stays as it was.
     let mut remove = Vec::new();
     for (d, m) in installed.iter().filter(|(d, _)| !protected.contains(d)) {
         for f in files(appid, *d, *m).await? {
@@ -3538,7 +3544,7 @@ async fn shared_remove_list(
     Ok(remove)
 }
 
-/// Удалить перечисленные файлы, опустевшие папки, незаконченную загрузку и appmanifest.
+/// Delete the listed files, emptied folders, the unfinished download and the appmanifest.
 fn remove_listed(
     appid: u32,
     game_dir: &std::path::Path,
@@ -3552,7 +3558,7 @@ fn remove_listed(
         if p.is_file() && std::fs::remove_file(&p).is_ok() {
             n += 1;
         }
-        // Папки, где лежали удаленные файлы, - кандидаты на удаление, если опустели.
+        // Folders that held deleted files are candidates for removal if they became empty.
         let mut parent = p.parent();
         while let Some(dir) = parent {
             if dir == game_dir || !dir.starts_with(game_dir) {
@@ -3562,7 +3568,7 @@ fn remove_listed(
             parent = dir.parent();
         }
     }
-    // Самые глубокие - первыми; remove_dir не удаляет непустые папки.
+    // Deepest first; remove_dir does not delete non-empty folders.
     let mut dirs: Vec<_> = dirs.into_iter().collect();
     dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
     for d in dirs {
@@ -3582,8 +3588,8 @@ fn remove_listed(
 
 #[cfg(test)]
 mod shared_uninstall_live {
-    /// Что удалило бы новое удаление у игры из общей папки (по умолчанию Counter-Strike, 10).
-    /// НИЧЕГО НЕ УДАЛЯЕТ. VAPORUST_APP - другая игра.
+    /// What a new uninstall would delete for a game in a shared folder (Counter-Strike, 10 by default).
+    /// DELETES NOTHING. VAPORUST_APP - another game.
     #[test]
     #[ignore]
     fn shared_plan_live() {
@@ -3614,11 +3620,11 @@ mod shared_uninstall_live {
 mod session_tests {
     use super::*;
 
-    /// Оба теста меняют общий номер входа - по одному.
+    /// Both tests change the shared login number - one at a time.
     static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-    /// Ответ задачи прошлого входа, пришедший после выхода или нового входа, не записывается;
-    /// задачи текущего входа и обычный код пишут как раньше.
+    /// A response of a previous-login task arriving after a logout or a new login is not written;
+    /// tasks of the current login and normal code write as before.
     #[test]
     fn stale_task_writes_are_dropped() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
@@ -3629,10 +3635,10 @@ mod session_tests {
             let (tx, rx) = tokio::sync::oneshot::channel::<()>();
             let (st2, ctx2) = (st.clone(), ctx.clone());
             let old = spawn_session(async move {
-                let _ = rx.await; // «долгий запрос» старого аккаунта
+                let _ = rx.await; // a "long request" of the old account
                 upd(&st2, &ctx2, |s| s.message = "старый аккаунт".into());
             });
-            // Пока запрос шел, вошли в другой аккаунт.
+            // While the request was running, another account logged in.
             SESSION_GEN.fetch_add(1, Ordering::Relaxed);
             let _ = tx.send(());
             old.await.unwrap();
@@ -3645,8 +3651,8 @@ mod session_tests {
         assert_eq!(st.lock().unwrap().message, "вне задач");
     }
 
-    /// QA-03: подзадача, запущенная из задачи входа, тоже считается задачей того входа - даже если
-    /// стартовала уже после смены аккаунта.
+    /// QA-03: a subtask started from a login task also counts as that login's task - even if
+    /// it started after the account switch.
     #[test]
     fn child_tasks_inherit_session() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
@@ -3658,7 +3664,7 @@ mod session_tests {
             let (st2, ctx2) = (st.clone(), ctx.clone());
             let parent = spawn_session(async move {
                 let _ = rx.await;
-                // Подзадача создается после смены входа.
+                // The subtask is created after the login switch.
                 spawn_session(async move { upd(&st2, &ctx2, |s| s.message = "ответ подзадачи".into()) }).await.unwrap();
             });
             SESSION_GEN.fetch_add(1, Ordering::Relaxed);
@@ -3677,7 +3683,7 @@ mod merge_tests {
         ChatLine { from_self, text: text.into(), time, ..Default::default() }
     }
 
-    /// Поздний ответ истории не убирает сообщение, отправленное, пока она грузилась.
+    /// A late history response does not remove a message sent while it was loading.
     #[test]
     fn late_history_keeps_new_lines() {
         let history = vec![l(false, "привет", 1000), l(true, "как дела", 1010)];
@@ -3685,8 +3691,16 @@ mod merge_tests {
         let m = merge_history(history, current);
         let texts: Vec<&str> = m.iter().map(|x| x.text.as_str()).collect();
         assert_eq!(texts, vec!["привет", "как дела", "новое"], "без дублей, новое на месте");
-        // Старые строки, которых нет в истории (давно), не добавляются.
+        // Old lines that are not in the history (long ago) are not added.
         let m = merge_history(vec![l(false, "a", 5000)], vec![l(false, "старое", 100)]);
         assert_eq!(m.len(), 1);
+    }
+
+    /// Two identical messages in a row are two messages: a history line covers only one.
+    #[test]
+    fn same_text_twice_is_not_dup() {
+        let current = vec![l(true, "да", 1000), l(true, "да", 1060)];
+        assert_eq!(merge_history(vec![l(false, "привет", 990)], current.clone()).len(), 3);
+        assert_eq!(merge_history(vec![l(true, "да", 1000)], current).len(), 2);
     }
 }

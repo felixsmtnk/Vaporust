@@ -1,7 +1,7 @@
-//! Скриншоты Steam: «На этом ПК» (папка Steam userdata\<аккаунт>\760\remote\<игра>\screenshots)
-//! и «В облаке Steam» (загруженные скриншоты - PublishedFile.GetUserFiles, фильтр 4).
-//! Плитка уменьшенных копий (у локальных - thumbnails Steam), щелчок - полный размер,
-//! правый щелчок - показать в папке / страница в Steam / скачать на компьютер.
+//! Steam screenshots: "On this PC" (Steam folder userdata\<account>\760\remote\<game>\screenshots)
+//! and "In the Steam cloud" (uploaded screenshots - PublishedFile.GetUserFiles, filter 4).
+//! A grid of thumbnails (Steam thumbnails for local ones), click - full size,
+//! right click - show in folder / page in Steam / download to the computer.
 
 use crate::net::{Cmd, NetState};
 use crate::LauncherApp;
@@ -12,33 +12,33 @@ use std::sync::{Arc, Mutex};
 const TILE: egui::Vec2 = egui::vec2(220.0, 124.0);
 const ROW_H: f32 = 124.0 + 24.0;
 
-/// Скриншот на этом ПК.
+/// A screenshot on this PC.
 #[derive(Clone)]
 pub struct LocalShot {
     pub appid: u64,
     pub path: PathBuf,
     pub thumb: Option<PathBuf>,
-    /// Время изменения файла (unix).
+    /// File modification time (unix).
     pub time: u64,
-    /// Скачан из облака Vaporust (ИзображенияVaporust<игра>): название игры - по имени папки.
+    /// Downloaded from the cloud by Vaporust (Pictures\Vaporust\<game>): the game name comes from the folder name.
     pub game: Option<String>,
 }
 
 pub struct ShotsWin {
-    /// 0 - на этом ПК, 1 - в облаке Steam.
+    /// 0 - on this PC, 1 - in the Steam cloud.
     pub tab: u8,
-    /// Только эта игра (None - все).
+    /// Only this game (None - all).
     pub filter: Option<u32>,
     local: Option<Vec<LocalShot>>,
-    /// Для какого фильтра уже просили облачные: (чьи, игра) - чтобы не просить каждый кадр.
+    /// For which filter cloud ones were already requested: (whose, game) - so we do not ask every frame.
     cloud_asked: Option<(u64, u32)>,
-    /// Скриншоты друга (SteamID64, имя); None - свои.
+    /// A friend's screenshots (SteamID64, name); None - own.
     pub user: Option<(u64, String)>,
-    /// Ход скачивания на компьютер.
+    /// Download-to-computer progress.
     status: Arc<Mutex<String>>,
-    /// Скачивание закончилось - перечитать «На этом ПК».
+    /// The download finished - reread "On this PC".
     rescan: Arc<std::sync::atomic::AtomicBool>,
-    /// Игры, встречавшиеся в облачных скриншотах (для фильтра).
+    /// Games seen in cloud screenshots (for the filter).
     cloud_games: std::collections::BTreeMap<u32, String>,
 }
 
@@ -57,12 +57,12 @@ impl ShotsWin {
     }
 }
 
-/// Папка пользователя Steam (userdata\<аккаунт>) - того, чей localconfig.vdf свежее.
+/// Steam user folder (userdata\<account>) - the one whose localconfig.vdf is the most recent.
 fn user_dir(steam_dir: &Path) -> Option<PathBuf> {
     crate::launchopts::find_localconfig(steam_dir)?.parent()?.parent().map(Path::to_path_buf)
 }
 
-/// Все скриншоты на этом ПК, новые первыми.
+/// All screenshots on this PC, newest first.
 pub fn scan_local(steam_dir: &Path) -> Vec<LocalShot> {
     let mut out = Vec::new();
     let Some(remote) = user_dir(steam_dir).map(|u| u.join("760").join("remote")) else { return out };
@@ -92,13 +92,13 @@ pub fn scan_local(steam_dir: &Path) -> Vec<LocalShot> {
     out
 }
 
-/// Уменьшенные копии скачанных скриншотов (в папке данных Vaporust, не в «Изображениях»).
+/// Thumbnails of downloaded screenshots (in the Vaporust data folder, not in "Pictures").
 fn thumbs_dir() -> Option<PathBuf> {
     let base = if crate::portable::enabled() { crate::portable::data_dir() } else { crate::portable::normal_dir() };
     base.map(|d| d.join("shot_thumbs"))
 }
 
-/// Скриншоты, скачанные из облака в ИзображенияVaporust<игра><appid>_<id>.jpg.
+/// Screenshots downloaded from the cloud to Pictures\Vaporust\<game>\<appid>_<id>.jpg.
 pub fn scan_downloads() -> Vec<LocalShot> {
     let mut out = Vec::new();
     let Ok(games) = std::fs::read_dir(download_dir("")) else { return out };
@@ -133,22 +133,22 @@ fn file_uri(p: &Path) -> String {
     format!("file://{}", p.display())
 }
 
-/// Папка для скачанных скриншотов: Изображения\Vaporust\<игра>.
+/// Folder for downloaded screenshots: Pictures\Vaporust\<game>.
 fn download_dir(game: &str) -> PathBuf {
     let safe: String = game.chars().map(|c| if r#"\/:*?"<>|"#.contains(c) { '_' } else { c }).collect();
     let pics = std::env::var_os("USERPROFILE").map(PathBuf::from).unwrap_or_default().join("Pictures");
     pics.join("Vaporust").join(safe.trim())
 }
 
-/// Открыть файл программой по умолчанию (просмотр фотографий).
+/// Open a file with the default program (photo viewer).
 fn open_file(p: &Path) {
     let _ = std::process::Command::new("explorer.exe").arg(p).spawn();
 }
 
-/// Показать файл в Проводнике (выделенным).
+/// Show a file in Explorer (selected).
 fn show_in_folder(p: &Path) {
-    // Проводник понимает только /select,"путь" - с кавычками вокруг пути, а не всего аргумента,
-    // поэтому собираем строку сами (иначе путь с пробелами открывает «Документы»).
+    // Explorer understands only /select,"path" - with quotes around the path, not the whole argument,
+    // so we build the string ourselves (otherwise a path with spaces opens "Documents").
     let mut cmd = std::process::Command::new("explorer.exe");
     #[cfg(windows)]
     {
@@ -159,10 +159,10 @@ fn show_in_folder(p: &Path) {
 }
 
 impl LauncherApp {
-    /// Открыть «Скриншоты» (с фильтром по игре, если задан).
+    /// Open "Screenshots" (filtered by game, if given).
     pub(crate) fn open_shots(&mut self, filter: Option<u32>) {
         self.close_extras(crate::View::Screenshots);
-        // Были открыты скриншоты друга - начинаем заново со своих.
+        // A friend's screenshots were open - start over with own ones.
         if self.shots_win.as_ref().is_some_and(|w| w.user.is_some()) {
             self.shots_win = None;
         }
@@ -171,7 +171,7 @@ impl LauncherApp {
         self.view = crate::View::Screenshots;
     }
 
-    /// Скриншоты друга (те, что он показывает вам).
+    /// A friend's screenshots (those they show to you).
     pub(crate) fn open_friend_shots(&mut self, id: u64, name: String) {
         self.close_extras(crate::View::Screenshots);
         let mut w = ShotsWin::new(None);
@@ -181,7 +181,7 @@ impl LauncherApp {
         self.view = crate::View::Screenshots;
     }
 
-    /// Название игры по appid: библиотека, затем кэш названий.
+    /// Game name by appid: the library, then the name cache.
     fn game_name(&self, appid: u64, net: &NetState) -> String {
         let id = appid as u32;
         if appid <= u32::MAX as u64 {
@@ -207,13 +207,13 @@ impl LauncherApp {
             w.local = None;
         }
         if w.local.is_none() {
-            // Папка скриншотов Steam + скачанные Vaporust из облака; новые первыми.
+            // Steam screenshot folder + those downloaded by Vaporust from the cloud; newest first.
             let mut v = self.steam.as_ref().map(|s| scan_local(&s.dir)).unwrap_or_default();
             v.extend(scan_downloads());
             v.sort_by(|a, b| b.time.cmp(&a.time));
             w.local = Some(v);
         }
-        // Игры из облачных скриншотов - в фильтр (запоминаем, пока открыт раздел).
+        // Games from cloud screenshots go into the filter (remembered while the section is open).
         if let Some(Ok((_, _, list))) = &net.cloud_shots {
             for s in list {
                 let name = if s.app_name.is_empty() { self.game_name(s.appid as u64, net) } else { s.app_name.clone() };
@@ -222,7 +222,7 @@ impl LauncherApp {
         }
         let uid = w.user.as_ref().map_or(0, |u| u.0);
         if uid != 0 {
-            w.tab = 1; // у друга - только облако
+            w.tab = 1; // for a friend - only the cloud
         }
         if w.tab == 1 && net.account.is_some() && w.cloud_asked != Some((uid, w.filter.unwrap_or(0))) {
             w.cloud_asked = Some((uid, w.filter.unwrap_or(0)));
@@ -258,7 +258,7 @@ impl LauncherApp {
                 ui.selectable_value(&mut w.tab, 1, cloud_label);
             }
             ui.separator();
-            // Фильтр по игре: игры, у которых есть скриншоты на ПК, плюс текущий фильтр.
+            // Game filter: games that have screenshots on the PC, plus the current filter.
             let mut games: Vec<(u32, String)> = w
                 .local
                 .as_ref()
@@ -411,7 +411,7 @@ impl LauncherApp {
         self.shots_win = Some(w);
     }
 
-    /// Плитка: строки по ширине окна, рисуются только видимые.
+    /// Grid: rows by window width, only visible ones are drawn.
     fn shots_grid(&mut self, ui: &mut egui::Ui, n: usize, mut tile: impl FnMut(&mut LauncherApp, &mut egui::Ui, usize)) {
         let cols = ((ui.available_width() + 8.0) / (TILE.x + 8.0)).floor().max(1.0) as usize;
         let rows = n.div_ceil(cols);
@@ -433,7 +433,7 @@ impl LauncherApp {
     }
 }
 
-/// Скачать облачный скриншот в Изображения\Vaporust\<игра>.
+/// Download a cloud screenshot to Pictures\Vaporust\<game>.
 fn download(
     s: aurelia::steam_client::CloudScreenshot,
     status: Arc<Mutex<String>>,
@@ -443,9 +443,9 @@ fn download(
     *status.lock().unwrap() = "Скачиваю...".into();
     std::thread::spawn(move || {
         let dir = download_dir(if s.app_name.is_empty() { "Steam" } else { &s.app_name });
-        // <appid>_<id>.jpg - чтобы на вкладке «На этом ПК» знать игру.
+        // <appid>_<id>.jpg - so the "On this PC" tab knows the game.
         let file = dir.join(format!("{}_{}.jpg", s.appid, s.id));
-        // Уменьшенная копия для плитки - в папку данных Vaporust.
+        // A thumbnail for the grid - into the Vaporust data folder.
         if let Some(td) = thumbs_dir() {
             if let Ok(r) = ehttp::fetch_blocking(&ehttp::Request::get(&s.preview_url)) {
                 if r.ok && std::fs::create_dir_all(&td).is_ok() {
@@ -493,7 +493,7 @@ mod tests {
 
 #[cfg(test)]
 mod friend_live {
-    /// Живой тест (только чтение): сколько скриншотов показывают несколько друзей. Печатает только числа.
+    /// Live test (read only): how many screenshots several friends show. Prints numbers only.
     #[test]
     #[ignore]
     fn friend_shots_live() {

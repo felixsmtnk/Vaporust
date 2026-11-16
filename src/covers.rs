@@ -1,26 +1,26 @@
-//! Обложки и фоны игр для библиотеки.
+//! Game covers and backgrounds for the library.
 //!
-//! Берутся из локального кэша Steam (`appcache\librarycache\<appid>\…`) - без интернета;
-//! если там нет - скачиваются с CDN Steam. Картинки уменьшаются до размера показа:
-//! обложка 140x210 (~115 КБ в памяти вместо ~2 МБ у 600x900), фон страницы игры - до 960 px.
-//! Грузит один фоновый поток, по очереди, и только то, что видно на экране.
+//! Taken from the local Steam cache (`appcache\librarycache\<appid>\...`) - no internet needed;
+//! if missing there - downloaded from the Steam CDN. Images are scaled down to display size:
+//! cover 140x210 (~115 KB in memory instead of ~2 MB for 600x900), game page background - up to 960 px.
+//! One background thread loads them, in turn, and only what is visible on screen.
 
 use eframe::egui;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
 
-/// Размер текстуры обложки (пропорции 2:3, как у library_600x900).
+/// Cover texture size (2:3 ratio, like library_600x900).
 pub const W: u32 = 140;
 pub const H: u32 = 210;
-/// Ширина текстуры фона страницы игры.
+/// Width of the game page background texture.
 const HERO_W: u32 = 960;
 
 #[derive(Clone)]
 pub enum Cover {
     Loading,
     Ready(egui::TextureHandle),
-    /// Картинки нет ни в кэше, ни на CDN - рисуем заглушку.
+    /// The image is neither in the cache nor on the CDN - draw a placeholder.
     Missing,
 }
 
@@ -28,7 +28,7 @@ pub enum Cover {
 enum Kind {
     Cover,
     Hero,
-    /// Маленький значок игры для списка слева (32x32 в кэше Steam).
+    /// Small game icon for the list on the left (32x32 in the Steam cache).
     Icon,
 }
 
@@ -57,7 +57,7 @@ impl Covers {
         match map.get(&(kind, appid)) {
             Some(c) => c.clone(),
             None => {
-                // Фоны крупные (~1 МБ в памяти): держим только последние открытые.
+                // Backgrounds are large (~1 MB in memory): keep only the last opened ones.
                 if kind == Kind::Hero {
                     let heroes: Vec<u32> = map.keys().filter(|(k, _)| *k == Kind::Hero).map(|(_, a)| *a).collect();
                     if heroes.len() >= 3 {
@@ -66,8 +66,8 @@ impl Covers {
                         }
                     }
                 }
-                // Обложки: держим не больше предела (в режиме экономии меньше), видимые
-                // тут же загрузятся снова с диска.
+                // Covers: keep no more than the limit (less in economy mode), visible ones
+                // are reloaded from disk right away.
                 if kind == Kind::Cover {
                     let limit = if crate::imgload::ECONOMY.load(std::sync::atomic::Ordering::Relaxed) { 48 } else { 120 };
                     if map.keys().filter(|(k, _)| *k == Kind::Cover).count() >= limit {
@@ -81,29 +81,29 @@ impl Covers {
         }
     }
 
-    /// Обложка игры; если еще не загружена - ставит в очередь загрузки.
+    /// Game cover; if not loaded yet - queue it for loading.
     pub fn get(&self, appid: u32) -> Cover {
         self.get_kind(Kind::Cover, appid)
     }
 
-    /// Широкий фон для страницы игры.
+    /// Wide background for the game page.
     pub fn hero(&self, appid: u32) -> Cover {
         self.get_kind(Kind::Hero, appid)
     }
 
-    /// Значок игры для списка (только из кэша Steam, без интернета).
+    /// Game icon for the list (only from the Steam cache, no internet).
     pub fn icon(&self, appid: u32) -> Cover {
         self.get_kind(Kind::Icon, appid)
     }
 
-    /// Забыть все картинки (освободить память; видимое загрузится снова).
+    /// Forget all images (free memory; visible ones will load again).
     pub fn clear(&self) {
         self.map.lock().unwrap().retain(|_, c| matches!(c, Cover::Loading));
     }
 }
 
-/// Найти файл в кэше Steam: сначала в папке игры, затем в ее подпапках
-/// (новые версии Steam кладут файлы в подпапки с хэшем).
+/// Find a file in the Steam cache: first in the game folder, then in its subfolders
+/// (newer Steam versions put files into hash-named subfolders).
 fn local_file(steam_dir: &Path, appid: u32, file: &str) -> Option<Vec<u8>> {
     let dir = steam_dir.join("appcache").join("librarycache").join(appid.to_string());
     if let Ok(b) = std::fs::read(dir.join(file)) {
@@ -126,7 +126,7 @@ fn cdn_file(appid: u32, file: &str) -> Option<Vec<u8>> {
     (resp.ok && !resp.bytes.is_empty()).then_some(resp.bytes)
 }
 
-/// Значок игры в кэше Steam: файл с именем-хэшем (40 шестнадцатеричных знаков).jpg.
+/// Game icon in the Steam cache: a file named by hash (40 hex characters).jpg.
 fn local_icon(steam_dir: &Path, appid: u32) -> Option<Vec<u8>> {
     let dir = steam_dir.join("appcache").join("librarycache").join(appid.to_string());
     let is_icon = |p: &Path| {
@@ -147,7 +147,7 @@ fn local_icon(steam_dir: &Path, appid: u32) -> Option<Vec<u8>> {
 }
 
 fn load(ctx: &egui::Context, steam_dir: Option<&Path>, kind: Kind, appid: u32) -> Cover {
-    // Сторонняя игра (не из Steam): картинок в Steam нет, значок - из ее exe.
+    // Non-Steam game: Steam has no images, the icon comes from its exe.
     if crate::custom::is_custom(appid) {
         if kind != Kind::Icon {
             return Cover::Missing;
@@ -177,7 +177,7 @@ fn load(ctx: &egui::Context, steam_dir: Option<&Path>, kind: Kind, appid: u32) -
     let rgba = img.to_rgba8();
     let (w, h) = match kind {
         Kind::Cover => {
-            // Плитка тянется по ширине окна (до ~200 точек): обложка 180x270, в режиме экономии 140x210.
+            // The tile stretches with the window (up to ~200 points): cover 180x270, 140x210 in economy mode.
             if crate::imgload::ECONOMY.load(std::sync::atomic::Ordering::Relaxed) { (W, H) } else { (180, 270) }
         }
         _ => {

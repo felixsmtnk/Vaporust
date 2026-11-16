@@ -1,9 +1,9 @@
-//! Размер и положение главного окна между запусками.
+//! Main window size and position between runs.
 //!
-//! eframe умеет сохранять окно сам, но у нас оно открывалось то крошечным, то на весь экран
-//! (особенно при смене монитора или масштаба). Поэтому храним сами, в пикселях экрана, и при
-//! запуске проверяем: окно должно помещаться на один из подключенных мониторов. Если нет -
-//! открываемся как раньше: 960x630 посередине.
+//! eframe can save the window itself, but for us it opened either tiny or full screen
+//! (especially after a monitor or scale change). So we store it ourselves, in screen pixels, and at
+//! startup check that the window fits on one of the connected monitors. If not -
+//! we open as before: 960x630 in the middle.
 
 use serde::{Deserialize, Serialize};
 
@@ -13,22 +13,22 @@ pub struct WinPos {
     pub y: i32,
     pub w: i32,
     pub h: i32,
-    /// Окно было развернуто на весь экран (x/y/w/h - обычный размер до разворачивания).
+    /// The window was maximized (x/y/w/h - the normal size before maximizing).
     pub max: bool,
 }
 
-/// Наименьший размер, который восстанавливаем (меньше - считаем ошибкой и не трогаем окно).
+/// The smallest size we restore (smaller is treated as an error and the window is left alone).
 const MIN_W: i32 = 500;
 const MIN_H: i32 = 320;
 
-/// Прямоугольник окна, подогнанный под рабочую область монитора `work` (left, top, right,
-/// bottom): не больше нее и целиком внутри. None - окно на этом мониторе почти не видно.
+/// Window rectangle fitted into the monitor work area `work` (left, top, right,
+/// bottom): not larger than it and fully inside. None - the window is barely visible on this monitor.
 pub fn fit(p: WinPos, work: (i32, i32, i32, i32)) -> Option<WinPos> {
     let (l, t, r, b) = work;
     if p.w < MIN_W || p.h < MIN_H || r - l < MIN_W || b - t < MIN_H {
         return None;
     }
-    // Сколько окна на этом мониторе: хотя бы кусок 200x100, иначе окно «потерялось» (монитор отключили).
+    // How much of the window is on this monitor: at least a 200x100 piece, otherwise the window is "lost" (monitor disconnected).
     let iw = (p.x + p.w).min(r) - p.x.max(l);
     let ih = (p.y + p.h).min(b) - p.y.max(t);
     if iw < 200 || ih < 100 {
@@ -41,8 +41,8 @@ pub fn fit(p: WinPos, work: (i32, i32, i32, i32)) -> Option<WinPos> {
     Some(WinPos { x, y, w, h, max: p.max })
 }
 
-/// Текущее положение окна (только обычное, не свернутое и не спрятанное в трей). Развернутое -
-/// флаг max с прежним обычным размером из `prev`.
+/// Current window position (only a normal one, not minimized and not hidden in the tray). Maximized -
+/// the max flag with the previous normal size from `prev`.
 #[cfg(windows)]
 pub fn read(prev: Option<WinPos>) -> Option<WinPos> {
     use windows_sys::Win32::Foundation::RECT;
@@ -67,8 +67,8 @@ pub fn read(prev: Option<WinPos>) -> Option<WinPos> {
     }
 }
 
-/// Поставить окно на сохраненное место (один раз, сразу после появления окна).
-/// Возвращает, нужно ли развернуть окно.
+/// Put the window at the saved position (once, right after the window appears).
+/// Returns whether the window should be maximized.
 #[cfg(windows)]
 pub fn apply(p: WinPos) -> bool {
     use windows_sys::Win32::Foundation::RECT;
@@ -82,7 +82,7 @@ pub fn apply(p: WinPos) -> bool {
         let rect = RECT { left: p.x, top: p.y, right: p.x + p.w, bottom: p.y + p.h };
         let mon = MonitorFromRect(&rect, MONITOR_DEFAULTTONULL);
         if mon.is_null() {
-            return false; // монитора, где было окно, больше нет
+            return false; // the monitor the window was on is gone
         }
         let mut info: MONITORINFO = std::mem::zeroed();
         info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
@@ -116,19 +116,19 @@ mod tests {
 
     #[test]
     fn fits_screen() {
-        // Обычное окно - как было.
+        // A normal window - as it was.
         assert_eq!(fit(p(100, 100, 960, 630), SCREEN), Some(p(100, 100, 960, 630)));
-        // Чуть вылезает за край - подвигаем внутрь.
+        // Slightly beyond the edge - move it inside.
         assert_eq!(fit(p(1500, 700, 960, 630), SCREEN), Some(p(960, 410, 960, 630)));
-        // Больше экрана (был монитор крупнее) - уменьшаем до экрана.
+        // Larger than the screen (the monitor used to be bigger) - shrink to the screen.
         assert_eq!(fit(p(-10, -10, 2560, 1400), SCREEN), Some(p(0, 0, 1920, 1040)));
-        // На отключенном втором мониторе - не восстанавливаем.
+        // On a disconnected second monitor - not restored.
         assert_eq!(fit(p(2000, 100, 960, 630), SCREEN), None);
         assert_eq!(fit(p(1800, 100, 960, 630), SCREEN), None, "видно меньше 200 точек");
-        // Крошечное окно или спрятанное в трей - не восстанавливаем.
+        // A tiny window or one hidden in the tray - not restored.
         assert_eq!(fit(p(100, 100, 120, 80), SCREEN), None);
         assert_eq!(fit(p(-32000, -32000, 960, 630), SCREEN), None);
-        // Флаг «развернуто» сохраняется.
+        // The "maximized" flag is kept.
         assert!(fit(WinPos { max: true, ..p(100, 100, 960, 630) }, SCREEN).unwrap().max);
     }
 }

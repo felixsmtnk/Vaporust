@@ -1,10 +1,10 @@
-//! vaporust: данные для окна «Свойства игры», которых нет в Aurelia 0.2.3.
+//! vaporust: data for the "Game properties" window that is missing in Aurelia 0.2.3.
 
 use super::*;
 
 impl SteamClient {
-    /// Языки, которые поддерживает игра (ключи `common/supported_languages`, иначе
-    /// `common/languages` из PICS appinfo), например "english", "russian".
+    /// Languages the game supports (keys `common/supported_languages`, otherwise
+    /// `common/languages` from PICS appinfo), for example "english", "russian".
     pub async fn fetch_game_languages(&self, appid: u32) -> Result<Vec<String>> {
         let buffer = self
             .pics_buffer(appid, "failed requesting appinfo product info for languages")
@@ -21,8 +21,8 @@ impl SteamClient {
         Ok(langs)
     }
 
-    /// Какие из установленных игр (appid, папка игры) требуют обновления: флаг Steam
-    /// UpdateRequired в appmanifest или более новая сборка активной ветки на серверах.
+    /// Which installed games (appid, game folder) need an update: Steam's
+    /// UpdateRequired flag in appmanifest or a newer build of the active branch on the servers.
     pub async fn games_needing_update(&self, games: &[(u32, std::path::PathBuf)]) -> Result<Vec<u32>> {
         let mut list: Vec<LibraryGame> = games
             .iter()
@@ -47,9 +47,9 @@ impl SteamClient {
         Ok(list.into_iter().filter(|g| g.update_available).map(|g| g.app_id).collect())
     }
 
-    /// vaporust: последние версии хранилищ ветки (depot -> manifest ID) и номер сборки.
-    /// Нужно для закрепления версии: Vaporust записывает их в appmanifest, и
-    /// настоящий Steam считает игру обновленной.
+    /// vaporust: latest depot versions of a branch (depot -> manifest ID) and the build number.
+    /// Needed for version pinning: Vaporust writes them into appmanifest, and
+    /// the real Steam considers the game up to date.
     pub async fn latest_depot_versions(
         &self,
         appid: u32,
@@ -61,8 +61,8 @@ impl SteamClient {
         Ok((manifests.into_iter().map(|(d, m)| (d as u32, m)).collect(), buildid))
     }
 
-    /// vaporust: описание хранилищ игры из PICS: depot -> (имя, oslist, язык, DLC-appid).
-    /// Имени у многих хранилищ нет - тогда интерфейс описывает их по системе и языку.
+    /// vaporust: game depot descriptions from PICS: depot -> (name, oslist, language, DLC appid).
+    /// Many depots have no name - then the UI describes them by OS and language.
     pub async fn depot_descriptions(
         &self,
         appid: u32,
@@ -73,7 +73,7 @@ impl SteamClient {
         if let Some(depots) = pics_depots_value(&vdf).and_then(|v| v.as_obj()) {
             for (key, value) in depots.iter() {
                 let Ok(id) = key.parse::<u32>() else { continue };
-                // Строковое значение по пути внутри описания хранилища.
+                // A string value by path inside a depot description.
                 let s = |path: &[&str]| -> Option<String> {
                     let mut cur = value;
                     for p in path {
@@ -88,8 +88,8 @@ impl SteamClient {
         Ok(out)
     }
 
-    /// vaporust: языковые хранилища игры для смены языка без Steam: (depot, язык, oslist,
-    /// depotfromapp - хранилище принадлежит другой игре (общее), dlcappid, текущая версия на ветке `branch`).
+    /// vaporust: language depots of a game for changing the language without Steam: (depot, language, oslist,
+    /// depotfromapp - the depot belongs to another game (shared), dlcappid, current version on branch `branch`).
     pub async fn language_depots(
         &self,
         appid: u32,
@@ -125,8 +125,8 @@ impl SteamClient {
         Ok(out)
     }
 
-    /// vaporust: все ветки игры с описанием и признаком «нужен пароль» (pwdrequired).
-    /// `fetch_branches` закрытые ветки скрывает, а интерфейсу нужно знать, что они есть.
+    /// vaporust: all game branches with a description and the "password required" flag (pwdrequired).
+    /// `fetch_branches` hides private branches, but the UI needs to know they exist.
     pub async fn branches_detailed(&self, appid: u32) -> Result<Vec<(String, Option<String>, bool)>> {
         let buffer = self.pics_buffer(appid, "failed requesting appinfo for branches").await?;
         let vdf = find_vdf_in_pics(&buffer).context("failed to parse product info VDF")?;
@@ -147,7 +147,7 @@ impl SteamClient {
         Ok(out)
     }
 
-    /// Страна для цен магазина: по IP подключения к Steam (иначе US).
+    /// Country for store prices: by the IP of the Steam connection (otherwise US).
     pub fn store_country(&self) -> String {
         self.connection
             .as_ref()
@@ -156,16 +156,16 @@ impl SteamClient {
             .unwrap_or_else(|| "US".to_string())
     }
 
-    /// SteamID64 вошедшего аккаунта.
+    /// SteamID64 of the logged-in account.
     pub fn my_steam_id(&self) -> Option<u64> {
         self.connection.as_ref().map(|c| u64::from(c.steam_id()))
     }
 }
 
 impl SteamClient {
-    /// vaporust: имена файлов хранилища в версии `manifest` (нижний регистр, разделитель "/").
-    /// В отличие от `fetch_manifest_files` (depot_browser создает клиент CDN без серверов и падает
-    /// с «no available cdn servers»), берет серверы и ключ так же, как установка.
+    /// vaporust: file names of a depot in version `manifest` (lowercase, "/" separator).
+    /// Unlike `fetch_manifest_files` (depot_browser creates a CDN client without servers and fails
+    /// with "no available cdn servers"), it takes the servers and key the same way the install does.
     pub async fn depot_file_names(&self, appid: u32, depot: u32, manifest: u64) -> Result<Vec<String>> {
         let connection = self.require_connection_owned()?;
         let hosts = self.get_content_servers(connection.cell_id()).await?;

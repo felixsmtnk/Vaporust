@@ -1,5 +1,5 @@
-//! Страница «Друзья» (раздел профиля), как в Steam: вкладки «Мои друзья», «Заявки в друзья»,
-//! «Отправленные» и кнопка «Добавить друга».
+//! "Friends" page (a profile section), as in Steam: tabs "My friends", "Friend requests",
+//! "Sent" and an "Add friend" button.
 
 use crate::net::{Cmd, NetState};
 use crate::social::SocialCmd;
@@ -8,16 +8,16 @@ use eframe::egui;
 
 #[derive(Default)]
 pub struct FriendsPage {
-    /// 0 - мои друзья, 1 - заявки, 2 - отправленные.
+    /// 0 - my friends, 1 - requests, 2 - sent.
     pub tab: u8,
     pub filter: String,
-    /// Чьи профили уже запрошены (имена и аватары тех, кто в заявках).
+    /// Whose profiles were already requested (names and avatars of those in requests).
     pub asked: std::collections::HashSet<u64>,
-    /// «Недавние игроки» уже запрошены.
+    /// "Recent players" already requested.
     pub coplay_asked: bool,
 }
 
-/// Человек в списке: id, имя, аватар, строка статуса и ее цвет.
+/// Person in the list: id, name, avatar, status line and its color.
 struct Person {
     id: u64,
     name: String,
@@ -34,7 +34,7 @@ impl LauncherApp {
     }
 
     pub(crate) fn friends_page_contents(&mut self, ui: &mut egui::Ui, net: &NetState) {
-        // Снимок списка: друзья (3), входящие (2), исходящие (4).
+        // List snapshot: friends (3), incoming (2), outgoing (4).
         let mut lists: [Vec<Person>; 3] = [Vec::new(), Vec::new(), Vec::new()];
         let mut ask = Vec::new();
         {
@@ -76,7 +76,7 @@ impl LauncherApp {
                 let _ = self.tx.send(Cmd::Social(SocialCmd::Profile(id)));
             }
         }
-        // Друзья: в игре, в сети, не в сети; внутри - по имени.
+        // Friends: in game, online, offline; within each - by name.
         lists[0].sort_by(|a, b| {
             let rank = |p: &Person| if p.status.starts_with("В игре") { 0 } else if p.status == "не в сети" { 2 } else { 1 };
             rank(a).cmp(&rank(b)).then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
@@ -132,7 +132,7 @@ impl LauncherApp {
         let mut chat = None;
         let mut profile = None;
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            // Карточки в несколько столбцов по ширине окна.
+            // Cards in several columns depending on window width.
             let card_w = 300.0;
             let cols = ((ui.available_width() + 8.0) / (card_w + 8.0)).floor().max(1.0) as usize;
             for chunk in people.chunks(cols) {

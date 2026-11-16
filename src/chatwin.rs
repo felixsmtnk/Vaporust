@@ -1,6 +1,6 @@
-//! Окно чата - отдельное окно Windows (отложенный viewport egui).
-//! Перерисовывается само по себе, не трогая главное окно: анимации стикеров и загрузка
-//! картинок не заставляют перерисовываться библиотеку.
+//! Chat window - a separate Windows window (deferred egui viewport).
+//! It repaints on its own without touching the main window: sticker animations and image
+//! loading do not force the library to repaint.
 
 use crate::net::{Cmd, NetState, Shared};
 use crate::{anim, chatfmt};
@@ -12,46 +12,46 @@ pub fn viewport_id() -> egui::ViewportId {
     egui::ViewportId::from_hash_of("vaporust_chat")
 }
 
-/// Состояние открытого чата.
+/// State of the open chat.
 pub struct ChatWin {
     pub id: u64,
     pub name: String,
     input: String,
     picker_open: bool,
-    /// Вкладка панели: 0 смайлики, 1 стикеры, 2 эффекты.
+    /// Panel tab: 0 emoticons, 1 stickers, 2 effects.
     picker_tab: u8,
-    /// Повторная загрузка сломанных значков эффектов уже была.
+    /// Broken effect icons have already been reloaded once.
     icons_retried: bool,
-    /// Когда последний раз просили список своих эффектов.
+    /// When we last asked for the list of own effects.
     effects_asked: Option<std::time::Instant>,
     emoticons_requested: bool,
-    /// Кадры анимированных стикеров (живут, пока открыт чат).
+    /// Animated sticker frames (live while the chat is open).
     anims: anim::Cache,
-    /// Была ли нажата V в прошлом кадре (для Ctrl+V с картинкой).
+    /// Whether V was pressed in the previous frame (for Ctrl+V with an image).
     v_was_down: bool,
-    /// Поставить курсор в поле ввода (сразу после открытия).
+    /// Put the cursor into the input field (right after opening).
     focus_input: bool,
-    /// Идущий эффект комнаты и время последнего показанного (чтобы не повторять).
+    /// Running room effect and time of the last one shown (to avoid repeats).
     effect: Option<crate::effects::Effect>,
     effect_seen: u64,
-    /// Поиск по переписке (пусто - показывать все).
+    /// Search in the conversation (empty - show everything).
     search: String,
-    /// Строка поиска открыта (лупа или Ctrl+F) и в нее надо поставить курсор.
+    /// The search field is open (magnifier or Ctrl+F) and needs the cursor.
     search_open: bool,
     focus_search: bool,
-    /// Копия сетевого состояния и номер изменения, с которого она снята (не копировать каждый кадр).
+    /// Copy of the network state and the change number it was taken at (do not copy every frame).
     snap: Option<NetState>,
     snap_gen: u64,
-    /// Открытые беседы (вкладки): друг и имя; текущая - id.
+    /// Open conversations (tabs): friend and name; the current one - id.
     tabs: Vec<(u64, String)>,
-    /// Недописанный текст других вкладок.
+    /// Unsent text of other tabs.
     drafts: std::collections::HashMap<u64, String>,
-    /// Ответ на сообщение: (автор, текст без оформления).
+    /// Reply to a message: (author, text without formatting).
     reply: Option<(String, String)>,
 }
 
 impl ChatWin {
-    /// Переключиться на беседу (новую - добавить вкладкой).
+    /// Switch to a conversation (a new one is added as a tab).
     pub fn switch_to(&mut self, id: u64, name: String) {
         if !self.tabs.iter().any(|(t, _)| *t == id) {
             self.tabs.push((id, name.clone()));
@@ -98,7 +98,7 @@ impl ChatWin {
 
 pub type SharedChat = Arc<Mutex<Option<ChatWin>>>;
 
-/// Вызывается из кадра главного окна, пока чат открыт.
+/// Called from the main window's frame while the chat is open.
 pub fn show(ctx: &egui::Context, chat: &SharedChat, net: &Shared, tx: &UnboundedSender<Cmd>) {
     let title = match chat.lock().unwrap().as_ref() {
         Some(c) => format!("Чат: {}", c.name),
@@ -117,7 +117,7 @@ pub fn show(ctx: &egui::Context, chat: &SharedChat, net: &Shared, tx: &Unbounded
             crate::winframe::title_bar_auto(ctx);
             let mut guard = chat.lock().unwrap();
             let Some(win) = guard.as_mut() else { return };
-            // Снимок сетевого состояния: копируем заново, только когда оно поменялось.
+            // Network state snapshot: copied again only when it changed.
             let gen = net.gen();
             if win.snap.is_none() || win.snap_gen != gen {
                 win.snap = Some(net.lock().unwrap().clone());
@@ -129,7 +129,7 @@ pub fn show(ctx: &egui::Context, chat: &SharedChat, net: &Shared, tx: &Unbounded
             if ctx.input(|i| i.viewport().close_requested()) {
                 *guard = None;
                 crate::notify::set_open_chat(0);
-                // Крупные картинки чата больше не нужны (аватары остаются для главного окна).
+                // Large chat images are no longer needed (avatars stay for the main window).
                 crate::imgload::forget_large(ctx);
                 ctx.request_repaint_of(egui::ViewportId::ROOT);
             }
@@ -140,9 +140,9 @@ pub fn show(ctx: &egui::Context, chat: &SharedChat, net: &Shared, tx: &Unbounded
 impl ChatWin {
     fn frame(&mut self, ctx: &egui::Context, net: &NetState, shared: &Shared, tx: &UnboundedSender<Cmd>) {
         let id = self.id;
-        // Для уведомлений: со звуком не беспокоим, если активен чат именно с этим другом.
+        // For notifications: no sound if the chat with this very friend is active.
         crate::notify::set_open_chat(id);
-        // Окно открыто и активно - значит, все прочитано.
+        // The window is open and active - so everything is read.
         if ctx.input(|i| i.focused) && net.chats.get(&id).is_some_and(|c| c.unread > 0) {
             if let Some(c) = std::sync::Arc::make_mut(&mut shared.lock().unwrap().chats).get_mut(&id) {
                 c.unread = 0;
@@ -153,7 +153,7 @@ impl ChatWin {
         let mut send = None;
         let mut send_image: Option<std::path::PathBuf> = None;
 
-        // Нижняя часть: статус, панель смайликов, поле ввода.
+        // Bottom part: status, emoticon panel, input field.
         egui::TopBottomPanel::bottom("chat_input").show(ctx, |ui| {
             ui.add_space(4.0);
             if conv
@@ -174,7 +174,7 @@ impl ChatWin {
             if let Some(n) = &conv.status_note {
                 ui.colored_label(egui::Color32::from_rgb(110, 200, 110), n);
             }
-            // Вкладка «Эффекты» открыта - перечитать свои эффекты (могли купить), не чаще раза в 20 с.
+            // "Effects" tab open - reread own effects (may have been bought), at most once per 20 s.
             if self.picker_open
                 && self.picker_tab == 2
                 && self.effects_asked.is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(20))
@@ -188,7 +188,7 @@ impl ChatWin {
                 }
                 ui.separator();
             }
-            // Ответ на сообщение: над полем ввода - кому отвечаем (уйдет цитатой).
+            // Reply to a message: above the input field - who we reply to (sent as a quote).
             if let Some((who, text)) = self.reply.clone() {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(format!("Ответ {who}:")).color(crate::theme::WEAK));
@@ -237,7 +237,7 @@ impl ChatWin {
                 if (enter || clicked) && !self.input.trim().is_empty() {
                     let text = std::mem::take(&mut self.input).trim().to_string();
                     let mut msg = crate::emoticons_to_bbcode(&text, net);
-                    // Ответ - цитата с автором перед текстом (Steam показывает ее блоком).
+                    // A reply is a quote with the author before the text (Steam shows it as a block).
                     if let Some((who, quoted)) = self.reply.take() {
                         let q: String = quoted.chars().take(300).collect();
                         msg = format!("[quote author={who}]{q}[/quote]\n{msg}");
@@ -251,7 +251,7 @@ impl ChatWin {
             ui.add_space(4.0);
         });
 
-        // Шапка, как в Steam: аватар друга, имя и статус; справа - лупа (поиск, Ctrl+F).
+        // Header, as in Steam: friend's avatar, name and status; on the right - magnifier (search, Ctrl+F).
         let friend = net.roster.read().unwrap().get(&id).cloned();
         let friend_avatar = friend
             .as_ref()
@@ -267,7 +267,7 @@ impl ChatWin {
             Some(_) => ("в сети".to_string(), egui::Color32::from_rgb(90, 170, 230)),
             None => (String::new(), egui::Color32::GRAY),
         };
-        // Ctrl+F - поиск, Esc - закрыть поиск.
+        // Ctrl+F - search, Esc - close search.
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F)) {
             self.search_open = true;
             self.focus_search = true;
@@ -277,7 +277,7 @@ impl ChatWin {
             self.search.clear();
             self.focus_input = true;
         }
-        // Вкладки бесед (если открыто больше одной): имя, непрочитанные, крестик.
+        // Conversation tabs (if more than one is open): name, unread, close cross.
         let mut switch: Option<(u64, String)> = None;
         let mut close_tab: Option<u64> = None;
         if self.tabs.len() > 1 {
@@ -311,7 +311,7 @@ impl ChatWin {
             self.drafts.remove(&t);
             if t == self.id {
                 if let Some((n, name)) = self.tabs.first().cloned() {
-                    // Текущую закрыли - на первую оставшуюся (без сохранения черновика закрытой).
+                    // The current one was closed - go to the first remaining (the closed draft is not kept).
                     self.input.clear();
                     self.switch_to(n, name);
                 }
@@ -372,7 +372,7 @@ impl ChatWin {
             ui.add_space(4.0);
         });
         let query = self.search.trim().to_lowercase();
-        // Переписка: сообщения группами по отправителю (аватар, имя, время), между днями - разделитель.
+        // Conversation: messages grouped by sender (avatar, name, time), a separator between days.
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical()
                 .stick_to_bottom(true)
@@ -402,7 +402,7 @@ impl ChatWin {
                             continue;
                         }
                         if l.text.trim().is_empty() {
-                            continue; // пустые (например, эффект, которого нет у отправителя) - как в Steam, не показываем
+                            continue; // empty ones (for example an effect the sender does not have) - not shown, as in Steam
                         }
                         let day = crate::fmt_day(l.time);
                         if day != last_day {
@@ -413,13 +413,13 @@ impl ChatWin {
                             ui.add_space(2.0);
                         }
                         let who = if l.from_self { "Вы" } else { self.name.as_str() };
-                        // Новая группа: другой отправитель или перерыв больше 5 минут.
+                        // New group: another sender or a break longer than 5 minutes.
                         let new_group = last.is_none_or(|(s, t)| s != l.from_self || l.time.saturating_sub(t) > 300);
                         last = Some((l.from_self, l.time));
                         let avatar = if l.from_self { my_avatar.as_ref() } else { friend_avatar.as_ref() };
                         let color = if l.from_self { egui::Color32::from_rgb(120, 170, 230) } else { egui::Color32::from_rgb(140, 200, 80) };
-                        // Меню сообщения по правому щелчку: область с прошлого кадра регистрируем ДО
-                        // содержимого, чтобы ссылки и спойлеры внутри по-прежнему нажимались.
+                        // Message right-click menu: register the area from the previous frame BEFORE
+                        // the contents so that links and spoilers inside are still clickable.
                         let msg_key = egui::Id::new(("chat_msg", id, l.time, l.ordinal, l.text.len()));
                         if let Some(rect) = ui.data(|d| d.get_temp::<egui::Rect>(msg_key)) {
                             let r = ui.interact(rect, msg_key, egui::Sense::click());
@@ -433,7 +433,7 @@ impl ChatWin {
                                     ui.ctx().copy_text(chatfmt::preview(&l.text).0);
                                     ui.close_menu();
                                 }
-                                // Реакции: свои смайлики Steam (нужен номер сообщения - есть у загруженных из истории).
+                                // Reactions: own Steam emoticons (needs the message number - history messages have it).
                                 let mine = net.emoticons.as_ref().map(|e| e.0.clone()).unwrap_or_default();
                                 if l.ordinal > 0 || l.time > 0 {
                                     ui.menu_button("Реакция", |ui| {
@@ -459,7 +459,7 @@ impl ChatWin {
                             });
                         }
                         let msg_resp = ui.horizontal_top(|ui| {
-                            // Текст сообщения не перехватывает правый щелчок (меню сообщения); копировать - через меню.
+                            // Message text does not capture the right click (message menu); copy via the menu.
                             ui.style_mut().interaction.selectable_labels = false;
                             let (ar, _) = ui.allocate_exact_size(egui::vec2(32.0, if new_group { 32.0 } else { 1.0 }), egui::Sense::hover());
                             if new_group {
@@ -484,7 +484,7 @@ impl ChatWin {
                                         crate::draw_seg(ui, seg, &mut self.anims, who);
                                     }
                                 });
-                                // Реакции под сообщением: значок и число; щелчок - поставить/снять свою.
+                                // Reactions under a message: icon and count; click - add/remove own.
                                 if !l.reactions.is_empty() {
                                     let me = net.my_id.map(|m| (m & 0xFFFF_FFFF) as u32).unwrap_or(0);
                                     ui.horizontal_wrapped(|ui| {
@@ -530,13 +530,13 @@ impl ChatWin {
                 });
         });
 
-        // Ctrl+V с картинкой в буфере обмена. egui сообщает о вставке только для текста,
-        // поэтому нажатие V смотрим через Windows (кадр перерисовывается на каждое нажатие клавиши).
+        // Ctrl+V with an image in the clipboard. egui reports a paste only for text,
+        // so the V key is checked via Windows (the frame repaints on every key press).
         let v_down = crate::key_v_down();
         if v_down && !self.v_was_down && ctx.input(|i| i.modifiers.command && i.focused) {
             match crate::clipboard_image_file() {
                 Ok(Some(path)) => send_image = Some(path),
-                Ok(None) => {} // в буфере текст - его вставит само поле ввода
+                Ok(None) => {} // the clipboard has text - the input field pastes it itself
                 Err(e) => {
                     if let Some(c) = std::sync::Arc::make_mut(&mut shared.lock().unwrap().chats).get_mut(&id) {
                         c.error = Some(e);
@@ -545,11 +545,11 @@ impl ChatWin {
             }
         }
         self.v_was_down = v_down;
-        // Файл, перетащенный в окно чата, - отправляем как картинку.
+        // A file dragged into the chat window is sent as an image.
         if let Some(path) = ctx.input(|i| i.raw.dropped_files.iter().find_map(|f| f.path.clone())) {
             send_image = Some(path);
         }
-        // Эффект комнаты: свежий (не старше 20 с) из переписки или «показать еще раз».
+        // Room effect: a fresh one (no older than 20 s) from the conversation or "show again".
         let now = crate::net::now_unix();
         if let Some(l) = conv.lines.iter().rev().take(5).find(|l| l.text.contains("[roomeffect")) {
             if l.time > self.effect_seen && now.saturating_sub(l.time) <= 20 {
@@ -557,7 +557,7 @@ impl ChatWin {
                 if let Some(chatfmt::Seg::RoomEffect(kind)) =
                     chatfmt::parse(&l.text).into_iter().find(|s| matches!(s, chatfmt::Seg::RoomEffect(_)))
                 {
-                    // Без анимаций (настройка) эффект сам не запускается; «Повторить эффект» работает.
+                    // Without animations (setting) the effect does not start by itself; "Replay effect" works.
                     if crate::imgload::animations() {
                         self.effect = crate::effects::Effect::new(&kind);
                     }
@@ -578,8 +578,8 @@ impl ChatWin {
         }
     }
 
-    /// Панель смайликов и стикеров. Смайлик вставляется в поле ввода как :имя:,
-    /// стикер отправляется сразу (возвращается текст сообщения).
+    /// Emoticon and sticker panel. An emoticon is inserted into the input as :name:,
+    /// a sticker is sent right away (returns the message text).
     fn picker(&mut self, ui: &mut egui::Ui, net: &NetState) -> Option<String> {
         let mut send = None;
         ui.horizontal(|ui| {
@@ -601,7 +601,7 @@ impl ChatWin {
             .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     if self.picker_tab == 2 {
-                        // Только купленные эффекты (из инвентаря Steam; перечитываются при открытии вкладки).
+                        // Only purchased effects (from the Steam inventory; reread when the tab is opened).
                         let Some(list) = net.chat_effects.clone() else {
                             crate::spin::spinner(ui);
                             ui.weak("Загружаю ваши эффекты...");
@@ -613,7 +613,7 @@ impl ChatWin {
                                 ui.hyperlink_to("Магазин очков Steam", "https://store.steampowered.com/points/shop/");
                             });
                         }
-                        // Значок не загрузился (сбой сети) - один раз забыть ошибку, чтобы egui попробовал снова.
+                        // Icon failed to load (network error) - forget the error once so egui tries again.
                         if !self.icons_retried {
                             self.icons_retried = true;
                             for name in &list {
@@ -631,7 +631,7 @@ impl ChatWin {
                                 .on_hover_text(format!("{} - отправить", crate::effects::short_name(name)))
                                 .clicked()
                             {
-                                // Как в клиенте Steam: команда /roomeffect, сервер превращает ее в [roomeffect].
+                                // As in the Steam client: the /roomeffect command, the server turns it into [roomeffect].
                                 send = Some(format!("/roomeffect {name}"));
                                 self.picker_open = false;
                             }
@@ -667,8 +667,8 @@ impl ChatWin {
                                 .on_hover_text(format!("{name} - отправить"))
                                 .clicked()
                             {
-                                // Стикер шлется командой /sticker: сервер сам превращает ее в [sticker type=...].
-                                // Готовый тег [sticker] сервер вырезает (получатель видит пустое сообщение).
+                                // A sticker is sent with the /sticker command: the server turns it into [sticker type=...].
+                                // The server strips a ready-made [sticker] tag (the recipient sees an empty message).
                                 send = Some(format!("/sticker {name}"));
                                 self.picker_open = false;
                             }
@@ -682,7 +682,7 @@ impl ChatWin {
 
 #[cfg(test)]
 mod history_live {
-    /// Живой тест (только чтение): подгрузка более старой переписки. Печатает только числа.
+    /// Live test (read only): loading older messages. Prints numbers only.
     #[test]
     #[ignore]
     fn older_history_live() {
@@ -708,7 +708,7 @@ mod history_live {
     }
 }
 
-/// Значок лупы (рисуется линиями, без шрифта).
+/// Magnifier icon (drawn with lines, no font).
 fn draw_magnifier(p: &egui::Painter, r: egui::Rect, color: egui::Color32) {
     let c = r.center() + egui::vec2(-2.0, -2.0);
     let s = egui::Stroke::new(1.6, color);

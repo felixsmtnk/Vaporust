@@ -1,11 +1,11 @@
-//! Автозапуск с Windows: значение «Vaporust» в HKCU\Software\Microsoft\Windows\CurrentVersion\Run
-//! (как у других программ, без прав администратора). Запуск с ключом --tray - сразу в трей.
+//! Start with Windows: value "Vaporust" in HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+//! (like other programs, no admin rights). Started with --tray - goes straight to the tray.
 
 const RUN: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const NAME: &str = "Vaporust";
 pub const TRAY_ARG: &str = "--tray";
 
-/// Запущен ли Vaporust с ключом «сразу в трей».
+/// Whether Vaporust was started with the "straight to tray" flag.
 pub fn started_in_tray() -> bool {
     std::env::args().any(|a| a == TRAY_ARG)
 }
@@ -24,7 +24,7 @@ fn current_exe_quoted() -> Option<String> {
     std::env::current_exe().ok().map(|p| format!("\"{}\"", p.display()))
 }
 
-/// Включить или выключить автозапуск (в трей). Пишется путь к этому exe.
+/// Enable or disable autostart (to the tray). Writes the path to this exe.
 #[cfg(windows)]
 pub fn set(on: bool) -> Result<(), String> {
     use winreg::{enums::HKEY_CURRENT_USER, RegKey};

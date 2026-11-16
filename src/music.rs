@@ -1,6 +1,6 @@
-//! Саундтреки из библиотеки (как «Музыка» в Steam): папки steamapps\music\* и папки с «Soundtrack»
-//! / «OST» внутри установленных игр. MP3, WAV и WMA играют прямо в программе (Windows MCI, без
-//! лишних библиотек); FLAC, OGG и прочее открываются в проигрывателе Windows.
+//! Soundtracks from the library (like "Music" in Steam): steamapps\music\* folders and "Soundtrack"
+//! / "OST" folders inside installed games. MP3, WAV and WMA play right in the program (Windows MCI, no
+//! extra libraries); FLAC, OGG and others open in the Windows player.
 
 use crate::LauncherApp;
 use eframe::egui;
@@ -20,7 +20,7 @@ pub struct Album {
 pub struct Music {
     pub albums: Option<Vec<Album>>,
     pub album: usize,
-    /// Играющий трек: (альбом, номер).
+    /// Playing track: (album, number).
     pub playing: Option<(usize, usize)>,
     pub paused: bool,
     pub volume: f32,
@@ -45,12 +45,12 @@ fn collect(dir: &Path, depth: u32, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Найти саундтреки во всех библиотеках Steam.
+/// Find soundtracks in all Steam libraries.
 pub fn scan(steam_dir: &Path) -> Vec<Album> {
     let mut albums = Vec::new();
     for lib in crate::local::library_dirs(steam_dir) {
         let apps = lib.join("steamapps");
-        // Саундтреки-DLC Steam ставит в steamapps\music\<название>.
+        // Steam installs soundtrack DLC into steamapps\music\<name>.
         if let Ok(rd) = std::fs::read_dir(apps.join("music")) {
             for e in rd.flatten() {
                 let mut tracks = Vec::new();
@@ -60,7 +60,7 @@ pub fn scan(steam_dir: &Path) -> Vec<Album> {
                 }
             }
         }
-        // Папки «Soundtrack» / «OST» внутри игр (на два уровня вглубь).
+        // "Soundtrack" / "OST" folders inside games (two levels deep).
         if let Ok(rd) = std::fs::read_dir(apps.join("common")) {
             for game in rd.flatten() {
                 let mut stack = vec![(game.path(), 0u32)];
@@ -122,7 +122,7 @@ fn play_file(p: &Path, volume: f32) -> Result<(), String> {
     mci("play vaporust_music").map(|_| ())
 }
 
-/// Позиция и длина текущего трека, мс.
+/// Position and length of the current track, ms.
 fn position() -> Option<(u64, u64)> {
     let _ = mci("set vaporust_music time format milliseconds");
     let pos = mci("status vaporust_music position").ok()?.trim().parse().ok()?;
@@ -167,7 +167,7 @@ impl LauncherApp {
             }
             return;
         }
-        // Плеер сверху: трек, позиция, пауза, стоп, громкость.
+        // Player on top: track, position, pause, stop, volume.
         if let Some((a, t)) = m.playing {
             let name = albums.get(a).and_then(|al| al.tracks.get(t)).and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
             let pos = position();
@@ -193,7 +193,7 @@ impl LauncherApp {
                     ui.label(egui::RichText::new(crate::richtext::fix(ui, &name)).strong());
                     if let Some((p, l)) = pos {
                         ui.weak(format!("{} / {}", mmss(p), mmss(l)));
-                        // Трек кончился - следующий.
+                        // The track ended - next one.
                         if l > 0 && p >= l && !m.paused {
                             let next = t + 1;
                             match albums.get(a).and_then(|al| al.tracks.get(next)) {

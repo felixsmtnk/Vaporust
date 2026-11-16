@@ -1,22 +1,22 @@
-//! Своя рамка окон Vaporust: заголовок с перетаскиванием, кнопки «свернуть / развернуть /
-//! закрыть», изменение размера за края, тонкая обводка. В «Настройки -> Окно» можно включить
-//! обычную рамку Windows (переключается сразу, без перезапуска).
+//! Vaporust's own window frame: a draggable title bar, "minimize / maximize /
+//! close" buttons, resizing by the edges, a thin outline. In "Settings -> Window" the normal
+//! Windows frame can be enabled (switches right away, without a restart).
 //!
-//! Значки кнопок рисуются линиями, а не символами шрифта (в шрифте их может не быть).
+//! Button icons are drawn with lines, not font characters (the font may lack them).
 
 use eframe::egui;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static SYSTEM: AtomicBool = AtomicBool::new(false);
 
-/// Высота заголовка.
+/// Title bar height.
 pub const HEIGHT: f32 = 30.0;
 
 pub fn set_system(on: bool) {
     SYSTEM.store(on, Ordering::Relaxed);
 }
 
-/// true - обычная рамка Windows, false - своя.
+/// true - normal Windows frame, false - our own.
 pub fn system() -> bool {
     SYSTEM.load(Ordering::Relaxed)
 }
@@ -29,7 +29,7 @@ fn bar_color(v: &egui::Visuals) -> egui::Color32 {
     }
 }
 
-/// Заголовок отдельного окна с его собственным названием (из with_title).
+/// Title bar of a separate window with its own name (from with_title).
 pub fn title_bar_auto(ctx: &egui::Context) {
     if system() {
         return;
@@ -38,8 +38,8 @@ pub fn title_bar_auto(ctx: &egui::Context) {
     title_bar(ctx, &title);
 }
 
-/// Заголовок окна (и края для изменения размера). Вызывать в окне ПЕРВЫМ, до остальных панелей.
-/// При системной рамке ничего не рисует.
+/// Window title bar (and edges for resizing). Call FIRST in a window, before other panels.
+/// Draws nothing with the system frame.
 pub fn title_bar(ctx: &egui::Context, title: &str) {
     if system() {
         return;
@@ -48,7 +48,7 @@ pub fn title_bar(ctx: &egui::Context, title: &str) {
     let vp = ctx.viewport_id();
     if !maximized {
         resize_edges(ctx);
-        // Обводка окна: без системной рамки края иначе сливаются с фоном.
+        // Window outline: without the system frame the edges otherwise blend into the background.
         let rect = ctx.screen_rect();
         let stroke = egui::Stroke::new(1.0, ctx.style().visuals.widgets.noninteractive.bg_stroke.color);
         ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("vaporust_frame_border")))
@@ -61,7 +61,7 @@ pub fn title_bar(ctx: &egui::Context, title: &str) {
         .show_separator_line(false)
         .show(ctx, |ui| {
             let rect = ui.max_rect();
-            // Вся полоса - для перетаскивания; кнопки, добавленные позже, перекрывают ее.
+            // The whole bar is for dragging; buttons added later overlap it.
             let drag = ui.interact(rect, egui::Id::new(("vaporust_titlebar_drag", vp)), egui::Sense::click_and_drag());
             if drag.double_clicked() {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
@@ -76,7 +76,7 @@ pub fn title_bar(ctx: &egui::Context, title: &str) {
                 egui::FontId::proportional(13.5),
                 ui.visuals().text_color(),
             );
-            // Кнопки справа налево: закрыть, развернуть, свернуть.
+            // Buttons from right to left: close, maximize, minimize.
             let w = 46.0;
             let close = egui::Rect::from_min_max(egui::pos2(rect.right() - w, rect.top()), rect.right_bottom());
             let max = close.translate(egui::vec2(-w, 0.0));
@@ -141,7 +141,7 @@ fn button(ui: &mut egui::Ui, rect: egui::Rect, id: &str, glyph: Glyph, hint: &st
     r.clicked()
 }
 
-/// Края окна (6 пикселей): курсор-стрелка и изменение размера мышью.
+/// Window edges (6 pixels): arrow cursor and resizing with the mouse.
 fn resize_edges(ctx: &egui::Context) {
     use egui::{CursorIcon as C, ResizeDirection as D};
     let rect = ctx.screen_rect();
@@ -167,11 +167,11 @@ fn resize_edges(ctx: &egui::Context) {
     }
 }
 
-/// Самоисправление размера главного окна. На некоторых ПК (замечено на ноутбуке с графикой
-/// Intel после обновления) окно без системной рамки рисовалось со сдвигом вниз: сверху черная
-/// полоса высотой с заголовок Windows, а мышь попадала мимо кнопок. Причина - программа
-/// считает рабочую область окна меньше настоящей. Сверяем ее с Windows и, если расходится
-/// дольше полсекунды, заставляем Windows заново прислать размер (SetWindowPos туда и обратно).
+/// Self-healing of the main window size. On some PCs (seen on a laptop with Intel graphics
+/// after an update) the window without the system frame was drawn shifted down: a black bar on top
+/// as tall as the Windows title bar, and the mouse missed the buttons. The cause - the program
+/// thinks the window client area is smaller than it is. We compare it with Windows and, if they differ
+/// for longer than half a second, make Windows send the size again (SetWindowPos there and back).
 #[cfg(windows)]
 pub fn heal_client_size(ctx: &egui::Context) {
     use std::sync::Mutex;
@@ -181,7 +181,7 @@ pub fn heal_client_size(ctx: &egui::Context) {
         GetClientRect, GetWindowRect, IsIconic, SetWindowPos, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
         SWP_NOZORDER,
     };
-    // (с какого момента расходится, когда последний раз чинили)
+    // (since when they differ, when it was last fixed)
     static STATE: Mutex<(Option<Instant>, Option<Instant>)> = Mutex::new((None, None));
     let hwnd = crate::notify::main_hwnd();
     if hwnd == 0 || crate::notify::in_tray() {
@@ -206,7 +206,7 @@ pub fn heal_client_size(ctx: &egui::Context) {
     }
     let now = Instant::now();
     let since = *st.0.get_or_insert(now);
-    // Пока пользователь тянет край окна, размеры ненадолго расходятся - это нормально.
+    // While the user drags a window edge, the sizes briefly differ - that is normal.
     ctx.request_repaint_after(Duration::from_millis(300));
     if now.duration_since(since) < Duration::from_millis(500) {
         return;
@@ -235,10 +235,10 @@ pub fn heal_client_size(ctx: &egui::Context) {
 #[cfg(not(windows))]
 pub fn heal_client_size(_ctx: &egui::Context) {}
 
-/// Windows сама рисует заголовок окна, хотя рамка своя (замечено на ноутбуке с графикой Intel:
-/// сверху черная полоса с системными кнопками, а наш заголовок - под ней). Признак: окно выше
-/// своей рабочей области на высоту заголовка. Сначала просим Windows пересчитать рамку; если
-/// заголовок держится дольше 1.5 с - true (вызывающий переключает на обычную рамку Windows).
+/// Windows draws the window title bar itself although the frame is ours (seen on a laptop with Intel graphics:
+/// a black bar with system buttons on top, and our title bar under it). The sign: the window is taller than
+/// its client area by the title bar height. First we ask Windows to recompute the frame; if
+/// the title bar stays for longer than 1.5 s - true (the caller switches to the normal Windows frame).
 #[cfg(windows)]
 pub fn caption_forced() -> Option<String> {
     use std::sync::Mutex;
@@ -248,7 +248,7 @@ pub fn caption_forced() -> Option<String> {
         GetClientRect, GetWindowRect, IsIconic, IsZoomed, SetWindowPos, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
         SWP_NOSIZE, SWP_NOZORDER,
     };
-    // (с какого момента виден заголовок, просили ли уже пересчитать рамку)
+    // (since when the title bar is visible, whether a frame recompute was already requested)
     static STATE: Mutex<(Option<Instant>, bool)> = Mutex::new((None, false));
     let hwnd = crate::notify::main_hwnd();
     if hwnd == 0 || crate::notify::in_tray() || system() {
@@ -293,9 +293,9 @@ pub fn caption_forced() -> Option<String> {
     None
 }
 
-/// Главное окно без отдельной полосы заголовка (как в Steam): только края для изменения
-/// размера и тонкая обводка. Кнопки окна - в строке разделов (window_buttons), перетаскивание -
-/// за пустое место этой строки (drag_behind).
+/// Main window without a separate title bar (as in Steam): only edges for resizing
+/// and a thin outline. Window buttons are in the section row (window_buttons), dragging -
+/// by the empty space of that row (drag_behind).
 pub fn frame_only(ctx: &egui::Context) {
     if system() {
         return;
@@ -309,9 +309,9 @@ pub fn frame_only(ctx: &egui::Context) {
     }
 }
 
-/// Перетаскивание окна за пустое место полосы. Место берется с прошлого кадра и
-/// регистрируется ДО кнопок полосы - поэтому кнопки поверх него нажимаются.
-/// Двойной щелчок - развернуть / вернуть. После полосы вызвать remember_drag(ui, id, rect).
+/// Dragging the window by the empty space of a bar. The area is taken from the previous frame and
+/// registered BEFORE the bar's buttons - so the buttons on top of it stay clickable.
+/// Double click - maximize / restore. After the bar call remember_drag(ui, id, rect).
 pub fn drag_behind(ui: &mut egui::Ui, id: egui::Id) {
     if system() {
         return;
@@ -330,7 +330,7 @@ pub fn remember_drag(ctx: &egui::Context, id: egui::Id, rect: egui::Rect) {
     ctx.data_mut(|d| d.insert_temp(id, rect));
 }
 
-/// Кнопки окна «закрыть / развернуть / свернуть» в текущей строке (раскладка справа налево).
+/// Window buttons "close / maximize / minimize" in the current row (right-to-left layout).
 pub fn window_buttons(ui: &mut egui::Ui, height: f32) {
     if system() {
         return;
@@ -356,8 +356,8 @@ pub fn window_buttons(ui: &mut egui::Ui, height: f32) {
     });
 }
 
-/// Один раз за запуск (через 3 с после старта) - строка об окне в журнал: стиль Windows, размеры
-/// окна и рабочей области, рамка. Нужна, чтобы понять черную полосу сверху на некоторых ПК.
+/// Once per run (3 s after start) - a line about the window in the log: Windows style, window and
+/// client area sizes, frame. Needed to understand the black bar on top on some PCs.
 #[cfg(windows)]
 pub fn diag_once(ctx: &egui::Context) {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -404,7 +404,7 @@ pub fn diag_once(ctx: &egui::Context) {
 #[cfg(not(windows))]
 pub fn diag_once(_ctx: &egui::Context) {}
 
-/// Нужна ли обычная рамка Windows для этой видеокарты (по строкам OpenGL VENDOR / RENDERER).
+/// Whether this GPU needs the normal Windows frame (by the OpenGL VENDOR / RENDERER strings).
 pub fn needs_system_frame(vendor: &str, renderer: &str) -> bool {
     let v = format!("{vendor} {renderer}").to_lowercase();
     v.contains("intel")

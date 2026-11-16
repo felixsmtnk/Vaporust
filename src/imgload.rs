@@ -1,16 +1,16 @@
-//! Загрузка картинок для egui: скачивание, раскодирование с уменьшением в фоне, экономия памяти.
+//! Image loading for egui: download, decoding with downscaling in the background, memory saving.
 //!
-//! Обычные загрузчики egui_extras раскодируют картинку целиком в главном потоке и держат в
-//! памяти сразу три копии: скачанный файл, раскодированную картинку и текстуру. Здесь:
-//! - HttpLoader скачивает не больше 6 файлов разом (сначала то, что запрошено последним, то есть
-//!   видимое сейчас) и не сохраняет файлы, докачавшиеся уже после ухода из раздела;
-//! - SmallLoader раскодирует в двух фоновых потоках (а не в потоке на каждую картинку: десяток
-//!   GIF по 4 МБ одновременно раздувал память на сотню мегабайт) и уменьшает так, чтобы большая
-//!   сторона была не больше max_side(); после того как egui сделал из картинки текстуру, своя
-//!   копия выбрасывается.
-//! Анимированные GIF (адрес «...gif#кадр») и SVG отдаем загрузчикам egui_extras.
+//! The usual egui_extras loaders decode the whole image on the main thread and keep
+//! three copies in memory at once: the downloaded file, the decoded image and the texture. Here:
+//! - HttpLoader downloads at most 6 files at a time (most recently requested first, i.e.
+//!   what is visible now) and does not keep files that finished after leaving the section;
+//! - SmallLoader decodes on two background threads (not a thread per image: a dozen
+//!   4 MB GIFs at once blew memory up by a hundred megabytes) and downscales so that the larger
+//!   side is at most max_side(); once egui has made a texture from the image, our own
+//!   copy is dropped.
+//! Animated GIFs (URL "...gif#frame") and SVG go to the egui_extras loaders.
 //!
-//! Кэш картинок чистится при переходе между разделами и при превышении предела (budget_tick).
+//! The image cache is cleared when switching sections and when over the limit (budget_tick).
 
 use eframe::egui;
 use egui::load::{Bytes, BytesLoadResult, BytesLoader, BytesPoll, ImageLoadResult, ImageLoader, ImagePoll, LoadError, SizeHint};
@@ -20,26 +20,26 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
-/// Режим экономии памяти (настройка «Производительность»): картинки мельче, кэш меньше.
+/// Memory saving mode ("Performance" setting): smaller images, smaller cache.
 pub static ECONOMY: AtomicBool = AtomicBool::new(false);
-/// Анимации (стикеры, GIF, эффекты чата, значок загрузки). Выключаются в настройках.
+/// Animations (stickers, GIFs, chat effects, loading icon). Disabled in settings.
 pub static ANIMATIONS: AtomicBool = AtomicBool::new(true);
-/// Картинки не больше этого (аватары, значки игр, смайлики) не выгружаются при смене раздела.
+/// Images no larger than this (avatars, game icons, emoticons) are not unloaded on section change.
 const SMALL: usize = 128;
-/// Кэш раскодированных картинок (для выборочной выгрузки).
+/// Cache of decoded images (for selective unloading).
 static SMALL_CACHE: std::sync::OnceLock<Arc<Mutex<HashMap<String, Entry>>>> = std::sync::OnceLock::new();
-/// Состояние скачивания (для выборочной выгрузки).
+/// Download state (for selective unloading).
 static HTTP_STATE: std::sync::OnceLock<Arc<Mutex<HttpState>>> = std::sync::OnceLock::new();
 
-/// Размер кэша картинок при последней проверке (для журнала замеров stats.rs).
+/// Image cache size at the last check (for the stats.rs measurement log).
 pub static LAST_BYTES: AtomicU64 = AtomicU64::new(0);
 
-/// Большая сторона картинки в памяти, пикселей (в программе нигде не показываем крупнее).
+/// Larger side of an image in memory, pixels (nothing in the program is shown bigger).
 pub fn max_side() -> u32 {
     if ECONOMY.load(Ordering::Relaxed) { 512 } else { 800 }
 }
 
-/// Предел памяти кэша картинок egui, после которого кэш чистится.
+/// Memory limit of the egui image cache, above which the cache is cleared.
 fn budget() -> usize {
     if ECONOMY.load(Ordering::Relaxed) { 20 << 20 } else { 48 << 20 }
 }
@@ -48,30 +48,30 @@ pub fn animations() -> bool {
     ANIMATIONS.load(Ordering::Relaxed)
 }
 
-/// Пометка в конце адреса: показать GIF неподвижным (egui анимирует адреса, оканчивающиеся на
-/// «.gif»). HttpLoader убирает ее перед скачиванием.
+/// Marker at the end of a URL: show a GIF still (egui animates URLs ending with
+/// ".gif"). HttpLoader removes it before downloading.
 const STILL: &str = "?vaporust-still";
-/// Метка «уменьшить до N точек по большей стороне» (миниатюры крупных картинок: фоны профиля).
+/// Marker "shrink to N points on the larger side" (thumbnails of large images: profile backgrounds).
 const MAX: &str = "?vaporust-max=";
 
-/// Адрес картинки, которую достаточно показать не больше `px` точек по большей стороне.
+/// URL of an image that is enough to show at most `px` points on the larger side.
 pub fn sized(url: &str, px: u32) -> String {
     format!("{url}{MAX}{px}")
 }
 
-/// Настоящий адрес для скачивания: без меток Vaporust.
+/// Real URL for downloading: without Vaporust markers.
 fn strip_markers(uri: &str) -> &str {
     uri.find("?vaporust-").map_or(uri, |i| &uri[..i])
 }
 
-/// Предел стороны из метки адреса (если есть).
+/// Side limit from the URL marker (if any).
 fn max_from(uri: &str) -> Option<u32> {
     let i = uri.find(MAX)?;
     uri[i + MAX.len()..].split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
 }
 
-/// Адрес GIF, который всегда показывается неподвижным (сетки предметов: десятки анимаций сразу
-/// заняли бы сотни мегабайт).
+/// URL of a GIF that is always shown still (item grids: dozens of animations at once
+/// would take hundreds of megabytes).
 pub fn still(url: &str) -> String {
     if url.to_ascii_lowercase().ends_with(".gif") {
         format!("{url}{STILL}")
@@ -80,7 +80,7 @@ pub fn still(url: &str) -> String {
     }
 }
 
-/// Адрес картинки с учетом настройки анимаций: при выключенных анимациях GIF будет неподвижным.
+/// Image URL with the animation setting applied: with animations off a GIF is shown still.
 pub fn still_if_needed(url: &str) -> String {
     if !animations() && url.to_ascii_lowercase().ends_with(".gif") {
         format!("{url}{STILL}")
@@ -89,7 +89,7 @@ pub fn still_if_needed(url: &str) -> String {
     }
 }
 
-// ---------------------------------------------------------------- скачивание
+// ---------------------------------------------------------------- downloading
 
 #[derive(Clone)]
 enum Http {
@@ -117,13 +117,13 @@ impl HttpLoader {
 
 const MAX_DOWNLOADS: usize = 6;
 
-/// Запустить скачивания из очереди (последние запрошенные - первыми).
+/// Start downloads from the queue (most recently requested first).
 fn pump(st: &Arc<Mutex<HttpState>>, ctx: &egui::Context) {
     let mut s = st.lock();
     while s.running < MAX_DOWNLOADS {
         let Some(uri) = s.queue.pop_back() else { break };
         if !matches!(s.cache.get(&uri), Some(Http::Queued)) {
-            continue; // забыли, пока ждала в очереди
+            continue; // forgotten while it waited in the queue
         }
         s.cache.insert(uri.clone(), Http::Running);
         s.running += 1;
@@ -138,7 +138,7 @@ fn pump(st: &Arc<Mutex<HttpState>>, ctx: &egui::Context) {
             {
                 let mut s = st2.lock();
                 s.running -= 1;
-                // Раздел закрыли, пока качали: файл больше не нужен, не храним.
+                // The section was closed while downloading: the file is no longer needed, do not keep it.
                 if matches!(s.cache.get(&uri), Some(Http::Running)) {
                     s.cache.insert(uri, entry);
                 }
@@ -164,7 +164,7 @@ impl BytesLoader for HttpLoader {
                 Some(Http::Ready(bytes, mime)) => return Ok(BytesPoll::Ready { size: None, bytes: Bytes::Shared(bytes), mime }),
                 Some(Http::Failed(e)) => return Err(LoadError::Loading(e)),
                 Some(Http::Queued) => {
-                    // Снова нужна: поднять в начало очереди.
+                    // Needed again: move to the front of the queue.
                     if let Some(i) = s.queue.iter().position(|u| u == uri) {
                         if i + 1 != s.queue.len() {
                             let u = s.queue.remove(i).unwrap();
@@ -209,13 +209,13 @@ impl BytesLoader for HttpLoader {
     }
 }
 
-// ---------------------------------------------------------------- раскодирование
+// ---------------------------------------------------------------- decoding
 
 #[derive(Clone)]
 enum Entry {
     Pending,
     Ready(Arc<ColorImage>),
-    /// Отдана egui (он сделал текстуру) - своя копия выброшена. small - мелкая (аватар, значок).
+    /// Handed to egui (it made a texture) - own copy dropped. small - a small one (avatar, icon).
     Delivered { small: bool },
     Failed(String),
 }
@@ -224,7 +224,7 @@ struct Job {
     uri: String,
     bytes: Bytes,
     big: bool,
-    /// Предел большей стороны.
+    /// Limit of the larger side.
     max: u32,
 }
 
@@ -247,7 +247,7 @@ impl SmallLoader {
             std::thread::Builder::new()
                 .name("vaporust-images".into())
                 .spawn(move || loop {
-                    // Последние запрошенные - первыми (видимое сейчас).
+                    // Most recently requested first (visible now).
                     let job = jobs.lock().pop_back();
                     let Some(job) = job else {
                         if rx.lock().unwrap().recv().is_err() {
@@ -256,7 +256,7 @@ impl SmallLoader {
                         continue;
                     };
                     if !matches!(cache.lock().get(&job.uri), Some(Entry::Pending)) {
-                        continue; // уже не нужна
+                        continue; // no longer needed
                     }
                     let e = match decode_max(&job.bytes, job.max) {
                         Ok(img) => Entry::Ready(Arc::new(img)),
@@ -269,7 +269,7 @@ impl SmallLoader {
                             c.insert(job.uri.clone(), e);
                         }
                     }
-                    // Крупный исходный файл больше не нужен (картинка уже раскодирована и уменьшена).
+                    // The large source file is no longer needed (the image is already decoded and downscaled).
                     if job.big {
                         for l in ctx.loaders().bytes.lock().iter() {
                             l.forget(&job.uri);
@@ -284,18 +284,18 @@ impl SmallLoader {
     }
 }
 
-/// Кадр GIF egui запрашивает как «адрес#номер» - это не наше.
+/// egui requests a GIF frame as "url#number" - that is not ours.
 fn is_frame_uri(uri: &str) -> bool {
     uri.rsplit_once('#').is_some_and(|(_, n)| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
-/// Раскодировать и уменьшить (большая сторона не больше max_side()).
+/// Decode and downscale (larger side at most max_side()).
 #[cfg(test)]
 pub fn decode_small(bytes: &[u8]) -> Result<ColorImage, String> {
     decode_max(bytes, max_side())
 }
 
-/// Раскодировать и уменьшить до `side` по большей стороне.
+/// Decode and downscale to `side` on the larger side.
 fn decode_max(bytes: &[u8], side: u32) -> Result<ColorImage, String> {
     let img = image::load_from_memory(bytes).map_err(|e| e.to_string())?;
     let img = if img.width().max(img.height()) > side {
@@ -324,13 +324,13 @@ impl ImageLoader for SmallLoader {
             match c.get(uri).cloned() {
                 Some(Entry::Pending) => return Ok(ImagePoll::Pending { size: None }),
                 Some(Entry::Ready(image)) => {
-                    // egui сделает из нее текстуру и будет держать ее сам: свою копию не храним.
+                    // egui will make a texture from it and keep it itself: we do not keep our copy.
                     let small = image.size[0].max(image.size[1]) <= SMALL;
                     c.insert(uri.to_string(), Entry::Delivered { small });
                     return Ok(ImagePoll::Ready { image });
                 }
                 Some(Entry::Failed(err)) => return Err(LoadError::Loading(err)),
-                // Текстуру забыли (или нужна с другими настройками) - раскодируем заново.
+                // The texture was forgotten (or is needed with other settings) - decode again.
                 Some(Entry::Delivered { .. }) | None => {}
             }
         }
@@ -339,15 +339,15 @@ impl ImageLoader for SmallLoader {
                 if mime.as_deref().is_some_and(|m| m.contains("svg")) {
                     return Err(LoadError::NotSupported);
                 }
-                // GIF без «#кадр» в адресе показывается неподвижным: берем первый кадр (превью
-                // Мастерской бывают GIF по 4 МБ). Анимацию (адрес «...gif#N») ведет egui_extras.
+                // A GIF without "#frame" in the URL is shown still: take the first frame (Workshop
+                // previews can be 4 MB GIFs). Animation (URL "...gif#N") is handled by egui_extras.
                 let Ok(format) = image::guess_format(&bytes) else { return Err(LoadError::NotSupported) };
-                // Чату (анимация стикеров, anim.rs) байты понадобятся снова - он скачает их сам.
+                // The chat (sticker animation, anim.rs) will need the bytes again - it downloads them itself.
                 let big = bytes.len() > 200_000;
                 let _ = format;
                 self.cache.lock().insert(uri.to_string(), Entry::Pending);
                 let max = max_from(uri).map_or(max_side(), |m| m.min(max_side()));
-                // Крупный исходник ради миниатюры тоже не храним.
+                // Do not keep a large source just for a thumbnail either.
                 let big = big || max_from(uri).is_some();
                 self.jobs.lock().push_back(Job { uri: uri.to_string(), bytes, big, max });
                 let _ = self.wake.send(());
@@ -382,8 +382,8 @@ impl ImageLoader for SmallLoader {
     }
 }
 
-/// Подключить загрузчики (после egui_extras::install_image_loaders: последний добавленный
-/// спрашивается первым).
+/// Install the loaders (after egui_extras::install_image_loaders: the last added one
+/// is asked first).
 pub fn install(ctx: &egui::Context) {
     let http = HttpLoader::default();
     let _ = HTTP_STATE.set(http.st.clone());
@@ -391,7 +391,7 @@ pub fn install(ctx: &egui::Context) {
     ctx.add_image_loader(Arc::new(SmallLoader::new(ctx)));
 }
 
-/// Сколько памяти занимают кэши картинок egui: скачанные файлы, картинки, текстуры.
+/// How much memory the egui image caches take: downloaded files, images, textures.
 pub fn cache_bytes(ctx: &egui::Context) -> usize {
     let l = ctx.loaders();
     let b: usize = l.bytes.lock().iter().map(|x| x.byte_size()).sum();
@@ -400,8 +400,8 @@ pub fn cache_bytes(ctx: &egui::Context) -> usize {
     b + i + t
 }
 
-/// Раз в несколько секунд: если кэш картинок вырос больше предела - очистить его
-/// (видимое тут же загрузится заново, уже по одной картинке).
+/// Every few seconds: if the image cache grew over the limit - clear it
+/// (visible ones reload right away, one image at a time).
 pub fn budget_tick(ctx: &egui::Context) {
     thread_local! {
         static LAST: std::cell::Cell<f64> = const { std::cell::Cell::new(0.0) };
@@ -421,8 +421,8 @@ pub fn budget_tick(ctx: &egui::Context) {
     }
 }
 
-/// Отдать системе память, которую Vaporust сейчас не трогает (окно в трее, идет игра):
-/// страницы уходят из рабочего набора и вернутся сами, когда понадобятся.
+/// Give back to the system the memory Vaporust is not using now (window in the tray, a game is running):
+/// pages leave the working set and come back by themselves when needed.
 pub fn trim_working_set() {
     unsafe {
         windows_sys::Win32::System::ProcessStatus::K32EmptyWorkingSet(
@@ -462,8 +462,8 @@ mod tests {
     }
 }
 
-/// При смене раздела: выгрузить крупные картинки, а мелкие (аватары друзей, значки игр,
-/// смайлики) оставить - они нужны почти везде и занимают мало.
+/// On section change: unload large images, but keep small ones (friend avatars, game icons,
+/// emoticons) - they are needed almost everywhere and take little space.
 pub fn forget_large(ctx: &egui::Context) {
     let mut keep = std::collections::HashSet::new();
     let mut drop: Vec<String> = Vec::new();

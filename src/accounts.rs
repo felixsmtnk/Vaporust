@@ -1,8 +1,8 @@
-//! Несколько аккаунтов Steam и быстрое переключение (как «Сменить аккаунт» в Steam).
-//! У каждого аккаунта своя папка входа Aurelia (основной - обычная папка, остальные -
-//! <данные Vaporust>\accounts\<номер>), список - в accounts.json. Переключение = перезапуск
-//! Vaporust с другой папкой; если Steam закрыт и в нем сохранен вход этого аккаунта, Steam тоже
-//! переключается на него (AutoLoginUser в реестре, как делает сам Steam).
+//! Multiple Steam accounts and quick switching (like "Change account" in Steam).
+//! Each account has its own Aurelia login folder (the main one uses the usual folder, others use
+//! <Vaporust data>\accounts\<number>); the list is in accounts.json. Switching = restarting
+//! Vaporust with another folder; if Steam is closed and has a saved login for this account, Steam
+//! is switched to it as well (AutoLoginUser in the registry, as Steam itself does).
 
 use crate::LauncherApp;
 use eframe::egui;
@@ -12,7 +12,7 @@ use std::path::PathBuf;
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(default)]
 pub struct Entry {
-    /// Папка в accounts\ (пусто - основной аккаунт).
+    /// Folder inside accounts\ (empty - the main account).
     pub dir: String,
     pub login: String,
     pub name: String,
@@ -25,7 +25,7 @@ pub struct Accounts {
     pub list: Vec<Entry>,
 }
 
-/// Папка данных Vaporust (%APPDATA%\Vaporust или VaporustData рядом с exe).
+/// Vaporust data folder (%APPDATA%\Vaporust or VaporustData next to the exe).
 fn base() -> Option<PathBuf> {
     if crate::portable::enabled() {
         crate::portable::data_dir()
@@ -55,7 +55,7 @@ pub fn save(a: &Accounts) {
     }
 }
 
-/// В самом начале main (после portable::init): направить Aurelia в папку выбранного аккаунта.
+/// At the very start of main (after portable::init): point Aurelia to the selected account's folder.
 pub fn init() {
     let a = load();
     if a.active.is_empty() {
@@ -67,7 +67,7 @@ pub fn init() {
     }
 }
 
-/// Запомнить логин и имя текущего аккаунта (для списка).
+/// Remember the login and name of the current account (for the list).
 pub fn note_current(login: &str, name: &str) {
     let mut a = load();
     let active = a.active.clone();
@@ -83,7 +83,7 @@ pub fn note_current(login: &str, name: &str) {
     }
 }
 
-/// Есть ли в Steam сохраненный вход этого логина (loginusers.vdf).
+/// Whether Steam has a saved login for this account name (loginusers.vdf).
 fn steam_knows(steam_dir: &std::path::Path, login: &str) -> bool {
     std::fs::read_to_string(steam_dir.join("config").join("loginusers.vdf"))
         .map(|t| t.to_lowercase().contains(&format!("\"accountname\"\t\t\"{}\"", login.to_lowercase())))
@@ -103,13 +103,13 @@ fn set_steam_autologin(_login: &str) -> Result<(), String> {
 }
 
 impl LauncherApp {
-    /// Переключиться на аккаунт (папку) и перезапустить Vaporust.
+    /// Switch to an account (folder) and restart Vaporust.
     fn switch_account(&mut self, dir: String) {
         let mut a = load();
         let login = a.list.iter().find(|e| e.dir == dir).map(|e| e.login.clone()).unwrap_or_default();
         a.active = dir;
         save(&a);
-        // Steam: на тот же аккаунт, если он закрыт и знает этот вход.
+        // Steam: switch to the same account if it is closed and knows this login.
         if !login.is_empty() && !crate::local::steam_running() {
             if let Some(s) = &self.steam {
                 if steam_knows(&s.dir, &login) {
@@ -124,7 +124,7 @@ impl LauncherApp {
     }
 
     pub(crate) fn accounts_window(&mut self, ctx: &egui::Context, net: &crate::net::NetState) {
-        // Текущий аккаунт - в список (логин и имя).
+        // Add the current account to the list (login and name).
         if let Some(login) = &net.account {
             if self.accounts_noted.as_deref() != Some(login.as_str()) {
                 let name = net.my_id.and_then(|m| net.profiles.get(&m)).and_then(|p| p.as_ref().ok()).and_then(|p| p.persona_name.clone()).unwrap_or_default();
@@ -194,7 +194,7 @@ impl LauncherApp {
             save(&a2);
             if let Some(b) = base() {
                 let p = b.join("accounts").join(&d);
-                // Папка входа удаляемого аккаунта - только внутри accounts\ и только с номером.
+                // Login folder of the account being removed - only inside accounts\ and only a numbered one.
                 if d.chars().all(|c| c.is_ascii_digit()) && p.starts_with(b.join("accounts")) {
                     let _ = std::fs::remove_dir_all(p);
                 }

@@ -1,65 +1,65 @@
-//! Интерфейс сообщества: окно профиля, окно «Добавить друга», заявки в друзья,
-//! меню друга по правому щелчку.
+//! Community UI: profile window, "Add friend" window, friend requests,
+//! the friend right-click menu.
 
 use crate::net::{Cmd, NetState};
 use crate::social::{self, SocialCmd};
 use crate::LauncherApp;
 use eframe::egui;
 
-/// Состояние окон сообщества.
+/// State of the community windows.
 #[derive(Default)]
 pub struct SocialUi {
-    /// Открытый профиль (SteamID64).
+    /// Open profile (SteamID64).
     pub profile: Option<u64>,
-    /// Окно «Добавить друга» открыто.
+    /// The "Add friend" window is open.
     pub add_open: bool,
     pub add_input: String,
     pub add_error: Option<String>,
-    /// Найденный по вводу аккаунт (для предпросмотра перед заявкой).
+    /// The account found from the input (for a preview before the request).
     pub add_found: Option<u64>,
-    /// Ждем SteamID по ссылке /id/<имя>.
+    /// Waiting for the SteamID from a /id/<name> link.
     pub add_vanity: Option<String>,
-    /// Черновик комментария в окне профиля.
+    /// Comment draft in the profile window.
     pub comment_draft: String,
-    /// Комментарий, удаление которого ждет подтверждения (номер).
+    /// A comment whose deletion awaits confirmation (id).
     pub confirm_delete: Option<String>,
-    /// Открытая страница комментариев профиля (с нуля).
+    /// Open page of profile comments (from zero).
     pub comment_page: u32,
-    /// Редактируемая заметка о друге: (SteamID64, имя, текст).
+    /// A friend note being edited: (SteamID64, name, text).
     pub note_edit: Option<(u64, String, String)>,
-    /// Свой ник для друга: (кто, имя, ник).
+    /// Own nickname for a friend: (who, name, nickname).
     pub nick_edit: Option<(u64, String, String)>,
-    /// Награда за очки: (тип цели 1 обзор / 2 работа / 3 профиль, цель, что награждаем).
+    /// Points award: (target type 1 review / 2 item / 3 profile, target, what is awarded).
     pub award: Option<(u32, String, String)>,
-    /// Новый групповой чат: название и кого пригласить.
+    /// New group chat: name and whom to invite.
     pub group_create: Option<(String, std::collections::BTreeSet<u64>)>,
-    /// Друг, которого подтверждаем удалить.
+    /// Friend whose removal is being confirmed.
     pub confirm_remove: Option<u64>,
-    /// Подтверждение блокировки: (кого, заблокировать или разблокировать).
+    /// Block confirmation: (whom, block or unblock).
     pub confirm_block: Option<(u64, bool)>,
-    /// Профили, уже запрошенные ради имени в заявках (чтобы не слать запрос каждый кадр).
+    /// Profiles already requested for names in requests (so we do not send a request every frame).
     pub requested: std::collections::HashSet<u64>,
 }
 
-/// Что выбрали в меню друга.
+/// What was chosen in the friend menu.
 pub enum FriendAction {
     Profile(u64),
     Chat(u64, String),
     Remove(u64),
     Block(u64),
-    /// Список желаемого друга (в магазине).
+    /// The friend's wishlist (in the store).
     Wishlist(u64, String),
-    /// Скриншоты друга.
+    /// The friend's screenshots.
     Shots(u64, String),
-    /// В избранное (наверх списка) или убрать.
+    /// To favorites (top of the list) or remove.
     Favorite(u64),
-    /// Своя заметка о друге (видна только вам).
+    /// Own note about a friend (visible only to you).
     Note(u64, String),
-    /// Свой ник для друга.
+    /// Own nickname for a friend.
     Nick(u64, String),
 }
 
-/// Меню по правому щелчку на друге.
+/// Right-click menu on a friend.
 pub fn friend_menu(resp: &egui::Response, id: u64, name: &str, fav: bool, out: &mut Option<FriendAction>) {
     resp.context_menu(|ui| {
         ui.label(egui::RichText::new(name).strong());
@@ -119,7 +119,7 @@ impl LauncherApp {
         self.view = crate::View::Profile;
         self.net.lock().unwrap().comment_msg = None;
         self.social_ui.profile = Some(id);
-        // Уровень, рамка, недавние игры, комментарии - всегда свежие.
+        // Level, frame, recent games, comments - always fresh.
         let _ = self.tx.send(Cmd::ProfileExtra(id));
         self.social_ui.comment_draft.clear();
         self.social_ui.comment_page = 0;
@@ -129,9 +129,9 @@ impl LauncherApp {
         }
     }
 
-    /// Кнопки над списком друзей, заявки в друзья и сообщения о результатах.
+    /// Buttons above the friend list, friend requests and result messages.
     pub(crate) fn friends_header(&mut self, ui: &mut egui::Ui, net: &NetState) {
-        // Заявки: входящие (2) - принять/отклонить; исходящие (4) - отменить.
+        // Requests: incoming (2) - accept/decline; outgoing (4) - cancel.
         let (incoming, outgoing): (Vec<_>, Vec<_>) = {
             let roster = net.roster.read().unwrap();
             let pick = |rel: u32| {
@@ -143,7 +143,7 @@ impl LauncherApp {
             };
             (pick(2), pick(4))
         };
-        // Steam не присылает имена тех, кто в заявках: берем их из профиля (запрашиваем один раз).
+        // Steam does not send names of those in requests: we take them from the profile (requested once).
         let mut name_of = |id: u64, name: Option<String>| -> String {
             if let Some(n) = name {
                 return n;
@@ -161,7 +161,7 @@ impl LauncherApp {
         let incoming: Vec<(u64, String)> = incoming.into_iter().map(|(id, n)| (id, name_of(id, n))).collect();
         let outgoing: Vec<(u64, String)> = outgoing.into_iter().map(|(id, n)| (id, name_of(id, n))).collect();
 
-        // Шапка, как в Steam: свой аватар с рамкой цвета статуса, имя, статус (меню); справа «...».
+        // Header, as in Steam: own avatar with a status-colored border, name, status (menu); "..." on the right.
         let me = net.my_id.and_then(|m| net.profiles.get(&m)).and_then(|p| p.as_ref().ok());
         let persona = self.settings.persona;
         let color = match persona {
@@ -191,11 +191,11 @@ impl LauncherApp {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let name = me.and_then(|p| p.persona_name.clone()).unwrap_or_else(|| "Вы".into());
                 ui.add(egui::Label::new(egui::RichText::new(crate::richtext::fix(ui, &name)).size(15.0).strong()).truncate());
-                // Статус - щелчок открывает выбор, как в Steam.
-                // Стрелка вниз после статуса и рука под курсором - видно, что статус можно сменить.
-                // Текст в одну строку (без переноса), место под стрелку - справа от текста.
+                // Status - a click opens the choice, as in Steam.
+                // A down arrow after the status and a hand cursor - it is clear the status can be changed.
+                // Text on one line (no wrap), space for the arrow - to the right of the text.
                 let text = crate::settings::persona_label(persona);
-                // Текст и стрелку рисуем сами поверх пустой кнопки - так их положение точно известно.
+                // We draw the text and arrow ourselves on top of an empty button - so their position is exactly known.
                 let galley = ui.painter().layout_no_wrap(text.to_string(), egui::FontId::proportional(12.0), color);
                 let text_w = galley.size().x;
                 let btn = egui::Button::new("").frame(false).min_size(egui::vec2(text_w + 13.0, galley.size().y + 2.0));
@@ -213,7 +213,7 @@ impl LauncherApp {
                 let fg = if st.response.hovered() { egui::Color32::WHITE } else { color };
                 let ty = r.center().y - galley.size().y / 2.0;
                 ui.painter().galley_with_override_text_color(egui::pos2(r.left(), ty), galley, fg);
-                // Стрелка - в 4 точках после текста, как в Steam.
+                // The arrow - 4 points after the text, as in Steam.
                 let c = egui::pos2(r.left() + text_w + 7.5, r.center().y + 0.5);
                 ui.painter().add(egui::Shape::convex_polygon(
                     vec![c + egui::vec2(-3.5, -1.8), c + egui::vec2(3.5, -1.8), c + egui::vec2(0.0, 2.5)],
@@ -225,14 +225,14 @@ impl LauncherApp {
                     .on_hover_text("Сменить статус. «Невидимка»: вы видите друзей, они вас - нет.");
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // Справа значок меню друзей (с числом новых заявок): добавить друга, заявки, активность, группы.
+                // On the right, the friends menu icon (with the number of new requests): add friend, requests, activity, groups.
                 let menu = egui::menu::menu_custom_button(ui, egui::Button::new("").frame(false).min_size(egui::vec2(28.0, 28.0)), |ui| {
                     ui.set_min_width(220.0);
                     if ui.button("Добавить друга...").clicked() {
                         self.social_ui.add_open = true;
                         ui.close_menu();
                     }
-                    // Заявки - на странице «Друзья» (подменю закрывали собой остальные пункты).
+                    // Requests are on the "Friends" page (submenus covered the other items).
                     let req = if incoming.is_empty() {
                         egui::RichText::new("Заявки в друзья")
                     } else {
@@ -298,7 +298,7 @@ impl LauncherApp {
         }
     }
 
-    /// Обработать выбор в меню друга.
+    /// Handle the choice in the friend menu.
     pub(crate) fn friend_action(&mut self, a: FriendAction, net: &NetState, ctx: &egui::Context) {
         match a {
             FriendAction::Profile(id) => self.open_profile(id, net),
@@ -323,11 +323,11 @@ impl LauncherApp {
         }
     }
 
-    /// Окна профиля, «Добавить друга» и подтверждения удаления.
-    /// Профиль (свой или друга) - раздел главного окна, по образцу страницы профиля Steam:
-    /// фон во всю ширину; шапка (аватар с рамкой, имя, о себе; справа уровень, значок, кнопки);
-    /// ниже две колонки - слева витрины, 3 недавние игры и комментарии по страницам, справа
-    /// статус, счетчики со значками и наградами, друзья с уровнями.
+    /// Profile, "Add friend" and removal confirmation windows.
+    /// Profile (own or a friend's) - a section of the main window, modeled on the Steam profile page:
+    /// a full-width background; a header (avatar with frame, name, about; on the right level, badge, buttons);
+    /// below it two columns - showcases, 3 recent games and paged comments on the left,
+    /// status, counters with badges and awards, friends with levels on the right.
     pub(crate) fn profile_contents(&mut self, ui: &mut egui::Ui, net: &NetState) {
         let Some(id) = self.social_ui.profile else {
             if let Some(me) = net.my_id {
@@ -355,7 +355,7 @@ impl LauncherApp {
         let name = p.persona_name.clone().unwrap_or_else(|| id.to_string());
         let page = extra.as_ref().map(|x| x.page.clone()).unwrap_or_default();
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            // Фон профиля во всю ширину, к низу плавно уходит в цвет окна.
+            // Full-width profile background, smoothly fading into the window color at the bottom.
             let full = ui.available_rect_before_wrap();
             if let Some(bg) = extra.as_ref().and_then(|x| x.background.clone()) {
                 let h = (full.width() * 9.0 / 16.0).min(760.0);
@@ -374,7 +374,7 @@ impl LauncherApp {
             }
             ui.add_space(28.0);
             crate::theme::centered(ui, 1000.0, |ui| {
-                // ---- Шапка ----
+                // ---- Header ----
                 egui::Frame::none()
                     .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 90))
                     .inner_margin(egui::Margin::same(14.0))
@@ -452,7 +452,7 @@ impl LauncherApp {
                                                 ui.close_menu();
                                             }
                                             ui.separator();
-                                            // Заблокирован: по Steam (1 - заблокирован, 5/6 - игнорируется) или в этом сеансе.
+                                            // Blocked: by Steam (1 - blocked, 5/6 - ignored) or in this session.
                                             let rel = net.roster.read().unwrap().get(&id).map(|f| f.relationship).unwrap_or(0);
                                             let blocked = net.blocked.contains(&id) || matches!(rel, 1 | 5 | 6);
                                             if crate::exp::button(ui, if blocked { "Разблокировать..." } else { "Заблокировать..." }).clicked() {
@@ -466,9 +466,9 @@ impl LauncherApp {
                         });
                     });
 
-                // Шапка и колонки - вплотную, без полосы фона между ними.
+                // Header and columns back to back, no background strip between them.
                 ui.add_space(-ui.spacing().item_spacing.y);
-                // ---- Две колонки ----
+                // ---- Two columns ----
                 egui::Frame::none()
                     .fill(egui::Color32::from_rgba_unmultiplied(12, 15, 20, 205))
                     .inner_margin(egui::Margin::same(14.0))
@@ -476,7 +476,7 @@ impl LauncherApp {
                         ui.set_width(ui.available_width());
                         let right_w = 270.0;
                         ui.horizontal_top(|ui| {
-                            // Между колонками: отступ 18 и два промежутка ряда - иначе рамка вылезает вправо.
+                            // Between the columns: an 18 gap and two row spacings - otherwise the frame sticks out to the right.
                             let gap = ui.spacing().item_spacing.x;
                             let left_w = ui.available_width() - right_w - 18.0 - 2.0 * gap;
                             ui.vertical(|ui| {
@@ -504,7 +504,7 @@ impl LauncherApp {
             Some(ProfileAct::Wishlist) => self.open_friend_wishlist(id, name.clone()),
             Some(ProfileAct::MyWishlist) => self.open_wishlist(),
             Some(ProfileAct::Recent) => {
-                // Своя библиотека, недавно запущенные сверху.
+                // Own library, recently played on top.
                 self.close_extras(crate::View::Library);
                 self.view = crate::View::Library;
                 self.lib_page = None;
@@ -530,7 +530,7 @@ impl LauncherApp {
                 let _ = self.tx.send(Cmd::MoreComments { id, start: n * 10 });
             }
             Some(ProfileAct::Count(label, href)) => {
-                // Свои разделы открываем в программе, остальное - в браузере.
+                // Own sections open in the program, the rest in the browser.
                 let l = label.to_lowercase();
                 if is_me && l.starts_with("значки") {
                     self.open_badges();
@@ -559,7 +559,7 @@ impl LauncherApp {
     pub(crate) fn social_windows(&mut self, ctx: &egui::Context, net: &NetState) {
         self.second_plan_dialogs(ctx, net);
 
-        // Своя заметка о друге (видна только вам, хранится в настройках Vaporust).
+        // Own note about a friend (visible only to you, kept in Vaporust settings).
         if let Some((id, name, mut text)) = self.social_ui.note_edit.take() {
             let mut keep = true;
             let mut save = false;
@@ -593,7 +593,7 @@ impl LauncherApp {
             }
         }
 
-        // Добавить друга.
+        // Add a friend.
         if self.social_ui.add_open {
             let closed = ctx.show_viewport_immediate(
                 egui::ViewportId::from_hash_of("vaporust_add_friend"),
@@ -636,7 +636,7 @@ impl LauncherApp {
                             }
                         }
                     });
-                    // Ответ на ссылку /id/<имя>.
+                    // Answer for a /id/<name> link.
                     if let Some(name) = self.social_ui.add_vanity.clone() {
                         match net.vanity.get(&name) {
                             None => {
@@ -673,7 +673,7 @@ impl LauncherApp {
                                         ui.add(egui::Image::new(a).fit_to_exact_size(egui::vec2(40.0, 40.0)));
                                     }
                                     ui.strong(p.persona_name.clone().unwrap_or_else(|| id.to_string()));
-                                    // Уже в друзьях / заявка уже отправлена / это вы сами - кнопки нет.
+                                    // Already friends / request already sent / it is you - no button.
                                     let rel = net.roster.read().unwrap().get(&id).map(|f| f.relationship);
                                     if Some(id) == net.my_id {
                                         ui.weak("это вы");
@@ -702,7 +702,7 @@ impl LauncherApp {
             }
         }
 
-        // Подтверждение удаления из друзей.
+        // Confirm removal from friends.
         if let Some(id) = self.social_ui.confirm_remove {
             let name = net
                 .roster
@@ -733,7 +733,7 @@ impl LauncherApp {
             }
         }
 
-        // Подтверждение блокировки.
+        // Block confirmation.
         if let Some((id, block)) = self.social_ui.confirm_block {
             let name = net
                 .roster
@@ -772,7 +772,7 @@ impl LauncherApp {
     }
 }
 
-/// Отдельное окно Windows с минимальным размером (как чат), со значком Vaporust.
+/// A separate Windows window with a minimum size (like the chat), with the Vaporust icon.
 pub(crate) fn viewport(title: &str, size: [f32; 2], min: [f32; 2]) -> egui::ViewportBuilder {
     egui::ViewportBuilder::default()
         .with_title(title)
@@ -783,18 +783,18 @@ pub(crate) fn viewport(title: &str, size: [f32; 2], min: [f32; 2]) -> egui::View
 }
 
 
-/// Что нажали на странице профиля.
+/// What was clicked on the profile page.
 enum ProfileAct {
     Chat,
     Wishlist,
-    /// Свой список желаемого (в магазине программы).
+    /// Own wishlist (in the program's store).
     MyWishlist,
-    /// Свои недавно запущенные игры (библиотека).
+    /// Own recently played games (library).
     Recent,
-    /// Редактирование своего профиля (страница программы).
+    /// Editing own profile (a program page).
     Edit,
     Url(String),
-    /// Страница группы в программе.
+    /// Group page in the program.
     Group(String),
     Store(u32),
     Profile(u64),
@@ -804,7 +804,7 @@ enum ProfileAct {
     Count(String, String),
 }
 
-/// Заголовок раздела полосой, как в профиле Steam: слева название, справа подпись.
+/// Section header as a bar, as on a Steam profile: name on the left, caption on the right.
 fn section_bar(ui: &mut egui::Ui, title: &str, right: &str) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), egui::Sense::hover());
     let mut mesh = egui::Mesh::default();
@@ -823,7 +823,7 @@ fn section_bar(ui: &mut egui::Ui, title: &str, right: &str) {
     ui.add_space(8.0);
 }
 
-/// Дата комментария как в Steam: «18 мая в 18:08», за прошлые годы - «2 дек 2025 в 17:12».
+/// Comment date as in Steam: "18 мая в 18:08", for past years - "2 дек 2025 в 17:12".
 fn comment_date(unix: u64) -> String {
     use chrono::{Datelike, Local, TimeZone};
     const M: [&str; 12] = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
@@ -836,12 +836,12 @@ fn comment_date(unix: u64) -> String {
     }
 }
 
-/// Номера страниц комментариев: «< 1 2 3 4 5 6 ... 9 >».
+/// Comment page numbers: "< 1 2 3 4 5 6 ... 9 >".
 fn pager(ui: &mut egui::Ui, current: u32, pages: u32, act: &mut Option<ProfileAct>) {
     if pages <= 1 {
         return;
     }
-    // Порядок «< 1 2 3 ... >»; в раскладке справа налево элементы добавляются задом наперед.
+    // Order "< 1 2 3 ... >"; in a right-to-left layout elements are added in reverse.
     enum Item {
         Prev,
         Num(u32),
@@ -892,7 +892,7 @@ fn pager(ui: &mut egui::Ui, current: u32, pages: u32, act: &mut Option<ProfileAc
     });
 }
 
-/// Левая колонка профиля: витрины, недавняя активность (3 игры, как в Steam), комментарии.
+/// Profile left column: showcases, recent activity (3 games, as in Steam), comments.
 #[allow(clippy::too_many_arguments)]
 fn profile_left(
     ui: &mut egui::Ui,
@@ -906,7 +906,7 @@ fn profile_left(
     owner: u64,
     act: &mut Option<ProfileAct>,
 ) {
-    // Витрины.
+    // Showcases.
     for s in &x.showcases {
         section_bar(ui, &s.title, "");
         if !s.images.is_empty() {
@@ -926,7 +926,7 @@ fn profile_left(
                 }
             });
         }
-        // Показатели, как в Steam: крупное число, под ним подпись.
+        // Stats, as in Steam: a large number with a caption under it.
         if !s.stats.is_empty() {
             ui.add_space(4.0);
             ui.horizontal_wrapped(|ui| {
@@ -947,7 +947,7 @@ fn profile_left(
         ui.add_space(14.0);
     }
 
-    // Недавняя активность - как на странице Steam (3 игры, часы и последний запуск справа).
+    // Recent activity - as on the Steam page (3 games, hours and last played on the right).
     if !page.recent.is_empty() {
         section_bar(ui, "Недавняя активность", &page.recent_total);
         for g in &page.recent {
@@ -1002,7 +1002,7 @@ fn profile_left(
         ui.add_space(14.0);
     }
 
-    // Комментарии - по страницам, как в Steam.
+    // Comments - paged, as in Steam.
     let pages = x.comments_total.div_ceil(10);
     let all = format!("Все комментарии ({})", x.comments_total);
     section_bar(ui, "Комментарии", &all);
@@ -1033,8 +1033,8 @@ fn profile_left(
         ui.add_space(8.0);
     }
     for c in &x.comments {
-        // Строка комментария: наведена ли мышь - по месту с прошлого кадра (без учета слоев,
-        // иначе значок мусорки «уводил» наведение со строки и пропадал до щелчка).
+        // Comment row: whether it is hovered - by its position from the previous frame (ignoring layers,
+        // otherwise the trash icon "stole" the hover from the row and vanished before the click).
         let row_id = ui.id().with(("comment_row", &c.id));
         let hovered = ui
             .ctx()
@@ -1043,7 +1043,7 @@ fn profile_left(
             .is_some_and(|(r, p)| r.contains(p));
         let confirm = sui.confirm_delete.as_deref() == Some(c.id.as_str());
         let row = ui.horizontal_top(|ui| {
-            // Аватар; рамка аватара (предмет Steam) - поверх, чуть больше, как в Steam.
+            // Avatar; the avatar frame (a Steam item) on top, slightly larger, as in Steam.
             let (ar, _) = ui.allocate_exact_size(egui::vec2(40.0, 40.0), egui::Sense::hover());
             if !c.avatar.is_empty() {
                 egui::Image::new(c.avatar.as_str()).rounding(2.0).paint_at(ui, ar);
@@ -1062,7 +1062,7 @@ fn profile_left(
                     {
                         *act = Some(ProfileAct::Url(c.author_url.clone()));
                     }
-                    // Удалить - значок мусорки справа при наведении, как в Steam.
+                    // Delete - a trash icon on the right on hover, as in Steam.
                     if c.can_delete && !c.id.is_empty() && (hovered || confirm) {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if confirm {
@@ -1100,7 +1100,7 @@ fn profile_left(
     });
 }
 
-/// Правая колонка профиля: статус, счетчики (с картинками наград и значков), друзья.
+/// Profile right column: status, counters (with award and badge images), friends.
 fn profile_right(
     ui: &mut egui::Ui,
     p: &aurelia::steam_client::UserProfile,
@@ -1120,10 +1120,10 @@ fn profile_right(
     for (label, total, href) in counts.into_iter().filter(|(l, t, _)| !t.is_empty() || l.to_lowercase().starts_with("инвентарь")) {
         let lower = label.to_lowercase();
         let resp = ui
-            // Строка фиксированной высоты: иначе раскладка с выравниванием по низу растягивалась на всю
-            // оставшуюся высоту колонки и уводила остальное под комментарии.
+            // A fixed-height row: otherwise a bottom-aligned layout stretched over the whole
+            // remaining column height and pushed the rest below the comments.
             .allocate_ui_with_layout(egui::vec2(ui.available_width(), 26.0), egui::Layout::left_to_right(egui::Align::Max), |ui| {
-                // Как в Steam: подпись, за ней через небольшой отступ число - крупнее и серее, по нижнему краю.
+                // As in Steam: a caption, then after a small gap the number - larger and greyer, bottom-aligned.
                 ui.spacing_mut().item_spacing.x = 7.0;
                 let l = ui.add(egui::Label::new(egui::RichText::new(&label).size(15.0).color(egui::Color32::from_gray(215))).sense(egui::Sense::click()));
                 if !total.is_empty() {
@@ -1136,7 +1136,7 @@ fn profile_right(
         if resp.clicked() {
             *act = Some(ProfileAct::Count(label.clone(), href.clone()));
         }
-        // Картинки под счетчиком: награды профиля и значки.
+        // Images under a counter: profile awards and badges.
         let icons: &[String] = if lower.starts_with("награды") {
             &page.awards
         } else if lower.starts_with("значки") {
@@ -1153,7 +1153,7 @@ fn profile_right(
         }
         ui.add_space(6.0);
     }
-    // Друзья с уровнями, как в правой колонке Steam.
+    // Friends with levels, as in Steam's right column.
     if !page.friends.is_empty() {
         ui.add_space(6.0);
         for f in &page.friends {
@@ -1207,7 +1207,7 @@ fn profile_right(
     ui.weak(format!("Код друга: {}", id.saturating_sub(social::STEAMID64_BASE)));
 }
 
-/// Значок мусорки (рисуется линиями, как в Steam): кнопка удаления комментария.
+/// Trash icon (drawn with lines, as in Steam): the comment delete button.
 fn trash_button(ui: &mut egui::Ui) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), egui::Sense::click());
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -1215,10 +1215,10 @@ fn trash_button(ui: &mut egui::Ui) -> egui::Response {
     let s = egui::Stroke::new(1.4, c);
     let p = ui.painter();
     let m = r.center();
-    // Крышка с ручкой.
+    // Lid with a handle.
     p.line_segment([m + egui::vec2(-6.0, -4.5), m + egui::vec2(6.0, -4.5)], s);
     p.line_segment([m + egui::vec2(-2.0, -6.5), m + egui::vec2(2.0, -6.5)], s);
-    // Корзина.
+    // Bin.
     let body = [m + egui::vec2(-4.5, -3.0), m + egui::vec2(-3.5, 6.5), m + egui::vec2(3.5, 6.5), m + egui::vec2(4.5, -3.0)];
     p.add(egui::Shape::line(body.to_vec(), s));
     p.line_segment([m + egui::vec2(-1.3, -1.0), m + egui::vec2(-1.1, 4.5)], s);

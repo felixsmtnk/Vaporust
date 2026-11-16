@@ -1,6 +1,6 @@
-//! «Загрузки», как в Steam: кнопка посередине нижней полосы с ходом текущей загрузки и
-//! страница: сверху текущая загрузка с графиком скорости, ниже «Далее» (очередь) и
-//! «Завершено» (что скачалось или прервалось за этот сеанс).
+//! "Downloads", as in Steam: a button in the middle of the bottom bar with the current download's
+//! progress, and a page: on top the current download with a speed graph, below "Up next" (queue) and
+//! "Completed" (what was downloaded or interrupted during this session).
 
 use crate::net::{self, NetState};
 use crate::{local, schedule, settings, theme, LauncherApp, View};
@@ -9,17 +9,17 @@ use std::collections::VecDeque;
 use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 
-/// Картинка игры для загрузок (шапка магазина Steam).
+/// Game image for downloads (Steam store header).
 fn header_url(appid: u32) -> String {
     format!("https://shared.steamstatic.com/store_item_assets/steam/apps/{appid}/header.jpg")
 }
 
-/// Сколько секунд истории скорости показывать на графике.
+/// How many seconds of speed history the graph shows.
 const GRAPH_SECS: usize = 120;
 
-/// История скорости текущей загрузки (раз в секунду).
+/// Speed history of the current download (once per second).
 struct Graph {
-    /// Какая загрузка (адрес ее флага отмены - уникален для каждой операции).
+    /// Which download (the address of its cancel flag is unique per operation).
     op: usize,
     samples: VecDeque<f32>,
     peak: f32,
@@ -28,26 +28,26 @@ struct Graph {
 
 static GRAPH: Mutex<Graph> = Mutex::new(Graph { op: 0, samples: VecDeque::new(), peak: 0.0, last: None });
 
-/// Завершенная за сеанс загрузка (или другая операция с файлами игры).
+/// A download completed during the session (or another operation on game files).
 #[derive(Clone)]
 struct Done {
     appid: u32,
     name: String,
-    /// Ok - текст успеха; Err - ошибка или отмена.
+    /// Ok - success text; Err - error or cancellation.
     result: Result<String, String>,
-    /// Это установка (а не проверка, перенос, удаление).
+    /// This is an install (not a verify, move or uninstall).
     install: bool,
     when: String,
 }
 
-/// (последняя записанная операция, список «Завершено» - новые сверху)
+/// (last recorded operation, the "Completed" list - newest on top)
 static DONE: Mutex<(usize, Vec<Done>)> = Mutex::new((0, Vec::new()));
 
 fn op_id(i: &net::Install) -> usize {
     std::sync::Arc::as_ptr(&i.abort) as usize
 }
 
-/// Раз в секунду записать скорость; закончившуюся операцию - в «Завершено».
+/// Record the speed once per second; a finished operation goes to "Completed".
 fn sample(net: &NetState, queue: &[settings::QueueItem]) {
     let Some(i) = net.install.as_ref() else { return };
     let id = op_id(i);
@@ -73,7 +73,7 @@ fn sample(net: &NetState, queue: &[settings::QueueItem]) {
     }
     done.0 = id;
     let cancelled = i.abort.load(Ordering::Relaxed);
-    // Остановленные (пауза, отмена) не «завершены»: они в очереди или в «Не докачаны».
+    // Stopped ones (pause, cancel) are not "completed": they are in the queue or in "Not finished".
     let _ = queue;
     if cancelled {
         return;
@@ -83,10 +83,10 @@ fn sample(net: &NetState, queue: &[settings::QueueItem]) {
         Some(Err(e)) => Err(e.clone()),
         None => return,
     };
-    // Итог операции с файлами (удаление, проверка, перенос) - еще и всплывающим уведомлением:
-    // о скачанной игре сообщает notices.rs.
+    // Result of a file operation (uninstall, verify, move) - also as a popup notification:
+    // a downloaded game is announced by notices.rs.
     if i.done_text != "установлена." {
-        // В названии операции - вид действия («Удаление: игра»): в уведомление - только игра.
+        // The operation name contains the action kind ("Удаление: игра"): only the game goes into the notification.
         let name = ["Смена языка: ", "Обновление: ", "Проверка файлов: ", "Перенос: ", "Добавление: ", "Откат версии: ", "Удаление: "]
             .iter()
             .find_map(|p| i.name.strip_prefix(p))
@@ -110,7 +110,7 @@ fn sample(net: &NetState, queue: &[settings::QueueItem]) {
     );
 }
 
-/// Заголовок раздела, как в Steam: мелко, заглавными, с линией до края.
+/// Section header, as in Steam: small, uppercase, with a line to the edge.
 fn section(ui: &mut egui::Ui, text: &str, add: impl FnOnce(&mut egui::Ui)) {
     ui.add_space(16.0);
     ui.horizontal(|ui| {
@@ -123,7 +123,7 @@ fn section(ui: &mut egui::Ui, text: &str, add: impl FnOnce(&mut egui::Ui)) {
     ui.add_space(6.0);
 }
 
-/// Полоса прогресса Steam: тонкая, без текста.
+/// Steam progress bar: thin, no text.
 fn thin_bar(ui: &mut egui::Ui, frac: f32, width: f32) {
     let (r, _) = ui.allocate_exact_size(egui::vec2(width, 6.0), egui::Sense::hover());
     ui.painter().rect_filled(r, 3.0, egui::Color32::from_rgb(45, 52, 64));
@@ -132,7 +132,7 @@ fn thin_bar(ui: &mut egui::Ui, frac: f32, width: f32) {
     ui.painter().rect_filled(d, 3.0, theme::ACCENT);
 }
 
-/// Столбик показателя справа от графика.
+/// Stat column to the right of the graph.
 fn stat(ui: &mut egui::Ui, label: &str, value: String) {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 1.0;
@@ -141,13 +141,13 @@ fn stat(ui: &mut egui::Ui, label: &str, value: String) {
     });
 }
 
-/// График скорости за последние 2 минуты.
+/// Speed graph for the last 2 minutes.
 fn graph(ui: &mut egui::Ui, height: f32) {
     let g = GRAPH.lock().unwrap();
     let (r, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), height), egui::Sense::hover());
     let p = ui.painter_at(r);
     p.rect_filled(r, 2.0, egui::Color32::from_rgb(20, 24, 31));
-    // Сетка: 4 горизонтальные линии.
+    // Grid: 4 horizontal lines.
     for k in 1..4 {
         let y = r.top() + r.height() * k as f32 / 4.0;
         p.hline(r.x_range(), y, egui::Stroke::new(1.0, egui::Color32::from_rgb(34, 40, 50)));
@@ -165,7 +165,7 @@ fn graph(ui: &mut egui::Ui, height: f32) {
         .enumerate()
         .map(|(i, s)| egui::pos2(x0 + step * i as f32, r.bottom() - r.height() * (s / max)))
         .collect();
-    // Заливка под линией - вертикальными полосками (выпуклых многоугольников тут нет).
+    // Fill under the line - vertical strips (there are no convex polygons here).
     let fill = egui::Color32::from_rgba_unmultiplied(26, 159, 255, 40);
     let mut mesh = egui::Mesh::default();
     for w in pts.windows(2) {
@@ -181,7 +181,7 @@ fn graph(ui: &mut egui::Ui, height: f32) {
 }
 
 impl LauncherApp {
-    /// Подпись кнопки «Загрузки»: идет загрузка - с процентом, есть очередь - с числом игр.
+    /// "Downloads" button label: downloading - with percent, a queue - with the game count.
     pub(crate) fn downloads_label(&self, net: &NetState) -> String {
         if let Some(i) = net.install.as_ref().filter(|i| i.result.is_none()) {
             if i.total > 0 {
@@ -196,7 +196,7 @@ impl LauncherApp {
         }
     }
 
-    /// Кнопка посередине нижней полосы; во время загрузки под ней тонкая полоса прогресса.
+    /// Button in the middle of the bottom bar; while downloading, a thin progress bar under it.
     pub(crate) fn downloads_button(&mut self, ui: &mut egui::Ui, net: &NetState) {
         sample(net, &self.settings.downloads);
         let label = self.downloads_label(net);
@@ -239,7 +239,7 @@ impl LauncherApp {
                 );
             }
 
-            // Сверху - текущая загрузка с графиком, как в Steam.
+            // On top - the current download with a graph, as in Steam.
             let active = net.install.as_ref().filter(|i| i.result.is_none());
             let library = active.and_then(|i| {
                 self.games
@@ -248,8 +248,8 @@ impl LauncherApp {
                     .and_then(|g| g.dir.parent()?.parent()?.parent().map(|p| p.to_path_buf()))
                     .or_else(|| self.libraries.get(self.lib_idx).cloned())
             });
-            // Меню по правому щелчку - под карточкой (место с прошлого кадра), чтобы кнопки
-            // поверх него нажимались.
+            // Right-click menu - under the card (area from the previous frame) so the buttons
+            // on top of it stay clickable.
             let card_id = ui.id().with("dl_card");
             let bg = active.and_then(|_| menu_area(ui, card_id));
             let card = egui::Frame::none().fill(theme::CARD).inner_margin(egui::Margin::same(14.0)).rounding(4.0).show(ui, |ui| {
@@ -344,7 +344,7 @@ impl LauncherApp {
                 });
             }
 
-            // Далее: очередь.
+            // Up next: the queue.
             let n = self.settings.downloads.len();
             let queue_paused = self.settings.queue_paused;
             section(ui, &format!("ДАЛЕЕ ({n})"), |ui| {
@@ -425,7 +425,7 @@ impl LauncherApp {
                 );
             }
 
-            // Не докачаны: начатые загрузки вне очереди (остановленные, убранные из очереди).
+            // Not finished: started downloads outside the queue (stopped, removed from the queue).
             let queued: std::collections::HashSet<u32> = self.settings.downloads.iter().map(|q| q.appid).collect();
             let partials: Vec<&local::Game> = self
                 .games
@@ -468,7 +468,7 @@ impl LauncherApp {
                 }
             }
 
-            // Завершено за этот сеанс.
+            // Completed during this session.
             let done = DONE.lock().unwrap().1.clone();
             if !done.is_empty() {
                 section(ui, &format!("ЗАВЕРШЕНО ({})", done.len()), |ui| {
@@ -578,9 +578,9 @@ impl LauncherApp {
     }
 }
 
-/// Что нажали на странице загрузок (выполняется после отрисовки).
+/// What was clicked on the downloads page (handled after drawing).
 enum Act {
-    /// Остановить текущую загрузку: true - на паузу (в начало очереди), false - отмена.
+    /// Stop the current download: true - pause (to the front of the queue), false - cancel.
     Stop(bool),
     ToggleQueue,
     SetPaused(usize, bool),
@@ -595,7 +595,7 @@ enum Act {
     ClearDone,
 }
 
-/// Общие пункты меню строки: страница игры и папка.
+/// Common row menu items: game page and folder.
 fn menu_common(ui: &mut egui::Ui, appid: u32, name: &str, on_disk: bool, acts: &mut Vec<Act>) {
     ui.set_min_width(200.0);
     ui.label(egui::RichText::new(name).strong());
@@ -610,7 +610,7 @@ fn menu_common(ui: &mut egui::Ui, appid: u32, name: &str, on_disk: bool, acts: &
     }
 }
 
-/// Сколько уже скачано у недокачанной игры (размер папки; пересчет не чаще раза в 10 с).
+/// How much of an unfinished game is downloaded (folder size; recomputed at most every 10 s).
 fn partial_size(g: &local::Game) -> u64 {
     static CACHE: Mutex<Vec<(u32, u64, std::time::Instant)>> = Mutex::new(Vec::new());
     let mut c = CACHE.lock().unwrap();
@@ -625,8 +625,8 @@ fn partial_size(g: &local::Game) -> u64 {
     size
 }
 
-/// Область для меню по правому щелчку: место блока с прошлого кадра. Регистрируется ДО
-/// кнопок блока - поэтому кнопки поверх нее нажимаются (иначе она перехватывала бы щелчки).
+/// Area for the right-click menu: the block's area from the previous frame. Registered BEFORE
+/// the block's buttons - so the buttons on top stay clickable (otherwise it would steal clicks).
 fn menu_area(ui: &mut egui::Ui, id: egui::Id) -> Option<egui::Response> {
     let rect = ui.ctx().data(|d| d.get_temp::<egui::Rect>(id))?;
     Some(ui.interact(rect, id, egui::Sense::click()))
@@ -636,7 +636,7 @@ fn remember_area(ui: &egui::Ui, id: egui::Id, rect: egui::Rect) {
     ui.ctx().data_mut(|d| d.insert_temp(id, rect));
 }
 
-/// Строка списка: шапка игры, название, состояние, кнопки справа и меню по правому щелчку.
+/// List row: game header, name, state, buttons on the right and a right-click menu.
 #[allow(clippy::too_many_arguments)]
 fn row(
     ui: &mut egui::Ui,

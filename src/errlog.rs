@@ -1,6 +1,6 @@
-//! Журнал ошибок Vaporust: <папка данных>\vaporust.log (больше 1 МБ - старый становится
-//! vaporust.log.old). Пишутся ошибки запуска игр, загрузок, запросов к Steam и падения программы.
-//! Личных данных (логин, SteamID) сюда не пишем - журнал можно приложить к сообщению об ошибке.
+//! Vaporust error log: <data folder>\vaporust.log (over 1 MB - the old one becomes
+//! vaporust.log.old). Logs errors of game launches, downloads, Steam requests and program crashes.
+//! No personal data (login, SteamID) is written here - the log can be attached to a bug report.
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -13,9 +13,9 @@ pub fn path() -> Option<PathBuf> {
     base.map(|d| d.join("vaporust.log"))
 }
 
-/// Убрать из текста длинные числа (SteamID и т.п.) и путь к папке пользователя.
-/// Убрать ключи входа: значения access_token=, refresh_token=, sessionid= и сами ключи вида JWT
-/// (eyJ...). Такой текст мог попасть в ошибку вместе с адресом запроса.
+/// Remove long numbers (SteamID and so on) and the user folder path from the text.
+/// Remove login keys: values of access_token=, refresh_token=, sessionid= and the JWT keys themselves
+/// (eyJ...). Such text could end up in an error together with the request URL.
 fn hide_keys(s: &str) -> String {
     let mut out = s.to_string();
     for key in ["access_token=", "refresh_token=", "sessionid=", "steamLoginSecure="] {
@@ -27,7 +27,7 @@ fn hide_keys(s: &str) -> String {
             from = start + "<скрыт>".len();
         }
     }
-    // JWT: «eyJ» + длинная строка из букв, цифр, «-», «_», «.».
+    // JWT: "eyJ" + a long string of letters, digits, "-", "_", ".".
     let mut res = String::with_capacity(out.len());
     let mut rest = out.as_str();
     while let Some(p) = rest.find("eyJ") {
@@ -60,13 +60,13 @@ fn scrub(s: &str) -> String {
     }
     out.push_str(if digits.len() >= 15 { "<id>" } else { &digits });
     match std::env::var("USERNAME") {
-        // Любой длины: короткие имена (например, «PC») тоже личные.
+        // Any length: short names (for example "PC") are personal too.
         Ok(u) if !u.is_empty() => out.replace(&format!(r"\Users\{u}\"), r"\Users\<user>\"),
         _ => out,
     }
 }
 
-/// Записать строку: «время [где] текст».
+/// Write a line: "time [where] text".
 pub fn write(place: &str, msg: &str) {
     let Some(p) = path() else { return };
     let _g = LOCK.lock();
@@ -82,7 +82,7 @@ pub fn write(place: &str, msg: &str) {
     }
 }
 
-/// Падения программы - тоже в журнал (вместе с местом в коде).
+/// Program crashes go to the log too (with the code location).
 pub fn install_panic_hook() {
     let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -99,7 +99,7 @@ mod tests {
     }
 }
 
-/// Версия Windows из реестра (без личных данных): «Windows 10 Pro 22H2, сборка 19045».
+/// Windows version from the registry (no personal data): "Windows 10 Pro 22H2, build 19045".
 fn windows_version() -> String {
     #[cfg(windows)]
     {
@@ -112,9 +112,9 @@ fn windows_version() -> String {
     "неизвестно".into()
 }
 
-/// Текст «диагностики» для сообщения об ошибке: версия, Windows, окно и масштаб, память и
-/// последние строки журнала. Без логина, SteamID, токенов и имени пользователя Windows
-/// (журнал уже очищен scrub, а сюда больше ничего личного не добавляется).
+/// "Diagnostics" text for a bug report: version, Windows, window and scale, memory and
+/// the last log lines. No login, SteamID, tokens or Windows user name
+/// (the log is already cleaned by scrub, and nothing personal is added here).
 pub fn diagnostics(extra: &[(&str, String)]) -> String {
     let mut s = String::new();
     s.push_str(&format!(

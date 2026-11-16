@@ -1,5 +1,5 @@
-//! Друзья и сообщество через Aurelia: профили, заявки в друзья, приглашение в игру,
-//! Мастерская Steam.
+//! Friends and community via Aurelia: profiles, friend requests, game invite,
+//! Steam Workshop.
 
 use aurelia::core::models::WorkshopItem;
 use aurelia::steam_client::SteamClient;
@@ -7,10 +7,10 @@ use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-/// SteamID64 обычного аккаунта = эта база + номер аккаунта («код друга» в Steam).
+/// SteamID64 of a normal account = this base + the account number (the "friend code" in Steam).
 pub const STEAMID64_BASE: u64 = 76_561_197_960_265_728;
 
-/// Короткое имя профиля из ссылки steamcommunity.com/id/<имя> (или «id/имя»).
+/// Short profile name from a steamcommunity.com/id/<name> link (or "id/name").
 pub fn vanity_name(input: &str) -> Option<String> {
     let q = input.trim().trim_end_matches('/');
     let pos = q.find("/id/").map(|p| p + 4).or_else(|| q.starts_with("id/").then_some(3))?;
@@ -19,7 +19,7 @@ pub fn vanity_name(input: &str) -> Option<String> {
     (!name.is_empty()).then_some(name)
 }
 
-/// SteamID64 по короткому имени: страница профиля в виде XML (обычный открытый запрос).
+/// SteamID64 by short name: the profile page as XML (a normal public request).
 pub async fn resolve_vanity(name: &str) -> Result<u64, String> {
     let http = aurelia::core::net::steam_web_client().map_err(err)?;
     let url = format!("https://steamcommunity.com/id/{name}/?xml=1");
@@ -32,8 +32,8 @@ pub async fn resolve_vanity(name: &str) -> Result<u64, String> {
     }
 }
 
-/// Разобрать то, что ввел пользователь: SteamID64, ссылку /profiles/<id> или код друга
-/// (ссылки /id/<имя> - через vanity_name и resolve_vanity).
+/// Parse what the user entered: a SteamID64, a /profiles/<id> link or a friend code
+/// (/id/<name> links go through vanity_name and resolve_vanity).
 pub fn parse_friend_input(input: &str) -> Result<u64, String> {
     let q = input.trim().trim_end_matches('/');
     if q.is_empty() {
@@ -48,7 +48,7 @@ pub fn parse_friend_input(input: &str) -> Result<u64, String> {
     if n >= STEAMID64_BASE {
         Ok(n)
     } else if n > 0 && n < u32::MAX as u64 {
-        Ok(STEAMID64_BASE + n) // код друга
+        Ok(STEAMID64_BASE + n) // friend code
     } else {
         Err("Неверный номер.".into())
     }
@@ -56,14 +56,14 @@ pub fn parse_friend_input(input: &str) -> Result<u64, String> {
 
 #[derive(Default)]
 pub struct WorkshopState {
-    /// Результаты поиска: (appid, запрос, сортировка) -> предметы.
+    /// Search results: (appid, query, sort) -> items.
     pub results: HashMap<u32, Result<Vec<WorkshopItem>, String>>,
     pub total: HashMap<u32, u32>,
     pub searching: HashSet<u32>,
-    /// Свои подписки по игре (id предметов) и их данные.
+    /// Own subscriptions per game (item ids) and their data.
     pub subscribed: HashMap<u32, Result<Vec<WorkshopItem>, String>>,
     pub sub_ids: HashMap<u32, HashSet<u64>>,
-    /// Страницы модов, открытые внутри программы (по id мода).
+    /// Mod pages opened inside the program (by mod id).
     pub details: HashMap<u64, Result<crate::workshopui::Detail, String>>,
     pub error: Option<String>,
 }
@@ -72,18 +72,18 @@ pub type SharedWorkshop = Arc<Mutex<WorkshopState>>;
 
 pub enum SocialCmd {
     Profile(u64),
-    /// Узнать SteamID64 по ссылке /id/<имя>.
+    /// Look up the SteamID64 by a /id/<name> link.
     ResolveVanity(String),
     AddFriend(u64),
     RemoveFriend(u64),
-    /// Заблокировать (true) или разблокировать пользователя (сайт сообщества).
+    /// Block (true) or unblock a user (community site).
     Block(u64, bool),
-    /// Поиск в Мастерской игры: текст (пусто - без поиска) и тип сортировки Steam
-    /// (0 популярные, 3 в тренде, 1 новые, 21 обновленные, 9 по подпискам, 12 по тексту).
+    /// Search in the game's Workshop: text (empty - no search) and Steam sort type
+    /// (0 popular, 3 trending, 1 newest, 21 updated, 9 by subscriptions, 12 by text).
     WorkshopQuery { appid: u32, text: String, sort: u32 },
     WorkshopSubscribed(u32),
     WorkshopSubscribe { appid: u32, id: u64, on: bool },
-    /// Подробности мода для его страницы внутри программы.
+    /// Mod details for its page inside the program.
     WorkshopDetail(u64),
 }
 
@@ -100,21 +100,21 @@ pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx
                 let res = resolve_vanity(&name).await;
                 if let Ok(id) = res {
                     let p = c.user_profile(id).await.map_err(err);
-                    let Some(mut cur) = crate::net::lock_current(&st) else { return }; // ответ прошлого входа - не пишем
+                    let Some(mut cur) = crate::net::lock_current(&st) else { return }; // a response of the previous login - not written
                     cur.profiles.insert(id, p);
                 }
-                let Some(mut cur) = crate::net::lock_current(&st) else { return }; // ответ прошлого входа - не пишем
+                let Some(mut cur) = crate::net::lock_current(&st) else { return }; // a response of the previous login - not written
                 cur.vanity.insert(name, res);
                 ctx.request_repaint();
             }
             SocialCmd::Profile(id) => {
                 let res = c.user_profile(id).await.map_err(err);
-                let Some(mut cur) = crate::net::lock_current(&st) else { return }; // ответ прошлого входа - не пишем
+                let Some(mut cur) = crate::net::lock_current(&st) else { return }; // a response of the previous login - not written
                 cur.profiles.insert(id, res);
             }
             SocialCmd::AddFriend(id) => {
                 let res = c.add_friend(id).await;
-                let Some(mut cur) = crate::net::lock_current(&st) else { return }; // ответ прошлого входа - не пишем
+                let Some(mut cur) = crate::net::lock_current(&st) else { return }; // a response of the previous login - not written
                 cur.friend_msg = Some(match res {
                     Ok(a) => format!(
                         "Заявка отправлена{}.",
@@ -125,7 +125,7 @@ pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx
             }
             SocialCmd::Block(id, block) => {
                 let res = crate::social::block_user(&c, id, block).await;
-                let Some(mut cur) = crate::net::lock_current(&st) else { return }; // ответ прошлого входа - не пишем
+                let Some(mut cur) = crate::net::lock_current(&st) else { return }; // a response of the previous login - not written
                 let mut s = cur;
                 s.friend_msg = Some(match &res {
                     Ok(()) if block => "Пользователь заблокирован.".into(),
@@ -142,13 +142,13 @@ pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx
             }
             SocialCmd::RemoveFriend(id) => {
                 let res = c.remove_friend(id).await;
-                let Some(mut cur) = crate::net::lock_current(&st) else { return }; // ответ прошлого входа - не пишем
+                let Some(mut cur) = crate::net::lock_current(&st) else { return }; // a response of the previous login - not written
                 let mut s = cur;
                 s.friend_msg = Some(match res {
                     Ok(()) => "Готово.".into(),
                     Err(e) => format!("Не получилось: {}", err(e)),
                 });
-                // Убрать из списка сразу, не дожидаясь обновления от Steam.
+                // Remove from the list right away without waiting for an update from Steam.
                 s.roster.write().unwrap().remove(&id);
             }
             SocialCmd::WorkshopDetail(id) => {
@@ -200,8 +200,8 @@ pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx
                         if on {
                             set.insert(id);
                         } else {
-                            // Из списка подписок не убираем: в свойствах мод остается с
-                            // выключенной галочкой, чтобы его можно было включить обратно.
+                            // Not removed from the subscription list: in properties the mod stays with
+                            // an unchecked box so it can be turned back on.
                             set.remove(&id);
                         }
                     }
@@ -224,7 +224,7 @@ mod tests {
     fn friend_inputs() {
         assert_eq!(parse_friend_input("76561198000000000"), Ok(76561198000000000));
         assert_eq!(parse_friend_input("https://steamcommunity.com/profiles/76561198000000000/"), Ok(76561198000000000));
-        assert_eq!(parse_friend_input("39734272"), Ok(76561198000000000)); // код друга
+        assert_eq!(parse_friend_input("39734272"), Ok(76561198000000000)); // friend code
         assert_eq!(vanity_name("https://steamcommunity.com/id/some_one-2/"), Some("some_one-2".into()));
         assert_eq!(vanity_name("id/abc"), Some("abc".into()));
         assert_eq!(vanity_name("39734272"), None);
@@ -234,7 +234,7 @@ mod tests {
 
 #[cfg(test)]
 mod live {
-    /// Живой тест: ссылка /id/<имя> известного открытого профиля Valve.
+    /// Live test: a /id/<name> link of a well-known public Valve profile.
     #[test]
     #[ignore]
     fn vanity_live() {
@@ -248,7 +248,7 @@ mod live {
 
 #[cfg(test)]
 mod nick_live {
-    /// Сколько друзей с ником и с подробным статусом в игре (без имен). Только чтение.
+    /// How many friends have a nickname and a detailed in-game status (no names). Read only.
     #[test]
     #[ignore]
     fn nicknames_rich_live() {
@@ -265,7 +265,7 @@ mod nick_live {
     }
 }
 
-/// Блокировка через сайт сообщества (как «Еще -> Заблокировать» в профиле Steam): ответ {"success":1}.
+/// Blocking via the community site (like "More -> Block" on a Steam profile): the answer is {"success":1}.
 pub async fn block_user(c: &SteamClient, id: u64, block: bool) -> Result<(), String> {
     let web = crate::webapi::web_session(c).await?;
     let fields = [

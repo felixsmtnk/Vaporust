@@ -1,13 +1,13 @@
-//! Когда игра куплена и можно ли ее вернуть. Даты - со страницы лицензий аккаунта в магазине
-//! Steam (store.steampowered.com/account/licenses). Условия возврата Steam: не больше 14 дней
-//! с покупки и не больше 2 часов в игре (решает сам Steam, у нас только подсказка).
+//! When a game was bought and whether it can be refunded. Dates come from the account licenses page in the
+//! Steam store (store.steampowered.com/account/licenses). Steam refund terms: at most 14 days
+//! since purchase and at most 2 hours played (Steam itself decides, we only give a hint).
 
 use crate::webapi;
 use aurelia::steam_client::SteamClient;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct License {
-    /// Время получения (unix, полночь UTC дня).
+    /// Time acquired (unix, midnight UTC of the day).
     pub date: i64,
     pub name: String,
     /// «Steam Store», «Complimentary», «Gift/Guest Pass», «Retail»...
@@ -34,20 +34,20 @@ fn clean(s: &str) -> String {
     out.replace("&amp;", "&").replace("&#39;", "'").replace("&quot;", "\"").split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Строки таблицы лицензий (l=english).
+/// License table rows (l=english).
 pub fn parse(html: &str) -> Vec<License> {
-    // В разметке Steam «<td  class=...>» с двумя пробелами - режем по самому классу.
+    // Steam's markup has "<td  class=...>" with two spaces - split by the class itself.
     html.split("class=\"license_date_col\">")
         .skip(1)
         .filter(|row| !row.starts_with("Date<"))
         .filter_map(|row| {
             let date_text = row.split('<').next()?.trim();
             let date = crate::store::parse_en_date(date_text).or_else(|| {
-                // Без года - текущий год.
+                // Without a year - the current year.
                 crate::store::parse_en_date(&format!("{date_text}, {}", chrono::Local::now().format("%Y")))
             })?;
             let item = between(row, "<td>", "</td>")?;
-            // Ссылка «Remove» у бесплатных лицензий - в своем div, его пропускаем.
+            // The "Remove" link of free licenses is in its own div, we skip it.
             let item = match item.find("</div>") {
                 Some(i) => &item[i + 6..],
                 None => item,
@@ -67,7 +67,7 @@ pub async fn load(client: &SteamClient) -> Result<Vec<License>, String> {
     Ok(parse(&html))
 }
 
-/// Имя для сравнения: строчные буквы и цифры, без ™®©.
+/// Name for comparison: lowercase letters and digits, without ™®©.
 fn norm(s: &str) -> String {
     s.to_lowercase()
         .chars()
@@ -78,7 +78,7 @@ fn norm(s: &str) -> String {
         .join(" ")
 }
 
-/// Лицензия этой игры: то же название или название с припиской издания.
+/// License of this game: the same name or the name with an edition suffix.
 pub fn find<'a>(game: &str, list: &'a [License]) -> Option<&'a License> {
     let g = norm(game);
     if g.is_empty() {
@@ -93,8 +93,8 @@ pub fn find<'a>(game: &str, list: &'a [License]) -> Option<&'a License> {
         .min_by_key(|l| l.date)
 }
 
-/// Подсказка о возврате: Some(текст), если игра куплена в магазине меньше 14 дней назад и
-/// наиграно меньше 2 часов.
+/// Refund hint: Some(text) if the game was bought in the store less than 14 days ago and
+/// played less than 2 hours.
 pub fn hint(l: &License, playtime_min: u32, now: i64) -> Option<String> {
     if l.method != "Steam Store" {
         return None;

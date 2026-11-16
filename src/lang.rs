@@ -1,10 +1,10 @@
-//! Язык, на котором Vaporust просит у Steam тексты (описания, новости, отзывы, названия
-//! предметов). Пока интерфейс только русский - и тексты Steam по-русски. Когда появится выбор
-//! языка интерфейса, здесь будет одна точка переключения.
+//! Language in which Vaporust asks Steam for texts (descriptions, news, reviews, item
+//! names). While the interface is Russian only, Steam texts are Russian too. When interface
+//! language selection appears, this will be the single switch point.
 //!
-//! Некоторые страницы намеренно запрашиваются по-английски (l=english): их разбор опирается на
-//! английские слова Steam (значки, лицензии, обсуждения, отзывы на странице профиля) - их язык
-//! менять нельзя.
+//! Some pages are intentionally requested in English (l=english): their parsing relies on
+//! Steam's English words (badges, licenses, discussions, reviews on the profile page) - their
+//! language must not be changed.
 
-/// Язык текстов Steam (параметр l= и language).
+/// Language of Steam texts (the l= and language parameters).
 pub const STEAM: &str = "russian";

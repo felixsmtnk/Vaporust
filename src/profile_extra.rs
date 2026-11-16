@@ -1,7 +1,7 @@
-//! Профиль целиком: уровень, рамка аватара и анимированный аватар, фон профиля, недавние игры,
-//! группы и комментарии (можно написать свой). Web API IPlayerService (GetSteamLevel,
-//! GetProfileItemsEquipped, GetRecentlyPlayedGames), профиль в XML (группы), комментарии -
-//! как их подгружает сайт (comment/Profile/render).
+//! The whole profile: level, avatar frame and animated avatar, profile background, recent games,
+//! groups and comments (you can write your own). Web API IPlayerService (GetSteamLevel,
+//! GetProfileItemsEquipped, GetRecentlyPlayedGames), profile in XML (groups), comments -
+//! the way the site loads them (comment/Profile/render).
 
 use crate::activity::{parse_recent, Recent};
 use crate::webapi;
@@ -13,11 +13,11 @@ pub struct Comment {
     pub author: String,
     pub author_url: String,
     pub avatar: String,
-    /// Рамка аватара автора (предмет Steam), если есть.
+    /// Author's avatar frame (a Steam item), if any.
     pub frame: String,
     pub time: u64,
     pub text: String,
-    /// Номер комментария (для удаления) и можно ли его удалить (свой профиль или свой комментарий).
+    /// Comment id (for deletion) and whether it can be deleted (own profile or own comment).
     pub id: String,
     pub can_delete: bool,
 }
@@ -40,9 +40,9 @@ pub struct ProfileExtra {
     pub comments: Vec<Comment>,
     pub comments_total: u32,
     pub showcases: Vec<Showcase>,
-    /// Счетчики правой колонки профиля: (подпись, число, ссылка) - значки, игры, скриншоты...
+    /// Profile right column counters: (caption, number, link) - badges, games, screenshots...
     pub counts: Vec<(String, String, String)>,
-    /// То, что видно только на странице профиля: 3 недавние игры, значки, друзья...
+    /// What is visible only on the profile page: 3 recent games, badges, friends...
     pub page: PageInfo,
 }
 
@@ -66,7 +66,7 @@ fn cdata(s: &str) -> String {
     s.trim().trim_start_matches("<![CDATA[").trim_end_matches("]]>").trim().to_string()
 }
 
-/// Группы из профиля в XML.
+/// Groups from the XML profile.
 pub fn parse_groups(xml: &str) -> Vec<Group> {
     xml.split("<group ")
         .skip(1)
@@ -79,13 +79,13 @@ pub fn parse_groups(xml: &str) -> Vec<Group> {
         .collect()
 }
 
-/// Комментарии из comments_html.
+/// Comments from comments_html.
 pub fn parse_comments(html: &str) -> Vec<Comment> {
     html.split("class=\"commentthread_comment ")
         .skip(1)
         .map(|c| {
-            // Блок аватара: сначала (если есть) рамка - «profile_avatar_frame», потом ссылка с аватаром.
-            // Анимированный аватар: <picture> с неподвижной копией для «reduced-motion» - берем ее.
+            // Avatar block: first (if present) the frame - "profile_avatar_frame", then the link with the avatar.
+            // Animated avatar: a <picture> with a still copy for "reduced-motion" - we take that.
             let block = between(c, "commentthread_comment_avatar", "author_name_group")
                 .or_else(|| c.split("commentthread_author_link").next())
                 .unwrap_or("");
@@ -115,14 +115,14 @@ pub fn parse_comments(html: &str) -> Vec<Comment> {
         .collect()
 }
 
-/// Витрина профиля: заголовок, картинки (со ссылками) и текст.
+/// Profile showcase: title, images (with links) and text.
 #[derive(Clone, Debug, Default)]
 pub struct Showcase {
     pub title: String,
     pub images: Vec<(String, Option<String>)>,
-    /// Показатели витрины, как в Steam: крупное число и подпись (2 456 / Часов сыграно).
+    /// Showcase stats, as in Steam: a large number and a caption (2 456 / Hours played).
     pub stats: Vec<(String, String)>,
-    /// Текст по строкам (блоки HTML - отдельные строки).
+    /// Text by lines (HTML blocks are separate lines).
     pub text: String,
 }
 
@@ -131,14 +131,14 @@ fn attr(tag: &str, name: &str) -> Option<String> {
     Some(v.replace("&amp;", "&"))
 }
 
-/// Витрины со страницы профиля (блоки profile_customization).
+/// Showcases from the profile page (profile_customization blocks).
 pub fn parse_showcases(html: &str) -> Vec<Showcase> {
     let Some(area) = html.split("class=\"profile_customization_area\"").nth(1) else { return Vec::new() };
-    // Область витрин кончается перед блоком комментариев / правой колонкой.
+    // The showcase area ends before the comments block / right column.
     let area = area.split("profile_comment_area").next().unwrap_or(area);
     let area = area.split("profile_rightcol").next().unwrap_or(area);
-    // Начала витрин: «<div class="profile_customization"» и «... profile_customization myart"»
-    // (но не «profile_customization_header» и т.п. внутри витрины).
+    // Showcase starts: "<div class="profile_customization"" and "... profile_customization myart""
+    // (but not "profile_customization_header" and the like inside a showcase).
     let starts: Vec<usize> = area
         .match_indices("class=\"profile_customization")
         .map(|(i, _)| i)
@@ -162,7 +162,7 @@ pub fn parse_showcases(html: &str) -> Vec<Showcase> {
                 let tag = &b[at..tag_end];
                 pos = tag_end;
                 let Some(src) = attr(tag, "src").filter(|s| s.starts_with("http")) else { continue };
-                // Значки интерфейса Steam и пустышки не нужны.
+                // Steam UI icons and placeholders are not needed.
                 if src.contains("trans.gif") || src.contains("/public/images/") || src.contains("/public/shared/images/") {
                     continue;
                 }
@@ -182,7 +182,7 @@ pub fn parse_showcases(html: &str) -> Vec<Showcase> {
             }
             let body = b.split("<script").next().unwrap_or(b);
             let body = body.split_once("profile_customization_block").map(|x| x.1).unwrap_or(body);
-            // Тело начинается внутри тега блока (class="profile_customization_block">) - с его конца.
+            // The body starts inside the block tag (class="profile_customization_block">) - from its end.
             let body = body.split_once('>').map_or(body, |x| x.1);
             let (stats, text) = stats_and_lines(body);
             let text = if text.chars().count() > 400 { format!("{}...", text.chars().take(400).collect::<String>()) } else { text };
@@ -191,14 +191,14 @@ pub fn parse_showcases(html: &str) -> Vec<Showcase> {
         .collect()
 }
 
-/// Кусок HTML: текст или тег (имя в нижнем регистре, закрывающий ли, атрибут class).
+/// A piece of HTML: text or a tag (lowercase name, whether closing, class attribute).
 enum Piece {
     Text(String),
     Tag { name: String, close: bool, class: String },
 }
 
-/// Разбор HTML на текст и теги с учетом кавычек в атрибутах (в подсказках Steam внутри
-/// атрибутов бывают «<br>» и «>»), без комментариев и содержимого script/style.
+/// Parse HTML into text and tags respecting quotes in attributes (Steam tooltips have
+/// "<br>" and ">" inside attributes), without comments and script/style contents.
 fn pieces(html: &str) -> Vec<Piece> {
     let mut out = Vec::new();
     let b = html.as_bytes();
@@ -220,7 +220,7 @@ fn pieces(html: &str) -> Vec<Piece> {
             i = html[i..].find("-->").map_or(html.len(), |e| i + e + 3);
             continue;
         }
-        // Конец тега - первый «>» вне кавычек.
+        // End of the tag - the first ">" outside quotes.
         let mut j = i + 1;
         let mut quote: Option<u8> = None;
         while j < b.len() {
@@ -257,19 +257,19 @@ fn pieces(html: &str) -> Vec<Piece> {
     out
 }
 
-/// Теги, у которых нет закрывающей пары.
+/// Tags without a closing pair.
 fn void_tag(name: &str) -> bool {
     matches!(name, "br" | "img" | "input" | "meta" | "hr" | "source" | "link" | "wbr")
 }
 
-/// Показатели витрины («showcase_stat»: value + label; бывают и div, и ссылкой «a») и текст
-/// остального по строкам (блоки - отдельные строки, пустые и повторы убираются).
+/// Showcase stats ("showcase_stat": value + label; both div and an "a" link occur) and the text
+/// of the rest by lines (blocks are separate lines, empty ones and repeats are removed).
 fn stats_and_lines(html: &str) -> (Vec<(String, String)>, String) {
     let ps = pieces(html);
     let mut stats: Vec<(String, String)> = Vec::new();
     let mut lines: Vec<String> = Vec::new();
     let mut line = String::new();
-    // Открытые элементы: (имя, class).
+    // Open elements: (name, class).
     let mut stack: Vec<(String, String)> = Vec::new();
     let has = |class: &str, token: &str| class.split_whitespace().any(|c| c == token);
     let push_line = |line: &mut String, lines: &mut Vec<String>| {
@@ -328,7 +328,7 @@ fn stats_and_lines(html: &str) -> (Vec<(String, String)>, String) {
     (stats, lines.join("\n"))
 }
 
-/// Сущности HTML в тексте.
+/// HTML entities in text.
 fn decode(t: &str) -> String {
     t.replace("&nbsp;", " ")
         .replace("&quot;", "\"")
@@ -372,7 +372,7 @@ pub async fn load(client: &SteamClient, id: u64) -> Result<ProfileExtra, String>
     Ok(x)
 }
 
-/// Написать комментарий в профиль.
+/// Write a comment on a profile.
 pub async fn post_comment(client: &SteamClient, id: u64, text: &str) -> Result<(), String> {
     let web = webapi::web_session(client).await?;
     let fields = [
@@ -398,12 +398,12 @@ pub async fn post_comment(client: &SteamClient, id: u64, text: &str) -> Result<(
     }
 }
 
-/// Уровень - кружок с числом, как в Steam.
+/// Level - a circle with a number, as in Steam.
 pub fn level_badge(ui: &mut egui::Ui, level: u32) {
     level_badge_sized(ui, level, 34.0);
 }
 
-/// Уровень заданного размера (в списке друзей - мелкий). Цвет по десяткам, как в Steam.
+/// Level of a given size (small in the friend list). Color by tens, as in Steam.
 pub fn level_badge_sized(ui: &mut egui::Ui, level: u32, size: f32) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
     let color = match level {
@@ -424,7 +424,7 @@ pub fn level_badge_sized(ui: &mut egui::Ui, level: u32, size: f32) {
     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, level.to_string(), egui::FontId::proportional(if size > 30.0 { 14.0 } else { 10.5 }), ui.visuals().strong_text_color());
 }
 
-/// Аватар с рамкой (рамка Steam шире аватара примерно на 22%).
+/// Avatar with a frame (the Steam frame is about 22% wider than the avatar).
 pub fn avatar_with_frame(ui: &mut egui::Ui, avatar: &str, frame: Option<&str>, size: f32) {
     let outer = size * 1.22;
     let (rect, _) = ui.allocate_exact_size(egui::vec2(outer, outer), egui::Sense::hover());
@@ -455,7 +455,7 @@ mod tests {
         assert_eq!(c.len(), 1);
         assert_eq!((c[0].author.as_str(), c[0].time, c[0].avatar.as_str()), ("Аня", 1700000000, "https://a/x.jpg"));
         assert!(c[0].text.contains("Привет") && c[0].text.contains("мир"));
-        // Рамка аватара и анимированный аватар (как отдает Steam).
+        // Avatar frame and animated avatar (as Steam returns them).
         let html = r#"<div class="commentthread_comment responsive_body_text" id="comment_2"><div class="commentthread_comment_avatar playerAvatar offline"><div class="profile_avatar_frame"><picture><source srcset="https://f/1.png"></source><img src="https://f/1.png"></picture></div><a href="u"><picture><source media="(prefers-reduced-motion: reduce)" srcset="https://a/still.jpg"></source><img srcset="https://a/anim.gif" ></picture></a></div><div class="author_name_group"><a class="hoverunderline commentthread_author_link" href="h"><bdi>Б</bdi></a></div><div class="commentthread_comment_text">т</div></div>"#;
         let c = parse_comments(html);
         assert_eq!((c[0].avatar.as_str(), c[0].frame.as_str()), ("https://a/still.jpg", "https://f/1.png"));
@@ -493,7 +493,7 @@ mod tests {
 
 #[cfg(test)]
 mod showcase_tests {
-    /// Разбор сохраненной страницы профиля друга (VAPORUST_DUMP/profile_friend.html).
+    /// Parsing a saved friend profile page (VAPORUST_DUMP/profile_friend.html).
     #[test]
     #[ignore]
     fn showcases_dump() {
@@ -508,11 +508,11 @@ mod showcase_tests {
     }
 }
 
-/// Счетчики правой колонки профиля (значки, игры, инвентарь, скриншоты, обзоры, друзья,
-/// группы): (подпись, число, ссылка).
+/// Profile right column counters (badges, games, inventory, screenshots, reviews, friends,
+/// groups): (caption, number, link).
 pub fn parse_counts(html: &str) -> Vec<(String, String, String)> {
     let mut out = Vec::new();
-    // Только сами счетчики («profile_count_link ellipsis»), а не _total, _preview и т.п.
+    // Only the counters themselves ("profile_count_link ellipsis"), not _total, _preview and the like.
     let key = "class=\"profile_count_link";
     let starts: Vec<usize> = html
         .match_indices(key)
@@ -533,7 +533,7 @@ pub fn parse_counts(html: &str) -> Vec<(String, String, String)> {
     out
 }
 
-/// Комментарии профиля с `start` (по 10, для «Показать еще»): (всего, комментарии).
+/// Profile comments from `start` (10 each, for "Show more"): (total, comments).
 pub async fn load_comments(client: &SteamClient, id: u64, start: u32) -> Result<(u32, Vec<Comment>), String> {
     let web = webapi::web_session(client).await?;
     let t = web
@@ -544,7 +544,7 @@ pub async fn load_comments(client: &SteamClient, id: u64, start: u32) -> Result<
     Ok((j["total_count"].as_u64().unwrap_or(0) as u32, parse_comments(j["comments_html"].as_str().unwrap_or(""))))
 }
 
-/// Удалить комментарий (в своем профиле - любой, в чужом - свой).
+/// Delete a comment (any on own profile, own on someone else's).
 pub async fn delete_comment(client: &SteamClient, owner: u64, gid: &str) -> Result<(), String> {
     let web = webapi::web_session(client).await?;
     let fields = [
@@ -573,7 +573,7 @@ pub async fn delete_comment(client: &SteamClient, owner: u64, gid: &str) -> Resu
 
 #[cfg(test)]
 mod counts_live {
-    /// Живой тест (только чтение): счетчики своего профиля и первые комментарии.
+    /// Live test (read only): own profile counters and the first comments.
     #[test]
     #[ignore]
     fn counts_live() {
@@ -610,17 +610,17 @@ mod counts_dump {
     }
 }
 
-/// Недавняя игра со страницы профиля (как показывает Steam: 3 штуки).
+/// A recent game from the profile page (as Steam shows it: 3 of them).
 #[derive(Clone, Debug, Default)]
 pub struct PageGame {
     pub appid: u32,
     pub name: String,
     pub capsule: String,
-    /// «519 ч. всего», «последний запуск 12 ноя».
+    /// "519 ч. всего", "последний запуск 12 ноя".
     pub details: Vec<String>,
 }
 
-/// Друг в правой колонке профиля.
+/// A friend in the profile's right column.
 #[derive(Clone, Debug, Default)]
 pub struct PageFriend {
     pub steamid: u64,
@@ -632,23 +632,23 @@ pub struct PageFriend {
     pub in_game: bool,
 }
 
-/// То, что есть только на странице профиля (как ее видит Steam).
+/// What exists only on the profile page (as Steam shows it).
 #[derive(Clone, Debug, Default)]
 pub struct PageInfo {
     pub recent: Vec<PageGame>,
-    /// «2,9 ч. за последние 2 недели».
+    /// "2,9 ч. за последние 2 недели".
     pub recent_total: String,
     pub awards: Vec<String>,
     pub badges: Vec<String>,
     pub friends: Vec<PageFriend>,
-    /// Избранный значок: картинка, название, опыт.
+    /// Favorite badge: image, name, XP.
     pub fav_badge: Option<(String, String, String)>,
-    /// Статус в шапке правой колонки («В сети», «В игре») и игра.
+    /// Status in the right column header ("В сети", "В игре") and the game.
     pub status: String,
     pub status_game: String,
 }
 
-/// Убрать теги и комментарии HTML, сжать пробелы.
+/// Remove HTML tags and comments, collapse spaces.
 pub fn strip_tags(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut rest = s;
@@ -694,7 +694,7 @@ pub fn parse_page(html: &str) -> PageInfo {
     if p.recent_total.len() > 80 {
         p.recent_total.clear();
     }
-    // Награды и значки - картинки под счетчиками.
+    // Awards and badges - images under the counters.
     let mut pos = 0;
     while let Some(i) = html[pos..].find("class=\"award_icon") {
         let at = pos + i;
@@ -717,7 +717,7 @@ pub fn parse_page(html: &str) -> PageInfo {
         }
         pos = at + 10;
     }
-    // Друзья в правой колонке.
+    // Friends in the right column.
     for b in html.split("class=\"friendBlock persona").skip(1).take(8) {
         let state = b.split('"').next().unwrap_or("").trim().to_string();
         let account: u64 = between(b, "data-miniprofile=\"", "\"").and_then(|a| a.parse().ok()).unwrap_or(0);
@@ -737,7 +737,7 @@ pub fn parse_page(html: &str) -> PageInfo {
             });
         }
     }
-    // Избранный значок в шапке.
+    // Favorite badge in the header.
     if let Some(b) = between(html, "class=\"favorite_badge\"", "profile_header_actions") {
         let icon = between(b, "<img src=\"", "\"").unwrap_or("").to_string();
         let name = between(b, "class=\"name ellipsis\">", "</div>").map(strip_tags).unwrap_or_default();
@@ -753,7 +753,7 @@ pub fn parse_page(html: &str) -> PageInfo {
 
 #[cfg(test)]
 mod page_tests {
-    /// Разбор сохраненной страницы своего профиля (VAPORUST_DUMP/profile_me.html).
+    /// Parsing a saved own profile page (VAPORUST_DUMP/profile_me.html).
     #[test]
     #[ignore]
     fn page_dump() {
@@ -782,7 +782,7 @@ mod page_tests {
 
 #[cfg(test)]
 mod comment_html_live {
-    /// Начало HTML первых комментариев своего профиля (аватар и рамка). VAPORUST_DUMP - папка.
+    /// Start of the HTML of the first comments on own profile (avatar and frame). VAPORUST_DUMP - a folder.
     #[test]
     #[ignore]
     fn comment_avatar_html() {
@@ -805,7 +805,7 @@ mod comment_html_live {
 
 #[cfg(test)]
 mod friend_pages_live {
-    /// Что разбирается со страниц профилей друзей (друзья из правой колонки своего профиля).
+    /// What is parsed from friends' profile pages (friends from the right column of own profile).
     #[test]
     #[ignore]
     fn friend_pages() {
@@ -839,7 +839,7 @@ mod friend_pages_live {
 
 #[cfg(test)]
 mod showcase_html_live {
-    /// Сырой HTML витрин друга (VAPORUST_NAME - имя из правой колонки своего профиля).
+    /// Raw HTML of a friend's showcases (VAPORUST_NAME - a name from the right column of own profile).
     #[test]
     #[ignore]
     fn showcase_html() {

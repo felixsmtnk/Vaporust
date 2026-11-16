@@ -1,8 +1,8 @@
-//! Запасные шрифты из Windows: во встроенных шрифтах egui нет многих символов (стрелки, звезды,
-//! значки, эмодзи, буквы из ников вроде «Ɐ», китайские, японские и корейские названия), и вместо
-//! них рисовались квадратики. Файлы шрифтов отображаются в память с диска, поэтому даже
-//! 20-мегабайтный китайский шрифт почти не занимает память программы. Если шрифта на ПК нет,
-//! он просто пропускается.
+//! Fallback fonts from Windows: egui's built-in fonts lack many characters (arrows, stars,
+//! icons, emoji, letters from nicknames like "Ɐ", Chinese, Japanese and Korean titles), and
+//! squares were drawn instead. Font files are memory-mapped from disk, so even
+//! a 20 MB Chinese font takes almost no program memory. If a font is missing on the PC,
+//! it is simply skipped.
 
 use eframe::egui;
 
@@ -18,12 +18,12 @@ pub fn install(ctx: &egui::Context) {
         ("yu_gothic", "YuGothM.ttc"),
         ("malgun", "malgun.ttf"),
     ] {
-        // Файл шрифта подключается прямо с диска (отображение в память): он не копируется в
-        // память программы, Windows читает с диска только нужные части и делит их с другими
-        // программами. Не вышло - читаем целиком, как раньше.
+        // The font file is used straight from disk (memory mapping): it is not copied into
+        // program memory, Windows reads only the needed parts from disk and shares them with other
+        // programs. If that fails - read it whole, as before.
         let data = match map_file(&dir.join(file)) {
             Some(bytes) => egui::FontData::from_static(bytes),
-            // Крупные шрифты (иероглифы) целиком в память не читаем.
+            // Large fonts (CJK) are never read into memory whole.
             None => match std::fs::read(dir.join(file)) {
                 Ok(bytes) if bytes.len() < 4 << 20 => egui::FontData::from_owned(bytes),
                 _ => continue,
@@ -35,7 +35,7 @@ pub fn install(ctx: &egui::Context) {
     if added.is_empty() {
         return;
     }
-    // В конец списков: основной шрифт остается прежним, системные - только для недостающих символов.
+    // At the end of the lists: the main font stays the same, system ones only for missing characters.
     for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
         if let Some(list) = fonts.families.get_mut(&family) {
             list.extend(added.iter().cloned());
@@ -44,7 +44,7 @@ pub fn install(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
-/// Отобразить файл в память только для чтения на все время работы программы.
+/// Map a file into memory read-only for the lifetime of the program.
 fn map_file(path: &std::path::Path) -> Option<&'static [u8]> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_READ, INVALID_HANDLE_VALUE};
@@ -67,7 +67,7 @@ fn map_file(path: &std::path::Path) -> Option<&'static [u8]> {
             return None;
         }
         let view = MapViewOfFile(map, FILE_MAP_READ, 0, 0, 0);
-        // Отображение живет, пока открыт вид; дескриптор можно закрыть.
+        // The mapping lives while the view is open; the handle can be closed.
         CloseHandle(map);
         if view.Value.is_null() {
             return None;

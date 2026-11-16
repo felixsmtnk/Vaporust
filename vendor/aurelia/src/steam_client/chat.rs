@@ -129,7 +129,7 @@ impl SteamClient {
         req.set_steamid2(target);
         req.set_count(count);
         req.set_most_recent_conversation(false);
-        // vaporust: полный формат (стикеры, [img], [emoticon]); без него стикеры выпадают из истории.
+        // vaporust: full format (stickers, [img], [emoticon]); without it stickers drop out of the history.
         req.set_bbcode_format(true);
 
         let resp: CFriendMessages_GetRecentMessages_Response = connection

@@ -1,6 +1,6 @@
-//! Легкий значок загрузки. Обычный egui::Spinner перерисовывает окно на каждом кадре
-//! (до 60 раз в секунду), пока он виден: на старом ноутбуке это заметная нагрузка, а
-//! загрузка в сети может идти долго. Здесь значок обновляется 12 раз в секунду.
+//! A light loading icon. The usual egui::Spinner repaints the window every frame
+//! (up to 60 times a second) while visible: on an old laptop that is a noticeable load, and
+//! network loading can take a while. Here the icon updates 12 times a second.
 
 use eframe::egui;
 
@@ -9,8 +9,8 @@ pub fn spinner(ui: &mut egui::Ui) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
     if ui.is_rect_visible(rect) {
         let time = ui.input(|i| i.time);
-        // Поворот ступенями по 1/12 оборота: перерисовка нужна только на каждом шаге.
-        // Без анимаций (настройка) - неподвижный значок, окно не перерисовывается ради него.
+        // Rotation in steps of 1/12 turn: a repaint is needed only on each step.
+        // Without animations (setting) - a still icon, the window is not repainted for it.
         let anim = crate::imgload::animations();
         let step = if anim { (time * 12.0).floor() } else { 0.0 };
         let start = step / 12.0 * std::f64::consts::TAU;

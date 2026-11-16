@@ -1,14 +1,14 @@
-//! «Недавние игроки» (как в Steam: Друзья -> Недавние игроки): с кем вы играли в последнее
-//! время в сетевых играх. Источник - страница steamcommunity.com/profiles/<я>/friends/coplay.
+//! "Recent players" (as in Steam: Friends -> Recent players): who you played with recently
+//! in online games. Source - the page steamcommunity.com/profiles/<me>/friends/coplay.
 
 use aurelia::steam_client::SteamClient;
 
-/// Игра и люди, с которыми в нее играли.
+/// A game and the people you played it with.
 #[derive(Clone, Debug, Default)]
 pub struct CoplayGame {
     pub appid: u32,
     pub name: String,
-    /// «Играли 3 ноя» и т.п. (как пишет Steam).
+    /// "Played Nov 3" and so on (as Steam writes it).
     pub when: String,
     pub players: Vec<CoplayPlayer>,
 }
@@ -54,12 +54,12 @@ fn strip(s: &str) -> String {
     crate::store::plain_text(&out).split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Разбор страницы: блоки `coplayGroup` (игра + список `friend_block_v2`).
+/// Page parsing: `coplayGroup` blocks (game + a list of `friend_block_v2`).
 pub fn parse(html: &str) -> Vec<CoplayGame> {
     let mut out = Vec::new();
     for block in html.split("class=\"coplayGroup\"").skip(1) {
         let mut g = CoplayGame::default();
-        // Ссылка на игру: .../app/<id>... и название в gameListRowItemName / coplayAppInfo.
+        // Game link: .../app/<id>... and the name in gameListRowItemName / coplayAppInfo.
         if let Some(a) = between(block, "/app/", "\"") {
             g.appid = a.split(|c: char| !c.is_ascii_digit()).next().and_then(|n| n.parse().ok()).unwrap_or(0);
         }
@@ -95,7 +95,7 @@ pub fn parse(html: &str) -> Vec<CoplayGame> {
 }
 
 impl crate::LauncherApp {
-    /// Вкладка «Недавние игроки» на странице «Друзья».
+    /// "Recent players" tab on the "Friends" page.
     pub(crate) fn coplay_contents(&mut self, ui: &mut eframe::egui::Ui, net: &crate::net::NetState) {
         use eframe::egui;
         if !self.friends_page.coplay_asked {
@@ -183,7 +183,7 @@ impl crate::LauncherApp {
 
 #[cfg(test)]
 mod live {
-    /// VAPORUST_DUMP=<файл> cargo test coplay_dump -- --ignored --nocapture: сырой HTML и разбор.
+    /// VAPORUST_DUMP=<file> cargo test coplay_dump -- --ignored --nocapture: raw HTML and parse.
     #[test]
     #[ignore]
     fn coplay_dump() {

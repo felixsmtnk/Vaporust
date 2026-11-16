@@ -1,6 +1,6 @@
-//! Окно «Магазин Steam» (отдельное окно Windows): поиск, скидки, список желаемого
-//! и страница игры (цена, описание, скриншоты, новости, отзывы, похожие игры).
-//! Покупка - на странице Steam в браузере: лаунчер платежи не проводит.
+//! "Steam Store" window (a separate Windows window): search, discounts, wishlist
+//! and the game page (price, description, screenshots, news, reviews, similar games).
+//! Purchase happens on the Steam page in a browser: the launcher does not process payments.
 
 use crate::net::{Cmd, NetState};
 use crate::store::{self, StoreCmd};
@@ -10,27 +10,27 @@ use eframe::egui;
 use std::collections::HashSet;
 
 thread_local! {
-    /// Отзывы, для которых уже запрошена страница (полный текст, часы на момент отзыва).
+    /// Reviews whose page was already requested (full text, hours at review time).
     static REVIEW_ASKED: std::cell::RefCell<HashSet<String>> = Default::default();
 }
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum Tab {
-    /// Главная: полки скидок, лидеров продаж, новинок и рекомендаций.
+    /// Home: shelves of discounts, top sellers, new releases and recommendations.
     Home,
     Search,
     Deals,
     Events,
     Wishlist,
-    /// Список желаемого друга (временная вкладка).
+    /// A friend's wishlist (temporary tab).
     FriendWishlist,
-    /// Чарты Steam (какой - StoreWin.chart).
+    /// Steam charts (which one - StoreWin.chart).
     Charts,
-    /// Очередь открытий.
+    /// Discovery queue.
     Discovery,
 }
 
-/// Сортировка списков магазина.
+/// Sorting of store lists.
 #[derive(PartialEq, Clone, Copy)]
 enum Sort {
     Default,
@@ -57,7 +57,7 @@ impl Sort {
     }
 }
 
-/// Процент положительных отзывов из «Очень положительные (83% positive, 4238 reviews)».
+/// Percent of positive reviews from "Very Positive (83% positive, 4238 reviews)".
 fn review_pct(a: &StoreAppInfo) -> i32 {
     a.review_summary
         .as_deref()
@@ -67,7 +67,7 @@ fn review_pct(a: &StoreAppInfo) -> i32 {
         .unwrap_or(-1)
 }
 
-/// Цена для сортировки: бесплатные - 0, без цены - в конец.
+/// Price for sorting: free - 0, without a price - at the end.
 fn price_key(a: &StoreAppInfo) -> i64 {
     if a.is_free {
         0
@@ -83,17 +83,17 @@ pub struct StoreWin {
     hide_owned: bool,
     tab: Tab,
     query: String,
-    /// Открытые страницы игр (назад - снять последнюю).
+    /// Open game pages (back - pop the last one).
     pages: Vec<u32>,
-    /// Уже попросили подробности (чтобы не слать команду каждый кадр).
+    /// Details were already requested (so we do not send a command every frame).
     asked: HashSet<u32>,
     deals_asked: bool,
     events_asked: bool,
-    /// Какой чарт открыт (номер в store::CHARTS) и какие уже запрошены.
+    /// Which chart is open (index in store::CHARTS) and which were already requested.
     chart: u8,
     charts_asked: HashSet<u8>,
     discovery_asked: bool,
-    /// Поиск внутри списка желаемого.
+    /// Search within the wishlist.
     wish_query: String,
 }
 
@@ -105,7 +105,7 @@ fn store_url(appid: u32) -> String {
     format!("https://store.steampowered.com/app/{appid}/")
 }
 
-/// «Крайне положительные (96% positive, 118575 reviews)» -> по-русски.
+/// "Overwhelmingly Positive (96% positive, 118575 reviews)" -> in Russian.
 fn review_ru(s: &str) -> String {
     s.replace(" positive", " положительных").replace(" reviews", " отзывов")
 }
@@ -119,7 +119,7 @@ fn fmt_date(unix: u64) -> String {
         .unwrap_or_default()
 }
 
-/// Цена с учетом скидки, бесплатности и «скоро выйдет».
+/// Price considering the discount, free and "coming soon".
 fn price_ui(ui: &mut egui::Ui, a: &StoreAppInfo) {
     if a.coming_soon {
         ui.weak(format!("Скоро{}", a.release_date.as_ref().map(|d| format!(": {}", ru_date(d))).unwrap_or_default()));
@@ -166,8 +166,8 @@ impl StoreWin {
 }
 
 impl LauncherApp {
-    /// Открыть магазин: в главном окне или (detached) в отдельном.
-    /// Магазин на вкладке «Желаемое: <друг>».
+    /// Open the store: in the main window or (detached) in a separate one.
+    /// The store on the "Wishlist: <friend>" tab.
     pub(crate) fn open_friend_wishlist(&mut self, id: u64, name: String) {
         self.open_store(None, false);
         self.net.lock().unwrap().store.lock().unwrap().friend_wishlist = Some((id, name, None));
@@ -178,7 +178,7 @@ impl LauncherApp {
         }
     }
 
-    /// Магазин на вкладке «Список желаемого» (щелчок по уведомлению о скидках).
+    /// The store on the "Wishlist" tab (click on a discount notification).
     pub(crate) fn open_wishlist(&mut self) {
         self.open_store(None, false);
         if let Some(w) = self.store_win.as_mut() {
@@ -201,11 +201,11 @@ impl LauncherApp {
                 let _ = self.tx.send(Cmd::Store(StoreCmd::Page(appid)));
             }
         }
-        // Свой список желаемого - чтобы отмечать игры «в желаемом».
+        // Own wishlist - to mark games as "wishlisted".
         let _ = self.tx.send(Cmd::Store(StoreCmd::Wishlist));
     }
 
-    /// Магазин в отдельном окне (открыт с Ctrl).
+    /// The store in a separate window (opened with Ctrl).
     pub(crate) fn store_window(&mut self, ctx: &egui::Context, net: &NetState) {
         if self.store_win.is_none() || !self.store_detached {
             return;
@@ -230,11 +230,11 @@ impl LauncherApp {
         }
     }
 
-    /// Содержимое магазина: и в главном окне, и в отдельном.
+    /// Store contents: both in the main window and in the separate one.
     pub(crate) fn store_contents(&mut self, ui: &mut egui::Ui, net: &NetState) {
         let shared = net.store.clone();
         let mut st = shared.lock().unwrap();
-        // Регион цен: сохраненный в настройках, иначе определенный Steam по IP.
+        // Price region: saved in settings, otherwise the one Steam determined by IP.
         if st.country.is_empty() {
             if let Some(cc) = self.settings.store_country.clone() {
                 st.country = cc;
@@ -256,18 +256,18 @@ impl LauncherApp {
 
         egui::TopBottomPanel::top("store_top").show_inside(ui, |ui| {
             ui.add_space(6.0);
-            // Строка 1: разделы магазина и (справа) регион цен. В главном окне разделы - в подменю
-            // сверху, поэтому строка нужна только на странице игры и для желаемого друга.
+            // Row 1: store sections and (on the right) the price region. In the main window the sections are in the
+            // submenu on top, so the row is needed only on a game page and for a friend's wishlist.
             let row1 = own_tabs || !w.pages.is_empty() || st.friend_wishlist.is_some();
             if row1 {
             ui.horizontal(|ui| {
                 if !w.pages.is_empty() && ui.button("< Назад").clicked() {
                     w.pages.pop();
                 }
-                // «Скидки» - один раздел с двумя списками (Deals и Events).
+                // "Discounts" - one section with two lists (Deals and Events).
                 let in_deals = matches!(w.tab, Tab::Deals | Tab::Events);
-                // В главном окне эти разделы - в подменю «МАГАЗИН» сверху (nav.rs); здесь только
-                // в отдельном окне магазина.
+                // In the main window these sections are in the "STORE" submenu on top (nav.rs); here only
+                // in the separate store window.
                 let tabs: &[(Tab, &str)] = if own_tabs {
                     &[
                         (Tab::Home, "Главная"),
@@ -289,7 +289,7 @@ impl LauncherApp {
                         w.pages.clear();
                     }
                 }
-                // Желаемое друга - временный раздел, пока открыт.
+                // A friend's wishlist - a temporary section while it is open.
                 if let Some((_, name, _)) = st.friend_wishlist.clone() {
                     let text = egui::RichText::new(format!("Желаемое: {name}")).size(15.0);
                     if ui.selectable_label(w.tab == Tab::FriendWishlist && w.pages.is_empty(), text).clicked() {
@@ -305,10 +305,10 @@ impl LauncherApp {
                 });
             });
             }
-            // Строка 2 (только в списках): поиск или подраздел слева, порядок и фильтры справа.
+            // Row 2 (lists only): search or subsection on the left, order and filters on the right.
             if w.pages.is_empty() {
                 ui.add_space(4.0);
-                // В узком окне порядок, фильтры и регион - отдельной строкой ниже, иначе налезают на поиск.
+                // In a narrow window order, filters and region go to a separate row below, otherwise they overlap the search.
                 let narrow = ui.available_width() < 900.0;
                 macro_rules! right_group {
                     ($ui:expr) => {
@@ -336,7 +336,7 @@ impl LauncherApp {
                 }
                 ui.horizontal(|ui| {
                     match w.tab {
-                        // Поиск по магазину - на «Главной» (как в Steam); результаты - на месте полок.
+                        // Store search is on "Home" (as in Steam); results replace the shelves.
                         Tab::Home | Tab::Search => {
                             let edit = ui.add(
                                 egui::TextEdit::singleline(&mut w.query)
@@ -436,7 +436,7 @@ impl LauncherApp {
                 ui.weak(h);
                 ui.add_space(4.0);
             }
-            // Пометки в списке «Акции Steam»: что за акция и до какого числа.
+            // Labels in the "Steam events" list: what event and until what date.
             let chart_badges: Option<std::collections::HashMap<u32, String>> = match w.tab {
                 Tab::Charts => st.charts.get(&w.chart).and_then(|r| r.as_ref().ok()).map(|v| v.iter().cloned().collect()),
                 _ => None,
@@ -505,8 +505,8 @@ impl LauncherApp {
                 }
                 Some(Ok(all)) => {
                     let mut missing = Vec::new();
-                    // Фильтры и сортировка нужны по подробностям всех игр списка:
-                    // недостающие догружаем, а пока не пришли - игры не показываем.
+                    // Filters and sorting need details of all games in the list:
+                    // missing ones are loaded, and until they arrive the games are not shown.
                     let q = w.wish_query.trim().to_lowercase();
                     let wish_filter = matches!(w.tab, Tab::Wishlist | Tab::FriendWishlist) && !q.is_empty();
                     let filtering = w.sort != Sort::Default || w.only_discount || w.only_free || w.hide_owned || wish_filter;
@@ -548,7 +548,7 @@ impl LauncherApp {
                             }
                         }
                     });
-                    // Свой список желаемого без фильтров: порядок меняется правым щелчком (как перетаскивание в Steam).
+                    // Own wishlist without filters: the order changes by right click (like dragging in Steam).
                     let reorder = w.tab == Tab::Wishlist && !filtering;
                     let mut moved: Option<(usize, usize)> = None;
                     egui::ScrollArea::vertical().auto_shrink([false, false]).show_rows(ui, ROW_H, ids.len(), |ui, range| {
@@ -635,7 +635,7 @@ impl LauncherApp {
     }
 }
 
-/// Действия со страницы игры, которым нужен весь LauncherApp (окна наград, обзора, корзины).
+/// Game page actions that need the whole LauncherApp (award, review, cart windows).
 pub enum UiReq {
     Award(u32, String, String),
     Review(u32, String),
@@ -644,7 +644,7 @@ pub enum UiReq {
 
 pub static UI_REQ: std::sync::Mutex<Vec<UiReq>> = std::sync::Mutex::new(Vec::new());
 
-/// Кураторы с обзором игры (как блок «Кураторы» на странице игры в Steam).
+/// Curators who reviewed the game (like the "Curators" block on the Steam game page).
 fn curators_block(ui: &mut egui::Ui, appid: u32, st: &store::StoreState, cmds: &mut Vec<Cmd>) {
     thread_local! {
         static ASKED: std::cell::RefCell<HashSet<u32>> = Default::default();
@@ -658,7 +658,7 @@ fn curators_block(ui: &mut egui::Ui, appid: u32, st: &store::StoreState, cmds: &
     }
     ui.add_space(10.0);
     ui.label(egui::RichText::new("КУРАТОРЫ").size(13.0).color(crate::theme::TEXT));
-    // Сначала три, остальные - по кнопке (как «Все кураторы» в Steam).
+    // Three first, the rest by a button (like "All curators" in Steam).
     let key = egui::Id::new(("curators_all", appid));
     let all: bool = ui.data(|d| d.get_temp(key)).unwrap_or(false);
     for c in list.iter().take(if all { 10 } else { 3 }) {
@@ -697,7 +697,7 @@ fn curators_block(ui: &mut egui::Ui, appid: u32, st: &store::StoreState, cmds: &
     }
 }
 
-/// Главная магазина: несколько полок карточек, у каждой «Все» - открыть полный список.
+/// Store home: several shelves of cards, each with "All" - open the full list.
 #[allow(clippy::too_many_arguments)]
 fn home_view(
     ui: &mut egui::Ui,
@@ -710,7 +710,7 @@ fn home_view(
     goto: &mut Option<(Tab, Option<u8>)>,
     missing: &mut Vec<u32>,
 ) {
-    // Запросить списки один раз.
+    // Request the lists once.
     if !w.deals_asked && st.deals.is_none() {
         w.deals_asked = true;
         cmds.push(Cmd::Store(StoreCmd::Deals));
@@ -725,7 +725,7 @@ fn home_view(
         cmds.push(Cmd::Store(StoreCmd::Discovery { rebuild: false, skip: Vec::new() }));
     }
     let chart = |c: u8| st.charts.get(&c).map(|r| r.clone().map(|v| v.iter().map(|e| e.0).collect::<Vec<u32>>()));
-    // Скидки в своем желаемом - только по уже загруженным подробностям.
+    // Discounts in own wishlist - only from already loaded details.
     let wish_sales: Option<Result<Vec<u32>, String>> = st.wishlist.as_ref().map(|r| {
         r.clone().map(|v| v.into_iter().filter(|id| st.apps.get(id).is_some_and(|a| a.discount_pct > 0)).collect())
     });
@@ -740,7 +740,7 @@ fn home_view(
     const GAP: f32 = 10.0;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         for (title, ids, tab, chart_no) in shelves {
-            // Пустую полку скидок в желаемом не показываем.
+            // An empty wishlist discount shelf is not shown.
             if tab == Tab::Wishlist && ids.as_ref().map_or(true, |r| r.as_ref().map_or(true, |v| v.is_empty())) {
                 continue;
             }
@@ -786,7 +786,7 @@ fn home_view(
     });
 }
 
-/// Карточка полки: шапка игры, название, цена. true - щелкнули.
+/// Shelf card: game header, name, price. true - clicked.
 fn home_card(ui: &mut egui::Ui, appid: u32, a: Option<&StoreAppInfo>, w: f32, owned: bool, wished: bool) -> bool {
     let img_h = w * 215.0 / 460.0;
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, img_h + 46.0), egui::Sense::click());
@@ -841,15 +841,15 @@ fn home_card(ui: &mut egui::Ui, appid: u32, a: Option<&StoreAppInfo>, w: f32, ow
     resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
 }
 
-/// Маленькая картинка игры (120x45); если у игры ее нет (у новых игр другие адреса) -
-/// шапка из данных магазина.
+/// Small game image (120x45); if the game does not have one (new games use other URLs) -
+/// the header from store data.
 fn capsule(_ui: &egui::Ui, appid: u32, a: Option<&StoreAppInfo>) -> String {
-    // «Шапка» (header) есть у каждой игры; маленькая капсула у новых игр часто отсутствует.
+    // Every game has a "header"; the small capsule is often missing for new games.
     a.and_then(|a| a.assets.header.clone())
         .unwrap_or_else(|| format!("https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{appid}/header.jpg"))
 }
 
-/// Итог отзывов коротко («Очень положительные») и цвет, как в Steam; полный текст - подсказкой.
+/// Short review summary ("Очень положительные") and its color, as in Steam; the full text in a tooltip.
 fn review_short(s: &str) -> (String, egui::Color32) {
     let short = s.split(" (").next().unwrap_or(s).trim().to_string();
     let l = short.to_lowercase();
@@ -863,7 +863,7 @@ fn review_short(s: &str) -> (String, egui::Color32) {
     (short, color)
 }
 
-/// Блок цены справа: скидка большой плашкой, старая цена зачеркнута, новая крупно.
+/// Price block on the right: the discount as a big badge, the old price struck through, the new one large.
 fn price_block(ui: &mut egui::Ui, a: &StoreAppInfo) {
     if a.coming_soon {
         ui.weak("Скоро");
@@ -888,7 +888,7 @@ fn price_block(ui: &mut egui::Ui, a: &StoreAppInfo) {
     }
 }
 
-/// Строка списка: картинка, название, разработчик и дата, отзывы, цена. true - щелкнули.
+/// List row: image, name, developer and date, reviews, price. true - clicked.
 fn list_row(ui: &mut egui::Ui, a: &StoreAppInfo, owned: bool, wished: bool, badge: Option<&str>) -> egui::Response {
     let w = ui.available_width();
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, ROW_H - 6.0), egui::Sense::click());
@@ -1011,7 +1011,7 @@ fn game_page(
                         } else if ui.button("В список желаемого").clicked() {
                             cmds.push(Cmd::Store(StoreCmd::WishlistSet(appid, true)));
                         }
-                        // «Не интересует», как в Steam: игра пропадает из рекомендаций.
+                        // "Not interested", as in Steam: the game disappears from recommendations.
                         static IGNORED_ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
                         if st.ignored.is_none() && !IGNORED_ASKED.swap(true, std::sync::atomic::Ordering::Relaxed) {
                             cmds.push(Cmd::Store(StoreCmd::IgnoredList));
@@ -1042,7 +1042,7 @@ fn game_page(
         if !a.publishers.is_empty() {
             ui.label(format!("Издатель: {}", a.publishers.join(", ")));
         }
-        // Метки: сначала 12 самых заметных, «все метки» раскрывает остальные; щелчок - метка в магазине Steam.
+        // Tags: first the 12 most prominent, "all tags" expands the rest; a click - the tag in the Steam store.
         let all_tags: Vec<String> = a.tags.iter().filter_map(|t| t.name.clone()).collect();
         if !all_tags.is_empty() {
             let key = egui::Id::new(("all_tags", appid));
@@ -1160,10 +1160,10 @@ fn game_page(
             let rv = ex.and_then(|e| e.reviews.as_ref());
             let (sort, lang) = rv.map(|r| (r.sort, r.lang)).unwrap_or((0, 0));
             if rv.is_none() {
-                // Раздел открыли - первая страница (полезные за все время, на русском), как на сайте.
+                // The section was opened - the first page (most helpful of all time, in Russian), as on the site.
                 cmds.push(Cmd::Store(StoreCmd::Reviews { appid, sort: 0, lang: 0, page: 1 }));
             }
-            // Тип (все / положительные / отрицательные) - фильтр по уже загруженным.
+            // Type (all / positive / negative) - a filter over the already loaded ones.
             let type_key = egui::Id::new(("rev_type", appid));
             let mut kind: u8 = ui.data(|d| d.get_temp(type_key)).unwrap_or(0);
             ui.horizontal_wrapped(|ui| {
@@ -1203,7 +1203,7 @@ fn game_page(
             }
             let shown: Vec<&store::Review> =
                 rv.list.iter().filter(|r| kind == 0 || (kind == 1) == r.positive).collect();
-            // Отрицательных среди первых страниц бывает мало - догружаем сами (до 10 страниц).
+            // There are few negative ones among the first pages - load more ourselves (up to 10 pages).
             if kind != 0 && shown.len() < 6 && rv.more && !rv.loading && rv.pages < 10 {
                 cmds.push(Cmd::Store(StoreCmd::Reviews { appid, sort, lang, page: rv.pages + 1 }));
             }
@@ -1250,8 +1250,8 @@ fn game_page(
     });
 }
 
-/// Карточка отзыва: кто, рекомендует ли, текст (полный - по кнопке), полезно/забавно, награды
-/// и свои оценки.
+/// Review card: who, whether they recommend, text (full - by a button), helpful/funny, awards
+/// and own votes.
 fn review_card(ui: &mut egui::Ui, r: &store::Review, st: &store::StoreState, cmds: &mut Vec<Cmd>) {
     let (color, verdict) = if r.positive {
         (egui::Color32::from_rgb(102, 192, 244), "Рекомендует")
@@ -1273,7 +1273,7 @@ fn review_card(ui: &mut egui::Ui, r: &store::Review, st: &store::StoreState, cmd
                         ui.label(egui::RichText::new(verdict).color(color).strong());
                         ui.label(egui::RichText::new(crate::richtext::fix(ui, &r.author)).strong());
                     });
-                    // Часы на момент отзыва есть только на странице отзыва - грузим ее фоном, один раз.
+                    // Hours at review time exist only on the review page - load it in the background, once.
                     let at = match st.review_full.get(&r.url) {
                         Some(Ok((_, _, at))) => at.clone(),
                         Some(Err(_)) => String::new(),
@@ -1292,7 +1292,7 @@ fn review_card(ui: &mut egui::Ui, r: &store::Review, st: &store::StoreState, cmd
                 });
             });
             ui.add_space(4.0);
-            // Полный текст, если уже загружен; иначе то, что пришло в списке.
+            // The full text if already loaded; otherwise what came in the list.
             let full = st.review_full.get(&r.url);
             let text = match full {
                 Some(Ok((t, _, _))) if !t.is_empty() => t.as_str(),
@@ -1302,7 +1302,7 @@ fn review_card(ui: &mut egui::Ui, r: &store::Review, st: &store::StoreState, cmd
             let text = crate::richtext::fix(ui, text);
             ui.add(egui::Label::new(text).wrap());
             ui.add_space(4.0);
-            // Своя оценка в этом сеансе прибавляется к числам Steam (сам список Steam не перечитываем).
+            // Own vote in this session is added to Steam's numbers (we do not reread Steam's list itself).
             let mine = st.review_mine.get(&r.url).copied();
             let helpful_n = r.helpful_n + u32::from(mine == Some(0));
             let funny_n = r.funny_n + u32::from(mine == Some(2));
@@ -1313,7 +1313,7 @@ fn review_card(ui: &mut egui::Ui, r: &store::Review, st: &store::StoreState, cmd
                 if funny_n > 0 {
                     ui.label(egui::RichText::new(format!("Забавно: {funny_n}")).small().color(egui::Color32::from_rgb(230, 190, 90)));
                 }
-                // Награды за очки Steam (реакции) - значки с числом, как на сайте.
+                // Steam points awards (reactions) - icons with a count, as on the site.
                 for (id, n) in r.awards.iter().take(8) {
                     let url = format!("https://store.fastly.steamstatic.com/public/images/loyalty/reactions/still/{id}.png");
                     ui.add(egui::Image::new(url).fit_to_exact_size(egui::vec2(18.0, 18.0)));
@@ -1324,7 +1324,7 @@ fn review_card(ui: &mut egui::Ui, r: &store::Review, st: &store::StoreState, cmd
                 ui.horizontal_wrapped(|ui| {
                     ui.weak(egui::RichText::new("Этот обзор:").small());
                     for (kind, label) in [(0u8, "Полезный"), (1, "Бесполезный"), (2, "Забавный")] {
-                        // Выбранная оценка подсвечена; «полезный» и «бесполезный» взаимоисключающие.
+                        // The chosen vote is highlighted; "helpful" and "not helpful" are mutually exclusive.
                         let on = mine == Some(kind);
                         let text = if on { egui::RichText::new(label).small().strong() } else { egui::RichText::new(label).small() };
                         if ui.add_enabled(crate::exp::on(), egui::SelectableLabel::new(on, text)).on_disabled_hover_text(crate::exp::HINT).clicked() && !on {
@@ -1348,16 +1348,16 @@ fn review_card(ui: &mut egui::Ui, r: &store::Review, st: &store::StoreState, cmd
     ui.add_space(6.0);
 }
 
-/// Обход разделов (tour.rs): прокрутить страницу игры на столько пикселей.
+/// Section tour (tour.rs): scroll the game page by this many pixels.
 pub static TOUR_SCROLL: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 impl StoreWin {
-    /// Обход разделов (tour.rs): переключить вкладку.
+    /// Section tour (tour.rs): switch the tab.
     pub(crate) fn tab(&self) -> Tab {
         self.tab
     }
 
-    /// Открыта страница игры (а не список).
+    /// A game page is open (not a list).
     pub(crate) fn on_page(&self) -> bool {
         !self.pages.is_empty()
     }
@@ -1366,13 +1366,13 @@ impl StoreWin {
         self.tab = tab;
         self.pages.clear();
     }
-    /// Обход разделов (tour.rs): текст поиска.
+    /// Section tour (tour.rs): search text.
     pub(crate) fn tour_search(&mut self, q: &str) {
         self.query = q.to_string();
     }
 }
 
-/// «2011-04-19» -> «19.04.2011»; другой вид даты - как есть.
+/// "2011-04-19" -> "19.04.2011"; another date format - as is.
 pub(crate) fn ru_date(d: &str) -> String {
     let p: Vec<&str> = d.split('-').collect();
     if p.len() == 3 && p[0].len() == 4 && p.iter().all(|x| x.chars().all(|c| c.is_ascii_digit())) {
@@ -1382,7 +1382,7 @@ pub(crate) fn ru_date(d: &str) -> String {
     }
 }
 
-/// Выбор региона цен (страна). По умолчанию - регион кошелька Steam.
+/// Price region choice (country). By default - the Steam wallet region.
 fn region_combo(ui: &mut egui::Ui, current: &str, saved: &mut Option<String>, cmds: &mut Vec<Cmd>, w: &mut StoreWin) {
     let label = store::COUNTRIES
         .iter()

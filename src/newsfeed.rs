@@ -1,13 +1,13 @@
-//! Вкладка «Новости»: новости всех своих игр одной лентой (как раздел новостей Steam).
-//! Берутся установленные игры и самые игранные, по несколько новостей у каждой
-//! (открытый API новостей Steam), и сортируются по дате.
+//! "News" tab: news of all own games in one feed (like Steam's news section).
+//! Installed games and the most played ones are taken, a few news items each
+//! (public Steam news API), sorted by date.
 
 use crate::net::{Cmd, NetState};
 use crate::LauncherApp;
 use eframe::egui;
 use std::collections::HashSet;
 
-/// Новость в ленте.
+/// A news item in the feed.
 #[derive(Clone, Debug)]
 pub struct FeedItem {
     pub appid: u32,
@@ -15,16 +15,16 @@ pub struct FeedItem {
     pub title: String,
     pub url: String,
     pub date: u64,
-    /// Начало текста без оформления.
+    /// Start of the text without formatting.
     pub excerpt: String,
-    /// Полный текст (BBCode Steam).
+    /// Full text (Steam BBCode).
     pub body: String,
 }
 
-/// Сколько игр опрашивать (по 3 новости).
+/// How many games to query (3 news items each).
 const MAX_GAMES: usize = 60;
 
-/// Скачать ленту: новости игр параллельно (по 8 запросов), по убыванию даты.
+/// Download the feed: game news in parallel (8 requests at a time), by date descending.
 pub async fn load(games: Vec<(u32, String)>) -> Result<Vec<FeedItem>, String> {
     let mut set = tokio::task::JoinSet::new();
     let mut out = Vec::new();
@@ -57,8 +57,8 @@ pub async fn load(games: Vec<(u32, String)>) -> Result<Vec<FeedItem>, String> {
     Ok(out)
 }
 
-/// Объявления игры из «событий» Steam (то же, что раздел новостей игры в клиенте Steam):
-/// с l=russian Steam отдает русскую версию, если разработчик ее написал, и полный текст.
+/// Game announcements from Steam "events" (the same as the game news section in the Steam client):
+/// with l=russian Steam returns the Russian version if the developer wrote one, and the full text.
 async fn events(appid: u32, count: u32) -> Result<Vec<FeedItem>, String> {
     let url = format!(
         "https://store.steampowered.com/events/ajaxgetpartnereventspageable/?clan_accountid=0&appid={appid}&offset=0&count={count}&l={lang}&origin=https:%2F%2Fstore.steampowered.com",
@@ -89,9 +89,9 @@ async fn events(appid: u32, count: u32) -> Result<Vec<FeedItem>, String> {
 }
 
 
-/// Первые ~300 знаков текста новости без разметки.
+/// The first ~300 characters of the news text without markup.
 fn excerpt(contents: &str) -> String {
-    // В тексте новостей Steam квадратные скобки бывают экранированы обратной чертой.
+    // In Steam news text square brackets may be escaped with a backslash.
     let raw = contents.replace("\\[", "[").replace("\\]", "]");
     let text = crate::store::plain_text(&raw).replace('\\', "");
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -102,19 +102,19 @@ fn excerpt(contents: &str) -> String {
     }
 }
 
-/// Состояние вкладки.
+/// Tab state.
 #[derive(Default)]
 pub struct NewsUi {
     pub asked: bool,
-    /// Фильтр по игре (None - все).
+    /// Filter by game (None - all).
     pub game: Option<u32>,
     pub only_installed: bool,
-    /// Открытая новость: (appid, дата, заголовок).
+    /// Open news item: (appid, date, title).
     pub open: Option<(u32, u64, String)>,
 }
 
 impl LauncherApp {
-    /// Какие игры опрашивать: установленные, затем самые игранные.
+    /// Which games to query: installed ones, then the most played.
     fn news_games(&self, net: &NetState) -> Vec<(u32, String)> {
         let mut v: Vec<(u32, String)> = self.games.iter().map(|g| (g.appid, g.name.clone())).collect();
         let mut owned: Vec<_> = net.owned.iter().collect();
@@ -127,7 +127,7 @@ impl LauncherApp {
                 v.push((g.app_id, g.name.clone()));
             }
         }
-        v.retain(|(a, _)| *a != 228980); // служебные библиотеки Steam
+        v.retain(|(a, _)| *a != 228980); // Steam service libraries
         v.truncate(MAX_GAMES);
         v
     }
@@ -159,7 +159,7 @@ impl LauncherApp {
             }
             Some(Ok(v)) => v,
         };
-        // Фильтры: игра, только установленные.
+        // Filters: game, installed only.
         let mut games: Vec<(u32, String)> = Vec::new();
         for n in items {
             if !games.iter().any(|(a, _)| *a == n.appid) {
@@ -183,7 +183,7 @@ impl LauncherApp {
             ui.checkbox(&mut st.only_installed, "Только установленные");
         });
         ui.separator();
-        // Открытая новость - целиком.
+        // Open news item - in full.
         if let Some(n) = st.open.as_ref().and_then(|key| items.iter().find(|n| (n.appid, n.date, &n.title) == (key.0, key.1, &key.2))) {
             let mut back = false;
             ui.horizontal(|ui| {
@@ -292,7 +292,7 @@ mod tests {
 }
 
 impl LauncherApp {
-    /// Полка «Что нового» над играми на главной библиотеки: 4 свежие новости своих игр.
+    /// "What's new" shelf above the games on the library home: 4 fresh news items of own games.
     pub(crate) fn whats_new_shelf(&mut self, ui: &mut egui::Ui, net: &NetState) {
         if !self.settings.whats_new {
             return;
@@ -321,7 +321,7 @@ impl LauncherApp {
             });
         });
         let gap = 10.0;
-        // Карточка не уже 250 точек: на узком окне карточек меньше.
+        // A card is at least 250 points wide: in a narrow window there are fewer cards.
         let fit = (((ui.available_width() + gap) / (250.0 + gap)).floor() as usize).clamp(1, items.len());
         let items = &items[..fit];
         let n = fit as f32;
@@ -349,7 +349,7 @@ impl LauncherApp {
                     .map(|t| t.format("%d.%m").to_string())
                     .unwrap_or_default();
                 c.add(egui::Label::new(egui::RichText::new(format!("{} · {date}", it.game)).small().weak()).truncate());
-                // Заголовок - до двух строк, дальше многоточие.
+                // Title - up to two lines, then an ellipsis.
                 let mut job = egui::text::LayoutJob::single_section(
                     it.title.clone(),
                     egui::TextFormat::simple(egui::FontId::proportional(12.5), egui::Color32::WHITE),

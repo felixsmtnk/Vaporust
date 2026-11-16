@@ -1,6 +1,6 @@
-//! «Хранилище»: сколько места занимают игры в каждой библиотеке Steam и что осталось
-//! от удаленных игр (папки без записи об установке, незаконченные загрузки, кэш шейдеров
-//! и моды Мастерской удаленных игр). Остатки удаляются в Корзину и только при закрытом Steam.
+//! "Storage": how much space games take in each Steam library and what is left
+//! of uninstalled games (folders without an install record, unfinished downloads, shader cache
+//! and Workshop mods of uninstalled games). Leftovers go to the Recycle Bin and only while Steam is closed.
 
 use crate::{local, net, LauncherApp};
 use eframe::egui;
@@ -9,16 +9,16 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-/// Что осталось на диске без игры.
+/// What is left on disk without a game.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Kind {
-    /// steamapps\common\<папка>, о которой нет ни одного appmanifest.
+    /// steamapps\common\<folder> that no appmanifest refers to.
     Folder,
-    /// steamapps\downloading\<appid> у игры, которая не качается.
+    /// steamapps\downloading\<appid> of a game that is not downloading.
     Download,
-    /// steamapps\shadercache\<appid> удаленной игры.
+    /// steamapps\shadercache\<appid> of an uninstalled game.
     Shaders,
-    /// steamapps\workshop\content\<appid> (и appworkshop_<appid>.acf) удаленной игры.
+    /// steamapps\workshop\content\<appid> (and appworkshop_<appid>.acf) of an uninstalled game.
     Workshop,
 }
 
@@ -37,7 +37,7 @@ impl Kind {
 pub struct Leftover {
     pub kind: Kind,
     pub path: PathBuf,
-    /// Еще один файл, который удаляется вместе с папкой (appworkshop_<appid>.acf).
+    /// One more file deleted together with the folder (appworkshop_<appid>.acf).
     pub extra: Option<PathBuf>,
     pub size: u64,
 }
@@ -54,12 +54,12 @@ pub struct LibInfo {
     pub path: PathBuf,
     pub free: Option<u64>,
     pub total: Option<u64>,
-    /// Игры по убыванию размера.
+    /// Games by size, descending.
     pub games: Vec<GameSize>,
     pub leftovers: Vec<Leftover>,
 }
 
-/// Размер папки целиком.
+/// Size of the whole folder.
 pub fn dir_size(p: &Path) -> u64 {
     let Ok(rd) = fs::read_dir(p) else { return 0 };
     rd.flatten()
@@ -71,7 +71,7 @@ pub fn dir_size(p: &Path) -> u64 {
         .sum()
 }
 
-/// Свободно и всего на диске, где лежит папка.
+/// Free and total space on the disk where the folder is.
 #[cfg(windows)]
 pub fn disk_space(dir: &Path) -> (Option<u64>, Option<u64>) {
     use std::os::windows::ffi::OsStrExt;
@@ -91,7 +91,7 @@ pub fn disk_space(_dir: &Path) -> (Option<u64>, Option<u64>) {
     (None, None)
 }
 
-/// Записи appmanifest библиотеки (и спрятанные Vaporust): appid -> (имя, installdir, StateFlags, SizeOnDisk).
+/// Library appmanifest records (and those hidden by Vaporust): appid -> (name, installdir, StateFlags, SizeOnDisk).
 fn manifests(lib: &Path) -> HashMap<u32, (String, String, u32, u64)> {
     let mut out = HashMap::new();
     let Ok(rd) = fs::read_dir(lib.join("steamapps")) else { return out };
@@ -119,11 +119,11 @@ fn manifests(lib: &Path) -> HashMap<u32, (String, String, u32, u64)> {
     out
 }
 
-/// Папки Steam в common, которые не принадлежат играм напрямую - их не трогаем.
+/// Steam folders in common that do not belong to games directly - not touched.
 const KEEP: [&str; 2] = ["steamworks shared", "steam controller configs"];
 
-/// Осмотреть все библиотеки. `busy` - игры, которые сейчас качаются или ждут в очереди
-/// (их незаконченные загрузки не остатки).
+/// Inspect all libraries. `busy` - games that are downloading now or waiting in the queue
+/// (their unfinished downloads are not leftovers).
 pub fn scan(steam_dir: &Path, busy: &HashSet<u32>) -> Vec<LibInfo> {
     let libs = local::library_dirs(steam_dir);
     let all: Vec<HashMap<u32, (String, String, u32, u64)>> = libs.iter().map(|l| manifests(l)).collect();
@@ -142,7 +142,7 @@ pub fn scan(steam_dir: &Path, busy: &HashSet<u32>) -> Vec<LibInfo> {
             .collect();
         games.sort_by(|a, b| b.size.cmp(&a.size));
         let mut leftovers = Vec::new();
-        // Папки common без appmanifest.
+        // common folders without an appmanifest.
         let dirs: HashSet<String> = mans.values().map(|(_, d, _, _)| d.to_lowercase()).collect();
         if let Ok(rd) = fs::read_dir(apps.join("common")) {
             for e in rd.flatten() {
@@ -152,7 +152,7 @@ pub fn scan(steam_dir: &Path, busy: &HashSet<u32>) -> Vec<LibInfo> {
                 }
             }
         }
-        // Незаконченные загрузки игр, которые не обновляются и не качаются.
+        // Unfinished downloads of games that are neither updating nor downloading.
         if let Ok(rd) = fs::read_dir(apps.join("downloading")) {
             for e in rd.flatten() {
                 let Ok(a) = e.file_name().to_string_lossy().parse::<u32>() else { continue };
@@ -162,7 +162,7 @@ pub fn scan(steam_dir: &Path, busy: &HashSet<u32>) -> Vec<LibInfo> {
                 }
             }
         }
-        // Кэш шейдеров и моды Мастерской игр, которых нет ни в одной библиотеке.
+        // Shader cache and Workshop mods of games that are in no library.
         if let Ok(rd) = fs::read_dir(apps.join("shadercache")) {
             for e in rd.flatten() {
                 let Ok(a) = e.file_name().to_string_lossy().parse::<u32>() else { continue };
@@ -188,7 +188,7 @@ pub fn scan(steam_dir: &Path, busy: &HashSet<u32>) -> Vec<LibInfo> {
         for l in &mut leftovers {
             l.size = dir_size(&l.path);
         }
-        // Пустые кэши (0 байт) не показываем - в них нечего чистить.
+        // Empty caches (0 bytes) are not shown - nothing to clean there.
         leftovers.retain(|l| l.size > 0 || l.kind == Kind::Folder);
         leftovers.sort_by(|a, b| b.size.cmp(&a.size));
         out.push(LibInfo { path: lib.clone(), free, total, games, leftovers });
@@ -196,14 +196,14 @@ pub fn scan(steam_dir: &Path, busy: &HashSet<u32>) -> Vec<LibInfo> {
     out
 }
 
-/// Отправить в Корзину (можно восстановить). Ok(()) - удалено.
+/// Send to the Recycle Bin (recoverable). Ok(()) - deleted.
 #[cfg(windows)]
 pub fn to_recycle_bin(paths: &[&Path]) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::UI::Shell::{
         SHFileOperationW, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, FO_DELETE, SHFILEOPSTRUCTW,
     };
-    // Список путей через \0, в конце еще один \0.
+    // A list of paths separated by \0, with one more \0 at the end.
     let mut from: Vec<u16> = Vec::new();
     for p in paths {
         from.extend(p.as_os_str().encode_wide());
@@ -229,18 +229,18 @@ pub fn to_recycle_bin(_paths: &[&Path]) -> Result<(), String> {
     Err("Только для Windows.".into())
 }
 
-/// Вкладка «Хранилище».
+/// "Storage" tab.
 pub struct StorageWin {
     pub result: Arc<Mutex<Option<Vec<LibInfo>>>>,
-    /// Какой остаток подтверждаем удалить (путь).
+    /// Which leftover deletion is being confirmed (path).
     pub confirm: Option<PathBuf>,
     pub note: Option<String>,
-    /// Сколько игр показывать в каждой библиотеке.
+    /// How many games to show in each library.
     pub show_all: HashSet<PathBuf>,
 }
 
 impl LauncherApp {
-    /// Открыть «Хранилище» (и пересчитать).
+    /// Open "Storage" (and recount).
     pub(crate) fn open_storage(&mut self) {
         self.close_extras(crate::View::Storage);
         let Some(steam) = self.steam.clone() else { return };
@@ -313,7 +313,7 @@ impl LauncherApp {
                         lib.games.len(),
                         if left_total > 0 { format!(", остатки: {}", net::fmt_bytes(left_total)) } else { String::new() }
                     ));
-                    // Игры по размеру.
+                    // Games by size.
                     let all = w.show_all.contains(&lib.path);
                     let n = if all { lib.games.len() } else { lib.games.len().min(8) };
                     egui::Grid::new(("storage_games", &lib.path)).num_columns(3).striped(true).show(ui, |ui| {
@@ -337,14 +337,14 @@ impl LauncherApp {
                             }
                         }
                     }
-                    // Остатки удаленных игр.
+                    // Leftovers of uninstalled games.
                     if !lib.leftovers.is_empty() {
                         ui.add_space(8.0);
                         ui.strong("Остатки, которые можно удалить");
                         if steam_open {
                             ui.colored_label(egui::Color32::from_rgb(230, 170, 60), "Удаление - при закрытом Steam.");
                         }
-                        // Таблицей: что, папка, размер, кнопки - в ровных столбцах.
+                        // As a table: what, folder, size, buttons - in even columns.
                         egui::Grid::new(("leftovers", lib.path.to_string_lossy().to_string())).num_columns(4).striped(true).spacing([14.0, 4.0]).show(ui, |ui| {
                         for l in &lib.leftovers {
                             {
@@ -437,8 +437,8 @@ mod tests {
             .iter()
             .map(|x| (x.kind.clone(), x.path.file_name().unwrap().to_string_lossy().to_string()))
             .collect();
-        // Old Game - папка без установки; 70 в downloading - игра готова, загрузки нет;
-        // 99 - качается (busy); шейдеры 70 - игра установлена; 555 - удаленная игра.
+        // Old Game - a folder without an install; 70 in downloading - the game is ready, no download;
+        // 99 - downloading (busy); shaders 70 - the game is installed; 555 - an uninstalled game.
         assert!(kinds.contains(&(Kind::Folder, "Old Game".into())));
         assert!(kinds.contains(&(Kind::Download, "70".into())));
         assert!(kinds.contains(&(Kind::Shaders, "555".into())));
@@ -458,7 +458,7 @@ mod tests {
         assert!(!d.exists());
     }
 
-    /// Живой тест (только чтение): что найдется на этом ПК.
+    /// Live test (read only): what is found on this PC.
     #[test]
     #[ignore]
     fn storage_live() {

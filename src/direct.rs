@@ -1,9 +1,9 @@
-//! Запуск игр без Steam - для игр без защиты Steam (DRM-free).
+//! Launching games without Steam - for games without Steam protection (DRM-free).
 //!
-//! Что запускать, берем из таблицы запуска Steam (PICS config/launch через Aurelia):
-//! exe, аргументы, рабочая папка, система. Таблица запоминается в настройках, чтобы
-//! игра запускалась и без интернета. Достижения, облако и время в игре без Steam
-//! не работают - об этом предупреждаем в «Свойствах».
+//! What to launch comes from Steam's launch table (PICS config/launch via Aurelia):
+//! exe, arguments, working folder, OS. The table is remembered in settings so that
+//! the game also starts without internet. Achievements, cloud and playtime do not work
+//! without Steam - the "Properties" window warns about this.
 
 use crate::net::{Cmd, NetState};
 use crate::{launchopts, LauncherApp};
@@ -11,20 +11,20 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 
-/// Как запускать игру напрямую (из таблицы запуска Steam).
+/// How to launch the game directly (from Steam's launch table).
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct LaunchSpec {
-    /// exe относительно папки игры.
+    /// Exe relative to the game folder.
     pub exe: String,
     pub args: String,
-    /// Рабочая папка относительно папки игры (пусто - папка exe).
+    /// Working folder relative to the game folder (empty - the exe folder).
     pub workdir: String,
 }
 
-/// Выбрать запись для Windows из таблицы запуска Steam (сначала основную «0»).
+/// Pick the Windows entry from Steam's launch table (the main "0" first).
 pub fn pick(options: &[aurelia::steam_client::LaunchOptionInfo]) -> Option<LaunchSpec> {
     let mine = if cfg!(target_pointer_width = "64") { "64" } else { "32" };
-    // Чем меньше, тем лучше: своя разрядность, без указания, 32 бит; 64 бит на 32-битной - нельзя.
+    // Smaller is better: own bitness, unspecified, 32 bit; 64 bit on a 32-bit system is not allowed.
     let arch_rank = |a: &str| match a {
         a if a == mine => Some(0),
         "" => Some(1),
@@ -39,18 +39,18 @@ pub fn pick(options: &[aurelia::steam_client::LaunchOptionInfo]) -> Option<Launc
                 && o.executable.to_lowercase().ends_with(".exe")
         })
         .filter_map(|o| arch_rank(&o.osarch).map(|r| (r, o)))
-        // Обычный запуск (type default/пусто) - раньше особых режимов; порядок Steam сохраняется.
+        // Normal launch (type default/empty) comes before special modes; Steam's order is kept.
         .min_by_key(|(r, o)| (*r, !(o.launch_type.is_empty() || o.launch_type == "default")))
         .map(|(_, o)| o)?;
     Some(LaunchSpec { exe: best.executable.clone(), args: best.arguments.clone(), workdir: best.working_dir.clone() })
 }
 
-/// Путь внутри папки игры (Steam пишет пути и с \, и с /).
+/// Path inside the game folder (Steam writes paths with both \ and /).
 fn join(dir: &Path, rel: &str) -> PathBuf {
     rel.split(['\\', '/']).filter(|p| !p.is_empty()).fold(dir.to_path_buf(), |p, s| p.join(s))
 }
 
-/// Разбить строку аргументов (кавычки учитываем).
+/// Split an argument string (quotes are respected).
 pub(crate) fn split_args(s: &str) -> Vec<String> {
     let mut out = Vec::new();
     let (mut cur, mut quoted) = (String::new(), false);
@@ -71,8 +71,8 @@ pub(crate) fn split_args(s: &str) -> Vec<String> {
     out
 }
 
-/// Аргументы: из таблицы Steam плюс параметры запуска пользователя. «%command%»
-/// (форма Steam «что-то %command% еще») - берем часть после него.
+/// Arguments: from Steam's table plus the user's launch options. "%command%"
+/// (Steam's form "something %command% more") - we take the part after it.
 pub fn build_args(spec_args: &str, user: &str) -> Vec<String> {
     let user = match user.split_once("%command%") {
         Some((_, after)) => after,
@@ -83,26 +83,26 @@ pub fn build_args(spec_args: &str, user: &str) -> Vec<String> {
     v
 }
 
-// ---------- Проверка защиты (можно ли запускать без Steam) ----------
+// ---------- Protection check (can it run without Steam) ----------
 
-/// Что нашлось в файлах игры и на странице магазина.
+/// What was found in the game files and on the store page.
 #[derive(Clone, Debug, Default)]
 pub struct DrmReport {
-    /// exe, обернутые защитой Steam (SteamStub: секция «.bind» в файле) - без Steam не запустятся.
+    /// Exes wrapped with Steam protection (SteamStub: a ".bind" section in the file) - will not run without Steam.
     pub steamstub: Vec<String>,
-    /// В папке есть steam_api(64).dll: игра обращается к Steam (может перезапуститься через
-    /// него, работать без достижений или не запуститься).
+    /// The folder has steam_api(64).dll: the game talks to Steam (may relaunch through
+    /// it, run without achievements, or not start).
     pub steam_api: bool,
-    /// Сколько exe проверено.
+    /// How many exes were checked.
     pub exes: usize,
-    /// Пометка магазина о сторонней защите (Denuvo и т.п.).
+    /// Store note about third-party protection (Denuvo and the like).
     pub drm_notice: Option<String>,
-    /// Нужен сторонний аккаунт (EA, Ubisoft...).
+    /// Requires a third-party account (EA, Ubisoft...).
     pub account_notice: Option<String>,
 }
 
 impl DrmReport {
-    /// Итог одной строкой и можно ли без Steam (Some(true) - да, Some(false) - нет, None - как повезет).
+    /// Summary in one line and whether it works without Steam (Some(true) - yes, Some(false) - no, None - maybe).
     pub fn verdict(&self) -> (Option<bool>, String) {
         if !self.steamstub.is_empty() {
             return (Some(false), "Защита Steam (SteamStub): без Steam игра не запустится.".into());
@@ -125,7 +125,7 @@ impl DrmReport {
     }
 }
 
-/// Есть ли в exe секция «.bind» (обертка SteamStub). Читается только заголовок файла.
+/// Whether the exe has a ".bind" section (SteamStub wrapper). Only the file header is read.
 pub fn has_steamstub(exe: &Path) -> bool {
     use std::io::Read;
     let Ok(mut f) = std::fs::File::open(exe) else { return false };
@@ -146,7 +146,7 @@ pub fn has_steamstub(exe: &Path) -> bool {
     (0..count.min(96)).any(|i| b.get(table + i * 40..table + i * 40 + 8).is_some_and(|name| name.starts_with(b".bind")))
 }
 
-/// Проверить файлы игры: все exe на глубину до 4 папок и steam_api.
+/// Check the game files: all exes up to 4 folders deep and steam_api.
 pub fn scan_drm(dir: &Path) -> DrmReport {
     fn walk(base: &Path, d: &Path, depth: u32, r: &mut DrmReport) {
         let Ok(rd) = std::fs::read_dir(d) else { return };
@@ -172,7 +172,7 @@ pub fn scan_drm(dir: &Path) -> DrmReport {
     r
 }
 
-/// Пометки магазина о защите: (сторонняя защита, сторонний аккаунт). Открытый API магазина.
+/// Store notes about protection: (third-party DRM, third-party account). Public store API.
 pub fn store_drm_notes(appid: u32) -> (Option<String>, Option<String>) {
     let url = format!("https://store.steampowered.com/api/appdetails?appids={appid}&l={lang}&filters=basic", lang = crate::lang::STEAM);
     let Ok(resp) = ehttp::fetch_blocking(&ehttp::Request::get(url)) else { return (None, None) };
@@ -184,7 +184,7 @@ pub fn store_drm_notes(appid: u32) -> (Option<String>, Option<String>) {
     (get("drm_notice"), get("ext_user_account_notice"))
 }
 
-/// Проверка целиком (файлы и магазин) - для фонового потока.
+/// Full check (files and store) - for a background thread.
 pub fn check_drm(appid: u32, dir: &Path) -> DrmReport {
     let mut r = scan_drm(dir);
     let (drm, acc) = store_drm_notes(appid);
@@ -194,8 +194,8 @@ pub fn check_drm(appid: u32, dir: &Path) -> DrmReport {
 }
 
 impl LauncherApp {
-    /// «Играть» для игры с галочкой «без Steam»: спросить таблицу запуска (или взять
-    /// запомненную) - запуск продолжится в direct_tick.
+    /// "Play" for a game with the "without Steam" checkbox: ask for the launch table (or use
+    /// the remembered one) - the launch continues in direct_tick.
     pub(crate) fn direct_launch(&mut self, appid: u32, net: &NetState) {
         if self.launching.load(Ordering::Relaxed) {
             return;
@@ -211,7 +211,7 @@ impl LauncherApp {
         }
     }
 
-    /// Запустить exe игры и следить за процессом в отдельном потоке.
+    /// Start the game exe and watch the process in a separate thread.
     fn direct_run(&mut self, appid: u32, spec: LaunchSpec) {
         let Some(game) = self.games.iter().find(|g| g.appid == appid).cloned() else { return };
         let exe = join(&game.dir, &spec.exe);
@@ -233,12 +233,12 @@ impl LauncherApp {
         let args = build_args(&spec.args, &user);
         let mut cmd = std::process::Command::new(&exe);
         cmd.args(&args).current_dir(&cwd);
-        // Многие игры без Steam ищут steam_appid.txt; переменная - для тех, кто читает ее.
+        // Many games without Steam look for steam_appid.txt; the variable is for those that read it.
         cmd.env("SteamAppId", appid.to_string()).env("SteamGameId", appid.to_string());
         let script = self.settings.scripts.get(&appid).cloned().unwrap_or_default();
         let (status, launching, rescan) = (self.launch_status.clone(), self.launching.clone(), self.rescan_needed.clone());
         launching.store(true, Ordering::Relaxed);
-        // В отдельном потоке: команда перед запуском может идти долго.
+        // In a separate thread: the pre-launch command may take a long time.
         std::thread::spawn(move || {
             if !script.before.trim().is_empty() {
                 *status.lock().unwrap() = "Выполняю команду перед запуском...".into();
@@ -250,8 +250,8 @@ impl LauncherApp {
                     {
                         let _running = crate::local::RunningGuard::set(appid, &game.name, &game.dir);
                         let _ = child.wait();
-                        // exe мог быть лаунчером и запустить саму игру: ждем, пока в папке игры
-                        // не останется процессов.
+                        // The exe may be a launcher that starts the game itself: wait until no processes
+                        // are left in the game folder.
                         while crate::local::game_alive(&game.dir) {
                             std::thread::sleep(std::time::Duration::from_secs(2));
                         }
@@ -269,7 +269,7 @@ impl LauncherApp {
         });
     }
 
-    /// Раз в кадр: пришла таблица запуска - запомнить и запустить.
+    /// Once per frame: the launch table arrived - remember it and launch.
     pub(crate) fn direct_tick(&mut self) {
         let done = self.net.lock().unwrap().direct_spec.take();
         let Some((appid, res)) = done else { return };
@@ -278,7 +278,7 @@ impl LauncherApp {
                 self.settings.direct_specs.insert(appid, s.clone());
                 Some(s)
             }
-            // Нет связи - пробуем запомненную.
+            // No connection - try the remembered one.
             _ => self.settings.direct_specs.get(&appid).cloned(),
         };
         match spec {
@@ -306,7 +306,7 @@ mod tests {
         let s = pick(&v).unwrap();
         let want = if cfg!(target_pointer_width = "64") { "bin\\win64\\game.exe" } else { "bin\\win32\\game.exe" };
         assert_eq!(s.exe, want);
-        // Без указания разрядности - берется она.
+        // Without bitness specified - that one is taken.
         assert_eq!(pick(&[opt("0", "hl.exe", "", "")]).unwrap().exe, "hl.exe");
         assert!(pick(&[opt("0", "game.sh", "linux", "")]).is_none());
     }
@@ -321,7 +321,7 @@ mod tests {
 
 #[cfg(test)]
 mod live {
-    /// Живой тест (только чтение): что запустится без Steam у установленных игр.
+    /// Live test (read only): what installed games will start without Steam.
     #[test]
     #[ignore]
     fn direct_specs_live() {
@@ -342,7 +342,7 @@ mod live {
 
 #[cfg(test)]
 mod drm_live {
-    /// Живой тест (только чтение): защита у установленных игр.
+    /// Live test (read only): protection of installed games.
     #[test]
     #[ignore]
     fn drm_scan_live() {

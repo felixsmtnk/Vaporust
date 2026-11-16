@@ -1,14 +1,14 @@
-//! Новые сообщения: всплывающее уведомление Vaporust со звуком (popup.rs), а когда ни одно
-//! окно Vaporust не активно - еще мигание кнопки в панели задач и точка на иконке в трее.
-//! Вызывается прямо из сетевого потока.
+//! New messages: a Vaporust popup notification with sound (popup.rs), and when no
+//! Vaporust window is active - also taskbar button flashing and a dot on the tray icon.
+//! Called straight from the network thread.
 
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU64, Ordering};
 
-/// Системный идентификатор (HWND) главного окна.
+/// System identifier (HWND) of the main window.
 static MAIN_HWND: AtomicIsize = AtomicIsize::new(0);
-/// Уведомлять о новых сообщениях (общая галочка уведомлений И пункт «Сообщения»).
+/// Notify about new messages (the general notifications checkbox AND the "Messages" item).
 static MESSAGES: AtomicBool = AtomicBool::new(true);
-/// Главное окно спрятано в трей (мигать в панели задач бесполезно).
+/// The main window is hidden in the tray (flashing in the taskbar is pointless).
 static IN_TRAY: AtomicBool = AtomicBool::new(false);
 
 pub fn init(hwnd: isize) {
@@ -31,7 +31,7 @@ pub fn in_tray() -> bool {
     IN_TRAY.load(Ordering::Relaxed)
 }
 
-/// Активно ли сейчас какое-нибудь окно Vaporust (главное, чат, свойства).
+/// Whether any Vaporust window is active now (main, chat, properties).
 #[cfg(windows)]
 pub fn app_focused() -> bool {
     use windows_sys::Win32::System::Threading::GetCurrentProcessId;
@@ -52,22 +52,22 @@ pub fn app_focused() -> bool {
     true
 }
 
-/// С кем открыт чат (SteamID64; 0 - чат закрыт). Ставит окно чата.
+/// Who the chat is open with (SteamID64; 0 - chat closed). Set by the chat window.
 static OPEN_CHAT: AtomicU64 = AtomicU64::new(0);
 
 pub fn set_open_chat(friend: u64) {
     OPEN_CHAT.store(friend, Ordering::Relaxed);
 }
 
-/// Открыто ли окно чата (будить его есть смысл только тогда: запрос перерисовки
-/// несуществующего окна заставляет eframe на миг создать пустое окно «egui window»).
+/// Whether the chat window is open (waking it only makes sense then: a repaint request for
+/// a nonexistent window makes eframe briefly create an empty "egui window").
 pub fn chat_open() -> bool {
     OPEN_CHAT.load(Ordering::Relaxed) != 0
 }
 
-/// Пришло новое входящее сообщение от `friend`.
-/// Уведомление со звуком - если не активен чат именно с ним (как в Steam);
-/// мигание в панели задач и точка в трее - если ни одно окно Vaporust не активно.
+/// A new incoming message from `friend` arrived.
+/// Notification with sound - unless the chat with exactly this friend is active (as in Steam);
+/// taskbar flashing and the tray dot - if no Vaporust window is active.
 #[cfg(windows)]
 pub fn new_message(friend: u64, name: Option<String>, text: String, accent: Option<eframe::egui::Color32>) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{FlashWindowEx, FLASHWINFO, FLASHW_TIMERNOFG, FLASHW_TRAY};
@@ -86,7 +86,7 @@ pub fn new_message(friend: u64, name: Option<String>, text: String, accent: Opti
     let hwnd = MAIN_HWND.load(Ordering::Relaxed);
     unsafe {
         if hwnd != 0 && !IN_TRAY.load(Ordering::Relaxed) {
-            // Мигать кнопкой в панели задач, пока окно не откроют.
+            // Flash the taskbar button until the window is opened.
             let info = FLASHWINFO {
                 cbSize: std::mem::size_of::<FLASHWINFO>() as u32,
                 hwnd: hwnd as _,

@@ -85,7 +85,7 @@ impl SteamClient {
     }
 
     pub(crate) async fn get_content_servers(&self, cell_id: u32) -> Result<Vec<ContentHost>> {
-        // vaporust: регион загрузки, выбранный пользователем (0 - как назначил сервер Steam).
+        // vaporust: download region chosen by the user (0 - as assigned by the Steam server).
         let cell_id = match CELL_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed) {
             0 => cell_id,
             c => c,
@@ -601,5 +601,5 @@ impl SteamClient {
     }
 }
 
-/// vaporust: номер региона загрузки (cell id), который задал пользователь; 0 - автоматически.
+/// vaporust: download region number (cell id) set by the user; 0 - automatic.
 pub static CELL_OVERRIDE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);

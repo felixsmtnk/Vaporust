@@ -1,34 +1,34 @@
-//! Мастерская Steam в интерфейсе: поиск и подписка (на странице игры в библиотеке),
-//! включение/выключение подписанных модов (во вкладке «Мастерская» свойств игры).
-//! Сами моды Steam скачивает и обновляет при запуске игры.
+//! Steam Workshop in the UI: search and subscribing (on the game page in the library),
+//! enabling/disabling subscribed mods (in the "Workshop" tab of game properties).
+//! Steam itself downloads and updates the mods when the game launches.
 
 use crate::net::{self, Cmd};
 use crate::social::{SocialCmd, WorkshopState};
 use aurelia::core::models::WorkshopItem;
 use eframe::egui;
 
-/// Состояние поиска в Мастерской для открытой игры.
+/// Workshop search state for the open game.
 #[derive(Default)]
 pub struct WsUi {
     pub appid: u32,
     pub text: String,
-    /// Тип запроса Steam: 0 популярные, 3 в тренде, 1 новые, 21 обновленные, 9 по подпискам.
+    /// Steam query type: 0 popular, 3 trending, 1 newest, 21 updated, 9 by subscriptions.
     pub sort: u32,
     pub loaded: bool,
-    /// Открытая страница мода и выбранная картинка на ней.
+    /// Open mod page and the selected image on it.
     pub item: Option<u64>,
     pub preview: usize,
-    /// Показывать коллекции (а не моды); открытая коллекция; запрошенные коллекции и моды.
+    /// Show collections (not mods); the open collection; requested collections and mods.
     pub collections: bool,
     pub coll_open: Option<u64>,
     pub coll_asked: std::collections::HashSet<(u32, String)>,
     pub items_asked: std::collections::HashSet<u64>,
-    /// Подтверждение «подписаться на всю коллекцию».
+    /// Confirmation of "subscribe to the whole collection".
     pub sub_all: bool,
 }
 
 impl WsUi {
-    /// Для новой игры - сбросить поиск и один раз запросить подписки и популярное.
+    /// For a new game - reset the search and request subscriptions and popular items once.
     pub fn ensure(&mut self, appid: u32, cmds: &mut Vec<Cmd>) {
         if self.appid != appid {
             *self = WsUi { appid, ..Default::default() };
@@ -61,7 +61,7 @@ fn item_info(ui: &mut egui::Ui, it: &WorkshopItem) {
     }
 }
 
-/// Поиск в Мастерской с кнопками «Подписаться» / «Отписаться» (страница игры).
+/// Workshop search with "Subscribe" / "Unsubscribe" buttons (game page).
 pub fn browse(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &mut Vec<Cmd>) {
     let appid = w.appid;
     let subs = ws.sub_ids.get(&appid).cloned().unwrap_or_default();
@@ -103,8 +103,8 @@ pub fn browse(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &mut Ve
             if let Some(t) = ws.total.get(&appid) {
                 ui.weak(format!("Всего модов: {t}"));
             }
-            // Сетка как в Мастерской Steam: квадратная картинка целиком (на темном фоне), под ней
-            // название в две строки и оценка звездами; подписка - кнопкой «+» на картинке при наведении.
+            // A grid as in the Steam Workshop: the whole square image (on a dark background), under it
+            // the name on two lines and a star rating; subscribing - a "+" button on the image on hover.
             let gap = 14.0;
             let avail = ui.available_width() - 4.0;
             let cols = (((avail + gap) / (170.0 + gap)).floor() as usize).max(1);
@@ -141,7 +141,7 @@ enum TileAct {
     Subscribe(bool),
 }
 
-/// Плитка мода: картинка целиком, название, звезды и подписчики. Щелчок - страница мода.
+/// Mod tile: the whole image, name, stars and subscribers. Click - the mod page.
 fn tile(ui: &mut egui::Ui, it: &aurelia::core::models::WorkshopItem, w: f32, subscribed: bool) -> Option<TileAct> {
     let mut act = None;
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, w + 58.0), egui::Sense::click());
@@ -153,7 +153,7 @@ fn tile(ui: &mut egui::Ui, it: &aurelia::core::models::WorkshopItem, w: f32, sub
     let p = ui.painter_at(rect);
     p.rect_filled(img_rect, 3.0, egui::Color32::from_rgb(16, 20, 26));
     if !it.preview_url.is_empty() {
-        // Картинка целиком, по центру квадрата (не обрезается).
+        // The whole image, centered in the square (not cropped).
         let url = crate::richtext::ugc_small(&it.preview_url, 400);
         let img = egui::Image::new(url).max_size(img_rect.size()).maintain_aspect_ratio(true);
         ui.put(img_rect, img);
@@ -161,7 +161,7 @@ fn tile(ui: &mut egui::Ui, it: &aurelia::core::models::WorkshopItem, w: f32, sub
     if hovered {
         p.rect_stroke(img_rect, 3.0, egui::Stroke::new(2.0, crate::theme::ACCENT));
     }
-    // Подписка: зеленая галочка, если подписаны; «+» - при наведении.
+    // Subscription: a green check mark if subscribed; "+" on hover.
     if subscribed || hovered {
         let b = egui::Rect::from_min_size(egui::pos2(img_rect.right() - 34.0, img_rect.top() + 6.0), egui::vec2(28.0, 28.0));
         let br = ui.interact(b, ui.id().with(("ws_sub", it.id)), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -181,7 +181,7 @@ fn tile(ui: &mut egui::Ui, it: &aurelia::core::models::WorkshopItem, w: f32, sub
             act = Some(TileAct::Subscribe(!subscribed));
         }
     }
-    // Название (до двух строк).
+    // Name (up to two lines).
     let title = crate::richtext::fix(ui, &it.title);
     let mut job = egui::text::LayoutJob::simple(title, egui::FontId::proportional(13.5), egui::Color32::WHITE, w);
     job.wrap.max_rows = 2;
@@ -189,7 +189,7 @@ fn tile(ui: &mut egui::Ui, it: &aurelia::core::models::WorkshopItem, w: f32, sub
     let ty = img_rect.bottom() + 5.0;
     let th = galley.size().y;
     p.galley(egui::pos2(rect.left(), ty), galley, egui::Color32::WHITE);
-    // Оценка звездами и подписчики.
+    // Star rating and subscribers.
     let votes = it.votes_up + it.votes_down;
     let sy = ty + th.max(17.0) + 10.0;
     if votes > 0 {
@@ -211,7 +211,7 @@ fn tile(ui: &mut egui::Ui, it: &aurelia::core::models::WorkshopItem, w: f32, sub
     act
 }
 
-/// Пять звезд, закрашенных по доле положительных оценок (как оценка в Мастерской Steam).
+/// Five stars filled by the share of positive votes (like the Steam Workshop rating).
 fn stars(p: &egui::Painter, left_center: egui::Pos2, share: f32) {
     let filled = (share * 5.0).round() as usize;
     for i in 0..5 {
@@ -224,7 +224,7 @@ fn stars(p: &egui::Painter, left_center: egui::Pos2, share: f32) {
             })
             .collect();
         let col = if i < filled { egui::Color32::from_rgb(230, 190, 70) } else { egui::Color32::from_rgb(70, 78, 92) };
-        // Звезда невыпуклая: рисуем веером треугольников от центра.
+        // A star is not convex: draw it as a fan of triangles from the center.
         let mut mesh = egui::Mesh::default();
         mesh.colored_vertex(c, col);
         for pt in &pts {
@@ -238,7 +238,7 @@ fn stars(p: &egui::Painter, left_center: egui::Pos2, share: f32) {
 }
 
 impl crate::LauncherApp {
-    /// Открыть Мастерскую игры: в главном окне или (detached) в отдельном.
+    /// Open the game's Workshop: in the main window or (detached) in a separate one.
     pub(crate) fn open_workshop(&mut self, appid: u32, name: String, detached: bool) {
         self.ws_open = Some((appid, name));
         self.ws_detached = detached;
@@ -247,7 +247,7 @@ impl crate::LauncherApp {
         }
     }
 
-    /// Поиск модов Мастерской (и в главном окне, и в отдельном).
+    /// Workshop mod search (both in the main window and in the separate one).
     pub(crate) fn workshop_contents(&mut self, ui: &mut egui::Ui, net: &net::NetState) {
         let Some((appid, name)) = self.ws_open.clone() else { return };
         let mut cmds = Vec::new();
@@ -288,7 +288,7 @@ impl crate::LauncherApp {
         }
     }
 
-    /// Мастерская в отдельном окне (открыта с Ctrl).
+    /// The Workshop in a separate window (opened with Ctrl).
     pub(crate) fn workshop_window(&mut self, ctx: &egui::Context, net: &net::NetState) {
         if !self.ws_detached {
             return;
@@ -315,8 +315,8 @@ impl crate::LauncherApp {
     }
 }
 
-/// Подписанные моды с галочками «включен» (вкладка свойств). Снятая галочка = отписка;
-/// мод остается в списке, пока окно открыто, чтобы его можно было включить обратно.
+/// Subscribed mods with "enabled" checkboxes (properties tab). An unchecked box = unsubscribe;
+/// the mod stays in the list while the window is open so it can be turned back on.
 pub fn subscriptions(ui: &mut egui::Ui, appid: u32, ws: &WorkshopState, cmds: &mut Vec<Cmd>) {
     let subs = ws.sub_ids.get(&appid).cloned().unwrap_or_default();
     ui.weak("Включенные моды Steam скачает и обновит при следующем запуске игры. Найти новые - на странице игры в библиотеке.");
@@ -351,7 +351,7 @@ pub fn subscriptions(ui: &mut egui::Ui, appid: u32, ws: &WorkshopState, cmds: &m
 
 #[cfg(test)]
 mod live {
-    /// Адреса превью популярных модов L4D2 (только чтение): cargo test ws_previews_live -- --ignored
+    /// Preview URLs of popular L4D2 mods (read only): cargo test ws_previews_live -- --ignored
     #[test]
     #[ignore]
     fn ws_previews_live() {
@@ -367,13 +367,13 @@ mod live {
     }
 }
 
-/// Подробности мода для его страницы внутри программы.
+/// Mod details for its page inside the program.
 #[derive(Clone, Debug, Default)]
 pub struct Detail {
     pub id: u64,
     pub title: String,
     pub description: String,
-    /// Картинки: главная и дополнительные.
+    /// Images: the main one and additional ones.
     pub previews: Vec<String>,
     pub tags: Vec<String>,
     pub subscriptions: u64,
@@ -398,7 +398,7 @@ pub fn parse_detail(d: &serde_json::Value) -> Detail {
         previews.push(s("preview_url"));
     }
     for p in d["previews"].as_array().into_iter().flatten() {
-        // preview_type 0 - картинка; видео YouTube (1) не показываем.
+        // preview_type 0 - an image; YouTube videos (1) are not shown.
         if num(&p["preview_type"]) == 0 {
             if let Some(u) = p["url"].as_str().filter(|u| !u.is_empty() && !previews.iter().any(|x| x == u)) {
                 previews.push(u.to_string());
@@ -428,8 +428,8 @@ pub fn parse_detail(d: &serde_json::Value) -> Detail {
     }
 }
 
-/// Подробности мода: открытый метод Steam ISteamRemoteStorage/GetPublishedFileDetails (без входа:
-/// описание, теги, счетчики) и страница мода (дополнительные скриншоты). Два запроса на мод.
+/// Mod details: the public Steam method ISteamRemoteStorage/GetPublishedFileDetails (no login:
+/// description, tags, counters) and the mod page (extra screenshots). Two requests per mod.
 pub async fn load_detail(_c: &aurelia::steam_client::SteamClient, id: u64) -> Result<Detail, String> {
     let http = aurelia::core::net::steam_web_client().map_err(|e| format!("{e:#}"))?;
     let resp = http
@@ -448,7 +448,7 @@ pub async fn load_detail(_c: &aurelia::steam_client::SteamClient, id: u64) -> Re
         return Err("мод не найден или скрыт автором".into());
     }
     let mut det = parse_detail(d);
-    // Скриншоты мода - только на его странице (полоса миниатюр под главной картинкой).
+    // Mod screenshots - only on its page (a strip of thumbnails under the main image).
     let page = format!("https://steamcommunity.com/sharedfiles/filedetails/?id={id}&l=russian");
     if let Ok(r) = http.get(page).send().await {
         if let Ok(html) = r.text().await {
@@ -462,7 +462,7 @@ pub async fn load_detail(_c: &aurelia::steam_client::SteamClient, id: u64) -> Re
     Ok(det)
 }
 
-/// Адреса скриншотов со страницы мода (без параметров уменьшения).
+/// Screenshot URLs from the mod page (without downscaling parameters).
 pub fn page_screenshots(html: &str) -> Vec<String> {
     let mut out = Vec::new();
     for part in html.split("highlight_strip_screenshot").skip(1) {
@@ -477,7 +477,7 @@ pub fn page_screenshots(html: &str) -> Vec<String> {
     out
 }
 
-/// Страница мода внутри программы («назад» - в шапке Мастерской).
+/// Mod page inside the program ("back" - in the Workshop header).
 pub fn detail_page(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &mut Vec<Cmd>) {
     let Some(id) = w.item else { return };
     let d = match ws.details.get(&id) {
@@ -492,7 +492,7 @@ pub fn detail_page(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &m
         Some(Ok(d)) => d.clone(),
     };
     let appid = w.appid;
-    // Оценки открытый метод Steam не отдает - берем из списка модов.
+    // The public Steam method does not return votes - take them from the mod list.
     let mut d = d;
     if d.votes_up + d.votes_down == 0 {
         if let Some(it) = ws.results.get(&appid).and_then(|r| r.as_ref().ok()).and_then(|v| v.iter().find(|i| i.id == id)) {
@@ -504,8 +504,8 @@ pub fn detail_page(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &m
     ui.label(egui::RichText::new(crate::richtext::fix(ui, &d.title)).size(22.0).strong());
     ui.add_space(6.0);
     ui.horizontal_top(|ui| {
-        // Слева - большая картинка и ряд маленьких, как в Мастерской Steam.
-        // Как в Steam: слева крупно картинки (60% ширины), справа рядом - подписка и сведения.
+        // On the left - a large image and a row of small ones, as in the Steam Workshop.
+        // As in Steam: large images on the left (60% of the width), the subscription and info next to them on the right.
         let big_w = (ui.available_width() * 0.6).clamp(240.0, 640.0);
         ui.vertical(|ui| {
             let big = egui::vec2(big_w, big_w * 9.0 / 16.0);
@@ -538,9 +538,9 @@ pub fn detail_page(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &m
                 });
             }
         });
-        // Справа - подписка и сведения.
+        // On the right - the subscription and info.
         ui.vertical(|ui| {
-            // Оценка звездами, как в Мастерской Steam.
+            // Star rating, as in the Steam Workshop.
             let votes_all = d.votes_up + d.votes_down;
             if votes_all > 0 {
                 let (r, _) = ui.allocate_exact_size(egui::vec2(160.0, 20.0), egui::Sense::hover());
@@ -628,7 +628,7 @@ pub fn detail_page(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &m
         });
     });
     ui.add_space(12.0);
-    // Описание - в карточке, обычным размером текста.
+    // Description - in a card, in normal text size.
     egui::Frame::none().fill(crate::theme::CARD).rounding(4.0).inner_margin(egui::Margin::same(14.0)).show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.label(egui::RichText::new("Описание").size(15.0).strong());
@@ -676,7 +676,7 @@ mod detail_tests {
 
 #[cfg(test)]
 mod detail_live {
-    /// Живой тест (только чтение): страница мода L4D2 (Dust II, 312 тыс. подписчиков).
+    /// Live test (read only): an L4D2 mod page (Dust II, 312 thousand subscribers).
     #[test]
     #[ignore]
     fn detail_live() {
@@ -694,7 +694,7 @@ mod detail_live {
     }
 }
 
-/// Коллекции Мастерской игры: список, состав коллекции, «подписаться на все».
+/// Workshop collections of a game: list, collection contents, "subscribe to all".
 fn collections_view(ui: &mut egui::Ui, w: &mut WsUi, net: &net::NetState, ws: &WorkshopState, cmds: &mut Vec<Cmd>) {
     let appid = w.appid;
     let subs = ws.sub_ids.get(&appid).cloned().unwrap_or_default();

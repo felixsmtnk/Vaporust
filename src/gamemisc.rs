@@ -1,28 +1,28 @@
-//! Мелочи страницы игры: своя заметка к игре, ярлык на рабочем столе и запуск игры по ярлыку
-//! (`vaporust.exe --run <appid>`): если Vaporust уже открыт, второй экземпляр только передает
-//! ему номер игры через файл-просьбу и сразу закрывается.
+//! Game page extras: own note for a game, a desktop shortcut and launching a game from the shortcut
+//! (`vaporust.exe --run <appid>`): if Vaporust is already open, the second instance only passes
+//! the game id to it via a request file and exits right away.
 
 use crate::LauncherApp;
 use eframe::egui;
 use std::path::PathBuf;
 
-/// Аргумент командной строки ярлыка: `--run <appid>`.
+/// Shortcut command-line argument: `--run <appid>`.
 pub const RUN_ARG: &str = "--run";
 
-/// Файл-просьба «запусти игру» рядом с журналом Vaporust.
+/// "Launch the game" request file next to the Vaporust log.
 fn request_path() -> Option<PathBuf> {
     Some(crate::errlog::path()?.parent()?.join("run_request.txt"))
 }
 
-/// Номер игры из командной строки (`--run 70`).
+/// Game id from the command line (`--run 70`).
 pub fn run_arg() -> Option<u32> {
     let args: Vec<String> = std::env::args().collect();
     let i = args.iter().position(|a| a == RUN_ARG)?;
     args.get(i + 1)?.parse().ok()
 }
 
-/// Вызвать в начале main. Есть `--run`: записать просьбу; если Vaporust уже запущен - true
-/// (этому экземпляру надо сразу выйти, игру запустит уже открытый).
+/// Call at the start of main. With `--run`: write the request; if Vaporust is already running - true
+/// (this instance must exit right away, the open one will launch the game).
 pub fn hand_over_run() -> bool {
     let Some(appid) = run_arg() else { return false };
     if let Some(p) = request_path() {
@@ -32,13 +32,13 @@ pub fn hand_over_run() -> bool {
     another_instance()
 }
 
-/// Запущен ли уже другой Vaporust (именованный мьютекс на сеанс пользователя).
+/// Whether another Vaporust is already running (named mutex per user session).
 #[cfg(windows)]
 fn another_instance() -> bool {
     use windows_sys::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
     use windows_sys::Win32::System::Threading::CreateMutexW;
     let name: Vec<u16> = "Local\\Vaporust-running".encode_utf16().chain(Some(0)).collect();
-    // Мьютекс живет до выхода процесса: его не закрываем.
+    // The mutex lives until the process exits: we do not close it.
     let h = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
     !h.is_null() && unsafe { GetLastError() } == ERROR_ALREADY_EXISTS
 }
@@ -48,13 +48,13 @@ fn another_instance() -> bool {
     false
 }
 
-/// Отметить этот экземпляр запущенным (чтобы следующий с `--run` передал просьбу ему).
+/// Mark this instance as running (so the next one with `--run` passes the request to it).
 pub fn mark_running() {
     let _ = another_instance();
 }
 
 impl LauncherApp {
-    /// Раз в секунду: есть просьба запустить игру (от ярлыка) - показать окно и запустить.
+    /// Once per second: there is a request to launch a game (from a shortcut) - show the window and launch.
     pub(crate) fn run_request_tick(&mut self, ctx: &egui::Context) {
         let due = self.run_check.is_none_or(|t| t.elapsed() >= std::time::Duration::from_secs(1));
         if !due || self.games.is_empty() {
@@ -73,7 +73,7 @@ impl LauncherApp {
         ctx.request_repaint_after(std::time::Duration::from_secs(1));
     }
 
-    /// Окно своей заметки к игре.
+    /// Window for the own note to a game.
     pub(crate) fn note_dialog(&mut self, ctx: &egui::Context) {
         let Some((appid, name, mut text)) = self.note_edit.take() else { return };
         let mut keep = true;
@@ -103,11 +103,11 @@ impl LauncherApp {
         }
     }
 
-    /// Ярлык на рабочем столе: запускает игру через Vaporust (`vaporust.exe --run <appid>`),
-    /// значок - из exe игры (если найден), иначе Vaporust.
+    /// Desktop shortcut: launches the game through Vaporust (`vaporust.exe --run <appid>`),
+    /// the icon comes from the game's exe (if found), otherwise Vaporust's.
     pub(crate) fn make_shortcut(&mut self, appid: u32, name: &str) {
         let Ok(exe) = std::env::current_exe() else { return };
-        // Значок: exe сторонней игры или первый exe в папке игры Steam.
+        // Icon: exe of a non-Steam game or the first exe in the Steam game folder.
         let icon = if crate::custom::is_custom(appid) {
             crate::custom::exe_of(appid).map(PathBuf::from)
         } else {
@@ -131,7 +131,7 @@ impl LauncherApp {
     }
 }
 
-/// Первый .exe в корне папки игры (для значка ярлыка), без служебных установщиков.
+/// First .exe in the root of the game folder (for the shortcut icon), excluding service installers.
 fn first_exe(dir: &std::path::Path) -> Option<PathBuf> {
     let mut exes: Vec<PathBuf> = std::fs::read_dir(dir)
         .ok()?
@@ -143,13 +143,13 @@ fn first_exe(dir: &std::path::Path) -> Option<PathBuf> {
             !["unins", "setup", "crash", "redist", "vc_redist", "dxsetup", "launcherpatch"].iter().any(|s| n.contains(s))
         })
         .collect();
-    // Самый большой exe - обычно сама игра.
+    // The largest exe is usually the game itself.
     exes.sort_by_key(|p| std::cmp::Reverse(std::fs::metadata(p).map(|m| m.len()).unwrap_or(0)));
     exes.into_iter().next()
 }
 
-/// Создать .lnk на рабочем столе через WScript.Shell (PowerShell без окна). Пути и имя
-/// передаются через переменные окружения - так не нужно экранировать кавычки и русские буквы.
+/// Create a .lnk on the desktop via WScript.Shell (PowerShell without a window). Paths and the name
+/// are passed via environment variables - so quotes and Russian letters need no escaping.
 #[cfg(windows)]
 fn create_lnk(target: &std::path::Path, args: &str, icon: &std::path::Path, name: &str) -> Result<(), String> {
     use std::os::windows::process::CommandExt;

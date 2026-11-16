@@ -1,21 +1,21 @@
-//! Оформление в духе клиента Steam: темно-синие панели, голубые выделения, зеленая «Играть».
+//! Styling in the spirit of the Steam client: dark blue panels, light blue highlights, a green "Play".
 
 use eframe::egui;
 use egui::Color32;
 
-/// Верхняя полоса и заголовок окна.
+/// Top bar and window title.
 pub const TOP: Color32 = Color32::from_rgb(23, 26, 33);
-/// Основной фон.
+/// Main background.
 pub const BG: Color32 = Color32::from_rgb(27, 32, 40);
-/// Список игр слева.
+/// Game list on the left.
 pub const SIDEBAR: Color32 = Color32::from_rgb(33, 38, 47);
-/// Подложки, карточки.
+/// Backings, cards.
 pub const CARD: Color32 = Color32::from_rgb(40, 46, 56);
-/// Голубой акцент (выбранное, ссылки, «Установить»).
+/// Light blue accent (selection, links, "Install").
 pub const ACCENT: Color32 = Color32::from_rgb(26, 159, 255);
-/// Зеленая кнопка «Играть».
+/// Green "Play" button.
 pub const PLAY: Color32 = Color32::from_rgb(92, 158, 30);
-/// Зеленый текст «в игре» (светлее кнопки «ИГРАТЬ»).
+/// Green "in game" text (lighter than the "PLAY" button).
 pub const PLAY_TEXT: Color32 = Color32::from_rgb(140, 200, 70);
 pub const TEXT: Color32 = Color32::from_rgb(220, 222, 224);
 pub const WEAK: Color32 = Color32::from_rgb(140, 150, 162);
@@ -59,14 +59,14 @@ pub fn apply(ctx: &egui::Context) {
     });
 }
 
-/// Большая цветная кнопка (как «Играть» / «Установить» в Steam).
+/// A large colored button (like "Play" / "Install" in Steam).
 pub fn big_button(ui: &mut egui::Ui, text: &str, fill: Color32, enabled: bool) -> egui::Response {
     let t = egui::RichText::new(text).size(16.0).strong().color(Color32::WHITE);
     let b = egui::Button::new(t).fill(fill).min_size(egui::vec2(150.0, 40.0)).rounding(3.0);
     ui.add_enabled(enabled, b)
 }
 
-/// Колонка не шире `max`, по центру (как страницы Steam на большом экране).
+/// A column no wider than `max`, centered (like Steam pages on a large screen).
 pub fn centered<R>(ui: &mut egui::Ui, max: f32, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     let w = ui.available_width();
     if w <= max + 8.0 {

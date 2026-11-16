@@ -1,6 +1,6 @@
-//! Текст сообщества Steam (руководства, обсуждения, отзывы) для показа в окне: HTML со
-//! строками, картинками и заголовками -> куски «текст / заголовок / картинка». И замена
-//! символов, которых нет в шрифте программы (стрелки, линии), чтобы не было квадратиков.
+//! Steam community text (guides, discussions, reviews) for display in a window: HTML with
+//! lines, images and headings -> "text / heading / image" pieces. Also replaces
+//! characters missing from the program's font (arrows, lines) so there are no squares.
 
 use eframe::egui;
 
@@ -20,7 +20,7 @@ fn decode(s: &str) -> String {
         .replace("&amp;", "&")
 }
 
-/// Убрать теги, сохранив переводы строк (<br>, </div>, </p>, пункты списка).
+/// Remove tags while keeping line breaks (<br>, </div>, </p>, list items).
 fn strip(html: &str) -> String {
     let mut out = String::new();
     let mut tag = String::new();
@@ -45,13 +45,13 @@ fn strip(html: &str) -> String {
         }
     }
     let text = decode(&out);
-    // Пробелы внутри строк - по одному; больше двух пустых строк подряд не оставляем.
+    // Spaces inside lines - one at a time; no more than two empty lines in a row.
     let mut lines: Vec<String> = text.lines().map(|l| l.split_whitespace().collect::<Vec<_>>().join(" ")).collect();
     lines.dedup_by(|a, b| a.is_empty() && b.is_empty());
     lines.join("\n").trim().to_string()
 }
 
-/// HTML -> куски. Заголовки - блоки bb_h1/bb_h2/bb_h3, картинки - <img src>.
+/// HTML -> pieces. Headings are bb_h1/bb_h2/bb_h3 blocks, images are <img src>.
 pub fn parse(html: &str) -> Vec<Item> {
     let mut out = Vec::new();
     let mut rest = html;
@@ -63,7 +63,7 @@ pub fn parse(html: &str) -> Vec<Item> {
             (a, b) => a.or(b),
         };
         let Some(pos) = next else { break };
-        // Текст до тега (для заголовка - до начала его <div).
+        // Text before the tag (for a heading - before its <div starts).
         let cut = if Some(pos) == head { rest[..pos].rfind('<').unwrap_or(pos) } else { pos };
         let t = strip(&rest[..cut]);
         if !t.is_empty() {
@@ -79,7 +79,7 @@ pub fn parse(html: &str) -> Vec<Item> {
             }
             rest = &rest[end..];
         } else {
-            // Заголовок: от '>' после class до закрывающего </div>; картинки внутри - отдельно.
+            // Heading: from '>' after class to the closing </div>; images inside are separate.
             let start = rest[pos..].find('>').map(|e| pos + e + 1).unwrap_or(rest.len());
             let end = rest[start..].find("</div>").map(|e| start + e).unwrap_or(rest.len());
             let inner = &rest[start..end];
@@ -104,7 +104,7 @@ pub fn parse(html: &str) -> Vec<Item> {
     out
 }
 
-/// Заменить символы, которых нет в шрифте: стрелки, линии; остальные отсутствующие убрать.
+/// Replace characters missing from the font: arrows, lines; remove the other missing ones.
 pub fn fix(ui: &egui::Ui, s: &str) -> String {
     let font = egui::TextStyle::Body.resolve(ui.style());
     ui.fonts(|f| {
@@ -130,7 +130,7 @@ pub fn fix(ui: &egui::Ui, s: &str) -> String {
     })
 }
 
-/// Показать куски: текст с переносами, заголовки крупнее, картинки по ширине (до 640).
+/// Show pieces: wrapped text, larger headings, images fit to width (up to 640).
 pub fn show(ui: &mut egui::Ui, items: &[Item]) {
     for it in items {
         match it {
@@ -146,7 +146,7 @@ pub fn show(ui: &mut egui::Ui, items: &[Item]) {
             }
             Item::Image(u) => {
                 let w = ui.available_width().min(640.0);
-                // Картинки сообщества бывают огромными - просим у Steam уменьшенную копию.
+                // Community images can be huge - ask Steam for a reduced copy.
                 let url = ugc_small(u, 640);
                 ui.add(egui::Image::new(url).max_width(w).max_height(420.0));
                 ui.add_space(4.0);
@@ -175,8 +175,8 @@ mod tests {
     }
 }
 
-/// Картинка сообщества Steam (steamusercontent) - уменьшенной копией не больше `px` по ширине:
-/// оригиналы бывают по несколько мегабайт и анимированными GIF.
+/// Steam community image (steamusercontent) - as a reduced copy at most `px` wide:
+/// originals can be several megabytes and animated GIFs.
 pub fn ugc_small(url: &str, px: u32) -> String {
     if url.contains("steamusercontent.com") && !url.contains('?') {
         format!("{url}?imw={px}&imh={px}&ima=fit&impolicy=Letterbox")

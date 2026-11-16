@@ -1,21 +1,21 @@
-//! Уведомления Steam (колокольчик в клиенте Steam): подарки, комментарии, новые предметы,
-//! заявки в друзья, скидки из желаемого, предложения обмена. Берутся методом Web API
-//! ISteamNotificationService/GetSteamNotifications с токеном входа, раз в 5 минут.
+//! Steam notifications (the bell in the Steam client): gifts, comments, new items,
+//! friend requests, wishlist discounts, trade offers. Fetched via the Web API method
+//! ISteamNotificationService/GetSteamNotifications with the login token, every 5 minutes.
 
 use crate::net::{Cmd, NetState};
 use crate::{webapi, LauncherApp};
 use aurelia::steam_client::SteamClient;
 use eframe::egui;
 
-/// Куда ведет щелчок по уведомлению.
+/// Where a click on a notification leads.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Link {
     Url(String),
-    /// Страница игры в магазине.
+    /// Game page in the store.
     Store(u32),
     Wishlist,
     Inventory,
-    /// Панель друзей (заявки).
+    /// Friends panel (requests).
     Friends,
     None,
 }
@@ -27,12 +27,12 @@ pub struct Notif {
     pub time: u64,
     pub read: bool,
     pub title: String,
-    /// Игра, о которой уведомление (название подставляется при показе).
+    /// The game the notification is about (the name is filled in on display).
     pub appid: Option<u32>,
     pub count: u32,
     pub text: String,
     pub link: Link,
-    /// Предмет из уведомления «новый предмет»: (инвентарь, раздел, номер предмета).
+    /// Item from a "new item" notification: (inventory, context, item id).
     pub asset: Option<(u32, u32, String)>,
 }
 
@@ -54,7 +54,7 @@ fn n(v: &serde_json::Value, k: &str) -> Option<u32> {
     v.get(k).and_then(|x| x.as_u64().or_else(|| x.as_str()?.parse().ok())).map(|x| x as u32)
 }
 
-/// Разобрать одно уведомление (body_data - JSON строкой, свой у каждого вида).
+/// Parse one notification (body_data - JSON as a string, different for each kind).
 pub fn parse_one(item: &serde_json::Value) -> Option<Notif> {
     let kind = n(item, "notification_type")?;
     let body: serde_json::Value = serde_json::from_str(item.get("body_data")?.as_str().unwrap_or("{}")).unwrap_or_default();
@@ -67,7 +67,7 @@ pub fn parse_one(item: &serde_json::Value) -> Option<Notif> {
         2 => ("Вам прислали подарок".into(), String::new(), Link::Url("https://steamcommunity.com/my/inventory/#pending_gifts".into())),
         3 => ("Новый комментарий".into(), String::new(), Link::Url(comment_url(&body))),
         4 => {
-            // Предмет: app_id - инвентарь (753 - Steam), source_appid - игра, из которой он.
+            // Item: app_id - the inventory (753 - Steam), source_appid - the game it comes from.
             let src = n(&body, "source_appid").filter(|a| *a != 0);
             return Some(Notif {
                 id: s(item, "notification_id"),
@@ -104,7 +104,7 @@ pub fn parse_one(item: &serde_json::Value) -> Option<Notif> {
             )
         }
         12 => ("Ваш ход в игре".into(), String::new(), appid.map(Link::Store).unwrap_or(Link::None)),
-        13 => return None, // сообщения - в чате Vaporust
+        13 => return None, // messages - in the Vaporust chat
         14 => ("Сообщение модератора".into(), crate::store::plain_text(&s(&body, "body")), Link::None),
         16 => ("Приглашение в семью Steam".into(), String::new(), Link::Url("https://store.steampowered.com/account/familymanagement".into())),
         17 | 19 => ("Запрос покупки в семье".into(), String::new(), Link::Url("https://store.steampowered.com/account/familymanagement".into())),
@@ -157,7 +157,7 @@ pub async fn load(client: &SteamClient) -> Result<Notifs, String> {
     Ok(parse(&v))
 }
 
-/// Отметить все прочитанными (как кнопка в колокольчике Steam).
+/// Mark all as read (like the button in the Steam bell).
 pub async fn mark_all_read(client: &SteamClient) -> Result<(), String> {
     webapi::post(client, "ISteamNotificationService/MarkNotificationsRead/v1", &[("mark_all_read", "true".into())])
         .await
@@ -165,7 +165,7 @@ pub async fn mark_all_read(client: &SteamClient) -> Result<(), String> {
 }
 
 impl LauncherApp {
-    /// Раз в 5 минут (и сразу после входа) - уведомления Steam; о новых непрочитанных - всплывающее.
+    /// Every 5 minutes (and right after login) - Steam notifications; a popup about new unread ones.
     pub(crate) fn steam_notifs_tick(&mut self, net: &NetState) {
         if net.account.is_none() {
             return;
@@ -175,7 +175,7 @@ impl LauncherApp {
             self.notifs_at = Some(std::time::Instant::now());
             let _ = self.tx.send(Cmd::SteamNotifs);
         }
-        // Новые непрочитанные (которых не было при прошлой проверке) - одно всплывающее.
+        // New unread ones (not present at the previous check) - one popup.
         if let Some(Ok(ns)) = &net.steam_notifs {
             let fresh: Vec<&Notif> = ns.list.iter().filter(|n| !n.read && !self.notifs_seen.contains(&n.id)).collect();
             let first_load = self.notifs_seen.is_empty();
@@ -193,7 +193,7 @@ impl LauncherApp {
         }
     }
 
-    /// Заголовок с названием игры.
+    /// Title with the game name.
     fn notif_title(&self, n: &Notif, net: &NetState) -> String {
         match n.appid {
             Some(a) if n.count <= 1 || n.kind != 8 => {
@@ -213,13 +213,13 @@ impl LauncherApp {
         }
     }
 
-    /// Кнопка «Уведомления (N)» в верхней панели со списком.
+    /// The "Notifications (N)" button in the top bar with the list.
     pub(crate) fn steam_notifs_button(&mut self, ui: &mut egui::Ui, net: &NetState) {
         let Some(Ok(ns)) = &net.steam_notifs else { return };
         let label = if ns.unread > 0 { format!("Уведомления ({})", ns.unread) } else { "Уведомления".into() };
         let mut go: Option<Link> = None;
         let mut mark = false;
-        // Названия игр, которых нет в библиотеке, - спросить у Steam.
+        // Names of games not in the library - ask Steam.
         let unknown: Vec<u32> = ns
             .list
             .iter()
@@ -230,7 +230,7 @@ impl LauncherApp {
         if !unknown.is_empty() {
             let _ = self.tx.send(Cmd::ResolveApps(unknown));
         }
-        // Картинки новых предметов - из инвентаря, один раз за сеанс.
+        // Images of new items - from the inventory, once per session.
         static ICONS_ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
         let invs: std::collections::BTreeSet<(u32, u32)> = ns
             .list
@@ -242,8 +242,8 @@ impl LauncherApp {
         if !invs.is_empty() && !ICONS_ASKED.swap(true, std::sync::atomic::Ordering::Relaxed) {
             let _ = self.tx.send(Cmd::NotifIcons(invs.into_iter().collect()));
         }
-        // Колокольчик, как в Steam: число непрочитанных - красным кружком.
-        // Ячейка как у кнопок окна рядом (46x34), тонкая линия, подсветка при наведении.
+        // The bell, as in Steam: the unread count in a red circle.
+        // A cell like the window buttons next to it (46x34), a thin line, highlight on hover.
         let bell = egui::Button::new("").frame(false).min_size(egui::vec2(46.0, 34.0));
         let bell_resp = egui::menu::menu_custom_button(ui, bell, |ui| {
             ui.set_min_width(340.0);
@@ -261,10 +261,10 @@ impl LauncherApp {
                 for n in ns.list.iter().take(40) {
                     let title = self.notif_title(n, net);
                     let text = if n.read { egui::RichText::new(&title) } else { egui::RichText::new(&title).strong() };
-                    // Как в Steam: слева картинка (игры, к которой относится уведомление), справа текст.
+                    // As in Steam: an image on the left (of the game the notification is about), text on the right.
                     let row = ui.horizontal(|ui| {
                         let size = egui::vec2(86.0, 40.0);
-                        // Новый предмет - его картинка из инвентаря (на темной подложке).
+                        // A new item - its image from the inventory (on a dark backing).
                         let mut item_drawn = false;
                         if let Some(icon) = n.asset.as_ref().and_then(|a| net.notif_icons.get(&a.2)) {
                             let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
@@ -273,8 +273,8 @@ impl LauncherApp {
                             egui::Image::new(icon.as_str()).paint_at(ui, sq);
                             item_drawn = true;
                         }
-                        // Картинки нет (у служебных приложений Steam, например распродаж) - подпись вместо
-                        // значка ошибки.
+                        // No image (for Steam service apps, e.g. sales) - a caption instead of
+                        // an error icon.
                         let img = n.appid.filter(|_| !item_drawn).map(|a| {
                             egui::Image::new(format!("https://shared.steamstatic.com/store_item_assets/steam/apps/{a}/header.jpg"))
                                 .fit_to_exact_size(size)
@@ -381,12 +381,12 @@ mod tests {
     }
 }
 
-/// Значок колокольчика (рисуется линиями, без шрифта) и кружок с числом непрочитанных.
+/// Bell icon (drawn with lines, no font) and a circle with the unread count.
 fn draw_bell(p: &egui::Painter, r: egui::Rect, color: egui::Color32, unread: u32) {
     let c = r.center();
-    // Тонкой линией в 1 точку и того же размера, что значки «свернуть / закрыть» рядом.
+    // A thin 1-point line and the same size as the "minimize / close" icons next to it.
     let s = egui::Stroke::new(1.0, color);
-    // Купол и юбка колокольчика.
+    // The bell's dome and skirt.
     let mut pts = Vec::new();
     for i in 0..=12 {
         let a = std::f32::consts::PI * (1.0 + i as f32 / 12.0);
@@ -398,7 +398,7 @@ fn draw_bell(p: &egui::Painter, r: egui::Rect, color: egui::Color32, unread: u32
     pts.push(egui::pos2(c.x - 4.0, c.y + 2.5));
     pts.push(pts[0]);
     p.add(egui::Shape::line(pts, s));
-    // Язычок и ушко.
+    // Clapper and loop.
     p.line_segment([egui::pos2(c.x - 1.5, c.y + 5.5), egui::pos2(c.x + 1.5, c.y + 5.5)], s);
     p.line_segment([egui::pos2(c.x, c.y - 5.5), egui::pos2(c.x, c.y - 6.5)], s);
     if unread > 0 {

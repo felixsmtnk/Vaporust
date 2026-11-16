@@ -1,4 +1,4 @@
-//! vaporust: групповые чаты Steam (ChatRoom): мои группы с каналами, история канала, отправка.
+//! vaporust: Steam group chats (ChatRoom): my groups with channels, channel history, sending.
 
 use super::*;
 use steam_vent_proto::steammessages_chat_steamclient::{
@@ -6,7 +6,7 @@ use steam_vent_proto::steammessages_chat_steamclient::{
     CChatRoom_GetMyChatRoomGroups_Response, CChatRoom_SendChatMessage_Request, CChatRoom_SendChatMessage_Response,
 };
 
-/// Канал группового чата.
+/// A group chat channel.
 #[derive(Debug, Clone, Default)]
 pub struct ChatChannel {
     pub chat_id: u64,
@@ -15,7 +15,7 @@ pub struct ChatChannel {
     pub last_message: String,
 }
 
-/// Групповой чат (группа с каналами).
+/// A group chat (a group with channels).
 #[derive(Debug, Clone, Default)]
 pub struct ChatGroup {
     pub group_id: u64,
@@ -25,14 +25,14 @@ pub struct ChatGroup {
     pub members_online: u32,
     pub default_chat: u64,
     pub channels: Vec<ChatChannel>,
-    /// Несколько участников (номера аккаунтов) - для названия группы без имени.
+    /// A few members (account numbers) - for naming a group without a name.
     pub top_members: Vec<u32>,
 }
 
-/// Сообщение группового чата.
+/// A group chat message.
 #[derive(Debug, Clone, Default)]
 pub struct GroupMessage {
-    /// Номер аккаунта отправителя (SteamID64 = 76561197960265728 + номер).
+    /// Sender account number (SteamID64 = 76561197960265728 + number).
     pub sender: u32,
     pub time: u32,
     pub ordinal: u32,
@@ -56,7 +56,7 @@ impl SteamClient {
                 let avatar_url = if !g.avatar_ugc_url().is_empty() {
                     g.avatar_ugc_url().to_string()
                 } else if !sha.is_empty() && sha.chars().any(|c| c != '0') {
-                    // Так строит адрес клиент Steam (sp.js): {sha}_32/_64/_256.jpg; «_medium» дает 404.
+                    // This is how the Steam client (sp.js) builds the URL: {sha}_32/_64/_256.jpg; "_medium" gives 404.
                     format!("https://avatars.fastly.steamstatic.com/{sha}_64.jpg")
                 } else {
                     String::new()
@@ -86,14 +86,14 @@ impl SteamClient {
             .collect())
     }
 
-    /// Последние `max` сообщений канала (старые первыми).
+    /// The last `max` messages of a channel (oldest first).
     pub async fn group_messages(&self, group: u64, chat: u64, max: u32) -> Result<Vec<GroupMessage>> {
         let connection = self.require_connection()?;
         let mut req = CChatRoom_GetMessageHistory_Request::new();
         req.set_chat_group_id(group);
         req.set_chat_id(chat);
         req.set_max_count(max);
-        // Сообщения «до этого времени»: без него Steam отдает пустой список.
+        // Messages "before this time": without it Steam returns an empty list.
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as u32).unwrap_or(u32::MAX);
         req.set_last_time(now);
         let resp: CChatRoom_GetMessageHistory_Response =
@@ -127,8 +127,8 @@ impl SteamClient {
 }
 
 impl SteamClient {
-    /// Сделать группы «активными» в этом сеансе (как открытое окно чата в Steam): после этого
-    /// Steam отдает историю каналов и присылает новые сообщения.
+    /// Make the groups "active" in this session (like an open chat window in Steam): after that
+    /// Steam returns channel history and sends new messages.
     pub async fn activate_chat_groups(&self, groups: &[u64]) -> Result<()> {
         use steam_vent_proto::steammessages_chat_steamclient::{
             CChatRoom_SetSessionActiveChatRoomGroups_Request, CChatRoom_SetSessionActiveChatRoomGroups_Response,

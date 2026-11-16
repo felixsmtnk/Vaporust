@@ -1,6 +1,6 @@
-//! Навигация как в клиенте Steam: сверху четыре раздела (МАГАЗИН, БИБЛИОТЕКА, СООБЩЕСТВО,
-//! профиль), под ними - подразделы выбранного раздела. Все разделы видны всегда, вкладки не
-//! появляются и не пропадают.
+//! Navigation as in the Steam client: four sections on top (STORE, LIBRARY, COMMUNITY,
+//! profile), the selected section's subsections below. All sections are always visible, tabs do not
+//! appear and disappear.
 
 use crate::net::NetState;
 use crate::storewin::Tab;
@@ -25,7 +25,7 @@ pub fn section_of(v: View) -> Option<Section> {
     })
 }
 
-/// Крупный пункт верхней полосы (при наведении белеет, выбранный - голубой с чертой).
+/// Large top bar item (turns white on hover, the selected one is light blue with an underline).
 fn top_item(ui: &mut egui::Ui, on: bool, text: &str) -> egui::Response {
     let mut t = egui::RichText::new(text).size(15.0).strong();
     if on {
@@ -39,7 +39,7 @@ fn top_item(ui: &mut egui::Ui, on: bool, text: &str) -> egui::Response {
     r
 }
 
-/// Пункт подменю.
+/// Submenu item.
 fn sub_item(ui: &mut egui::Ui, on: bool, text: &str) -> egui::Response {
     let t = egui::RichText::new(text).size(13.5).color(if on { egui::Color32::WHITE } else { theme::WEAK });
     let r = ui.add(egui::Button::new(t).frame(false)).on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -51,7 +51,7 @@ fn sub_item(ui: &mut egui::Ui, on: bool, text: &str) -> egui::Response {
 }
 
 impl LauncherApp {
-    /// Имя профиля для верхней полосы: имя в Steam (если уже известно), иначе «ПРОФИЛЬ».
+    /// Profile name for the top bar: the Steam name (if already known), otherwise "ПРОФИЛЬ".
     fn profile_label(&mut self, ui: &egui::Ui, net: &NetState) -> String {
         let Some(me) = net.my_id else { return "ПРОФИЛЬ".into() };
         match net.profiles.get(&me) {
@@ -68,11 +68,11 @@ impl LauncherApp {
         .unwrap_or_else(|| "ПРОФИЛЬ".into())
     }
 
-    /// Верхняя полоса: меню Vaporust, четыре раздела, справа уведомления Steam.
+    /// Top bar: Vaporust menu, four sections, Steam notifications on the right.
     pub(crate) fn top_nav(&mut self, ui: &mut egui::Ui, net: &NetState) {
         let ctrl = ui.input(|i| i.modifiers.ctrl);
         let section = section_of(self.view);
-        // Игра и Steam: действия, которых раньше было в нижней полосе.
+        // Game and Steam: actions that used to be in the bottom bar.
         let launching = self.launching.load(std::sync::atomic::Ordering::Relaxed);
         let closing = self.closing.load(std::sync::atomic::Ordering::Relaxed);
         let steam_running = !closing && self.steam_running();
@@ -82,7 +82,7 @@ impl LauncherApp {
         });
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 18.0;
-            // Меню программы - простым текстом, как «Steam» в клиенте.
+            // Program menu - plain text, like "Steam" in the client.
             egui::menu::menu_custom_button(ui, egui::Button::new(egui::RichText::new("Vaporust").size(14.0)).frame(false), |ui| {
                 ui.set_min_width(190.0);
                 if ui.button("Настройки").clicked() {
@@ -179,7 +179,7 @@ Steam остается открытым.")
         });
     }
 
-    /// Подразделы выбранного раздела (строка под верхней полосой).
+    /// Subsections of the selected section (the row under the top bar).
     pub(crate) fn sub_nav(&mut self, ui: &mut egui::Ui, net: &NetState) {
         let Some(section) = section_of(self.view) else {
             ui.label(egui::RichText::new("Настройки").size(13.5).color(egui::Color32::WHITE));
@@ -289,7 +289,7 @@ Steam остается открытым.")
                     if sub_item(ui, self.view == View::Family, "Семья Steam").clicked() {
                         self.open_family();
                     }
-                    // Открыт профиль друга - временный пункт с его именем.
+                    // A friend's profile is open - a temporary item with their name.
                     if let Some(id) = self.social_ui.profile.filter(|id| Some(*id) != net.my_id && self.view == View::Profile) {
                         let name = net
                             .profiles

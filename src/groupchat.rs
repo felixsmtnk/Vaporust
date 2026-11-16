@@ -1,5 +1,5 @@
-//! «Групповые чаты» Steam: слева группы и их каналы, справа сообщения канала и поле ввода.
-//! Пока вкладка открыта, канал обновляется раз в 4 секунды.
+//! Steam "Group chats": groups and their channels on the left, channel messages and input on the right.
+//! While the tab is open, the channel refreshes every 4 seconds.
 
 use crate::net::{Cmd, NetState};
 use crate::LauncherApp;
@@ -11,11 +11,11 @@ use std::time::{Duration, Instant};
 pub struct GroupsUi {
     pub open: bool,
     pub asked: bool,
-    /// Выбранный канал: (группа, канал).
+    /// Selected channel: (group, channel).
     pub current: Option<(u64, u64)>,
     pub draft: String,
     pub polled: Option<Instant>,
-    /// Чьи имена уже запрошены.
+    /// Whose names were already requested.
     pub asked_names: std::collections::HashSet<u64>,
 }
 
@@ -27,7 +27,7 @@ impl LauncherApp {
         self.view = crate::View::Groups;
     }
 
-    /// Имя по номеру аккаунта: друзья, профили, иначе номер (и запросить профиль).
+    /// Name by account number: friends, profiles, otherwise the number (and request the profile).
     fn group_sender(&mut self, account: u32, net: &NetState) -> String {
         let id = crate::social::STEAMID64_BASE + account as u64;
         if Some(id) == net.my_id {
@@ -67,12 +67,12 @@ impl LauncherApp {
             ui.label("Вы не состоите ни в одном групповом чате Steam.");
             return;
         }
-        // По умолчанию - первый канал первой группы.
+        // By default - the first channel of the first group.
         if self.groups_ui.current.is_none() {
             self.groups_ui.current = groups.first().map(|g| (g.group_id, g.default_chat.max(g.channels.first().map_or(0, |c| c.chat_id))));
         }
         let (gid, cid) = self.groups_ui.current.unwrap();
-        // Обновлять открытый канал раз в 4 с (и сразу при выборе).
+        // Refresh the open channel every 4 s (and right away on selection).
         if self.groups_ui.polled.is_none_or(|t| t.elapsed() >= Duration::from_secs(4)) {
             self.groups_ui.polled = Some(Instant::now());
             let _ = self.tx.send(Cmd::GroupMessages { group: gid, chat: cid });
@@ -97,7 +97,7 @@ impl LauncherApp {
                         if !g.avatar_url.is_empty() {
                             ui.add(egui::Image::new(g.avatar_url.as_str()).fit_to_exact_size(egui::vec2(24.0, 24.0)));
                         }
-                        // Группа без названия: как в Steam - имена участников.
+                        // Group without a name: as in Steam - member names.
                         let title = if g.name.is_empty() {
                             let me = net.my_id.map(|m| (m - crate::social::STEAMID64_BASE) as u32);
                             let names: Vec<String> = g
@@ -188,7 +188,7 @@ impl LauncherApp {
 
 #[cfg(test)]
 mod tests {
-    /// Живой тест (только чтение): свои групповые чаты и последние сообщения первого канала.
+    /// Live test (read only): own group chats and the latest messages of the first channel.
     #[test]
     #[ignore]
     fn groups_live() {

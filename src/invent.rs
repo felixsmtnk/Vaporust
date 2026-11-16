@@ -1,5 +1,5 @@
-//! Инвентарь, кошелек и торговая площадка Steam (через веб-сессию Aurelia).
-//! Только просмотр: продажа и покупка - на сайте Steam в браузере.
+//! Steam inventory, wallet and Community Market (via Aurelia's web session).
+//! View only: selling and buying happen on the Steam site in a browser.
 
 use aurelia::steam_client::{self as sc, InventoryItem, MarketPrice, SteamClient, WalletBalance};
 use eframe::egui;
@@ -7,16 +7,16 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-/// Игра, в которой у аккаунта есть предметы.
+/// A game in which the account has items.
 #[derive(Clone, Debug)]
 pub struct InvApp {
     pub appid: u32,
     pub name: String,
     pub icon: Option<String>,
     pub count: u64,
-    /// Разделы инвентаря игры: (id, название, предметов).
+    /// Inventory sections of the game: (id, name, items).
     pub contexts: Vec<(u32, String, u64)>,
-    /// Комиссия игры на площадке (market_pubfee_rate), если у игры она своя; иначе - из кошелька.
+    /// The game's market fee (market_pubfee_rate) if the game has its own; otherwise from the wallet.
     pub pubfee: Option<f64>,
 }
 
@@ -27,25 +27,25 @@ pub struct InvState {
     pub loading: HashSet<(u32, u32)>,
     pub wallet: Option<Result<WalletBalance, String>>,
     pub listings: Option<Result<MyMarket, String>>,
-    /// Цены предметов по (appid, market_hash_name).
+    /// Item prices by (appid, market_hash_name).
     pub prices: HashMap<(u32, String), Result<MarketPrice, String>>,
-    /// Поиск по площадке: запрос и (всего найдено, загруженные результаты).
+    /// Market search: query and (total found, loaded results).
     pub search: Option<(String, Result<(u32, Vec<MarketHit>), String>)>,
     pub searching: bool,
-    /// Площадка и обмены: история цен, заявки, продажа, обмены.
+    /// Market and trades: price history, orders, selling, trades.
     pub trade: crate::trade::TradeState,
 }
 
 pub type SharedInv = Arc<Mutex<InvState>>;
 
 pub enum InvCmd {
-    /// Список игр с предметами + кошелек.
+    /// List of games with items + wallet.
     Apps,
     Items { appid: u32, ctx: u32 },
     Wallet,
     Listings,
     Price { appid: u32, name: String },
-    /// Поиск: запрос и с какого результата (Steam отдает по 10).
+    /// Search: query and starting result (Steam returns 10 at a time).
     Search { query: String, start: u32 },
 }
 
@@ -53,7 +53,7 @@ fn err<E: std::fmt::Display>(e: E) -> String {
     format!("{e:#}")
 }
 
-/// Steam: инвентарь «Steam» (карточки, фоны, смайлики) - это 753, раздел 6.
+/// Steam: the "Steam" inventory (cards, backgrounds, emoticons) is 753, context 6.
 const STEAM_APP: u32 = 753;
 
 pub fn handle(client: &SteamClient, cmd: InvCmd, st: &SharedInv, ctx: &egui::Context) {
@@ -92,7 +92,7 @@ pub fn handle(client: &SteamClient, cmd: InvCmd, st: &SharedInv, ctx: &egui::Con
                     Ok(html) => parse_app_contexts(&html),
                     Err(e) => Err(err(e)),
                 };
-                // Если страницу разобрать не удалось - хотя бы инвентарь Steam.
+                // If the page could not be parsed - at least the Steam inventory.
                 let res = match res {
                     Ok(list) if !list.is_empty() => Ok(list),
                     Ok(_) => Ok(vec![steam_app()]),
@@ -127,7 +127,7 @@ pub fn handle(client: &SteamClient, cmd: InvCmd, st: &SharedInv, ctx: &egui::Con
                 st.lock().unwrap().prices.insert((appid, name), res);
             }
             InvCmd::Search { query, start } => {
-                // С нашей веб-сессией Steam отдает русские названия и цены в валюте кошелька.
+                // With our web session Steam returns Russian names and prices in the wallet currency.
                 let url = format!(
                     "https://steamcommunity.com/market/search/render/?norender=1&l={lang}&start={start}&count=10&query={}",
                     url_encode(&query),
@@ -138,10 +138,10 @@ pub fn handle(client: &SteamClient, cmd: InvCmd, st: &SharedInv, ctx: &egui::Con
                     Err(e) => Err(err(e)),
                 };
                 let mut s = st.lock().unwrap();
-                // Пока искали, могли ввести новый запрос - оставляем только свежий.
+                // A new query may have been entered during the search - keep only the fresh one.
                 if s.search.as_ref().is_some_and(|(t, _)| *t == query) {
                     let res = match (res, s.search.take()) {
-                        // «Показать еще»: дописываем к уже загруженным.
+                        // "Show more": append to what is already loaded.
                         (Ok((total, more)), Some((_, Ok((_, mut have))))) if start > 0 => {
                             have.extend(more);
                             Ok((total, have))
@@ -161,7 +161,7 @@ fn steam_app() -> InvApp {
     InvApp { appid: STEAM_APP, name: "Steam".into(), icon: None, count: 0, contexts: vec![(6, "Сообщество".into(), 0)], pubfee: None }
 }
 
-/// Валюта кошелька (для цен площадки); пока неизвестна - доллары.
+/// Wallet currency (for market prices); dollars while unknown.
 fn currency(st: &SharedInv) -> u32 {
     match &st.lock().unwrap().wallet {
         Some(Ok(w)) if w.currency > 0 => w.currency,
@@ -169,7 +169,7 @@ fn currency(st: &SharedInv) -> u32 {
     }
 }
 
-/// Сумма из минимальных единиц (копеек, центов) в валюте Steam: «3,00 ₴», «$1.00».
+/// Amount from minimal units (kopecks, cents) in a Steam currency: "3,00 ₴", "$1.00".
 pub fn money(cents: i64, currency: u32) -> String {
     let sym = match currency {
         2 => "£",
@@ -183,7 +183,7 @@ pub fn money(cents: i64, currency: u32) -> String {
     format!("{:.2} {sym}", cents as f64 / 100.0).replace('.', ",")
 }
 
-/// Валюта кошелька из состояния (для заявок на покупку и подписи цен).
+/// Wallet currency from the state (for buy orders and price labels).
 pub fn wallet_currency(st: &InvState) -> u32 {
     match &st.wallet {
         Some(Ok(w)) if w.currency > 0 => w.currency,
@@ -191,26 +191,26 @@ pub fn wallet_currency(st: &InvState) -> u32 {
     }
 }
 
-/// Свой лот на площадке.
+/// Own market listing.
 #[derive(Clone, Debug)]
 pub struct Lot {
-    /// Номер лота (снять с продажи).
+    /// Listing id (to remove it from sale).
     pub id: String,
     pub appid: u32,
     pub name: String,
     pub hash_name: String,
     pub icon: Option<String>,
-    /// Сколько получите вы.
+    /// How much you receive.
     pub receive: i64,
-    /// Сколько заплатит покупатель (с комиссией).
+    /// How much the buyer pays (with fees).
     pub pay: i64,
     pub currency: u32,
 }
 
-/// Своя заявка на покупку.
+/// Own buy order.
 #[derive(Clone, Debug)]
 pub struct Order {
-    /// Номер заявки (отменить).
+    /// Order id (to cancel).
     pub id: String,
     pub appid: u32,
     pub name: String,
@@ -223,12 +223,12 @@ pub struct Order {
 #[derive(Clone, Debug, Default)]
 pub struct MyMarket {
     pub lots: Vec<Lot>,
-    /// Лоты, ждущие подтверждения в мобильном приложении.
+    /// Listings waiting for confirmation in the mobile app.
     pub to_confirm: usize,
     pub orders: Vec<Order>,
 }
 
-/// Результат поиска по площадке.
+/// Market search result.
 #[derive(Clone, Debug)]
 pub struct MarketHit {
     pub appid: u32,
@@ -244,7 +244,7 @@ fn num(v: Option<&Value>) -> i64 {
     v.and_then(|x| x.as_i64().or_else(|| x.as_str().and_then(|s| s.parse().ok()))).unwrap_or(0)
 }
 
-/// Номер (строка или число в JSON) как строка.
+/// Id (string or number in JSON) as a string.
 fn id_str(v: Option<&Value>) -> String {
     match v {
         Some(Value::String(s)) => s.clone(),
@@ -261,7 +261,7 @@ fn econ_icon(v: Option<&Value>) -> Option<String> {
     v.and_then(Value::as_str).filter(|s| !s.is_empty()).map(|s| format!("{}{s}", aurelia::web::web_session::ECON_IMAGE_BASE))
 }
 
-/// Ответ /market/mylistings/?norender=1.
+/// Response of /market/mylistings/?norender=1.
 pub fn parse_my_market(body: &str) -> Result<MyMarket, String> {
     let v: Value = serde_json::from_str(body).map_err(|_| "Steam прислал непонятный ответ".to_string())?;
     if v.get("success").and_then(Value::as_bool) == Some(false) {
@@ -274,13 +274,13 @@ pub fn parse_my_market(body: &str) -> Result<MyMarket, String> {
         Some(Lot {
             id: id_str(x.get("listingid")),
             appid: num(a.get("appid")) as u32,
-            // market_name - с износом/качеством, как на площадке.
+            // market_name - with wear/quality, as on the market.
             name: Some(s(a.get("market_name"))).filter(|n| !n.is_empty()).unwrap_or_else(|| s(a.get("name"))),
             hash_name: s(a.get("market_hash_name")),
             icon: econ_icon(a.get("icon_url")),
             receive: price,
             pay: price + num(x.get("fee")),
-            // Код валюты лота: 2000 + валюта Steam.
+            // Listing currency code: 2000 + Steam currency.
             currency: if cur > 2000 { cur - 2000 } else { cur },
         })
     };
@@ -307,7 +307,7 @@ pub fn parse_my_market(body: &str) -> Result<MyMarket, String> {
     })
 }
 
-/// Ответ /market/search/render/?norender=1: (всего найдено, страница результатов).
+/// Response of /market/search/render/?norender=1: (total found, page of results).
 pub fn parse_search(body: &str) -> Result<(u32, Vec<MarketHit>), String> {
     let v: Value = serde_json::from_str(body).map_err(|_| "Steam прислал непонятный ответ".to_string())?;
     if v.get("success").and_then(Value::as_bool) == Some(false) {
@@ -336,7 +336,7 @@ pub fn parse_search(body: &str) -> Result<(u32, Vec<MarketHit>), String> {
     Ok((num(v.get("total_count")) as u32, hits))
 }
 
-/// Список игр с инвентарем со страницы профиля: `g_rgAppContextData = {...};`.
+/// List of games with an inventory from the profile page: `g_rgAppContextData = {...};`.
 pub fn parse_app_contexts(html: &str) -> Result<Vec<InvApp>, String> {
     let key = "g_rgAppContextData";
     let start = html.find(key).ok_or("на странице инвентаря нет списка игр")?;
@@ -382,12 +382,12 @@ pub fn parse_app_contexts(html: &str) -> Result<Vec<InvApp>, String> {
         })
         .filter(|a| !a.contexts.is_empty())
         .collect();
-    // Steam первым, остальные - по числу предметов.
+    // Steam first, others by item count.
     apps.sort_by(|a, b| (b.appid == STEAM_APP).cmp(&(a.appid == STEAM_APP)).then(b.count.cmp(&a.count)));
     Ok(apps)
 }
 
-/// Кодирование названия предмета для ссылки на торговую площадку.
+/// Encoding an item name for a Community Market link.
 pub fn url_encode(s: &str) -> String {
     let mut out = String::new();
     for b in s.bytes() {
@@ -399,7 +399,7 @@ pub fn url_encode(s: &str) -> String {
     out
 }
 
-/// Страница предмета на торговой площадке.
+/// Item page on the Community Market.
 pub fn listing_url(appid: u32, hash_name: &str) -> String {
     format!("https://steamcommunity.com/market/listings/{appid}/{}", url_encode(hash_name))
 }
@@ -408,7 +408,7 @@ pub fn listing_url(appid: u32, hash_name: &str) -> String {
 mod tests {
     use super::*;
 
-    /// Живой тест: сохраняет ответы сайта Steam в папку из VAPORUST_DUMP.
+    /// Live test: saves Steam site responses to the folder from VAPORUST_DUMP.
     #[test]
     #[ignore]
     fn inv_live_dump() {
@@ -437,7 +437,7 @@ mod tests {
         });
     }
 
-    /// Живой тест поиска: разные варианты запроса «Dragon Lore».
+    /// Live search test: different variants of the "Dragon Lore" query.
     #[test]
     #[ignore]
     fn market_search_live() {
@@ -468,7 +468,7 @@ mod tests {
         });
     }
 
-    /// Разбор сохраненных живым тестом ответов (папка VAPORUST_DUMP).
+    /// Parsing of responses saved by the live test (folder VAPORUST_DUMP).
     #[test]
     #[ignore]
     fn inv_parse_dump() {

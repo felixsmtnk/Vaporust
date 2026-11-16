@@ -1,7 +1,7 @@
-//! Действия в сообществе и магазине (второй план дорожной карты): свой обзор игры, новая тема
-//! в обсуждениях, награды за очки, порядок списка желаемого, корзина, кураторы, приглашения в
-//! семью, реакции и групповые чаты, коллекции и оценки в Мастерской.
-//! Почти все эти действия видны другим людям - в интерфейсе каждое с подтверждением.
+//! Community and store actions (second-tier roadmap items): your own game review, a new
+//! discussion topic, points awards, wishlist order, cart, curators, family invites,
+//! reactions and group chats, Workshop collections and votes.
+//! Almost all of these actions are visible to other people - each one asks for confirmation in the UI.
 
 use crate::webapi;
 use aurelia::steam_client::SteamClient;
@@ -21,7 +21,7 @@ fn num(v: &serde_json::Value) -> u64 {
     v.as_u64().or_else(|| v.as_str()?.parse().ok()).unwrap_or(0)
 }
 
-// ---------- Свой обзор ----------
+// ---------- Own review ----------
 
 #[derive(Clone, Debug, Default)]
 pub struct MyReview {
@@ -30,7 +30,7 @@ pub struct MyReview {
     pub public: bool,
 }
 
-/// Свой обзор игры (None - еще не писали): страница /profiles/<я>/recommended/<appid>/.
+/// Own review of a game (None - not written yet): page /profiles/<me>/recommended/<appid>/.
 pub async fn review_load(c: &SteamClient, appid: u32) -> Result<Option<MyReview>, String> {
     let me = c.my_steam_id().ok_or("нет входа")?;
     let web = webapi::web_session(c).await?;
@@ -47,7 +47,7 @@ pub async fn review_load(c: &SteamClient, appid: u32) -> Result<Option<MyReview>
     Ok(Some(MyReview { text, up, public: !t.contains("ReviewVisibility_Private") }))
 }
 
-/// Написать или обновить свой обзор (как «Написать обзор» на странице игры в магазине).
+/// Write or update your review (like "Write a review" on the store page).
 pub async fn review_save(c: &SteamClient, appid: u32, r: &MyReview) -> Result<(), String> {
     let web = webapi::web_session(c).await?;
     let fields = [
@@ -74,9 +74,9 @@ pub async fn review_save(c: &SteamClient, appid: u32, r: &MyReview) -> Result<()
     }
 }
 
-// ---------- Новая тема в обсуждениях ----------
+// ---------- New discussion topic ----------
 
-/// Создать тему в «Общем обсуждении» игры. Возвращает адрес новой темы.
+/// Create a topic in the game's "General Discussions". Returns the new topic's URL.
 pub async fn create_topic(c: &SteamClient, appid: u32, title: &str, text: &str) -> Result<String, String> {
     let web = webapi::web_session(c).await?;
     let page = format!("https://steamcommunity.com/app/{appid}/discussions/0/");
@@ -114,9 +114,9 @@ pub async fn create_topic(c: &SteamClient, appid: u32, title: &str, text: &str) 
     })
 }
 
-// ---------- Награды за очки ----------
+// ---------- Points awards ----------
 
-/// Какие награды можно дать: (номер награды, цена в очках).
+/// Which awards can be given: (award id, price in points).
 pub async fn award_config(c: &SteamClient) -> Result<Vec<(u32, u32)>, String> {
     let v = webapi::get(c, "ILoyaltyRewardsService/GetReactionConfig/v1", &[]).await?;
     let mut out: Vec<(u32, u32)> = v["reactions"]
@@ -130,7 +130,7 @@ pub async fn award_config(c: &SteamClient) -> Result<Vec<(u32, u32)>, String> {
     Ok(out)
 }
 
-/// Наградить: target_type 1 - обзор, 2 - работа (скриншот, мод), 3 - профиль.
+/// Give an award: target_type 1 - review, 2 - item (screenshot, mod), 3 - profile.
 pub async fn award(c: &SteamClient, target_type: u32, target: &str, reaction: u32) -> Result<(), String> {
     webapi::post(
         c,
@@ -141,9 +141,9 @@ pub async fn award(c: &SteamClient, target_type: u32, target: &str, reaction: u3
     .map(|_| ())
 }
 
-// ---------- Список желаемого: порядок ----------
+// ---------- Wishlist order ----------
 
-/// Новый порядок: (appid, место с 1). Так же, как перетаскивание на странице желаемого Steam.
+/// New order: (appid, position from 1). Same as dragging on Steam's wishlist page.
 pub async fn wishlist_reorder(c: &SteamClient, items: &[(u32, u32)]) -> Result<(), String> {
     let web = webapi::web_session(c).await?;
     let updates: Vec<serde_json::Value> = items.iter().map(|(a, p)| serde_json::json!({ "appid": a, "priority": p })).collect();
@@ -166,7 +166,7 @@ pub async fn wishlist_reorder(c: &SteamClient, items: &[(u32, u32)]) -> Result<(
     }
 }
 
-// ---------- Корзина ----------
+// ---------- Cart ----------
 
 #[derive(Clone, Debug, Default)]
 pub struct CartLine {
@@ -205,9 +205,9 @@ pub async fn cart_get(c: &SteamClient, country: &str) -> Result<Cart, String> {
     Ok(Cart { lines, total: money(&cart["subtotal"]) })
 }
 
-/// Положить в корзину пакет игры (первый вариант покупки со страницы магазина).
+/// Put a game package into the cart (first purchase option from the store page).
 pub async fn cart_add(c: &SteamClient, packageid: u32, country: &str) -> Result<(), String> {
-    // Вложенный список товаров Web API понимает только в input_json.
+    // The Web API accepts a nested item list only via input_json.
     let input = serde_json::json!({ "user_country": country, "items": [{ "packageid": packageid }] }).to_string();
     let v = webapi::post(c, "IAccountCartService/AddItemsToCart/v1", &[("input_json", input)]).await?;
     let added = v["line_item_ids"].as_array().is_some_and(|a| !a.is_empty())
@@ -226,7 +226,7 @@ pub async fn cart_remove(c: &SteamClient, line_id: u64, country: &str) -> Result
     .map(|_| ())
 }
 
-/// Пакеты игры для корзины: (packageid, название варианта, цена) из appdetails.
+/// Game packages for the cart: (packageid, option name, price) from appdetails.
 pub async fn app_packages(appid: u32, cc: &str) -> Result<Vec<(u32, String, String)>, String> {
     let http = aurelia::core::net::steam_web_client().map_err(|e| format!("{e:#}"))?;
     let url = format!("https://store.steampowered.com/api/appdetails?appids={appid}&cc={cc}&l={lang}", lang = crate::lang::STEAM);
@@ -245,7 +245,7 @@ pub async fn app_packages(appid: u32, cc: &str) -> Result<Vec<(u32, String, Stri
         .collect())
 }
 
-// ---------- Кураторы ----------
+// ---------- Curators ----------
 
 #[derive(Clone, Debug, Default)]
 pub struct Curator {
@@ -253,13 +253,13 @@ pub struct Curator {
     pub link: String,
     pub avatar: String,
     pub followers: u64,
-    /// 0 - рекомендует, 1 - не рекомендует, 2 - информационный обзор.
+    /// 0 - recommended, 1 - not recommended, 2 - informational review.
     pub state: u8,
     pub blurb: String,
     pub review_url: String,
 }
 
-/// Кураторы, написавшие обзор игры (как «Кураторы» на странице игры).
+/// Curators who reviewed the game (like "Curators" on the store page).
 pub async fn curators_for_app(appid: u32) -> Result<Vec<Curator>, String> {
     let http = aurelia::core::net::steam_web_client().map_err(|e| format!("{e:#}"))?;
     let url = format!(
@@ -297,9 +297,9 @@ pub fn parse_curators(html: &str, appid: u32) -> Vec<Curator> {
     out
 }
 
-// ---------- Семья Steam ----------
+// ---------- Steam Family ----------
 
-/// Пригласить в семью (role 1 - взрослый, 2 - ребенок). Steam пришлет подтверждение на почту.
+/// Invite to the family (role 1 - adult, 2 - child). Steam sends a confirmation email.
 pub async fn family_invite(c: &SteamClient, family: &str, steamid: u64, role: u32) -> Result<(), String> {
     webapi::post(
         c,
@@ -320,7 +320,7 @@ pub async fn family_cancel(c: &SteamClient, family: &str, steamid: u64) -> Resul
     .map(|_| ())
 }
 
-// ---------- Чат: реакции, групповые чаты ----------
+// ---------- Chat: reactions, group chats ----------
 
 pub async fn chat_reaction(c: &SteamClient, friend: u64, time: u32, ordinal: u32, kind: i32, name: &str, add: bool) -> Result<(), String> {
     webapi::post(
@@ -339,7 +339,7 @@ pub async fn chat_reaction(c: &SteamClient, friend: u64, time: u32, ordinal: u32
     .map(|_| ())
 }
 
-/// Создать групповой чат и пригласить друзей. Возвращает номер группы.
+/// Create a group chat and invite friends. Returns the group id.
 pub async fn create_chat_group(c: &SteamClient, name: &str, invitees: &[u64]) -> Result<u64, String> {
     let mut params: Vec<(String, String)> = vec![("name".into(), name.to_string())];
     for (i, id) in invitees.iter().enumerate() {
@@ -360,7 +360,7 @@ pub async fn invite_to_chat_group(c: &SteamClient, group: u64, friend: u64) -> R
         .map(|_| ())
 }
 
-// ---------- Мастерская: коллекции, оценка, избранное ----------
+// ---------- Workshop: collections, votes, favorites ----------
 
 #[derive(Clone, Debug, Default)]
 pub struct WsCollection {
@@ -371,7 +371,7 @@ pub struct WsCollection {
     pub subscriptions: u64,
 }
 
-/// Коллекции Мастерской игры (самые популярные или по запросу).
+/// Workshop collections of a game (most popular or by search text).
 pub async fn ws_collections(c: &SteamClient, appid: u32, text: &str) -> Result<Vec<WsCollection>, String> {
     let mut params = vec![
         ("appid", appid.to_string()),
@@ -403,7 +403,7 @@ pub async fn ws_collections(c: &SteamClient, appid: u32, text: &str) -> Result<V
         .collect())
 }
 
-/// Состав коллекции: номера модов (по порядку).
+/// Collection contents: mod ids (in order).
 pub async fn ws_collection_items(id: u64) -> Result<Vec<u64>, String> {
     let http = aurelia::core::net::steam_web_client().map_err(|e| format!("{e:#}"))?;
     let v: serde_json::Value = http
@@ -425,7 +425,7 @@ pub async fn ws_collection_items(id: u64) -> Result<Vec<u64>, String> {
         .collect())
 }
 
-/// Оценить мод (как кнопки «палец вверх/вниз» на странице мода).
+/// Vote on a mod (like the thumbs up/down buttons on the mod page).
 pub async fn ws_vote(c: &SteamClient, id: u64, up: bool) -> Result<(), String> {
     let web = webapi::web_session(c).await?;
     let action = if up { "voteup" } else { "votedown" };
@@ -439,7 +439,7 @@ pub async fn ws_vote(c: &SteamClient, id: u64, up: bool) -> Result<(), String> {
     if success(&v) { Ok(()) } else { Err(format!("Steam отказал (код {})", v["success"])) }
 }
 
-/// Добавить мод в избранное (или убрать).
+/// Add a mod to favorites (or remove it).
 pub async fn ws_favorite(c: &SteamClient, id: u64, appid: u32, add: bool) -> Result<(), String> {
     let web = webapi::web_session(c).await?;
     let action = if add { "favorite" } else { "unfavorite" };
@@ -464,7 +464,7 @@ mod tests {
         assert_eq!(v[0].followers, 20);
     }
 
-    /// Только чтение: кураторы, коллекции Мастерской, корзина, награды.
+    /// Read only: curators, Workshop collections, cart, awards.
     #[test]
     #[ignore]
     fn actions_read_live() {
@@ -505,7 +505,7 @@ mod tests {
 
 #[cfg(test)]
 mod dump {
-    /// Только чтение: какие поля Steam отдает для коллекции Мастерской.
+    /// Read only: which fields Steam returns for a Workshop collection.
     #[test]
     #[ignore]
     fn collection_fields_live() {
@@ -530,7 +530,7 @@ mod dump {
 
 #[cfg(test)]
 mod cart_dump {
-    /// Только чтение: сырой ответ корзины.
+    /// Read only: raw cart response.
     #[test]
     #[ignore]
     fn cart_raw_live() {
@@ -550,7 +550,7 @@ mod cart_dump {
 
 #[cfg(test)]
 mod cart_live {
-    /// Корзина: положить пакет игры из желаемого, проверить, убрать (корзина остается как была).
+    /// Cart: add a wishlisted game package, check, remove (the cart stays as it was).
     #[test]
     #[ignore]
     fn cart_add_remove_live() {
@@ -586,9 +586,9 @@ mod cart_live {
     }
 }
 
-// ---------- Регионы загрузки ----------
+// ---------- Download regions ----------
 
-/// Город по коду сервера Steam (часть имени cacheN-<код>N.steamcontent.com).
+/// City by Steam server code (part of the cacheN-<code>N.steamcontent.com name).
 fn region_name(code: &str) -> String {
     let c: String = code.chars().take_while(|ch| ch.is_ascii_alphabetic()).collect();
     let name = match c.as_str() {
@@ -638,8 +638,8 @@ fn region_name(code: &str) -> String {
     if name.is_empty() { c.to_uppercase() } else { name.to_string() }
 }
 
-/// Регионы загрузки с серверами Steam: (номер региона, название). Опрашивает каталог серверов
-/// Steam для номеров 0..=255 (как список регионов в настройках Steam), 24 запроса параллельно.
+/// Download regions with Steam servers: (region id, name). Queries Steam's server directory
+/// for ids 0..=255 (like the region list in Steam settings), 24 requests in parallel.
 pub async fn download_regions() -> Result<Vec<(u32, String)>, String> {
     let http = aurelia::core::net::steam_web_client().map_err(|e| format!("{e:#}"))?;
     let mut found: std::collections::BTreeMap<u32, String> = Default::default();

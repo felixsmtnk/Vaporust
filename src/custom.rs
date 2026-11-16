@@ -1,14 +1,14 @@
-//! Сторонние игры (не из Steam): кнопка «Добавить игру» -> «Добавить стороннюю игру...», как в
-//! Steam. Игра хранится в настройках Vaporust (Steam-файлы не трогаем), показывается в
-//! библиотеке и запускается напрямую, без Steam.
+//! Non-Steam games: "Add a game" -> "Add a non-Steam game...", as in
+//! Steam. The game is stored in Vaporust settings (Steam files are not touched), shown in
+//! the library and launched directly, without Steam.
 
 use crate::{LauncherApp, Row};
 use eframe::egui;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering;
 
-/// Номера сторонних игр начинаются отсюда (как у ярлыков в Steam - старший бит), чтобы не
-/// пересекаться с настоящими appid.
+/// Non-Steam game ids start here (like Steam shortcuts - the high bit) so they do not
+/// collide with real appids.
 pub const BASE: u32 = 0x8000_0000;
 
 pub fn is_custom(appid: u32) -> bool {
@@ -22,38 +22,38 @@ pub struct CustomGame {
     pub name: String,
     pub exe: String,
     pub args: String,
-    /// Последний запуск, unix-время.
+    /// Last launch, unix time.
     pub last_played: u64,
-    /// Сколько минут сыграно (считает Vaporust, пока процесс игры работает).
+    /// Minutes played (counted by Vaporust while the game process runs).
     pub minutes: u32,
 }
 
-/// Окно добавления или правки сторонней игры.
+/// Window for adding or editing a non-Steam game.
 #[derive(Default, Clone)]
 pub struct Edit {
-    /// Номер правимой игры; None - новая.
+    /// Id of the edited game; None - a new one.
     pub id: Option<u32>,
     pub name: String,
     pub exe: String,
     pub args: String,
     pub confirm_delete: bool,
-    /// Новую игру - добавить и в настоящий Steam.
+    /// Also add the new game to the real Steam.
     pub to_steam: bool,
 }
 
-/// Минуты, досчитанные потоками запущенных сторонних игр: (номер, минут).
+/// Minutes counted by the threads of running non-Steam games: (id, minutes).
 static PLAYED: std::sync::Mutex<Vec<(u32, u32)>> = std::sync::Mutex::new(Vec::new());
 
 
-/// Файлы сторонних игр по номеру - для значка в списке (его читает поток обложек).
+/// Non-Steam game files by id - for the list icon (read by the covers thread).
 pub static EXES: std::sync::Mutex<Vec<(u32, String)>> = std::sync::Mutex::new(Vec::new());
 
-/// Путь к exe сторонней игры.
+/// Path to the exe of a non-Steam game.
 pub fn exe_of(id: u32) -> Option<String> {
     EXES.lock().unwrap().iter().find(|(i, _)| *i == id).map(|(_, e)| e.clone())
 }
 
-/// Значок программы из ее exe (как в Проводнике): RGBA и сторона квадрата.
+/// Program icon from its exe (as in Explorer): RGBA and the square's side.
 #[cfg(windows)]
 pub fn exe_icon(path: &str) -> Option<(usize, Vec<u8>)> {
     use std::mem::{size_of, zeroed};
@@ -100,7 +100,7 @@ pub fn exe_icon(path: &str) -> Option<(usize, Vec<u8>)> {
         let mut bi: BITMAPINFO = unsafe { zeroed() };
         bi.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
         bi.bmiHeader.biWidth = w;
-        bi.bmiHeader.biHeight = -h; // сверху вниз
+        bi.bmiHeader.biHeight = -h; // top to bottom
         bi.bmiHeader.biPlanes = 1;
         bi.bmiHeader.biBitCount = 32;
         bi.bmiHeader.biCompression = BI_RGB;
@@ -113,7 +113,7 @@ pub fn exe_icon(path: &str) -> Option<(usize, Vec<u8>)> {
         buf
     };
     let mut px = read(info.hbmColor);
-    // Старые значки без прозрачности в цвете: прозрачность берем из маски (белое - прозрачно).
+    // Old icons without alpha in the color: transparency comes from the mask (white is transparent).
     if px.chunks(4).all(|p| p[3] == 0) {
         let mask = if info.hbmMask.is_null() { Vec::new() } else { read(info.hbmMask) };
         for (i, p) in px.chunks_mut(4).enumerate() {
@@ -144,7 +144,7 @@ mod icon_tests {
 }
 
 impl LauncherApp {
-    /// Строки библиотеки для сторонних игр.
+    /// Library rows for non-Steam games.
     pub(crate) fn custom_rows(&self) -> Vec<Row> {
         {
             let mut exes = EXES.lock().unwrap();
@@ -169,7 +169,7 @@ impl LauncherApp {
             .collect()
     }
 
-    /// Запустить стороннюю игру напрямую.
+    /// Launch a non-Steam game directly.
     pub(crate) fn launch_custom(&mut self, appid: u32) {
         if self.launching.load(Ordering::Relaxed) {
             *self.launch_status.lock().unwrap() = "Сначала дождитесь закрытия запущенной игры.".into();
@@ -186,11 +186,11 @@ impl LauncherApp {
                 *self.launch_status.lock().unwrap() = format!("Запущена «{name}».");
                 let (status, launching) = (self.launch_status.clone(), self.launching.clone());
                 launching.store(true, Ordering::Relaxed);
-                // Время в игре: ждем завершения процесса в своем потоке.
+                // Playtime: wait for the process to exit in its own thread.
                 let started = std::time::Instant::now();
                 std::thread::spawn(move || {
                     {
-                        // Пока игра идет, внизу и на ее странице есть «Закрыть игру».
+                        // While the game runs, "Close game" is available at the bottom and on its page.
                         let _running = crate::local::RunningGuard::set(appid, &name, &dir);
                         let _ = child.wait();
                     }
@@ -208,9 +208,9 @@ impl LauncherApp {
         }
     }
 
-    /// Каждый кадр: досчитать время сторонних игр, окна добавления и правки.
+    /// Every frame: add up non-Steam playtime, add/edit windows.
     pub(crate) fn custom_tick(&mut self, ctx: &egui::Context) {
-        // Одинаковые игры (тот же exe) - одной записью, время складывается.
+        // Identical games (same exe) - one entry, playtime is summed.
         let mut seen: Vec<(String, u32)> = Vec::new();
         let mut merged: Vec<(u32, u32, u64)> = Vec::new();
         for g in &self.settings.custom_games {
@@ -230,7 +230,7 @@ impl LauncherApp {
             }
             self.settings.custom_games.retain(|g| keep.contains(&g.id));
         }
-        // Отложенные «добавить в Steam» - когда Steam закрыт (проверка не чаще раза в 5 с).
+        // Deferred "add to Steam" - when Steam is closed (checked at most once per 5 s).
         if !self.settings.pending_shortcuts.is_empty() && PENDING_CHECK.with(|t| t.get().is_none_or(|t| t.elapsed().as_secs() >= 5)) {
             PENDING_CHECK.with(|t| t.set(Some(std::time::Instant::now())));
             if !crate::local::steam_running() {
@@ -320,7 +320,7 @@ impl LauncherApp {
                             .on_hover_text("Игра появится и в настоящем Steam (как «Добавить стороннюю игру» в Steam). Steam должен быть закрыт.")
                             .clicked()
                         {
-                            // Steam открыт - запомнить: добавится, когда его закроют.
+                            // Steam is open - remember: it will be added when Steam is closed.
                             let msg = if steam_open {
                                 if !self.settings.pending_shortcuts.contains(&id) {
                                     self.settings.pending_shortcuts.push(id);
@@ -357,7 +357,7 @@ impl LauncherApp {
         }
     }
 
-    /// Взять сторонние игры из настоящего Steam (shortcuts.vdf) в библиотеку Vaporust.
+    /// Import non-Steam games from the real Steam (shortcuts.vdf) into the Vaporust library.
     pub(crate) fn import_steam_shortcuts(&mut self) {
         let msg = match self.steam.as_ref().and_then(|s| crate::shortcuts::path(&s.dir)) {
             None => "Не найдена папка аккаунта Steam.".to_string(),
@@ -391,7 +391,7 @@ impl LauncherApp {
         crate::popup::push(crate::popup::Kind::Info, "Сторонние игры", msg);
     }
 
-    /// Добавить стороннюю игру Vaporust в настоящий Steam (только при закрытом Steam).
+    /// Add a Vaporust non-Steam game to the real Steam (only while Steam is closed).
     pub(crate) fn export_to_steam(&mut self, id: u32) -> String {
         if crate::local::steam_running() {
             return "Сначала закройте Steam: иначе он перезапишет список своих сторонних игр.".into();
@@ -407,7 +407,7 @@ impl LauncherApp {
         }
     }
 
-    /// Открыть окно правки сторонней игры.
+    /// Open the edit window of a non-Steam game.
     pub(crate) fn edit_custom(&mut self, appid: u32) {
         if let Some(g) = self.settings.custom_games.iter().find(|g| g.id == appid) {
             self.custom_edit = Some(Edit { id: Some(g.id), name: g.name.clone(), exe: g.exe.clone(), args: g.args.clone(), confirm_delete: false, to_steam: false });
@@ -419,7 +419,7 @@ thread_local! {
     static PENDING_CHECK: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
 }
 
-/// Путь exe для сравнения: без кавычек, косые черты обратные, без учета регистра.
+/// Exe path for comparison: no quotes, backslashes, case-insensitive.
 fn norm_path(p: &str) -> String {
     p.trim().trim_matches('"').replace('/', "\\").to_lowercase()
 }

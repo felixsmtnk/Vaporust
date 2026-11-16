@@ -1,44 +1,44 @@
-//! vaporust: скриншоты Steam, загруженные в облако Steam (файлы сообщества с типом «скриншот»).
+//! vaporust: Steam screenshots uploaded to the Steam cloud (community files of the "screenshot" type).
 
 use super::*;
 use steam_vent_proto::steammessages_publishedfile_steamclient::{
     CPublishedFile_GetUserFiles_Request, CPublishedFile_GetUserFiles_Response,
 };
 
-/// Фильтр «скриншоты» (EPublishedFileInfoMatchingFileType = 4; 5 - коллекции, проверено).
+/// The "screenshots" filter (EPublishedFileInfoMatchingFileType = 4; 5 - collections, checked).
 const FILE_TYPE_SCREENSHOT: u32 = 4;
 
-/// Загруженный скриншот.
+/// An uploaded screenshot.
 #[derive(Debug, Clone)]
 pub struct CloudScreenshot {
     pub id: u64,
     pub appid: u32,
     pub app_name: String,
-    /// Подпись к скриншоту.
+    /// Screenshot caption.
     pub caption: String,
-    /// Полный размер.
+    /// Full size.
     pub file_url: String,
-    /// Уменьшенная копия.
+    /// Reduced copy.
     pub preview_url: String,
     pub width: u32,
     pub height: u32,
     pub time: u32,
-    /// 0 - для всех, 1 - для друзей, 2 - только я, 3 - скрыт.
+    /// 0 - public, 1 - friends, 2 - only me, 3 - hidden.
     pub visibility: u32,
-    /// vaporust: оценок «нравится» и комментариев.
+    /// vaporust: "like" votes and comments.
     pub votes_up: u32,
     pub comments: u32,
 }
 
 impl SteamClient {
-    /// Свои скриншоты в облаке Steam: игра `appid` (0 - все), страница `page` (с 1), по `per_page`.
-    /// Возвращает (всего, скриншоты страницы).
+    /// Own screenshots in the Steam cloud: game `appid` (0 - all), page `page` (from 1), `per_page` each.
+    /// Returns (total, screenshots of the page).
     pub async fn my_cloud_screenshots(&self, appid: u32, page: u32, per_page: u32) -> Result<(u32, Vec<CloudScreenshot>)> {
         let me = u64::from(self.require_connection()?.steam_id());
         self.user_screenshots(me, appid, page, per_page).await
     }
 
-    /// Скриншоты любого пользователя (у чужих - только те, что он показывает вам).
+    /// Screenshots of any user (for others - only those they show to you).
     pub async fn user_screenshots(&self, steam_id: u64, appid: u32, page: u32, per_page: u32) -> Result<(u32, Vec<CloudScreenshot>)> {
         let connection = self.require_connection()?;
         let mut req = CPublishedFile_GetUserFiles_Request::new();

@@ -1,19 +1,19 @@
-//! Настройки, сохраняемые между запусками (eframe persistence: %APPDATA%\Vaporust\data\app.ron).
-//! Размер и положение окна eframe запоминает сам.
+//! Settings kept between runs (eframe persistence: %APPDATA%\Vaporust\data\app.ron).
+//! eframe remembers the window size and position by itself.
 
 use serde::{Deserialize, Serialize};
 
-/// Порядок игр в библиотеке.
+/// Order of games in the library.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default, Debug)]
 pub enum Sort {
-    /// Установленные сверху, затем по имени.
+    /// Installed on top, then by name.
     #[default]
     Name,
-    /// По времени в игре (больше - выше).
+    /// By playtime (more - higher).
     Playtime,
-    /// Недавно запущенные сверху.
+    /// Recently played on top.
     LastPlayed,
-    /// По размеру на диске (больше - выше).
+    /// By size on disk (larger - higher).
     Size,
 }
 
@@ -30,17 +30,17 @@ impl Sort {
     }
 }
 
-/// Вид библиотеки.
+/// Library view.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default, Debug)]
 pub enum View {
-    /// Компактный список (как в первых версиях).
+    /// Compact list (as in the first versions).
     #[default]
     List,
-    /// Плитка с обложками.
+    /// Grid of covers.
     Grid,
 }
 
-/// Статус для друзей (EPersonaState Steam).
+/// Friends status (Steam EPersonaState).
 pub const PERSONAS: [(u32, &str); 4] = [(1, "В сети"), (3, "Отошел"), (2, "Не беспокоить"), (7, "Невидимка")];
 
 pub fn persona_label(state: u32) -> &'static str {
@@ -51,140 +51,140 @@ pub fn persona_label(state: u32) -> &'static str {
 #[serde(default)]
 pub struct Settings {
     pub freeze_webhelper: bool,
-    /// Флаги запуска скрытого Steam (по умолчанию local::DEFAULT_STEAM_ARGS).
+    /// Launch flags of the hidden Steam (local::DEFAULT_STEAM_ARGS by default).
     pub steam_args: String,
     pub only_installed: bool,
     pub show_friends: bool,
-    /// Папка библиотеки для установки новых игр.
+    /// Library folder for installing new games.
     pub library: Option<String>,
     pub sort: Sort,
-    /// Статус для друзей (1 в сети, 3 отошел, 2 не беспокоить, 7 невидимка).
+    /// Friends status (1 online, 3 away, 2 busy, 7 invisible).
     pub persona: u32,
-    /// Крестик окна сворачивает в трей, а не закрывает программу.
+    /// The window close button minimizes to the tray instead of closing the program.
     pub close_to_tray: bool,
-    /// Звук при новом сообщении, когда окно не активно.
+    /// Sound on a new message when the window is not active.
     pub notify_sound: bool,
-    /// Уведомления: общая галочка и отдельные виды.
+    /// Notifications: the general checkbox and individual kinds.
     pub notify_on: bool,
     pub notify_msg: bool,
     pub notify_friend_game: bool,
     pub notify_friend_online: bool,
     pub notify_wishlist: bool,
     pub notify_download: bool,
-    /// Новые уведомления Steam (подарки, предметы, обмены, комментарии).
+    /// New Steam notifications (gifts, items, trades, comments).
     pub notify_steam: bool,
-    /// Скидки из списка желаемого, о которых уже сообщили: appid -> конец скидки (unix).
+    /// Wishlist discounts already reported: appid -> discount end (unix).
     pub notified_sales: std::collections::BTreeMap<u32, u64>,
-    /// Свои эффекты комнаты (последний известный список - чтобы панель открывалась сразу).
+    /// Own room effects (the last known list - so the panel opens right away).
     pub chat_effects: Vec<String>,
-    /// Обновлять игры через скрытый Steam (по умолчанию - без Steam, загрузчиком Vaporust).
+    /// Update games via the hidden Steam (by default - without Steam, with the Vaporust downloader).
     pub update_via_steam: bool,
-    /// Vaporust включил Steam автономный режим (loginusers.vdf) - снять, когда Steam закроется.
+    /// Vaporust put Steam into offline mode (loginusers.vdf) - clear it when Steam closes.
     pub steam_offline_set: bool,
-    /// Очередь установок; сохраняется между запусками.
+    /// Install queue; kept between runs.
     pub downloads: Vec<QueueItem>,
-    /// Старый формат очереди (alpha.2 до правки): только читаем и переносим в `downloads`.
+    /// Old queue format (alpha.2 before the fix): only read and moved into `downloads`.
     #[serde(skip_serializing)]
     pub queue: Vec<(u32, String)>,
-    /// Загрузка, которая шла в момент закрытия Vaporust (или сбоя): при следующем запуске
-    /// встает первой в очередь.
+    /// The download that was running when Vaporust was closed (or crashed): on the next run
+    /// it goes first in the queue.
     pub current_download: Option<QueueItem>,
-    /// Прерванные загрузки продолжаются сами (иначе встают в очередь на паузе).
+    /// Interrupted downloads resume by themselves (otherwise they are queued paused).
     pub resume_downloads: bool,
-    /// Вся очередь придержана кнопкой «Пауза очереди».
+    /// The whole queue is held by the "Pause queue" button.
     pub queue_paused: bool,
-    /// Регион цен в магазине (код страны); None - по IP подключения к Steam.
+    /// Store price region (country code); None - by the IP of the Steam connection.
     pub store_country: Option<String>,
-    /// Список или плитка.
+    /// List or grid.
     pub view: View,
-    /// Игры, которые Vaporust начал качать и еще не докачал: пока загрузка не идет, их
-    /// appmanifest прячется от Steam, иначе Steam сам начнет их качать.
+    /// Games Vaporust started downloading and has not finished: while the download is not running, their
+    /// appmanifest is hidden from Steam, otherwise Steam would start downloading them itself.
     pub holding: Vec<u32>,
-    /// Закрепленные версии игр: appid -> настоящие версии хранилищ (depot -> manifest ID).
-    /// В appmanifest таких игр Vaporust пишет последние версии, чтобы Steam их не обновлял.
+    /// Pinned game versions: appid -> real depot versions (depot -> manifest ID).
+    /// In the appmanifest of such games Vaporust writes the latest versions so Steam does not update them.
     pub pinned: std::collections::BTreeMap<u32, std::collections::BTreeMap<u32, u64>>,
-    /// Проверять обновления Vaporust при запуске.
+    /// Check for Vaporust updates on startup.
     pub check_updates: bool,
-    /// Игры, которые запускаются без Steam (галочка в «Свойствах»).
+    /// Games launched without Steam (checkbox in "Properties").
     pub no_steam: std::collections::BTreeSet<u32>,
-    /// Показывать игры семейной библиотеки в «Все игры».
+    /// Show family library games in "All games".
     pub show_family: bool,
-    /// Расписание загрузок: часы окна [sched_from, sched_to).
+    /// Download schedule: window hours [sched_from, sched_to).
     pub sched_from: u8,
     pub sched_to: u8,
-    /// Качать только в часы окна.
+    /// Download only during window hours.
     pub sched_only: bool,
-    /// В часы окна - свое ограничение скорости (КБ/с, 0 - без ограничения).
+    /// A separate speed limit during window hours (KB/s, 0 - unlimited).
     pub sched_limit_on: bool,
     pub sched_limit_kb: u64,
-    /// Запомненные таблицы запуска для игр без Steam (чтобы запускались и без интернета).
+    /// Remembered launch tables for games without Steam (so they also start without internet).
     pub direct_specs: std::collections::BTreeMap<u32, crate::direct::LaunchSpec>,
-    /// Ограничение скорости загрузки игр, КБ/с (0 - без ограничения).
+    /// Game download speed limit, KB/s (0 - unlimited).
     pub download_limit_kb: u64,
-    /// Прокси для запросов Aurelia (http://хост:порт или socks5://…), пусто - без прокси.
+    /// Proxy for Aurelia requests (http://host:port or socks5://...), empty - no proxy.
     pub proxy: String,
-    /// Команды перед запуском и после выхода для каждой игры (свойства игры -> «Общие»).
+    /// Commands before launch and after exit for each game (game properties -> "General").
     pub scripts: std::collections::BTreeMap<u32, crate::scripts::GameScripts>,
-    /// Избранные друзья (наверху списка) и свои заметки о друзьях.
-    /// Кнопка «Во что поиграть?» над библиотекой.
+    /// Favorite friends (at the top of the list) and own notes about friends.
+    /// The "What to play?" button above the library.
     pub random_button: bool,
-    /// Полка «Что нового» (новости своих игр) на главной библиотеки.
+    /// The "What's new" shelf (news of own games) on the library home.
     pub whats_new: bool,
-    /// Обычная рамка окон Windows вместо своей.
+    /// Normal Windows window frame instead of our own.
     pub system_frame: bool,
-    /// Видеокарта уже проверена на рамку окон (Intel -> обычная рамка Windows).
+    /// The GPU has already been checked for the window frame (Intel -> normal Windows frame).
     pub frame_checked: bool,
-    /// Запоминать размер и положение главного окна (и сами размер/положение).
+    /// Remember the main window size and position (and the size/position themselves).
     pub remember_window: bool,
-    /// Быстрая продажа: на сколько дешевле самого дешевого лота (минимальные единицы валюты; 0 - на
-    /// один шаг цены валюты).
+    /// Quick sell: how much cheaper than the lowest listing (minimal currency units; 0 - by
+    /// one currency price step).
     pub quick_undercut: i64,
-    /// Аккаунты (SteamID), которые ответили «Это не моя» на старую общую историю времени.
+    /// Accounts (SteamID) that answered "Not mine" to the old shared playtime history.
     pub legacy_declined: Vec<u64>,
-    /// Режим без входа в аккаунт: только установленные игры из файлов Steam и запуск через Steam,
-    /// пароль Steam в Vaporust не вводится и сеанс Steam не поднимается.
+    /// No-login mode: only installed games from Steam files and launching via Steam,
+    /// no Steam password is entered in Vaporust and no Steam session is started.
     pub local_mode: bool,
-    /// Экспериментальные функции (продажа, обмены, откат версии, публичные действия).
+    /// Experimental features (selling, trades, version rollback, public actions).
     pub experimental: bool,
     pub window: Option<crate::winpos::WinPos>,
-    /// Производительность: анимации (стикеры, GIF, эффекты чата, значки загрузки).
+    /// Performance: animations (stickers, GIFs, chat effects, loading icons).
     pub animations: bool,
-    /// Обложки и фоны игр в библиотеке.
+    /// Game covers and backgrounds in the library.
     pub covers: bool,
-    /// Экономия памяти: картинки мельче, кэш картинок меньше.
+    /// Memory saving: smaller images, smaller image cache.
     pub economy: bool,
-    /// Отдавать память системе, когда окно в трее или идет игра.
+    /// Give memory back to the system when the window is in the tray or a game is running.
     pub trim_memory: bool,
     pub fav_friends: std::collections::BTreeSet<u64>,
     pub friend_notes: std::collections::BTreeMap<u64, String>,
-    /// Свои заметки к играм (appid -> текст).
+    /// Own notes on games (appid -> text).
     pub game_notes: std::collections::BTreeMap<u32, String>,
-    /// Раздел при запуске: 0 - Библиотека, 1 - Магазин.
+    /// Startup section: 0 - Library, 1 - Store.
     pub start_view: u8,
-    /// Свернутые группы друзей: 0 в игре, 1 в сети, 2 не в сети.
+    /// Collapsed friend groups: 0 in game, 1 online, 2 offline.
     pub friend_groups_closed: std::collections::BTreeSet<u8>,
-    /// Игры из списка желаемого, которые еще не вышли (чтобы сообщить, когда выйдут).
+    /// Wishlisted games that are not released yet (to report when they come out).
     pub wish_upcoming: std::collections::BTreeSet<u32>,
-    /// Масштаб интерфейса (1.0 - 100%).
+    /// Interface scale (1.0 - 100%).
     pub ui_scale: f32,
-    /// Сохраненные фильтры библиотеки (динамические коллекции).
+    /// Saved library filters (dynamic collections).
     pub saved_filters: Vec<SavedFilter>,
-    /// Мастер первого запуска пройден (или пропущен).
+    /// The first-run wizard is completed (or skipped).
     pub wizard_done: bool,
-    /// Регион загрузки (cell id серверов Steam), 0 - автоматически.
+    /// Download region (Steam server cell id), 0 - automatic.
     pub download_cell: u32,
-    /// Качать и при открытом Steam (во временную папку, которую Steam не видит).
+    /// Download even while Steam is open (into a temporary folder Steam does not see).
     pub download_with_steam: bool,
-    /// Новые сторонние игры - сразу и в настоящий Steam; ждут закрытия Steam.
+    /// New non-Steam games - right away into the real Steam too; they wait for Steam to close.
     pub custom_to_steam: bool,
     pub pending_shortcuts: Vec<u32>,
-    /// Игры, которые качаются во временную папку: appid -> настоящая библиотека.
+    /// Games downloading into the temporary folder: appid -> real library.
     pub staged: std::collections::BTreeMap<u32, String>,
-    /// Сторонние игры (не из Steam), добавленные кнопкой «Добавить игру».
+    /// Non-Steam games added with the "Add a game" button.
     pub custom_games: Vec<crate::custom::CustomGame>,
 }
 
-/// Сохраненный фильтр библиотеки: поиск, жанр, коллекция, «только установленные».
+/// Saved library filter: search, genre, collection, "installed only".
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(default)]
 pub struct SavedFilter {
@@ -195,20 +195,20 @@ pub struct SavedFilter {
     pub only_installed: bool,
 }
 
-/// Игра в очереди установки.
+/// A game in the install queue.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct QueueItem {
     pub appid: u32,
     pub name: String,
-    /// Поставлена на паузу: очередь ее пропускает, пока не нажмут ▶.
+    /// Paused: the queue skips it until ▶ is pressed.
     #[serde(default)]
     pub paused: bool,
 }
 
 impl Settings {
-    /// Перенести очередь старого формата.
+    /// Migrate the old-format queue.
     pub fn migrate(&mut self) {
-        // Прошлый запуск закрылся посреди загрузки - продолжить ее первой.
+        // The previous run closed mid-download - resume it first.
         if let Some(mut c) = self.current_download.take() {
             if !self.downloads.iter().any(|q| q.appid == c.appid) {
                 c.paused = !self.resume_downloads;

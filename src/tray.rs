@@ -1,26 +1,26 @@
-//! Иконка в области уведомлений (трей).
+//! Icon in the notification area (tray).
 //!
-//! Работает в отдельном потоке со своим циклом сообщений Windows: так она отвечает на
-//! щелчки, пока главное окно спрятано в трей. Окно показываем и прячем напрямую через WinAPI.
+//! Runs in a separate thread with its own Windows message loop: this way it responds to
+//! clicks while the main window is hidden in the tray. The window is shown and hidden directly via WinAPI.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{mpsc, Mutex, OnceLock};
 
 enum TrayCmd {
     Unread(bool),
-    /// Ход загрузки: (название, доля 0..1); None - загрузки нет.
+    /// Download progress: (name, fraction 0..1); None - no download.
     Download(Option<(String, f32)>),
 }
 
 static SENDER: OnceLock<Mutex<mpsc::Sender<TrayCmd>>> = OnceLock::new();
 static THREAD_ID: AtomicU32 = AtomicU32::new(0);
 static UNREAD: AtomicBool = AtomicBool::new(false);
-/// Пользователь выбрал «Выход» в меню трея: крестик больше не прячет окно.
+/// The user chose "Exit" in the tray menu: the close button no longer hides the window.
 static EXIT: AtomicBool = AtomicBool::new(false);
-/// Крестик окна прячет Vaporust в трей (галочка в меню трея).
+/// The window close button hides Vaporust to the tray (checkbox in the tray menu).
 static CLOSE_TO_TRAY: AtomicBool = AtomicBool::new(false);
 
-/// Начальное значение галочки (из настроек) - до `start`.
+/// Initial value of the checkbox (from settings) - before `start`.
 pub fn set_close_to_tray(on: bool) {
     CLOSE_TO_TRAY.store(on, Ordering::Relaxed);
 }
@@ -33,12 +33,12 @@ pub fn exit_requested() -> bool {
     EXIT.load(Ordering::Relaxed)
 }
 
-/// Закрыть программу по-настоящему (крестик не прячет в трей), например для перезапуска.
+/// Really close the program (the close button does not hide to the tray), for example for a restart.
 pub fn request_exit() {
     EXIT.store(true, Ordering::Relaxed);
 }
 
-/// Показать красную точку на иконке (или убрать ее).
+/// Show a red dot on the icon (or remove it).
 pub fn set_unread(on: bool) {
     if UNREAD.swap(on, Ordering::Relaxed) == on {
         return;
@@ -46,8 +46,8 @@ pub fn set_unread(on: bool) {
     send(TrayCmd::Unread(on));
 }
 
-/// Ход загрузки на значке трея: полоска внизу значка и подсказка. Шлется только при
-/// изменении на целый процент (или при начале и конце загрузки).
+/// Download progress on the tray icon: a bar at the bottom of the icon and a tooltip. Sent only
+/// when it changes by a whole percent (or when a download starts and ends).
 pub fn set_download(d: Option<(String, f32)>) {
     static LAST: Mutex<Option<(String, i32)>> = Mutex::new(None);
     let key = d.as_ref().map(|(n, f)| (n.clone(), (f * 100.0) as i32));
@@ -61,7 +61,7 @@ pub fn set_download(d: Option<(String, f32)>) {
     send(TrayCmd::Download(d));
 }
 
-/// Значок с полоской хода загрузки внизу (поверх обычного значка).
+/// Icon with a download progress bar at the bottom (on top of the usual icon).
 fn with_progress(base: &eframe::egui::IconData, frac: f32) -> Vec<u8> {
     let (w, h) = (base.width as usize, base.height as usize);
     let mut px = base.rgba.clone();
@@ -83,27 +83,27 @@ fn send(cmd: TrayCmd) {
     #[cfg(windows)]
     unsafe {
         use windows_sys::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_APP};
-        // Разбудить цикл сообщений потока трея.
+        // Wake the tray thread's message loop.
         PostThreadMessageW(THREAD_ID.load(Ordering::Relaxed), WM_APP, 0, 0);
     }
 }
 
-/// Тип значения GetWindowLongPtrW: на 64-битной Windows isize, на 32-битной - i32
-/// (там это просто GetWindowLongW).
+/// Type of the GetWindowLongPtrW value: isize on 64-bit Windows, i32 on 32-bit
+/// (there it is just GetWindowLongW).
 #[cfg(all(windows, target_pointer_width = "64"))]
 type LongPtr = isize;
 #[cfg(all(windows, target_pointer_width = "32"))]
 type LongPtr = i32;
 
-/// Где было окно до прятанья в трей (левый верхний угол, физические пиксели).
+/// Where the window was before hiding to the tray (top left corner, physical pixels).
 #[cfg(windows)]
 static SAVED_POS: Mutex<Option<(i32, i32)>> = Mutex::new(None);
 
-/// Спрятать главное окно в трей.
+/// Hide the main window to the tray.
 ///
-/// Окно НЕ скрывается по-настоящему: скрытое окно eframe перестает обновляться, и вместе с ним
-/// засыпала бы вся программа (очередь, расписание, всплывающие уведомления). Вместо этого окно
-/// уезжает за пределы экрана и становится «инструментальным» - без кнопки на панели задач и в Alt+Tab.
+/// The window is NOT really hidden: a hidden eframe window stops updating, and the whole
+/// program would fall asleep with it (queue, schedule, popup notifications). Instead the window
+/// moves off-screen and becomes a "tool window" - without a taskbar button and not in Alt+Tab.
 #[cfg(windows)]
 pub fn hide_main() {
     use windows_sys::Win32::Foundation::RECT;
@@ -120,7 +120,7 @@ pub fn hide_main() {
         if GetWindowRect(hwnd as _, &mut r) != 0 {
             *SAVED_POS.lock().unwrap() = Some((r.left, r.top));
         }
-        // Стиль окна меняется только у скрытого окна, поэтому: спрятать -> поменять -> показать вне экрана.
+        // The window style changes only on a hidden window, so: hide -> change -> show off-screen.
         ShowWindow(hwnd as _, SW_HIDE);
         let ex = GetWindowLongPtrW(hwnd as _, GWL_EXSTYLE);
         SetWindowLongPtrW(hwnd as _, GWL_EXSTYLE, (ex | WS_EX_TOOLWINDOW as LongPtr) & !(WS_EX_APPWINDOW as LongPtr));
@@ -130,7 +130,7 @@ pub fn hide_main() {
     crate::notify::set_in_tray(true);
 }
 
-/// Показать главное окно из трея и вывести на передний план.
+/// Show the main window from the tray and bring it to the front.
 #[cfg(windows)]
 pub fn show_main() {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -164,7 +164,7 @@ pub fn hide_main() {}
 #[cfg(not(windows))]
 pub fn show_main() {}
 
-/// Запустить иконку в трее (один раз, при старте программы).
+/// Start the tray icon (once, at program start).
 #[cfg(windows)]
 pub fn start() {
     use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
@@ -176,7 +176,7 @@ pub fn start() {
 
     let (tx, rx) = mpsc::channel::<TrayCmd>();
     if SENDER.set(Mutex::new(tx)).is_err() {
-        return; // уже запущено
+        return; // already started
     }
     std::thread::spawn(move || {
         let to_icon = |kind| {
@@ -185,12 +185,12 @@ pub fn start() {
         };
         let (normal, unread) = (to_icon(crate::icons::Kind::Tray), to_icon(crate::icons::Kind::TrayUnread));
         let base = crate::icons::icon(crate::icons::Kind::Tray);
-        // Текущее состояние: непрочитанное и загрузка - значок и подсказка собираются из обоих.
+        // Current state: unread and download - the icon and tooltip are built from both.
         let mut is_unread = false;
         let mut download: Option<(String, f32)> = None;
 
         unsafe {
-            // Создать очередь сообщений потока до того, как в нее начнут писать.
+            // Create the thread's message queue before anyone starts writing to it.
             let mut msg: MSG = std::mem::zeroed();
             PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE);
             THREAD_ID.store(windows_sys::Win32::System::Threading::GetCurrentThreadId(), Ordering::Relaxed);
@@ -222,10 +222,10 @@ pub fn start() {
             if e.id == open_id {
                 show_main();
             } else if e.id == close_id {
-                // Галочку меню переключает сама Windows; здесь - только настройка.
+                // Windows toggles the menu checkbox itself; here only the setting.
                 CLOSE_TO_TRAY.fetch_xor(true, Ordering::Relaxed);
             } else if e.id == quit_id {
-                // Закрыть программу по-настоящему: окно получит обычный запрос закрытия.
+                // Really close the program: the window receives a normal close request.
                 EXIT.store(true, Ordering::Relaxed);
                 let hwnd = crate::notify::main_hwnd();
                 show_main();
@@ -272,7 +272,7 @@ pub fn start() {
                 }
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
-                // Галочка меню всегда совпадает с настройкой.
+                // The menu checkbox always matches the setting.
                 if tray_close.is_checked() != close_to_tray() {
                     tray_close.set_checked(close_to_tray());
                 }

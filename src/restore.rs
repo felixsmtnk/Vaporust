@@ -1,24 +1,24 @@
-//! «Вернуть Steam как было»: снять все изменения, которые Vaporust держит в файлах Steam, чтобы
-//! обычный Steam работал так, будто Vaporust не было (например, перед удалением программы).
-//! - спрятанные appmanifest недокачанных игр (.acf.vaporust-paused) возвращаются на место -
-//!   Steam увидит эти игры и докачает их сам;
-//! - закрепленные версии открепляются (в appmanifest снова настоящие версии);
-//! - снимается флаг автономного режима в loginusers.vdf, если его ставил Vaporust;
-//! - временные папки загрузок VaporustStaging (недокачанное) уходят в Корзину.
-//! Параметры запуска, язык и бета игр, коллекции и сторонние игры в Steam остаются: это
-//! настройки самого пользователя.
+//! "Remove Vaporust changes from Steam": undo all changes Vaporust keeps in Steam files so that
+//! the normal Steam works as if Vaporust had never been there (for example before uninstalling it).
+//! - hidden appmanifests of unfinished games (.acf.vaporust-paused) are put back -
+//!   Steam sees these games and finishes downloading them itself;
+//! - pinned versions are unpinned (appmanifest gets the real versions again);
+//! - the offline mode flag in loginusers.vdf is cleared if Vaporust set it;
+//! - VaporustStaging temporary download folders (unfinished data) go to the Recycle Bin.
+//! Launch options, game language and beta, collections and non-Steam games in Steam stay: these are
+//! the user's own settings.
 
 use crate::{local, LauncherApp, NetState};
 use std::path::PathBuf;
 
-/// Что будет сделано (для окна подтверждения).
+/// What will be done (for the confirmation window).
 #[derive(Default, Debug)]
 pub struct Plan {
-    /// (библиотека, appid) спрятанных appmanifest.
+    /// (library, appid) of hidden appmanifests.
     pub stashed: Vec<(PathBuf, u32)>,
     pub pinned: Vec<u32>,
     pub offline_flag: bool,
-    /// Папки VaporustStaging с размером.
+    /// VaporustStaging folders with their size.
     pub staging: Vec<(PathBuf, u64)>,
 }
 
@@ -28,7 +28,7 @@ impl Plan {
     }
 }
 
-/// Спрятанные appmanifest в библиотеке: appid из имени appmanifest_<appid>.acf.vaporust-paused.
+/// Hidden appmanifests in a library: appid from the name appmanifest_<appid>.acf.vaporust-paused.
 pub fn stashed_in(library: &std::path::Path) -> Vec<u32> {
     let mut out = Vec::new();
     if let Ok(rd) = std::fs::read_dir(library.join("steamapps")) {
@@ -63,7 +63,7 @@ impl LauncherApp {
         p
     }
 
-    /// Выполнить. Только при закрытом Steam и без идущей загрузки. Возвращает отчет по строкам.
+    /// Run it. Only while Steam is closed and no download is running. Returns a report by lines.
     pub(crate) fn restore_steam(&mut self, net: &NetState) -> Result<Vec<String>, String> {
         if self.steam_running() {
             return Err("Сначала закройте Steam.".into());
@@ -76,7 +76,7 @@ impl LauncherApp {
         let mut report = Vec::new();
         let mut errors = Vec::new();
 
-        // 1. Спрятанные appmanifest. Сначала убираем игры из «своих», иначе Vaporust спрячет их снова.
+        // 1. Hidden appmanifests. First remove the games from "ours", otherwise Vaporust hides them again.
         for (lib, id) in &plan.stashed {
             self.settings.holding.retain(|a| a != id);
             self.settings.downloads.retain(|q| q.appid != *id);
@@ -91,7 +91,7 @@ impl LauncherApp {
         }
         self.settings.holding.clear();
 
-        // 2. Закрепленные версии.
+        // 2. Pinned versions.
         for id in &plan.pinned {
             if !self.games.iter().any(|g| g.appid == *id) {
                 self.settings.pinned.remove(id);
@@ -103,7 +103,7 @@ impl LauncherApp {
             }
         }
 
-        // 3. Флаг автономного режима Steam.
+        // 3. Steam offline mode flag.
         if plan.offline_flag {
             match local::set_steam_offline(&steam.dir, false) {
                 Ok(_) => {
@@ -114,7 +114,7 @@ impl LauncherApp {
             }
         }
 
-        // 4. Временные папки загрузок - в Корзину (можно восстановить).
+        // 4. Temporary download folders - to the Recycle Bin (recoverable).
         for (dir, _) in &plan.staging {
             match crate::storage::to_recycle_bin(&[dir.as_path()]) {
                 Ok(()) => report.push(format!("Папка {} перемещена в Корзину.", local::pretty_path(dir))),
@@ -162,18 +162,18 @@ mod tests {
 }
 
 thread_local! {
-    /// Окно подтверждения открыто; итог последнего запуска.
+    /// The confirmation window is open; result of the last run.
     static UI: std::cell::RefCell<(Option<Plan>, Option<Result<Vec<String>, String>>)> = Default::default();
 }
 
 impl LauncherApp {
-    /// Строка «Steam» в «Настройки -> О программе».
+    /// The "Steam" row in "Settings -> About".
     pub(crate) fn restore_row(&mut self, ui: &mut eframe::egui::Ui, net: &NetState) {
         use eframe::egui;
         let (mut plan, mut result) = UI.with(|u| std::mem::take(&mut *u.borrow_mut()));
         crate::settingsui::row(ui, "Steam", |ui| {
             if ui
-                .button("Вернуть Steam как было...")
+                .button("Убрать изменения Vaporust в Steam...")
                 .on_hover_text("Убрать все изменения Vaporust в файлах Steam (например, перед удалением Vaporust)")
                 .clicked()
             {

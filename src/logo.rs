@@ -1,27 +1,27 @@
-//! Логотип Vaporust, нарисованный в коде (векторно, без файлов): буква V из шатуна с поршнем
-//! (механика пара, отсылка к Steam) и голубого рычага, сходящихся на медной шестерне (Rust).
-//! Поле 64x64; `mark` возвращает цвет точки с прозрачностью или None (вне знака).
+//! Vaporust logo drawn in code (vector, no files): the letter V made of a connecting rod with a piston
+//! (steam mechanics, a nod to Steam) and a blue lever meeting on a copper gear (Rust).
+//! 64x64 field; `mark` returns the point color with alpha, or None (outside the mark).
 
 use std::f32::consts::TAU;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Shape {
-    /// Круглая эмблема.
+    /// Round emblem.
     Circle,
-    /// Скругленный квадрат (как значок приложения).
+    /// Rounded square (like an app icon).
     Squircle,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct Style {
     pub shape: Shape,
-    /// Тонкий зубчатый обод вокруг круга (шестерня-рамка).
+    /// Thin toothed rim around the circle (gear frame).
     pub rim: bool,
-    /// Небольшое приглушенное облачко пара между рычагами.
+    /// A small muted puff of steam between the levers.
     pub steam: bool,
 }
 
-/// Вариант по умолчанию (значок exe, окна, трея и README).
+/// Default variant (exe, window and README icon).
 pub const DEFAULT: Style = Style { shape: Shape::Squircle, rim: false, steam: false };
 
 type C = [f32; 3];
@@ -38,7 +38,7 @@ fn mix(a: C, b: C, t: f32) -> C {
     [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
 }
 
-/// Точка в системе рычага: (вдоль от a к b, поперек), длина рычага.
+/// Point in the lever's frame: (along from a to b, across), lever length.
 fn local(x: f32, y: f32, a: (f32, f32), b: (f32, f32)) -> (f32, f32, f32) {
     let (vx, vy) = (b.0 - a.0, b.1 - a.1);
     let len = (vx * vx + vy * vy).sqrt();
@@ -51,9 +51,9 @@ fn dist(x: f32, y: f32, p: (f32, f32)) -> f32 {
     ((x - p.0).powi(2) + (y - p.1).powi(2)).sqrt()
 }
 
-/// Цвет знака в точке (x, y) поля 64x64: [r, g, b, a] (a = 1) или None.
+/// Mark color at point (x, y) of the 64x64 field: [r, g, b, a] (a = 1) or None.
 pub fn mark(x: f32, y: f32, st: Style) -> Option<[f32; 4]> {
-    // Фон.
+    // Background.
     let inside = match st.shape {
         Shape::Circle => dist(x, y, (32.0, 32.0)) <= 30.0,
         Shape::Squircle => {
@@ -68,7 +68,7 @@ pub fn mark(x: f32, y: f32, st: Style) -> Option<[f32; 4]> {
     }
     let t = ((x - 4.0) * 0.35 + (y - 4.0)) / 76.0;
     let mut col = mix([36.0, 48.0, 68.0], [14.0, 19.0, 28.0], t);
-    // Зубчатый обод (только у круга): тонкое кольцо с зубцами, чуть светлее фона.
+    // Toothed rim (circle only): a thin ring with teeth, slightly lighter than the background.
     if st.rim && st.shape == Shape::Circle {
         let d = dist(x, y, (32.0, 32.0));
         let ang = (y - 32.0).atan2(x - 32.0);
@@ -78,7 +78,7 @@ pub fn mark(x: f32, y: f32, st: Style) -> Option<[f32; 4]> {
             col = mix(col, [60.0, 74.0, 98.0], 0.85);
         }
     }
-    // Облачко пара: три круга, приглушенный цвет (почти фон).
+    // Puff of steam: three circles, muted color (almost the background).
     if st.steam {
         let puff = [((35.0, 13.0), 2.9), ((38.5, 12.0), 3.2), ((41.5, 13.6), 2.4)];
         if puff.iter().any(|(p, r)| dist(x, y, *p) <= *r) {
@@ -86,26 +86,26 @@ pub fn mark(x: f32, y: f32, st: Style) -> Option<[f32; 4]> {
         }
     }
     let pivot = (32.0, 44.5);
-    // Медная шестерня (Rust) внизу: 8 зубцов.
+    // Copper gear (Rust) at the bottom: 10 teeth.
     let d = dist(x, y, pivot);
     let ang = (y - pivot.1).atan2(x - pivot.0);
-    // Зубец - трапеция: у основания шире, к вершине уже (rem_euclid, а не fract: угол бывает отрицательным).
+    // A tooth is a trapezoid: wider at the base, narrower at the tip (rem_euclid, not fract: the angle can be negative).
     let phase = (ang * 10.0 / TAU).rem_euclid(1.0);
     let off = (phase - 0.5).abs();
     let tooth_r = if off < 0.16 { 13.0 } else if off < 0.24 { 13.0 - (off - 0.16) / 0.08 * 2.6 } else { 10.4 };
     if d <= tooth_r {
         col = if d <= 7.6 { mix(COPPER, COPPER_LIGHT, 0.0) } else { COPPER };
         if d > 6.9 && d < 7.9 {
-            col = mix(COPPER, COPPER_LIGHT, 0.6); // светлый поясок
+            col = mix(COPPER, COPPER_LIGHT, 0.6); // light band
         }
     }
-    // Левый рычаг: шатун с поршнем вверху (серо-синий).
+    // Left lever: a connecting rod with a piston on top (slate blue).
     let piston_top = (17.5, 16.0);
     let (s, w, len) = local(x, y, pivot, piston_top);
     if s >= 0.0 && s <= len - 5.0 && w.abs() <= 2.9 - s / len * 0.6 {
         col = if w < -0.6 { SLATE_LIGHT } else { SLATE };
     }
-    // Поршень: прямоугольник поперек шатуна, с двумя медными кольцами сверху.
+    // Piston: a rectangle across the rod, with two copper rings on top.
     if s >= len - 9.0 && s <= len + 0.5 && w.abs() <= 6.2 {
         col = SLATE;
         if w < -3.6 {
@@ -118,7 +118,7 @@ pub fn mark(x: f32, y: f32, st: Style) -> Option<[f32; 4]> {
             col = COPPER;
         }
     }
-    // Правый рычаг: голубой, светлая середина, проушина на конце.
+    // Right lever: light blue, lighter middle, an eye at the end.
     let tip = (46.5, 14.5);
     let (s2, w2, len2) = local(x, y, pivot, tip);
     if s2 >= 0.0 && s2 <= len2 && w2.abs() <= 2.6 {
@@ -128,7 +128,7 @@ pub fn mark(x: f32, y: f32, st: Style) -> Option<[f32; 4]> {
     if de <= 4.3 {
         col = if de <= 1.8 { HOLE } else { CYAN };
     }
-    // Ступица поверх рычагов: темное кольцо и медная ось.
+    // Hub on top of the levers: a dark ring and a copper pin.
     if d <= 5.2 {
         col = if d <= 2.7 { COPPER_LIGHT } else if d <= 3.6 { HOLE } else { COPPER };
         if d > 4.4 {
@@ -138,7 +138,53 @@ pub fn mark(x: f32, y: f32, st: Style) -> Option<[f32; 4]> {
     Some([col[0], col[1], col[2], 1.0])
 }
 
-/// RGBA-картинка знака размером n x n (4x4 выборки на пиксель).
+/// White silhouette of the mark for the tray (like Windows and other programs' icons): no background,
+/// details are transparent cuts. Returns point coverage: 1 - white, 0 - transparent.
+pub fn silhouette(x: f32, y: f32) -> f32 {
+    // The mark is stretched over the whole field (mark bounds in the emblem - SIL_BOX), keeping proportions.
+    let (x0, y0, x1, y1) = SIL_BOX;
+    let k = (x1 - x0).max(y1 - y0) / 62.0;
+    let (x, y) = ((x0 + x1) / 2.0 + (x - 32.0) * k, (y0 + y1) / 2.0 + (y - 32.0) * k);
+    silhouette_raw(x, y)
+}
+
+/// Mark bounds in the emblem field (minx, miny, maxx, maxy): see the sil_box test.
+const SIL_BOX: (f32, f32, f32, f32) = (11.3, 9.7, 51.3, 58.0);
+
+fn silhouette_raw(x: f32, y: f32) -> f32 {
+    let pivot = (32.0, 44.5);
+    let d = dist(x, y, pivot);
+    let ang = (y - pivot.1).atan2(x - pivot.0);
+    let phase = (ang * 10.0 / TAU).rem_euclid(1.0);
+    let off = (phase - 0.5).abs();
+    let tooth_r = if off < 0.16 { 13.0 } else if off < 0.24 { 13.0 - (off - 0.16) / 0.08 * 2.6 } else { 10.4 };
+    let gear = d <= tooth_r;
+    let piston_top = (17.5, 16.0);
+    let (s, w, len) = local(x, y, pivot, piston_top);
+    let rod = |pad: f32| s >= 0.0 && s <= len - 5.0 && w.abs() <= 2.9 - s / len * 0.6 + pad;
+    let piston = |pad: f32| s >= len - 9.0 - pad && s <= len + 0.5 + pad && w.abs() <= 6.2 + pad;
+    let tip = (46.5, 14.5);
+    let (s2, w2, len2) = local(x, y, pivot, tip);
+    let de = dist(x, y, tip);
+    let arm = |pad: f32| (s2 >= 0.0 && s2 <= len2 && w2.abs() <= 2.6 + pad) || de <= 4.3 + pad;
+    // Cuts: a ring around the pin, the lever eye, a gap around the levers over the gear, a stripe on the piston.
+    if de <= 1.8 || (d > 3.0 && d <= 4.6) {
+        return 0.0;
+    }
+    let on_arms = rod(0.0) || piston(0.0) || arm(0.0);
+    if on_arms {
+        if piston(0.0) && s >= len - 2.6 && s <= len - 1.4 {
+            return 0.0;
+        }
+        return 1.0;
+    }
+    if gear && d > 4.6 && (rod(1.6) || arm(1.6)) {
+        return 0.0;
+    }
+    if gear || d <= 3.0 { 1.0 } else { 0.0 }
+}
+
+/// RGBA image of the mark, n x n (4x4 samples per pixel).
 pub fn render(n: usize, st: Style) -> Vec<u8> {
     let s = 64.0 / n as f32;
     let mut out = vec![0u8; n * n * 4];
@@ -169,7 +215,7 @@ pub fn render(n: usize, st: Style) -> Vec<u8> {
 
 #[cfg(test)]
 mod sheet {
-    /// Лист вариантов: VAPORUST_LOGOS=<папка> cargo test logo_sheet -- --ignored --nocapture
+    /// Variant sheet: VAPORUST_LOGOS=<folder> cargo test logo_sheet -- --ignored --nocapture
     #[test]
     #[ignore]
     fn logo_sheet() {
@@ -200,7 +246,7 @@ mod sheet {
 
 #[cfg(test)]
 mod assets {
-    /// Перерисовать assets/logo.png (256, для README): VAPORUST_WRITE_LOGO=1 cargo test write_logo_png -- --ignored
+    /// Redraw assets/logo.png (256, for README): VAPORUST_WRITE_LOGO=1 cargo test write_logo_png -- --ignored
     #[test]
     #[ignore]
     fn write_logo_png() {
@@ -208,5 +254,24 @@ mod assets {
         let n = 256;
         let img = image::RgbaImage::from_raw(n as u32, n as u32, super::render(n, super::DEFAULT)).unwrap();
         img.save(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets").join("logo.png")).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod sil {
+    /// Prints the silhouette bounds in the emblem field (for SIL_BOX).
+    #[test]
+    #[ignore]
+    fn sil_box() {
+        let (mut a, mut b, mut c, mut d) = (99f32, 99f32, -1f32, -1f32);
+        for yi in 0..640 {
+            for xi in 0..640 {
+                let (x, y) = (xi as f32 / 10.0, yi as f32 / 10.0);
+                if super::silhouette_raw(x, y) > 0.0 {
+                    a = a.min(x); b = b.min(y); c = c.max(x); d = d.max(y);
+                }
+            }
+        }
+        println!("SIL_BOX {a} {b} {c} {d}");
     }
 }

@@ -1,5 +1,5 @@
-//! Оценки и комментарии к скриншотам в облаке Steam (своим и друзей): как на странице
-//! скриншота в сообществе Steam (comment/PublishedFile_Public, sharedfiles/voteup).
+//! Votes and comments on screenshots in the Steam cloud (own and friends'): like on a screenshot
+//! page in the Steam community (comment/PublishedFile_Public, sharedfiles/voteup).
 
 use crate::net::{Cmd, NetState};
 use crate::profile_extra::{parse_comments, Comment};
@@ -7,7 +7,7 @@ use crate::{webapi, LauncherApp};
 use aurelia::steam_client::SteamClient;
 use eframe::egui;
 
-/// Комментарии к скриншоту: (всего, первые 30).
+/// Screenshot comments: (total, the first 30).
 pub async fn load(client: &SteamClient, owner: u64, id: u64) -> Result<(u32, Vec<Comment>), String> {
     let web = webapi::web_session(client).await?;
     let t = web
@@ -38,7 +38,7 @@ pub async fn post(client: &SteamClient, owner: u64, id: u64, text: &str) -> Resu
     }
 }
 
-/// «Нравится» (или убрать оценку).
+/// "Like" (or remove the vote).
 pub async fn vote(client: &SteamClient, id: u64, up: bool) -> Result<(), String> {
     let web = webapi::web_session(client).await?;
     let url = if up { "https://steamcommunity.com/sharedfiles/voteup" } else { "https://steamcommunity.com/sharedfiles/votedown" };
@@ -55,7 +55,7 @@ pub async fn vote(client: &SteamClient, id: u64, up: bool) -> Result<(), String>
     }
 }
 
-/// Открытое окно комментариев: чей скриншот, номер, подпись, картинка.
+/// Open comments window: whose screenshot, id, caption, image.
 #[derive(Clone, Default)]
 pub struct ShotComments {
     pub owner: u64,
@@ -72,7 +72,7 @@ impl LauncherApp {
         self.shot_comments = Some(ShotComments { owner, id, title, preview, draft: String::new() });
     }
 
-    /// Окно «Комментарии к скриншоту».
+    /// "Screenshot comments" window.
     pub(crate) fn shot_comments_window(&mut self, ctx: &egui::Context, net: &NetState) {
         let Some(mut w) = self.shot_comments.take() else { return };
         let mut open = true;
@@ -165,7 +165,7 @@ impl LauncherApp {
 
 #[cfg(test)]
 mod tests {
-    /// Живой тест (только чтение): комментарии к скриншотам друга.
+    /// Live test (read only): comments on a friend's screenshots.
     #[test]
     #[ignore]
     fn shot_comments_live() {

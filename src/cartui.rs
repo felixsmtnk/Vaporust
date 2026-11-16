@@ -1,6 +1,6 @@
-//! Корзина магазина Steam внутри программы: что в ней лежит, убрать, итог. Положить игру -
-//! кнопка «В корзину» на странице игры. Оплата - только на сайте Steam (Vaporust платежные
-//! данные не вводит): кнопка «Оформить на сайте Steam».
+//! The Steam store cart inside the program: what is in it, removing, total. Adding a game -
+//! the "Add to cart" button on the game page. Payment only on the Steam site (Vaporust never
+//! enters payment details): the "Check out on the Steam site" button.
 
 use crate::net::{Cmd, NetState};
 use crate::LauncherApp;
@@ -8,10 +8,10 @@ use eframe::egui;
 
 #[derive(Default)]
 pub struct CartUi {
-    /// Выбор варианта покупки для «В корзину» (appid).
+    /// Choosing a purchase option for "Add to cart" (appid).
     pub pick: Option<u32>,
     pub asked: bool,
-    /// Названия пакетов, уже запрошенных у магазина.
+    /// Package names already requested from the store.
     pub names_asked: std::collections::HashSet<u32>,
 }
 
@@ -96,7 +96,7 @@ impl LauncherApp {
 }
 
 impl LauncherApp {
-    /// «В корзину»: если у игры несколько вариантов покупки - выбрать; один - сразу в корзину.
+    /// "Add to cart": if the game has several purchase options - choose one; if one - straight to the cart.
     pub(crate) fn cart_pick_dialog(&mut self, ctx: &egui::Context, net: &NetState) {
         let Some(appid) = self.cart_ui.pick else { return };
         let mut close = false;

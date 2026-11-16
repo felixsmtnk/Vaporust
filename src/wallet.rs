@@ -1,5 +1,5 @@
-//! История кошелька и покупок Steam (store.steampowered.com/account/history/): дата, что куплено,
-//! способ, сумма, изменение кошелька. Только просмотр.
+//! Steam wallet and purchase history (store.steampowered.com/account/history/): date, what was bought,
+//! method, amount, wallet change. View only.
 
 use aurelia::steam_client::SteamClient;
 
@@ -30,7 +30,7 @@ fn cell(row: &str, class: &str) -> String {
     crate::profile_extra::strip_tags(&body[..end])
 }
 
-/// Строки таблицы wallet_history_table: wht_date, wht_items, wht_type, wht_total, wht_wallet_change.
+/// Rows of the wallet_history_table: wht_date, wht_items, wht_type, wht_total, wht_wallet_change.
 pub fn parse(html: &str) -> Vec<WalletRow> {
     html.split("class=\"wallet_table_row")
         .skip(1)
@@ -65,7 +65,7 @@ mod tests {
         assert!(r[0].kind.starts_with("Покупка"));
     }
 
-    /// Живая проверка разбора (только чтение, свой аккаунт): число строк и первые поля.
+    /// Live parsing check (read only, own account): row count and the first fields.
     #[test]
     #[ignore]
     fn wallet_live() {

@@ -1,6 +1,6 @@
-//! «Активность друзей»: во что друзья играли последние две недели. Для каждого друга -
-//! Web API IPlayerService/GetRecentlyPlayedGames (у кого данные об играх открыты вам).
-//! Сверху - игры, популярные у друзей.
+//! "Friends activity": what friends played in the last two weeks. For each friend -
+//! Web API IPlayerService/GetRecentlyPlayedGames (for those whose game details are visible to you).
+//! At the top - games popular among friends.
 
 use crate::net::{Cmd, NetState};
 use crate::{webapi, LauncherApp};
@@ -12,7 +12,7 @@ use std::collections::HashMap;
 pub struct Recent {
     pub appid: u32,
     pub name: String,
-    /// Минут за две недели и всего.
+    /// Minutes in two weeks and in total.
     pub two_weeks: u32,
     pub forever: u32,
 }
@@ -42,7 +42,7 @@ pub fn parse_recent(v: &serde_json::Value) -> Vec<Recent> {
         .collect()
 }
 
-/// Недавние игры друзей (по 6 запросов сразу). Друзья со скрытыми данными пропускаются.
+/// Friends' recent games (6 requests at a time). Friends with hidden details are skipped.
 pub async fn load(client: &SteamClient, friends: Vec<(u64, String)>) -> Result<Vec<FriendRecent>, String> {
     let mut set = tokio::task::JoinSet::new();
     let mut out = Vec::new();
@@ -73,7 +73,7 @@ pub async fn load(client: &SteamClient, friends: Vec<(u64, String)>) -> Result<V
     Ok(out)
 }
 
-/// Игры, популярные у друзей: (appid, название, сколько друзей, минут за 2 недели у всех).
+/// Games popular among friends: (appid, name, how many friends, minutes in 2 weeks for all).
 pub fn popular(list: &[FriendRecent]) -> Vec<(u32, String, usize, u32)> {
     let mut m: HashMap<u32, (String, usize, u32)> = HashMap::new();
     for f in list {
@@ -92,7 +92,7 @@ pub fn popular(list: &[FriendRecent]) -> Vec<(u32, String, usize, u32)> {
 pub struct ActivityUi {
     pub open: bool,
     pub asked: bool,
-    /// 0 - лента событий, 1 - во что играли.
+    /// 0 - activity feed, 1 - what they played.
     pub tab: u8,
     pub feed_asked: bool,
 }
@@ -121,7 +121,7 @@ impl LauncherApp {
         let _ = self.tx.send(Cmd::Activity(friends));
     }
 
-    /// Вкладка «Лента событий» в «Активности».
+    /// "Activity feed" tab in "Activity".
     fn feed_contents(&mut self, ui: &mut egui::Ui, net: &NetState) {
         if !self.activity_ui.feed_asked && net.account.is_some() {
             self.activity_ui.feed_asked = true;

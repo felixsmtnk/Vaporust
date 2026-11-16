@@ -1,6 +1,6 @@
-//! Уведомления о событиях (кроме сообщений - их показывает сетевой поток, см. notify.rs):
-//! друг зашел в игру / появился в сети, скидка на игру из списка желаемого, игра скачана.
-//! Проверка раз в 2 с из главного цикла; включаются галочками в «Настройки» -> «Уведомления».
+//! Event notifications (except messages - those are shown by the network thread, see notify.rs):
+//! a friend started a game / came online, a discount on a wishlisted game, a game is downloaded.
+//! Checked every 2 s from the main loop; enabled by checkboxes in "Settings" -> "Notifications".
 
 use crate::net::{Cmd, NetState};
 use crate::popup::{self, Kind};
@@ -8,24 +8,24 @@ use crate::{store, LauncherApp};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-/// Сначала Steam присылает статусы друзей пачкой - первые секунды после входа молчим.
+/// At first Steam sends friend statuses in a batch - we stay quiet for the first seconds after login.
 const FRIENDS_QUIET: Duration = Duration::from_secs(30);
-/// Как часто проверять скидки в списке желаемого.
+/// How often to check wishlist discounts.
 const SALES_EVERY: Duration = Duration::from_secs(6 * 3600);
 
 #[derive(Default)]
 pub struct Notices {
     check: Option<Instant>,
-    /// Друзья: SteamID -> (в сети, игра).
+    /// Friends: SteamID -> (online, game).
     seen: HashMap<u64, (bool, Option<u32>)>,
-    /// Когда список друзей впервые оказался непустым.
+    /// When the friend list first became non-empty.
     since: Option<Instant>,
-    /// Когда последний раз просили проверить скидки.
+    /// When we last asked to check discounts.
     sales_asked: Option<Instant>,
     sales_gen: u64,
-    /// Загрузка: (appid, уже закончилась).
+    /// Download: (appid, already finished).
     install: Option<(u32, bool)>,
-    /// Друг зашел в игру, название которой еще грузится: (друг, имя, игра, с какого момента ждем).
+    /// A friend started a game whose name is still loading: (friend, name, game, waiting since).
     pending: Vec<(u64, String, u32, Instant)>,
 }
 
@@ -66,7 +66,7 @@ impl LauncherApp {
             let name = f.persona_name.clone().unwrap_or_else(|| "Друг".into());
             if let Some(game) = now.1.filter(|g| Some(*g) != was_game) {
                 if s.notify_friend_game {
-                    // Название игры: от Steam, из кэша или запросим и подождем (см. ниже).
+                    // Game name: from Steam, from the cache, or request it and wait (see below).
                     if let Some(t) =
                         f.game_name.clone().filter(|t| !t.is_empty()).or_else(|| net.app_names.get(&game).cloned())
                     {
@@ -81,7 +81,7 @@ impl LauncherApp {
         }
     }
 
-    /// Друзья в играх, чье название еще не известно: запросить и показать, когда придет (не дольше 15 с).
+    /// Friends in games whose names are not known yet: request and show when it arrives (at most 15 s).
     fn pending_games(&mut self, net: &NetState) {
         let mut ask = Vec::new();
         self.notices.pending.retain(|(id, name, game, since)| {
@@ -113,7 +113,7 @@ impl LauncherApp {
             return;
         }
         self.notices.sales_gen = st.sales_gen;
-        // Вышла игра из списка желаемого: была «скоро выйдет», теперь вышла.
+        // A wishlisted game was released: it was "coming soon", now it is out.
         for (appid, name, soon) in &st.wish_status {
             if *soon {
                 self.settings.wish_upcoming.insert(*appid);
@@ -125,7 +125,7 @@ impl LauncherApp {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        // Закончившиеся скидки забываем, чтобы о следующей скидке на ту же игру сообщить снова.
+        // Forget ended discounts so the next discount on the same game is reported again.
         let current: std::collections::HashSet<u32> = st.sales.iter().map(|s| s.appid).collect();
         self.settings
             .notified_sales
@@ -161,8 +161,8 @@ impl LauncherApp {
         };
         let finished_ok = matches!(i.result, Some(Ok(())));
         let before = self.notices.install.replace((i.appid, i.result.is_some()));
-        // Сообщаем только о переходе «шла -> закончилась успешно» и только для установки.
-        // Скачана во временную папку при открытом Steam: Steam увидит ее только после перезапуска.
+        // Report only the "running -> finished successfully" transition and only for an install.
+        // Downloaded to the temp folder while Steam was open: Steam sees it only after a restart.
         let staged = self.settings.staged.contains_key(&i.appid) && crate::local::steam_running();
         if before == Some((i.appid, false))
             && finished_ok

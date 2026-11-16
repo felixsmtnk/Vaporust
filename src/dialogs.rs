@@ -1,5 +1,5 @@
-//! Окна действий второго плана: ник другу, награда за очки, новый групповой чат, свой обзор
-//! игры, новая тема в обсуждениях. Все публичные действия - только по кнопке с пояснением.
+//! Windows for second-tier actions: friend nickname, points award, new group chat, own game
+//! review, new discussion topic. All public actions happen only via a button with an explanation.
 
 use crate::actions::MyReview;
 use crate::net::{Cmd, NetState};
@@ -8,11 +8,11 @@ use eframe::egui;
 
 #[derive(Default)]
 pub struct Dialogs {
-    /// Свой обзор: (appid, название игры, черновик, черновик заполнен из Steam).
+    /// Own review: (appid, game name, draft, draft filled from Steam).
     pub review: Option<(u32, String, MyReview, bool)>,
-    /// Новая тема: (appid, название игры, заголовок, текст).
+    /// New topic: (appid, game name, title, text).
     pub topic: Option<(u32, String, String, String)>,
-    /// Последнее показанное сообщение о действии (новое - всплывающим уведомлением).
+    /// Last shown action message (a new one becomes a popup notification).
     pub last_msg: Option<String>,
 }
 
@@ -44,7 +44,7 @@ impl LauncherApp {
             self.dialogs.last_msg = net.action_msg.clone();
         }
         self.cart_pick_dialog(ctx, net);
-        // Ник другу.
+        // Friend nickname.
         if let Some((id, name, mut nick)) = self.social_ui.nick_edit.take() {
             let mut keep = true;
             window(&format!("Ник: {name}")).show(ctx, |ui| {
@@ -65,7 +65,7 @@ impl LauncherApp {
             }
         }
 
-        // Награда за очки Steam.
+        // Steam points award.
         if let Some((kind, target, what)) = self.social_ui.award.clone() {
             let mut keep = true;
             if net.award_config.is_none() && !self.award_asked {
@@ -127,7 +127,7 @@ impl LauncherApp {
             }
         }
 
-        // Новый групповой чат.
+        // New group chat.
         if let Some((mut name, mut picked)) = self.social_ui.group_create.take() {
             let mut keep = true;
             let mut friends: Vec<(u64, String)> = net
@@ -173,7 +173,7 @@ impl LauncherApp {
             }
         }
 
-        // Свой обзор игры.
+        // Own game review.
         if let Some((appid, game, mut r, mut filled)) = self.dialogs.review.take() {
             let mut keep = true;
             let existing = net.my_reviews.get(&appid);
@@ -222,7 +222,7 @@ impl LauncherApp {
             }
         }
 
-        // Новая тема в обсуждениях игры.
+        // New topic in the game's discussions.
         if let Some((appid, game, mut title, mut text)) = self.dialogs.topic.take() {
             let mut keep = true;
             window(&format!("Новая тема: {game}")).show(ctx, |ui| {
@@ -250,7 +250,7 @@ impl LauncherApp {
 }
 
 impl LauncherApp {
-    /// Просьбы со страниц магазина и Мастерской (награда, обзор, корзина).
+    /// Requests from store and Workshop pages (award, review, cart).
     pub(crate) fn drain_ui_req(&mut self) {
         for c in std::mem::take(&mut *crate::trade::MARKET_REQ.lock().unwrap()) {
             if let crate::trade::MarketCmd::Sell { appid, hash, .. } = &c {

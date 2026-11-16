@@ -1,6 +1,6 @@
-//! Страница группы сообщества Steam внутри программы: название, аватар, описание, участники
-//! (всего, в сети, в игре, в чате); «Вступить» и «Выйти из группы» (с подтверждением).
-//! Данные - steamcommunity.com/groups/<адрес>/memberslistxml/?xml=1 (без входа).
+//! Steam community group page inside the program: name, avatar, description, members
+//! (total, online, in game, in chat); "Join" and "Leave group" (with confirmation).
+//! Data - steamcommunity.com/groups/<url>/memberslistxml/?xml=1 (no login).
 
 use crate::net::{Cmd, NetState};
 use crate::LauncherApp;
@@ -11,7 +11,7 @@ use eframe::egui;
 pub struct GroupInfo {
     pub id64: u64,
     pub name: String,
-    /// Короткий адрес (groups/<url>).
+    /// Short URL (groups/<url>).
     pub url: String,
     pub headline: String,
     pub summary: String,
@@ -24,9 +24,9 @@ pub struct GroupInfo {
 
 #[derive(Default)]
 pub struct GroupUi {
-    /// Открытая группа: адрес страницы (https://steamcommunity.com/groups/<url>).
+    /// Open group: page URL (https://steamcommunity.com/groups/<url>).
     pub url: Option<String>,
-    /// Ждем подтверждения: true - вступить, false - выйти.
+    /// Waiting for confirmation: true - join, false - leave.
     pub confirm: Option<bool>,
 }
 
@@ -59,7 +59,7 @@ pub fn parse(xml: &str) -> Option<GroupInfo> {
     })
 }
 
-/// Адрес страницы группы -> адрес XML.
+/// Group page URL -> XML URL.
 fn xml_url(url: &str) -> String {
     format!("{}/memberslistxml/?xml=1&l={}", url.trim_end_matches('/'), crate::lang::STEAM)
 }
@@ -70,7 +70,7 @@ pub async fn load(url: &str) -> Result<GroupInfo, String> {
     parse(&t).ok_or_else(|| "Группа не найдена.".to_string())
 }
 
-/// Вступить (join = true) или выйти из группы. Действие видно другим (список групп профиля).
+/// Join (join = true) or leave the group. Visible to others (the profile's group list).
 pub async fn membership(client: &SteamClient, g: &GroupInfo, join: bool) -> Result<(), String> {
     let web = crate::webapi::web_session(client).await?;
     let sid = web.sessionid().to_string();
@@ -113,7 +113,7 @@ impl LauncherApp {
                 return;
             }
         };
-        // Состою ли: по списку групп своего профиля.
+        // Am I a member: from the group list of my profile.
         let member = net
             .my_id
             .and_then(|me| net.profile_extra.get(&me))

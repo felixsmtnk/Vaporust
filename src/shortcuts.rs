@@ -1,17 +1,17 @@
-//! Сторонние игры в настоящем Steam: файл userdata\<аккаунт>\config\shortcuts.vdf (двоичный VDF).
-//! Vaporust умеет взять оттуда игры в свою библиотеку и добавить туда свои сторонние игры.
-//! Пишем только при закрытом Steam (иначе Steam перезапишет файл), один раз делаем копию
-//! shortcuts.vdf.vaporust.bak, остальные записи сохраняются байт в байт по смыслу (порядок полей тот же).
+//! Non-Steam games in the real Steam: the file userdata\<account>\config\shortcuts.vdf (binary VDF).
+//! Vaporust can import games from there into its library and add its non-Steam games there.
+//! We write only while Steam is closed (otherwise Steam overwrites the file), make a backup once
+//! shortcuts.vdf.vaporust.bak, other entries are kept the same in meaning (the field order is the same).
 
 use std::path::{Path, PathBuf};
 
-/// Узел двоичного VDF.
+/// A binary VDF node.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Node {
     Map(Vec<(String, Node)>),
     Str(String),
     Int(u32),
-    /// Редкие типы (float, uint64 и т.п.): тип и сырые байты - сохраняем как есть.
+    /// Rare types (float, uint64 and the like): the type and raw bytes - kept as is.
     Raw(u8, Vec<u8>),
 }
 
@@ -61,7 +61,7 @@ fn parse_map(b: &[u8], i: &mut usize) -> Result<Vec<(String, Node)>, String> {
     }
 }
 
-/// Разбор файла: корень - одна карта.
+/// File parsing: the root is a single map.
 pub fn parse(b: &[u8]) -> Result<Vec<(String, Node)>, String> {
     let mut i = 0;
     let root = parse_map(b, &mut i)?;
@@ -98,11 +98,11 @@ pub fn write(root: &[(String, Node)]) -> Vec<u8> {
     out
 }
 
-/// Ярлык сторонней игры в Steam.
+/// A non-Steam game shortcut in Steam.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Shortcut {
     pub name: String,
-    /// Путь к exe без кавычек.
+    /// Exe path without quotes.
     pub exe: String,
     pub start_dir: String,
     pub args: String,
@@ -123,12 +123,12 @@ fn unquote(s: &str) -> String {
     s.trim().trim_matches('"').to_string()
 }
 
-/// Файл ярлыков текущего аккаунта (рядом с самым свежим localconfig.vdf).
+/// The current account's shortcut file (next to the most recent localconfig.vdf).
 pub fn path(steam_dir: &Path) -> Option<PathBuf> {
     crate::launchopts::find_localconfig(steam_dir).map(|p| p.with_file_name("shortcuts.vdf"))
 }
 
-/// Все ярлыки из файла (нет файла - пустой список).
+/// All shortcuts from the file (no file - an empty list).
 pub fn read(path: &Path) -> Result<Vec<Shortcut>, String> {
     let b = match std::fs::read(path) {
         Ok(b) => b,
@@ -151,8 +151,8 @@ pub fn read(path: &Path) -> Result<Vec<Shortcut>, String> {
         .collect())
 }
 
-/// Номер ярлыка, как его считают Steam и сторонние программы: crc32(exe в кавычках + название)
-/// со старшим битом.
+/// Shortcut id, as Steam and third-party programs compute it: crc32(quoted exe + name)
+/// with the high bit set.
 pub fn shortcut_appid(exe_quoted: &str, name: &str) -> u32 {
     let mut h = crc32fast::Hasher::new();
     h.update(exe_quoted.as_bytes());
@@ -164,7 +164,7 @@ fn same_exe(a: &str, b: &str) -> bool {
     a.replace('/', "\\").to_lowercase() == b.replace('/', "\\").to_lowercase()
 }
 
-/// Добавить ярлык. Ok(false) - такой exe уже есть. Только при закрытом Steam!
+/// Add a shortcut. Ok(false) - this exe is already there. Only while Steam is closed!
 pub fn add(path: &Path, name: &str, exe: &str, args: &str) -> Result<bool, String> {
     let mut root = match std::fs::read(path) {
         Ok(b) => parse(&b)?,
@@ -209,7 +209,7 @@ pub fn add(path: &Path, name: &str, exe: &str, args: &str) -> Result<bool, Strin
     ];
     list.push((next.to_string(), Node::Map(entry)));
     let bytes = write(&root);
-    // Проверка: то, что пишем, читается обратно.
+    // Check: what we write reads back.
     parse(&bytes)?;
     let bak = path.with_file_name("shortcuts.vdf.vaporust.bak");
     if path.exists() && !bak.exists() {
@@ -239,13 +239,13 @@ mod tests {
         assert_eq!(v[0].exe, r"C:\Games\Игра\game.exe");
         assert_eq!(v[0].start_dir, r"C:\Games\Игра\");
         assert_eq!(v[0].args, "-x");
-        // Чтение и запись без изменений дают те же байты.
+        // Reading and writing without changes gives the same bytes.
         let b = std::fs::read(&p).unwrap();
         assert_eq!(write(&parse(&b).unwrap()), b);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Настоящий файл пользователя: только чтение и сравнение байтов после записи в память.
+    /// The user's real file: only reading and comparing bytes after writing into memory.
     #[test]
     #[ignore]
     fn real_file_roundtrip() {

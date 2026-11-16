@@ -1,20 +1,20 @@
-//! Резервные копии сохранений игр: файлы облака Steam игры (там, где они лежат на этом ПК)
-//! складываются в zip в «Документы\Vaporust\Сохранения\<игра>\<дата>.zip». В архиве - список
-//! исходных путей (vaporust_backup.txt), по нему копия восстанавливается на место.
-//! Архивы делает сама программа (библиотека zip), без внешних программ.
+//! Save backups: a game's Steam Cloud files (where they live on this PC) are packed into
+//! a zip in "Documents\Vaporust\Сохранения\<game>\<date>.zip". The archive contains a list
+//! of the source paths (vaporust_backup.txt), used to restore the copy in place.
+//! The program builds archives itself (the zip crate), no external programs.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 const MANIFEST: &str = "vaporust_backup.txt";
 
-/// Папка копий всех игр.
+/// Folder with backups of all games.
 pub fn root() -> PathBuf {
     let home = std::env::var_os("USERPROFILE").map(PathBuf::from).unwrap_or_default();
     home.join("Documents").join("Vaporust").join("Сохранения")
 }
 
-/// Имя папки игры без запрещенных в Windows символов.
+/// Game folder name without characters forbidden in Windows.
 fn safe(name: &str) -> String {
     let s: String = name.chars().map(|c| if "<>:\"/\\|?*".contains(c) || c.is_control() { '_' } else { c }).collect();
     let s = s.trim().trim_end_matches('.').to_string();
@@ -25,9 +25,9 @@ pub fn game_dir(game: &str) -> PathBuf {
     root().join(safe(game))
 }
 
-/// Сделать копию: только существующие файлы. Возвращает путь к архиву и число файлов.
-/// Архив пишет сама программа (библиотека zip): системный tar.exe терял русские и другие
-/// не-латинские буквы в путях на Windows с другим языком.
+/// Make a backup: existing files only. Returns the archive path and the file count.
+/// The archive is written by the program itself (zip crate): the system tar.exe lost Russian and other
+/// non-Latin letters in paths on Windows with a different language.
 pub fn backup_to(dir: &Path, files: &[PathBuf]) -> Result<(PathBuf, usize), String> {
     use std::io::Write;
     let files: Vec<&PathBuf> = files.iter().filter(|f| f.is_file()).collect();
@@ -35,8 +35,8 @@ pub fn backup_to(dir: &Path, files: &[PathBuf]) -> Result<(PathBuf, usize), Stri
         return Err("Файлов сохранений на этом ПК нет - копировать нечего.".into());
     }
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    // Имя по времени; если копия с таким именем уже есть (две копии в одну секунду), - «_2», «_3»...
-    // Файл создается только новым (create_new): существующую копию не перезаписать никогда.
+    // Name by time; if a backup with this name already exists (two in one second) - "_2", "_3"...
+    // The file is only created new (create_new): an existing backup is never overwritten.
     let stamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
     let (out, file) = (1..1000)
         .find_map(|n| {
@@ -75,7 +75,7 @@ pub fn backup(game: &str, files: &[PathBuf]) -> Result<(PathBuf, usize), String>
     backup_to(&game_dir(game), files)
 }
 
-/// Копии игры: (архив, время изменения, размер), новые первыми.
+/// Backups of a game: (archive, modification time, size), newest first.
 pub fn list(game: &str) -> Vec<(PathBuf, std::time::SystemTime, u64)> {
     let mut v: Vec<_> = fs::read_dir(game_dir(game))
         .into_iter()
@@ -91,9 +91,9 @@ pub fn list(game: &str) -> Vec<(PathBuf, std::time::SystemTime, u64)> {
     v
 }
 
-/// Вернуть файлы из копии на их места. Все или ничего: сначала архив читается и проверяется
-/// целиком (нет хоть одного файла - ничего не трогаем), затем файлы заменяются по одному, а при
-/// ошибке посередине уже замененные возвращаются как были. Возвращает число файлов.
+/// Put files from a backup back in place. All or nothing: the archive is read and checked first
+/// in full (a single file missing - nothing is touched), then files are replaced one by one, and on
+/// an error midway the already replaced ones are restored. Returns the number of files.
 pub fn restore(zip_path: &Path) -> Result<usize, String> {
     use std::io::Read;
     let file = fs::File::open(zip_path).map_err(|e| format!("Архив не открыт: {e}"))?;
@@ -103,7 +103,7 @@ pub fn restore(zip_path: &Path) -> Result<usize, String> {
         .map_err(|_| "В архиве нет списка файлов - это не копия Vaporust.".to_string())?
         .read_to_string(&mut manifest)
         .map_err(|e| e.to_string())?;
-    // 1. Прочитать все файлы копии. Ошибка здесь - сохранения не тронуты.
+    // 1. Read all files of the backup. An error here - saves are untouched.
     let mut items: Vec<(PathBuf, Vec<u8>)> = Vec::new();
     for line in manifest.lines() {
         let Some((name, dest)) = line.split_once('\t') else { continue };
@@ -117,9 +117,9 @@ pub fn restore(zip_path: &Path) -> Result<usize, String> {
     if items.is_empty() {
         return Err("В копии нет файлов.".into());
     }
-    // 2. Прочитать прежнее содержимое ВСЕХ мест до первой записи. «Файла не было» - только когда
-    // его действительно нет; файл, который не читается (занят игрой, нет доступа), останавливает
-    // восстановление до замены: иначе откат удалил бы его как «не существовавший».
+    // 2. Read the previous contents of ALL targets before the first write. "File did not exist" only when
+    // it really does not exist; a file that cannot be read (locked by the game, no access) stops
+    // the restore before replacing: otherwise rollback would delete it as "never existed".
     let mut olds: Vec<Option<Vec<u8>>> = Vec::with_capacity(items.len());
     for (dest, _) in &items {
         match fs::read(dest) {
@@ -133,7 +133,7 @@ pub fn restore(zip_path: &Path) -> Result<usize, String> {
             }
         }
     }
-    // 3. Заменить, запоминая, что уже заменено.
+    // 3. Replace, remembering what is already replaced.
     let mut done: Vec<(PathBuf, Option<Vec<u8>>)> = Vec::new();
     let res = (|| -> Result<(), String> {
         for ((dest, data), old) in items.iter().zip(olds) {
@@ -146,7 +146,7 @@ pub fn restore(zip_path: &Path) -> Result<usize, String> {
         Ok(())
     })();
     if let Err(e) = res {
-        // 4. Откат: вернуть замененные файлы.
+        // 4. Rollback: put the replaced files back.
         let mut lost = Vec::new();
         for (dest, old) in done.into_iter().rev() {
             let ok = match old {
@@ -166,7 +166,7 @@ pub fn restore(zip_path: &Path) -> Result<usize, String> {
     Ok(items.len())
 }
 
-/// Записать файл через временный рядом и переименование: файл никогда не остается обрезанным.
+/// Write a file via a temporary neighbor and rename: the file is never left truncated.
 fn write_replace(dest: &Path, data: &[u8]) -> std::io::Result<()> {
     let mut tmp = dest.as_os_str().to_owned();
     tmp.push(".vaporust-tmp");

@@ -535,13 +535,13 @@ pub struct SteamClient {
 // SteamClient methods are implemented across these submodules.
 mod anticheat;
 mod chat;
-mod vaporust_chat; // vaporust: смайлики/стикеры и картинки в чат
-mod vaporust_media; // vaporust: скриншоты в облаке Steam
+mod vaporust_chat; // vaporust: emoticons/stickers and images in chat
+mod vaporust_media; // vaporust: screenshots in the Steam cloud
 pub use vaporust_media::CloudScreenshot; // vaporust
-mod vaporust_store; // vaporust: очередь открытий магазина
-mod vaporust_groups; // vaporust: групповые чаты
+mod vaporust_store; // vaporust: store discovery queue
+mod vaporust_groups; // vaporust: group chats
 pub use vaporust_groups::{ChatChannel, ChatGroup, GroupMessage}; // vaporust
-mod vaporust_props; // vaporust: данные для окна «Свойства игры»
+mod vaporust_props; // vaporust: data for the "Game properties" window
 mod client;
 pub use client::CodeReader;
 mod friends;

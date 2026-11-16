@@ -1,41 +1,41 @@
-//! Разбор сообщений чата Steam (BBCode) в куски для отображения: текст, ссылки,
-//! картинки, смайлики и стикеры.
+//! Parsing Steam chat messages (BBCode) into pieces for display: text, links,
+//! images, emoticons and stickers.
 //!
-//! Формат из истории (запрос с bbcode_format = true), проверено на настоящих сообщениях:
+//! Format from history (request with bbcode_format = true), checked on real messages:
 //!   [emoticon]steamhappy[/emoticon]
 //!   [sticker type="Buoyant Bobber" limit="0"][/sticker]
 //!   [img src=URL thumbnail_src=URL srcset="" width=275 height=212][url=URL]URL[/url][/img]
-//! Без BBCode смайлик выглядит как ːsteamhappyː, картинка - как голая ссылка.
+//! Without BBCode an emoticon looks like ːsteamhappyː, an image like a bare link.
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Seg {
     Text(String),
     Link { url: String, label: String },
-    /// Картинка из сообщения; размеры, если Steam их прислал.
+    /// Image from a message; dimensions, if Steam sent them.
     Image { url: String, size: Option<(f32, f32)> },
     Emoticon(String),
     Sticker(String),
-    /// Эффект комнаты (шарики, конфетти…): тип из [roomeffect type="…"].
+    /// Room effect (balloons, confetti...): type from [roomeffect type="..."].
     RoomEffect(String),
-    /// Скрытый текст ([spoiler]): показывается по щелчку.
+    /// Hidden text ([spoiler]): shown on click.
     Spoiler(String),
-    /// Код ([code]): моноширинным шрифтом, отдельным блоком.
+    /// Code ([code]): monospace font, as a separate block.
     Code(String),
-    /// Цитата ([quote author="…"]).
+    /// Quote ([quote author="..."]).
     Quote { author: Option<String>, text: String },
-    /// Действие от третьего лица: «/me машет рукой».
+    /// Third-person action: "/me waves".
     Me(String),
 }
 
 const CDN: &str = "https://community.fastly.steamstatic.com/economy";
 
-/// Адрес картинки смайлика.
+/// Emoticon image URL.
 pub fn emoticon_url(name: &str) -> String {
     format!("{CDN}/emoticonlarge/{}", urlencode(name))
 }
 
-/// Уменьшенная копия картинки из чата (тот же адрес, что Steam дает в thumbnail_src).
-/// Для не-Steam ссылок - исходный адрес.
+/// Reduced copy of a chat image (the same URL Steam gives in thumbnail_src).
+/// For non-Steam links - the original URL.
 pub fn thumbnail_url(url: &str) -> String {
     if url.contains("steamusercontent.com/ugc/") && !url.contains('?') {
         format!("{url}?imw=512&ima=fit&impolicy=Letterbox&imcolor=%23000000&letterbox=false")
@@ -44,7 +44,7 @@ pub fn thumbnail_url(url: &str) -> String {
     }
 }
 
-/// Адрес картинки стикера.
+/// Sticker image URL.
 pub fn sticker_url(name: &str) -> String {
     format!("{CDN}/sticker/{}", urlencode(name))
 }
@@ -58,13 +58,13 @@ fn urlencode(s: &str) -> String {
         .collect()
 }
 
-/// Значение атрибута вида key="value" или key=value из содержимого тега.
+/// Attribute value like key="value" or key=value from the tag contents.
 fn attr(tag: &str, key: &str) -> Option<String> {
     let mut from = 0;
     while let Some(pos) = tag[from..].find(key) {
         let start = from + pos;
         from = start + key.len();
-        // Ключ должен начинаться с начала слова (иначе src найдется внутри thumbnail_src).
+        // The key must start at a word boundary (otherwise src is found inside thumbnail_src).
         if start > 0 && !tag[..start].ends_with(' ') {
             continue;
         }
@@ -95,14 +95,14 @@ fn url_seg(url: &str, label: Option<&str>) -> Seg {
     }
 }
 
-/// Теги оформления: сами теги убираем, содержимое оставляем.
+/// Formatting tags: drop the tags themselves, keep the contents.
 const FORMAT_TAGS: &[&str] = &[
     "b", "i", "u", "s", "strike", "spoiler", "quote", "code", "noparse", "h1", "h2", "h3", "list",
     "olist", "*", "hr", "table", "tr", "td", "th",
 ];
 
 pub fn parse(msg: &str) -> Vec<Seg> {
-    // «/me текст» - действие от третьего лица (как в чате Steam).
+    // "/me text" - third-person action (as in Steam chat).
     if let Some(rest) = msg.strip_prefix("/me ") {
         return vec![Seg::Me(plain(rest))];
     }
@@ -133,7 +133,7 @@ pub fn parse(msg: &str) -> Vec<Seg> {
             .unwrap_or("")
             .to_lowercase();
         let body = &after[close + 1..];
-        // Содержимое до парного закрывающего тега и остаток после него.
+        // Contents up to the matching closing tag, and the rest after it.
         let inner = |name: &str| -> Option<(&str, &str)> {
             let end = format!("[/{name}]");
             let pos = body.find(&end).or_else(|| body.find(&end.to_uppercase()))?;
@@ -163,7 +163,7 @@ pub fn parse(msg: &str) -> Vec<Seg> {
                     }
                 }
                 "gameinvite" => {
-                    // Приглашение в игру из чата Steam.
+                    // Game invite from Steam chat.
                     flush(&mut text, &mut segs);
                     segs.push(Seg::Text("[приглашение в игру]".into()));
                     rest = inner("gameinvite").map(|(_, t)| t).unwrap_or(body);
@@ -215,7 +215,7 @@ pub fn parse(msg: &str) -> Vec<Seg> {
             rest = body;
             continue;
         }
-        // Неизвестная скобка - оставляем как есть.
+        // Unknown bracket - keep as is.
         text.push('[');
         rest = &after[1..];
     }
@@ -224,9 +224,9 @@ pub fn parse(msg: &str) -> Vec<Seg> {
     segs
 }
 
-/// Обычный текст: выделяем смайлики ːимяː и голые ссылки http(s)://.
+/// Plain text: pick out ːnameː emoticons and bare http(s):// links.
 
-/// Текст BBCode без оформления (для спойлеров, цитат, «/me»).
+/// BBCode text without formatting (for spoilers, quotes, "/me").
 fn plain(s: &str) -> String {
     parse(s)
         .into_iter()
@@ -354,7 +354,7 @@ mod tests {
 }
 
 
-/// Для всплывающего уведомления: текст сообщения и картинка (первый смайлик или стикер).
+/// For a popup notification: message text and image (first emoticon or sticker).
 pub fn preview(msg: &str) -> (String, Option<String>) {
     let mut text = String::new();
     let mut image = None;
@@ -364,7 +364,7 @@ pub fn preview(msg: &str) -> (String, Option<String>) {
             Seg::Text(t) | Seg::Code(t) => text.push_str(&t),
             Seg::Me(t) => text.push_str(&format!("* {t}")),
             Seg::Quote { text: q, .. } => text.push_str(&format!("«{q}» ")),
-            // Спойлер в уведомлении не раскрываем.
+            // Do not reveal a spoiler in a notification.
             Seg::Spoiler(_) => text.push_str("[спойлер]"),
             Seg::Link { label, .. } => text.push_str(&label),
             Seg::Image { .. } => what = "картинка",

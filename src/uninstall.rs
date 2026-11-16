@@ -1,8 +1,8 @@
-//! Удаление игры с диска: подтверждение (из меню игры и из «Свойств») и само удаление.
+//! Uninstalling a game from disk: confirmation (from the game menu and from "Properties") and the removal itself.
 //!
-//! Полностью установленные игры удаляет Aurelia (как и раньше). Недокачанные загрузки
-//! Vaporust удаляем сами: их appmanifest спрятан от Steam (см. local::stash_manifest),
-//! и Aurelia их не находит - раньше такая игра оставалась на диске с кнопкой «Докачать».
+//! Fully installed games are uninstalled by Aurelia (as before). Unfinished Vaporust downloads
+//! we remove ourselves: their appmanifest is hidden from Steam (see local::stash_manifest),
+//! and Aurelia does not find them - previously such a game stayed on disk with a "Resume" button.
 
 use crate::net::{Cmd, NetState};
 use crate::{local, LauncherApp};
@@ -10,8 +10,8 @@ use eframe::egui;
 use std::sync::atomic::Ordering;
 
 impl LauncherApp {
-    /// Спросить подтверждение удаления. Размер берется из appmanifest, а если там 0
-    /// (недокачанная игра) - считается по папке.
+    /// Ask for uninstall confirmation. The size comes from appmanifest, and if it is 0 there
+    /// (an unfinished game) - it is counted by the folder.
     pub(crate) fn ask_uninstall(&mut self, appid: u32, name: String) {
         if crate::custom::is_custom(appid) {
             self.uninstall_ask = Some((appid, name, 0));
@@ -19,20 +19,20 @@ impl LauncherApp {
         }
         let shared = !self.neighbours(appid).is_empty();
         let Some(g) = self.games.iter().find(|g| g.appid == appid) else { return };
-        // Общая с другими играми папка: ее размер - не размер этой игры.
+        // A folder shared with other games: its size is not this game's size.
         let size = if (g.size > 0 && g.ready) || shared { g.size } else { local::dir_size(&g.dir) };
         self.uninstall_ask = Some((appid, name, size));
     }
 
-    /// Окно подтверждения (поверх главного окна).
+    /// Confirmation window (on top of the main window).
     pub(crate) fn uninstall_dialog(&mut self, ctx: &egui::Context, net: &NetState) {
         let Some((appid, name, size)) = self.uninstall_ask.clone() else { return };
         let custom = crate::custom::is_custom(appid);
         let steam_running = !custom && self.steam_running();
-        // При открытом Steam можно удалить установленную игру; недокачанную Steam может сейчас качать сам.
-        // Своя недокачанная (начата в Vaporust) - Steam ее не качает, удалять можно.
+        // With Steam open an installed game can be uninstalled; an unfinished one Steam may be downloading itself.
+        // Own unfinished one (started in Vaporust) - Steam does not download it, it can be removed.
         let ready = self.games.iter().find(|g| g.appid == appid).is_some_and(|g| g.ready) || self.settings.holding.contains(&appid);
-        // Мешает только сама эта игра (другая запущенная - нет) и закрытие Steam.
+        // Only this game itself blocks it (another running one does not) and Steam closing.
         let this_running = local::RUNNING.lock().unwrap().as_ref().is_some_and(|r| r.0 == appid);
         let busy = this_running || (!custom && self.closing.load(Ordering::Relaxed));
         let downloading = net.install.as_ref().is_some_and(|i| i.active() && i.appid == appid);
@@ -109,15 +109,15 @@ impl LauncherApp {
 
     pub(crate) fn uninstall_game(&mut self, appid: u32, name: String) {
         let Some(game) = self.games.iter().find(|g| g.appid == appid).cloned() else { return };
-        // Больше не «наша» загрузка: убрать из очереди, из спрятанных и из прерванной.
+        // No longer "our" download: remove from the queue, from the hidden ones and from the interrupted one.
         self.settings.downloads.retain(|q| q.appid != appid);
         self.settings.holding.retain(|a| *a != appid);
         self.settings.staged.remove(&appid);
         if self.settings.current_download.as_ref().is_some_and(|q| q.appid == appid) {
             self.settings.current_download = None;
         }
-        // Папку делят несколько игр (Counter-Strike, Half-Life, Blue Shift... - commonHalf-Life):
-        // удалять только файлы этой игры, иначе пропадут и соседи.
+        // Several games share the folder (Counter-Strike, Half-Life, Blue Shift... - common\Half-Life):
+        // delete only this game's files, otherwise the neighbors disappear too.
         let others: Vec<u32> = self.neighbours(appid).into_iter().map(|(a, _)| a).collect();
         if !others.is_empty() {
             let _ = self.tx.send(Cmd::UninstallShared { appid, name, dir: game.dir.clone(), others });
@@ -142,7 +142,7 @@ impl LauncherApp {
         });
     }
 
-    /// Другие установленные игры в той же папке (номер, название).
+    /// Other installed games in the same folder (id, name).
     pub(crate) fn neighbours(&self, appid: u32) -> Vec<(u32, String)> {
         let Some(g) = self.games.iter().find(|g| g.appid == appid) else { return Vec::new() };
         let dir = g.dir.to_string_lossy().to_lowercase();
@@ -155,7 +155,7 @@ impl LauncherApp {
 }
 
 impl LauncherApp {
-    /// «Установить игру?» - после двойного щелчка по неустановленной игре (как в Steam).
+    /// "Install the game?" - after a double click on a non-installed game (as in Steam).
     pub(crate) fn install_ask_dialog(&mut self, ctx: &egui::Context, net: &NetState) {
         let Some((appid, name)) = self.install_ask.clone() else { return };
         let mut close = false;

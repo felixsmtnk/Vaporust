@@ -1,9 +1,9 @@
-//! Окно «Свойства игры» (как в Steam), отдельное окно Windows с вкладками:
-//! Общие (параметры запуска, язык), Версии и беты, Файлы, DLC, Облако.
+//! "Game properties" window (as in Steam), a separate Windows window with tabs:
+//! General (launch options, language), Versions and betas, Files, DLC, Cloud.
 //!
-//! Язык и бета записываются в UserConfig файла игры (appmanifest); файлы под них докачивает
-//! сам Steam при следующем «Играть» (лаунчер показывает прогресс). Править файлы Steam можно
-//! только при закрытом Steam - иначе он перезапишет их при выходе.
+//! Language and beta are written to the game file's UserConfig (appmanifest); the files for them
+//! are downloaded by Steam itself on the next "Play" (the launcher shows progress). Steam files can be edited
+//! only while Steam is closed - otherwise it overwrites them on exit.
 
 use crate::net::{self, Cmd, NetState};
 use crate::{launchopts, local, LauncherApp};
@@ -24,32 +24,32 @@ pub struct PropsWin {
     appid: u32,
     name: String,
     tab: Tab,
-    // Параметры запуска
+    // Launch options
     launch_text: String,
     launch_saved: String,
     lc_path: Option<std::path::PathBuf>,
-    // Выбор в выпадающих списках (None - как в файле игры)
+    // Choice in the drop-down lists (None - as in the game file)
     lang_choice: Option<String>,
     beta_choice: Option<String>,
     move_idx: usize,
     confirm_uninstall: bool,
-    /// Размер папки игры, если в appmanifest его нет (недокачанная игра).
+    /// Game folder size if appmanifest does not have it (an unfinished game).
     dir_size: Option<u64>,
     note: Option<String>,
-    // Мастерская: подписки уже запрошены.
+    // Workshop: subscriptions already requested.
     ws_loaded: bool,
-    // Откат: введенные номера версий по хранилищам.
+    // Rollback: entered version numbers per depot.
     dg_inputs: std::collections::BTreeMap<u32, String>,
-    // Проверка защиты для запуска без Steam (идет в фоновом потоке).
+    // Protection check for launching without Steam (runs in a background thread).
     drm: Option<std::sync::Arc<std::sync::Mutex<Option<crate::direct::DrmReport>>>>,
-    // Какую резервную копию сохранений подтверждаем восстановить.
+    // Which save backup restore is being confirmed.
     restore_confirm: Option<std::path::PathBuf>,
 }
 
 const YELLOW: egui::Color32 = egui::Color32::from_rgb(230, 170, 60);
 const GREEN: egui::Color32 = egui::Color32::from_rgb(110, 200, 110);
 
-/// Русское название языка Steam (ключи как в appinfo).
+/// Russian name of a Steam language (keys as in appinfo).
 fn lang_name(key: &str) -> String {
     let n = match key {
         "english" => "Английский",
@@ -95,7 +95,7 @@ fn branch_name(key: &str) -> String {
     }
 }
 
-/// Понятное название хранилища: свое имя, DLC, язык, система или «основные файлы».
+/// Readable depot name: its own name, DLC, language, OS or "base files".
 fn depot_desc(d: Option<&net::DepotDesc>) -> String {
     let Some((name, os, lang, dlc)) = d else { return "Файлы игры".into() };
     if let Some(n) = name {
@@ -157,7 +157,7 @@ impl LauncherApp {
             restore_confirm: None,
         });
         let _ = self.tx.send(Cmd::LoadProps(appid));
-        // Свойства - страница главного окна (как в Steam: «Свойства» открываются поверх библиотеки).
+        // Properties - a page of the main window (as in Steam: "Properties" opens over the library).
         self.close_extras(crate::View::Props);
         self.view = crate::View::Props;
     }
@@ -175,9 +175,9 @@ impl LauncherApp {
         let mut cmds: Vec<Cmd> = Vec::new();
         let mut do_update = false;
         let mut do_uninstall = false;
-        // Смена беты: без Steam (как кнопка «Обновить» в библиотеке).
+        // Beta change: without Steam (like the "Update" button in the library).
         let mut do_update_smart = false;
-        // Закрепить (true) или открепить (false) - выполняется после отрисовки.
+        // Pin (true) or unpin (false) - done after drawing.
         let mut pin_action: Option<bool> = None;
         let pinned_real = self.settings.pinned.get(&appid).cloned();
         let logged_in = net.account.is_some();
@@ -206,7 +206,7 @@ impl LauncherApp {
                 }
             });
 
-        // Нижняя строка: результат последнего действия (панели объявляются до центральной).
+        // Bottom row: result of the last action (panels are declared before the central one).
         if let Some(n) = &w.note {
             egui::TopBottomPanel::bottom("props_note").show_inside(ui, |ui| {
                 ui.colored_label(GREEN, n);
@@ -234,7 +234,7 @@ impl LauncherApp {
             };
             let acf_path = local::appmanifest_path(&game);
             let acf = local::read_acf(&acf_path);
-            // У недокачанных (особенно спрятанных от Steam) размер в appmanifest 0 - считаем по папке.
+            // For unfinished games (especially those hidden from Steam) the appmanifest size is 0 - count by the folder.
             let disk_size = if acf.size_on_disk > 0 && game.ready {
                 acf.size_on_disk
             } else {
@@ -272,8 +272,8 @@ impl LauncherApp {
                         }
                     });
 
-                    // Автообновление этой игры (поле AutoUpdateBehavior в appmanifest, как в
-                    // «Свойства -> Обновления» Steam). Менять - только при закрытом Steam.
+                    // Auto-update of this game (the AutoUpdateBehavior field in appmanifest, as in
+                    // Steam's "Properties -> Updates"). Change only while Steam is closed.
                     ui.add_space(12.0);
                     ui.strong("Обновления");
                     let cur: u8 = local::acf_top(&acf_path, "AutoUpdateBehavior").and_then(|v| v.parse().ok()).unwrap_or(0);
@@ -305,8 +305,8 @@ impl LauncherApp {
 
                     ui.add_space(12.0);
                     ui.strong("Запуск без Steam");
-                    // Семейные игры (чужие, из семейной библиотеки) - только через Steam: запуск в обход
-                    // Steam обошел бы правила семейного доступа (например, блокировку, пока играет владелец).
+                    // Family games (others', from the family library) - only through Steam: launching around
+                    // Steam would bypass family sharing rules (for example the lock while the owner plays).
                     let family = crate::is_family_only(net, appid);
                     let mut direct = self.settings.no_steam.contains(&appid) && !family;
                     if ui
@@ -321,7 +321,7 @@ impl LauncherApp {
                             self.settings.no_steam.remove(&appid);
                         }
                     }
-                    // Проверка защиты: файлы игры (SteamStub, steam_api) и пометки магазина.
+                    // Protection check: game files (SteamStub, steam_api) and store notes.
                     let slot = w
                         .drm
                         .get_or_insert_with(|| {
@@ -511,7 +511,7 @@ impl LauncherApp {
                         }
                     }
 
-                    // ---------- Закрепление и откат ----------
+                    // ---------- Pinning and rollback ----------
                     ui.add_space(14.0);
                     ui.separator();
                     ui.strong("Версия игры");
@@ -554,7 +554,7 @@ impl LauncherApp {
                              Пустое поле - часть не меняется.",
                         );
                         ui.add_space(4.0);
-                        // Настоящие версии: у закрепленной игры в файле записаны «маскировочные».
+                        // Real versions: a pinned game has "masking" ones written in its file.
                         let current = pinned_real.clone().unwrap_or_else(|| local::installed_depots(&acf_path));
                         if current.is_empty() {
                             ui.weak("В файле игры нет списка хранилищ.");
@@ -678,7 +678,7 @@ impl LauncherApp {
                         });
                     }
 
-                    // Перепривязка: файлы игры уже лежат в другой библиотеке (перенесли вручную).
+                    // Relink: the game files already lie in another library (moved manually).
                     if let Some(steam) = self.steam.clone() {
                         for lib in local::relink_candidates(&steam.dir, &game) {
                             ui.add_space(6.0);
@@ -786,7 +786,7 @@ impl LauncherApp {
                 },
 
                 Tab::Workshop => {
-                    // Только включение/выключение подписанных модов; поиск - на странице игры.
+                    // Only enabling/disabling subscribed mods; search is on the game page.
                     if !w.ws_loaded {
                         w.ws_loaded = true;
                         cmds.push(Cmd::Social(crate::social::SocialCmd::WorkshopSubscribed(w.appid)));
@@ -796,7 +796,7 @@ impl LauncherApp {
                 }
 
                 Tab::Cloud => {
-                    // ---------- Синхронизация вручную ----------
+                    // ---------- Manual sync ----------
                     ui.strong("Синхронизация вручную");
                     ui.weak(
                         "Steam сам синхронизирует сохранения при запуске игры и после выхода. Здесь это можно \
@@ -897,7 +897,7 @@ impl LauncherApp {
                     }
                     Some(Ok(files)) => {
                         let total: u64 = files.iter().map(|f| f.size).sum();
-                        // Где эти файлы лежат на этом ПК: %WinAppDataLocalLow% и т.п. -> настоящие папки.
+                        // Where these files live on this PC: %WinAppDataLocalLow% and the like -> real folders.
                         let resolver = remote.clone().map(|r| {
                             aurelia::library::cloud_sync::CloudPathResolver::new(r, Some(game.dir.clone()))
                         });
@@ -916,7 +916,7 @@ impl LauncherApp {
                                 }
                             });
                         }
-                        // Резервные копии сохранений (zip в Документы\Vaporust\Сохранения).
+                        // Save backups (zip in Documents\Vaporust\Сохранения).
                         ui.horizontal_wrapped(|ui| {
                             ui.strong("Резервные копии");
                             if ui
@@ -944,9 +944,9 @@ impl LauncherApp {
                                 if w.restore_confirm.as_ref() == Some(&zip) {
                                     ui.colored_label(YELLOW, "Текущие сохранения будут заменены. Восстановить?");
                                     if ui.add_enabled(!locked, egui::Button::new("Да")).clicked() {
-                                        // Сначала - копия текущего состояния, чтобы можно было вернуться.
-                                        // Если копия не получилась (нет места, нет доступа) - ничего не
-                                        // заменяем: иначе текущие сохранения пропали бы без возврата.
+                                        // First - a backup of the current state so it is possible to go back.
+                                        // If the backup failed (no space, no access) - replace nothing:
+                                        // otherwise the current saves would be lost for good.
                                         let paths: Vec<std::path::PathBuf> = local.iter().flatten().cloned().collect();
                                         let has_current = paths.iter().any(|p| p.is_file());
                                         let safety = if has_current { crate::backup::backup(&w.name, &paths).map(|_| true) } else { Ok(false) };
@@ -1020,7 +1020,7 @@ impl LauncherApp {
             self.close_steam(ctx);
         }
         if do_update {
-            // «Обновить через Steam» и смена языка (нужны другие хранилища) - через Steam.
+            // "Update via Steam" and a language change (other depots needed) - through Steam.
             self.start_update_steam(appid, ctx);
         }
         if do_update_smart {
@@ -1041,7 +1041,7 @@ impl LauncherApp {
     }
 }
 
-/// Общая папка для всех путей (самый глубокий общий предок).
+/// Common folder for all paths (the deepest common ancestor).
 fn common_dir<'a>(paths: impl Iterator<Item = &'a std::path::PathBuf>) -> Option<std::path::PathBuf> {
     let mut base: Option<std::path::PathBuf> = None;
     for p in paths {

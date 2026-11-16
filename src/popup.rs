@@ -1,10 +1,10 @@
-//! Свои всплывающие уведомления Vaporust: небольшие карточки в правом нижнем углу экрана
-//! (над панелью задач), поверх всех окон, не забирают фокус. До 3 штук стопкой, каждая
-//! живет 6 с (пока над ней мышь - не исчезает). Щелчок - действие (чат с другом, страница
-//! игры), крестик - закрыть. У каждого вида уведомления свой короткий звук (синтезируется в
-//! памяти, без файлов).
+//! Vaporust's own popup notifications: small cards in the bottom right corner of the screen
+//! (above the taskbar), on top of all windows, they do not take focus. Up to 3 stacked, each
+//! lives 6 s (does not disappear while hovered). Click - the action (chat with a friend, game
+//! page), cross - close. Each notification kind has its own short sound (synthesized in
+//! memory, no files).
 //!
-//! Добавлять можно из любого потока (`push`), рисует главный цикл (`LauncherApp::popups_ui`).
+//! Can be added from any thread (`push`), drawn by the main loop (`LauncherApp::popups_ui`).
 
 use crate::LauncherApp;
 use eframe::egui;
@@ -12,22 +12,22 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-/// Что за уведомление и что делать по щелчку.
+/// What the notification is and what to do on click.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Kind {
-    /// Новое сообщение (SteamID друга) - открыть чат.
+    /// New message (friend SteamID) - open the chat.
     Message(u64),
-    /// Друг зашел в игру - открыть чат.
+    /// A friend started a game - open the chat.
     FriendGame(u64),
-    /// Друг появился в сети - открыть чат.
+    /// A friend came online - open the chat.
     FriendOnline(u64),
-    /// Скидка на игру из желаемого - страница в магазине (0 - несколько игр: список желаемого).
+    /// Discount on a wishlisted game - store page (0 - several games: the wishlist).
     Sale(u32),
-    /// Игра скачана - страница игры в библиотеке.
+    /// Game downloaded - game page in the library.
     Download(u32),
-    /// Просто сообщение (проверка) - открыть Vaporust.
+    /// Just a message (a test) - open Vaporust.
     Info,
-    /// Сообщение об игре (удалена, закрыта, ошибка запуска) - страница игры.
+    /// Message about a game (uninstalled, closed, launch error) - game page.
     Game(u32),
 }
 
@@ -35,11 +35,11 @@ struct Popup {
     kind: Kind,
     title: String,
     body: String,
-    /// Картинка справа (смайлик или стикер из сообщения).
+    /// Image on the right (emoticon or sticker from the message).
     image: Option<String>,
-    /// Цвет полоски и имени; None - по виду уведомления.
+    /// Color of the stripe and name; None - by notification kind.
     accent: Option<egui::Color32>,
-    /// Когда показали (сбрасывается, пока над карточкой мышь).
+    /// When it was shown (reset while the card is hovered).
     shown: Instant,
 }
 
@@ -47,13 +47,13 @@ const LIFE: Duration = Duration::from_secs(6);
 const MAX: usize = 4;
 const W: f32 = 300.0;
 const H: f32 = 68.0;
-/// Уведомления лежат стопкой вплотную (между ними тонкая линия).
+/// Notifications are stacked back to back (a thin line between them).
 const GAP: f32 = 0.0;
 
 static QUEUE: Mutex<Vec<Popup>> = Mutex::new(Vec::new());
 static CTX: OnceLock<egui::Context> = OnceLock::new();
 static SOUND: AtomicBool = AtomicBool::new(true);
-/// Щелчки по карточкам - забирает главный цикл.
+/// Clicks on cards - taken by the main loop.
 static CLICKED: Mutex<Vec<Kind>> = Mutex::new(Vec::new());
 
 pub fn init(ctx: &egui::Context) {
@@ -64,13 +64,13 @@ pub fn set_sound(on: bool) {
     SOUND.store(on, Ordering::Relaxed);
 }
 
-/// Показать уведомление (из любого потока). Повтор того же вида (например, второе сообщение
-/// от того же друга) заменяет старую карточку, а не добавляет новую.
+/// Show a notification (from any thread). A repeat of the same kind (for example a second message
+/// from the same friend) replaces the old card instead of adding a new one.
 pub fn push(kind: Kind, title: impl Into<String>, body: impl Into<String>) {
     push_full(kind, title.into(), body.into(), None, None);
 }
 
-/// То же с картинкой и своим цветом (статус друга: в игре - зеленый, в сети - синий).
+/// The same with an image and its own color (friend status: in game - green, online - blue).
 pub fn push_full(kind: Kind, title: String, body: String, image: Option<String>, accent: Option<egui::Color32>) {
     let p = Popup {
         kind,
@@ -82,8 +82,8 @@ pub fn push_full(kind: Kind, title: String, body: String, image: Option<String>,
     };
     {
         let mut q = QUEUE.lock().unwrap();
-        // Как в Steam: каждое уведомление отдельно, новые снизу, старые поднимаются вверх.
-        // Убираем только точный повтор.
+        // As in Steam: each notification separately, new ones at the bottom, old ones move up.
+        // Only an exact repeat is removed.
         q.retain(|x| !(x.kind == p.kind && x.title == p.title && x.body == p.body));
         q.push(p);
         let extra = q.len().saturating_sub(MAX);
@@ -97,12 +97,12 @@ pub fn push_full(kind: Kind, title: String, body: String, image: Option<String>,
     }
 }
 
-/// Щелчки по уведомлениям с прошлого кадра.
+/// Clicks on notifications from the previous frame.
 pub fn take_clicks() -> Vec<Kind> {
     std::mem::take(&mut *CLICKED.lock().unwrap())
 }
 
-/// Рабочая область основного монитора (без панели задач), физические пиксели.
+/// Work area of the primary monitor (without the taskbar), physical pixels.
 #[cfg(windows)]
 fn work_area() -> Option<egui::Rect> {
     use windows_sys::Win32::Foundation::RECT;
@@ -125,7 +125,7 @@ fn work_area() -> Option<egui::Rect> {
 }
 
 impl LauncherApp {
-    /// Нарисовать уведомления (отдельным окном без рамки в углу экрана).
+    /// Draw notifications (a separate frameless window in the screen corner).
     pub(crate) fn popups_ui(&mut self, ctx: &egui::Context) {
         let n = {
             let mut q = QUEUE.lock().unwrap();
@@ -136,7 +136,7 @@ impl LauncherApp {
             return;
         }
         ctx.request_repaint_after(Duration::from_millis(500));
-        // Аватары друзей из уведомлений - из списка друзей.
+        // Friend avatars in notifications - from the friend list.
         let avatars: std::collections::HashMap<u64, String> = {
             let roster = self.net.lock().unwrap().roster.clone();
             let roster = roster.read().unwrap();
@@ -157,14 +157,14 @@ impl LauncherApp {
             .with_inner_size(size);
         let mut pos = None;
         if let Some(wa) = work_area() {
-            // Как в Steam: вплотную к правому нижнему углу рабочей области (над часами панели задач).
+            // As in Steam: snug against the bottom right corner of the work area (above the taskbar clock).
             let p = egui::pos2(wa.max.x / ppp - size.x, wa.max.y / ppp - size.y);
             builder = builder.with_position(p);
             pos = Some(p);
         }
-        // Положение из with_position задается только при создании окна: когда приходит еще одно
-        // уведомление, окно растет вниз под панель задач. Поэтому при каждом изменении числа
-        // карточек явно двигаем окно и меняем его размер.
+        // The position from with_position is set only when the window is created: when another
+        // notification arrives, the window grows down under the taskbar. So on every change of the
+        // card count we explicitly move and resize the window.
         static LAST_N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let moved = LAST_N.swap(n, Ordering::Relaxed) != n;
         ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("vaporust_popups"), builder, |ctx, _| {
@@ -177,8 +177,8 @@ impl LauncherApp {
             egui::CentralPanel::default()
                 .frame(egui::Frame::none().fill(crate::theme::CARD))
                 .show(ctx, |ui| {
-                    // Карточки вплотную: без стандартного отступа egui между элементами (иначе стопка
-                    // выше окна и нижняя карточка обрезается панелью задач).
+                    // Cards back to back: without egui's standard item spacing (otherwise the stack is
+                    // taller than the window and the bottom card is cut off by the taskbar).
                     ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
                     let mut q = QUEUE.lock().unwrap();
                     let mut close = None;
@@ -189,22 +189,22 @@ impl LauncherApp {
                         let (rect, resp) = ui.allocate_exact_size(egui::vec2(W, H), egui::Sense::click());
                         let hovered = resp.hovered();
                         if hovered {
-                            p.shown = Instant::now(); // пока над карточкой мышь - не исчезает
+                            p.shown = Instant::now(); // does not disappear while the card is hovered
                         }
                         let painter = ui.painter_at(rect);
-                        // Карточка в цветах программы: темная, тонкая рамка, при наведении светлее.
+                        // A card in the program's colors: dark, thin border, lighter on hover.
                         let accent_color = p.accent.unwrap_or_else(|| color(p.kind));
-                        // Как остальные окна программы: темная карточка с цветной полоской слева (вид уведомления).
+                        // Like the program's other windows: a dark card with a colored stripe on the left (notification kind).
                         let bg = if hovered { egui::Color32::from_rgb(42, 50, 63) } else { crate::theme::CARD };
                         painter.rect_filled(rect, 0.0, bg);
-                        // Легкий светлый блик сверху - карточка не выглядит плоской и пустой.
+                        // A light highlight at the top - the card does not look flat and empty.
                         let top = egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), rect.height() * 0.45));
                         painter.rect_filled(top, 0.0, egui::Color32::from_white_alpha(6));
                         painter.rect_stroke(rect.shrink(0.5), 0.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(58, 68, 86)));
-                        // Цветная полоска слева у всех уведомлений: вид (скидка, загрузка) или статус друга.
+                        // A colored stripe on the left of all notifications: kind (discount, download) or friend status.
                         let bar = egui::Rect::from_min_size(rect.min, egui::vec2(3.0, rect.height()));
                         painter.rect_filled(bar, 0.0, accent_color);
-                        // Слева, как в Steam: аватар друга в рамке цвета статуса или картинка игры.
+                        // On the left, as in Steam: friend avatar in a status-colored frame, or the game image.
                         let icon = egui::Rect::from_min_size(egui::pos2(rect.left() + 12.0, rect.top() + (H - 44.0) / 2.0), egui::vec2(44.0, 44.0));
                         match p.kind {
                             Kind::Message(id) | Kind::FriendGame(id) | Kind::FriendOnline(id) => {
@@ -219,7 +219,7 @@ impl LauncherApp {
                                 painter.rect_stroke(icon.expand(1.0), 5.0, egui::Stroke::new(2.0, accent_color));
                             }
                             Kind::Sale(a) | Kind::Download(a) | Kind::Game(a) if a != 0 => {
-                                // Квадрат из середины шапки игры (460x215).
+                                // A square from the middle of the game header (460x215).
                                 let url = format!("https://shared.steamstatic.com/store_item_assets/steam/apps/{a}/header.jpg");
                                 let k = 215.0 / 460.0;
                                 egui::Image::new(url)
@@ -232,7 +232,7 @@ impl LauncherApp {
                                 painter.circle_filled(icon.center(), 9.0, accent_color);
                             }
                         }
-                        // Смайлик или стикер из сообщения - справа, перед крестиком.
+                        // Emoticon or sticker from the message - on the right, before the cross.
                         let mut text_w = W - 66.0 - 32.0;
                         if let Some(url) = &p.image {
                             let img_rect = egui::Rect::from_min_size(
@@ -242,7 +242,7 @@ impl LauncherApp {
                             egui::Image::new(url.as_str()).paint_at(ui, img_rect);
                             text_w -= 46.0;
                         }
-                        // Сверху мелко - что это за уведомление, ниже имя (или заголовок) и текст.
+                        // On top in small print - what kind of notification this is, below the name (or title) and text.
                         let title_color = egui::Color32::WHITE;
                         let kind_text = text(ui, kind_label(p.kind), 9.5, crate::theme::WEAK, text_w, 1);
                         let show_title = !(p.title == "Vaporust" && matches!(p.kind, Kind::Game(_) | Kind::Info));
@@ -259,7 +259,7 @@ impl LauncherApp {
                             painter.galley(egui::pos2(x, y + kind_h), title, title_color);
                         }
                         painter.galley(egui::pos2(x, y + kind_h + title_h), body, crate::theme::TEXT);
-                        // Крестик: крупнее, с подсветкой при наведении.
+                        // Cross: larger, highlighted on hover.
                         let xr = egui::Rect::from_center_size(egui::pos2(rect.right() - 15.0, rect.top() + 15.0), egui::vec2(22.0, 22.0));
                         let over_x = ui.input(|i| i.pointer.hover_pos()).is_some_and(|h| xr.contains(h));
                         if over_x {
@@ -284,14 +284,14 @@ impl LauncherApp {
     }
 }
 
-/// Текст не шире `width` и не больше `rows` строк (лишнее обрезается многоточием).
+/// Text no wider than `width` and at most `rows` lines (the rest is cut with an ellipsis).
 fn text(ui: &egui::Ui, s: &str, size: f32, color: egui::Color32, width: f32, rows: usize) -> std::sync::Arc<egui::Galley> {
     let mut job = egui::text::LayoutJob::simple(s.to_string(), egui::FontId::proportional(size), color, width);
     job.wrap.max_rows = rows;
     ui.fonts(|f| f.layout_job(job))
 }
 
-/// Подпись вида уведомления (мелко над заголовком).
+/// Caption of the notification kind (small, above the title).
 fn kind_label(k: Kind) -> &'static str {
     match k {
         Kind::Message(_) => "НОВОЕ СООБЩЕНИЕ",
@@ -316,31 +316,31 @@ fn color(k: Kind) -> egui::Color32 {
     }
 }
 
-/// Короткие мелодичные звуки, синтезированные в памяти (WAV), свой для каждого вида.
+/// Short melodic sounds synthesized in memory (WAV), one per kind.
 mod sound {
     use super::Kind;
     use std::sync::OnceLock;
 
     const RATE: u32 = 44_100;
 
-    /// Ноты: (частота Гц, начало мс, длительность мс).
+    /// Notes: (frequency Hz, start ms, duration ms).
     fn notes(k: Kind) -> &'static [(f32, u32, u32)] {
         match k {
-            // Сообщение: два быстрых тона вверх.
+            // Message: two quick rising tones.
             Kind::Message(_) => &[(1046.5, 0, 160), (1568.0, 90, 260)],
-            // Друг в игре: три ноты мажорного аккорда.
+            // Friend in game: three notes of a major chord.
             Kind::FriendGame(_) => &[(523.3, 0, 260), (659.3, 90, 260), (784.0, 180, 380)],
-            // Друг в сети: одна мягкая нота.
+            // Friend online: one soft note.
             Kind::FriendOnline(_) => &[(880.0, 0, 300)],
-            // Скидка: звонкое «дзинь-дзинь».
+            // Discount: a ringing "ding-ding".
             Kind::Sale(_) => &[(1318.5, 0, 200), (1760.0, 110, 200), (2093.0, 220, 380)],
-            // Загрузка готова: вверх через октаву.
+            // Download ready: up an octave.
             Kind::Download(_) => &[(392.0, 0, 220), (587.3, 120, 220), (784.0, 240, 450)],
             Kind::Info | Kind::Game(_) => &[(987.8, 0, 260)],
         }
     }
 
-    /// WAV (16 бит, моно) из нот: синус с обертоном, мягкая атака и затухание.
+    /// WAV (16 bit, mono) from notes: a sine with an overtone, soft attack and decay.
     pub fn wav(k: Kind) -> Vec<u8> {
         let ns = notes(k);
         let total_ms = ns.iter().map(|n| n.1 + n.2).max().unwrap_or(0) + 30;
@@ -367,7 +367,7 @@ mod sound {
         out.extend_from_slice(b"WAVEfmt ");
         out.extend_from_slice(&16u32.to_le_bytes());
         out.extend_from_slice(&1u16.to_le_bytes()); // PCM
-        out.extend_from_slice(&1u16.to_le_bytes()); // моно
+        out.extend_from_slice(&1u16.to_le_bytes()); // mono
         out.extend_from_slice(&RATE.to_le_bytes());
         out.extend_from_slice(&(RATE * 2).to_le_bytes());
         out.extend_from_slice(&2u16.to_le_bytes());
@@ -420,7 +420,7 @@ mod tests {
         assert!(w.len() > 1000);
     }
 
-    /// cargo test sounds_live -- --ignored: проиграть все звуки по очереди.
+    /// cargo test sounds_live -- --ignored: play all sounds in turn.
     #[test]
     #[ignore]
     fn sounds_live() {
@@ -432,7 +432,7 @@ mod tests {
 }
 
 impl LauncherApp {
-    /// Щелчок по уведомлению: показать Vaporust и открыть нужное.
+    /// Click on a notification: show Vaporust and open what is needed.
     pub(crate) fn popup_clicks(&mut self, ctx: &egui::Context, net: &crate::net::NetState) {
         for k in take_clicks() {
             crate::tray::show_main();
@@ -459,7 +459,7 @@ impl LauncherApp {
     }
 }
 
-/// Цвет статуса друга, как в списке друзей: в игре - зеленый, в сети - синий, отошел - серо-синий.
+/// Friend status color, as in the friend list: in game - green, online - blue, away - slate blue.
 pub fn status_color(state: Option<u32>, in_game: bool) -> Option<egui::Color32> {
     Some(match (state.unwrap_or(0), in_game) {
         (_, true) => egui::Color32::from_rgb(140, 200, 80),
@@ -470,11 +470,11 @@ pub fn status_color(state: Option<u32>, in_game: bool) -> Option<egui::Color32> 
     })
 }
 
-/// Для разработки: VAPORUST_TEST_POPUPS=N - показать N пробных уведомлений при запуске
-/// (проверка положения стопки над панелью задач).
+/// For development: VAPORUST_TEST_POPUPS=N - show N test notifications at startup
+/// (checking the stack position above the taskbar).
 pub fn test_from_env() {
     let n: usize = std::env::var("VAPORUST_TEST_POPUPS").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
-    // По одному раз в секунду - как приходят настоящие сообщения.
+    // One per second - the way real messages arrive.
     std::thread::spawn(move || {
         for i in 0..n {
             push(Kind::Info, "Vaporust", format!("Пробное уведомление {}", i + 1));

@@ -1,6 +1,6 @@
-//! Диагностика нагрузки (только при переменной окружения VAPORUST_STATS=1): раз в 10 с пишет в
-//! %TEMP%\vaporust_stats.log, сколько было кадров, сколько времени заняли кадры и сколько раз
-//! опрашивался список процессов. Для замеров на старом ПК; без переменной ничего не делает.
+//! Load diagnostics (only with the VAPORUST_STATS=1 environment variable): every 10 s writes to
+//! %TEMP%\vaporust_stats.log how many frames there were, how long they took and how many times
+//! the process list was polled. For measurements on an old PC; does nothing without the variable.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
@@ -53,9 +53,9 @@ pub fn proc_scan(started: Instant) {
     }
 }
 
-/// Память своего процесса: (то, что показывает Диспетчер задач - частный рабочий набор,
-/// выделенная частная память), байты. На старых Windows 10 без нужного счетчика вместо
-/// первого числа - весь рабочий набор.
+/// Own process memory: (what Task Manager shows - the private working set,
+/// committed private memory), bytes. On old Windows 10 builds without the needed counter the
+/// first number is the whole working set.
 pub fn memory() -> (u64, u64) {
     use windows_sys::Win32::System::ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX, PROCESS_MEMORY_COUNTERS_EX2};
     use windows_sys::Win32::System::Threading::GetCurrentProcess;

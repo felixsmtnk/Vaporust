@@ -1,6 +1,6 @@
-//! «Семья Steam»: участники семейной группы, сколько игр каждый дает в общую библиотеку,
-//! во что играли в семье. Только просмотр: приглашения и исключения - на сайте Steam
-//! (это настройки аккаунта). Web API IFamilyGroupsService.
+//! "Steam Family": members of the family group, how many games each shares in the common library,
+//! what was played in the family. View only: invites and removals are on the Steam site
+//! (these are account settings). Web API IFamilyGroupsService.
 
 use crate::net::{Cmd, NetState};
 use crate::{webapi, LauncherApp};
@@ -11,10 +11,10 @@ use std::collections::HashMap;
 #[derive(Clone, Debug, Default)]
 pub struct Member {
     pub steamid: u64,
-    /// 1 - взрослый, 2 - ребенок.
+    /// 1 - adult, 2 - child.
     pub role: u32,
     pub joined: u64,
-    /// Сколько игр участника в общей библиотеке.
+    /// How many of the member's games are in the shared library.
     pub shared: usize,
 }
 
@@ -31,13 +31,13 @@ pub struct Family {
     pub name: String,
     pub free_spots: u32,
     pub members: Vec<Member>,
-    /// Названия игр общей библиотеки.
+    /// Names of shared library games.
     pub names: HashMap<u32, String>,
-    /// Игры в семье, последние первыми.
+    /// Games played in the family, most recent first.
     pub plays: Vec<Play>,
-    /// Не в семье.
+    /// Not in a family.
     pub none: bool,
-    /// Номер семейной группы и отправленные приглашения: (SteamID, роль 1 взрослый / 2 ребенок).
+    /// Family group id and sent invites: (SteamID, role 1 adult / 2 child).
     pub id: String,
     pub pending: Vec<(u64, u32)>,
 }
@@ -111,13 +111,13 @@ pub async fn load(client: &SteamClient, me: u64) -> Result<Family, String> {
 
 #[derive(Default)]
 pub struct FamilyUi {
-    /// Приглашение: (кого - SteamID, роль 1 взрослый / 2 ребенок, ждем подтверждения).
+    /// Invite: (whom - SteamID, role 1 adult / 2 child, waiting for confirmation).
     pub invite: (u64, u32, bool),
     pub open: bool,
     pub asked: bool,
-    /// Чьи профили уже запрошены ради имени.
+    /// Whose profiles were already requested for the name.
     pub asked_names: std::collections::HashSet<u64>,
-    /// Чьи названия игр уже запрошены.
+    /// Whose game names were already requested.
     pub asked_apps: std::collections::HashSet<u32>,
 }
 
@@ -129,7 +129,7 @@ impl LauncherApp {
         self.view = crate::View::Family;
     }
 
-    /// Имя участника: друзья, профили, иначе номер (и запросить профиль).
+    /// Member name: friends, profiles, otherwise the number (and request the profile).
     fn member_name(&mut self, id: u64, net: &NetState) -> String {
         if Some(id) == net.my_id {
             return "Вы".into();
@@ -197,7 +197,7 @@ impl LauncherApp {
             ui.add_space(10.0);
             ui.strong("Во что играли в семье");
             ui.weak("Время в чужих играх из общей библиотеки (Steam считает его для каждого участника).");
-            // Названия игр, которых нет ни в общей библиотеке, ни в кэше, - спросить у Steam один раз.
+            // Game names that are neither in the shared library nor in the cache - ask Steam once.
             let unknown: Vec<u32> = fam
                 .plays
                 .iter()
@@ -257,7 +257,7 @@ mod tests {
     }
 }
 
-/// Приглашения в семью: отправленные (с отменой) и новое приглашение другу.
+/// Family invites: sent ones (with cancel) and a new invite to a friend.
 fn invite_block(
     ui: &mut egui::Ui,
     fam: &Family,

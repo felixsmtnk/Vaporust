@@ -1,13 +1,13 @@
-//! «Очки Steam»: баланс и магазин очков (эффекты чата, стикеры, рамки и фоны профиля).
+//! "Steam Points": balance and the points shop (chat effects, stickers, profile frames and backgrounds).
 //! Web API ILoyaltyRewardsService: GetSummary, QueryRewardItems, RedeemPoints.
-//! Покупка тратит очки (не деньги) и только после подтверждения.
+//! A purchase spends points (not money) and only after confirmation.
 
 use crate::net::{Cmd, NetState};
 use crate::{webapi, LauncherApp};
 use aurelia::steam_client::SteamClient;
 use eframe::egui;
 
-/// Виды предметов: (community_item_class, название).
+/// Item kinds: (community_item_class, name).
 pub const CLASSES: [(u32, &str); 7] = [
     (12, "Эффекты чата"),
     (11, "Стикеры"),
@@ -22,10 +22,10 @@ pub const CLASSES: [(u32, &str); 7] = [
 pub struct RewardItem {
     pub defid: u64,
     pub appid: u32,
-    /// Вид предмета (community_item_class) и его номер внутри игры (community_item_type).
+    /// Item kind (community_item_class) and its number within the game (community_item_type).
     pub class: u32,
     pub item_type: u32,
-    /// Внутреннее имя (item_name), например «Snowball».
+    /// Internal name (item_name), for example "Snowball".
     pub name: String,
     pub title: String,
     pub cost: u64,
@@ -45,7 +45,7 @@ fn num(v: &serde_json::Value) -> u64 {
     v.as_u64().or_else(|| v.as_str()?.parse().ok()).unwrap_or(0)
 }
 
-/// Баланс очков.
+/// Points balance.
 pub async fn balance(client: &SteamClient, me: u64) -> Result<u64, String> {
     let v = webapi::get(client, "ILoyaltyRewardsService/GetSummary/v1", &[("steamid", me.to_string())]).await?;
     Ok(num(&v["summary"]["points"]))
@@ -55,8 +55,8 @@ fn parse_item(d: &serde_json::Value) -> Option<RewardItem> {
     let data = d.get("community_item_data")?;
     let appid = num(&d["appid"]) as u32;
     let s = |k: &str| data.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
-    // Какую картинку показывать: у анимированных «маленькая» - это анимация (APNG ~1 МБ), а «большая» -
-    // неподвижная (~30 КБ); у смайликов маленькая всего 18x18, большая - 54x54. Иначе - маленькая.
+    // Which image to show: for animated items the "small" one is the animation (APNG ~1 MB), and the "large" one
+    // is still (~30 KB); for emoticons the small one is only 18x18, the large one 54x54. Otherwise - the small one.
     let class = num(&d["community_item_class"]) as u32;
     let animated = data.get("animated").and_then(|a| a.as_bool()).unwrap_or(false);
     let (small, large) = (s("item_image_small"), s("item_image_large"));
@@ -80,7 +80,7 @@ fn parse_item(d: &serde_json::Value) -> Option<RewardItem> {
     })
 }
 
-/// Страница каталога: вид предметов, поиск, курсор следующей страницы.
+/// Catalog page: item kind, search, next page cursor.
 pub async fn query(client: &SteamClient, class: u32, search: &str, cursor: Option<&str>) -> Result<Page, String> {
     let mut p = vec![
         ("count", "60".to_string()),
@@ -99,8 +99,8 @@ pub async fn query(client: &SteamClient, class: u32, search: &str, cursor: Optio
     Ok(Page { class, search: search.trim().to_string(), items, total: num(&v["total_count"]), cursor })
 }
 
-/// Что уже есть на аккаунте: предметы профиля (appid, вид, номер) и предметы инвентаря Steam
-/// (стикеры, эффекты чата, смайлики) по имени.
+/// What the account already has: profile items (appid, kind, number) and Steam inventory items
+/// (stickers, chat effects, emoticons) by name.
 #[derive(Clone, Debug, Default)]
 pub struct Owned {
     pub profile: std::collections::HashSet<(u32, u32, u32)>,
@@ -121,7 +121,7 @@ impl Owned {
     }
 }
 
-/// Купленное: IPlayerService/GetProfileItemsOwned + инвентарь Steam (753/6).
+/// Owned: IPlayerService/GetProfileItemsOwned + the Steam inventory (753/6).
 pub async fn owned(client: &SteamClient) -> Result<Owned, String> {
     let v = webapi::get(client, "IPlayerService/GetProfileItemsOwned/v1", &[]).await?;
     let mut o = Owned::default();
@@ -139,7 +139,7 @@ pub async fn owned(client: &SteamClient) -> Result<Owned, String> {
     Ok(o)
 }
 
-/// Купить предмет за очки.
+/// Buy an item for points.
 pub async fn redeem(client: &SteamClient, defid: u64) -> Result<(), String> {
     let v = webapi::post(client, "ILoyaltyRewardsService/RedeemPoints/v1", &[("defid", defid.to_string())]).await?;
     if v.get("communityitemid").is_some() || v.get("bundle_community_item_ids").is_some() {
@@ -196,8 +196,8 @@ impl LauncherApp {
         });
         ui.horizontal(|ui| {
             ui.add(egui::TextEdit::singleline(&mut st.search).hint_text("Поиск по названию или игре").desired_width(260.0));
-            // Значок загрузки здесь - только когда список уже показан (догрузка); пустой список
-            // показывает свой значок ниже, второй не нужен.
+            // The loading icon here only when the list is already shown (loading more); an empty list
+            // shows its own icon below, a second one is not needed.
             let shown = matches!(&net.points_page, Some(Ok(p)) if p.class == st.class && p.search == st.search.trim());
             if net.points_busy && shown {
                 crate::spin::spinner(ui);
@@ -227,13 +227,13 @@ impl LauncherApp {
                     ui.allocate_ui(egui::vec2(150.0, 190.0), |ui| {
                         ui.vertical(|ui| {
                             ui.set_width(150.0);
-                            // Картинка грузится, только когда видна (в каталоге десятки тысяч предметов), и
-                            // уменьшенной: фоны профиля приходят размером 1920x1080.
+                            // An image loads only when visible (the catalog has tens of thousands of items), and
+                            // downscaled: profile backgrounds come in 1920x1080.
                             let (r, _) = ui.allocate_exact_size(egui::vec2(110.0, 110.0), egui::Sense::hover());
                             if !it.image.is_empty() && ui.is_rect_visible(r) {
                                 let url = crate::imgload::sized(&crate::imgload::still(&it.image), 240);
                                 let img = egui::Image::new(url).max_size(egui::vec2(110.0, 110.0)).maintain_aspect_ratio(true);
-                                // Смайлики маленькие (54x54) - не растягиваем, чтобы не расплывались.
+                                // Emoticons are small (54x54) - not stretched so they do not blur.
                                 let target = if it.class == 4 { r.shrink(19.0) } else { r };
                                 ui.put(target, img.max_size(target.size()));
                             }
@@ -315,7 +315,7 @@ mod tests {
 
 #[cfg(test)]
 mod owned_live {
-    /// Живой тест (только чтение): какие эффекты чата и рамки отмечены «уже есть».
+    /// Live test (read only): which chat effects and frames are marked "already owned".
     #[test]
     #[ignore]
     fn owned_live() {
@@ -342,7 +342,7 @@ mod owned_live {
 
 #[cfg(test)]
 mod tag_live {
-    /// Стикеры «Тег «...»» без картинки: что о них отдает Steam (сырые данные первой страницы).
+    /// Stickers "Тег «...»" without an image: what Steam returns about them (raw first page data).
     #[test]
     #[ignore]
     fn tag_stickers_live() {

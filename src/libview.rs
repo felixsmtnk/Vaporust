@@ -1,67 +1,67 @@
-//! Отрисовка библиотеки: компактный список (как раньше) или плитка с обложками.
-//! Кнопки действий у обоих видов общие (`main_button`), поэтому код не дублируется.
+//! Library drawing: compact list (as before) or a grid of covers.
+//! Action buttons are shared by both views (`main_button`), so the code is not duplicated.
 
 use crate::covers::{self, Cover, Covers};
 use crate::settings::Sort;
 use crate::{fmt_day, fmt_hours, net, theme, Row};
 use eframe::egui;
 
-/// Что пользователь нажал у игры.
+/// What the user clicked on a game.
 pub enum Action {
     Play(u32),
     Update(u32),
     Install(u32, String),
     Props(u32, String),
     Achievements(u32, String),
-    /// Открыть страницу игры (в библиотеке).
+    /// Open the game page (in the library).
     Page(u32),
-    /// Добавить (true) или убрать игру из коллекции.
+    /// Add (true) or remove a game from a collection.
     Collection { id: String, appid: u32, add: bool },
-    /// Создать коллекцию с этой игрой.
+    /// Create a collection with this game.
     NewCollection { name: String, appid: u32 },
-    /// Открыть страницу игры в магазине.
+    /// Open the game's store page.
     Store(u32),
-    /// Открыть Мастерскую игры (отдельное окно).
+    /// Open the game's Workshop (separate window).
     Workshop(u32, String),
-    /// Обсуждения и руководства игры.
+    /// Game discussions and guides.
     Community(u32, String),
-    /// Скриншоты этой игры.
+    /// Screenshots of this game.
     Shots(u32),
-    /// Игра уже скачана - указать папку с файлами.
+    /// The game is already downloaded - point to the folder with the files.
     Import(u32, String),
-    /// Открыть папку игры в Проводнике.
+    /// Open the game folder in Explorer.
     Folder(u32),
-    /// Своя заметка к игре (окно правки).
+    /// Own note for the game (edit window).
     Note(u32, String),
-    /// Ярлык игры на рабочем столе.
+    /// Desktop shortcut for the game.
     Shortcut(u32, String),
-    /// Закрыть запущенную игру (как крестик окна).
+    /// Close the running game (like the window's close button).
     Stop(u32),
-    /// Поставить идущую загрузку игры на паузу.
+    /// Pause the game's running download.
     Pause(u32),
-    /// Спросить, установить ли игру (двойной щелчок по неустановленной).
+    /// Ask whether to install the game (double click on a non-installed one).
     AskInstall(u32, String),
-    /// Удалить игру с диска (с подтверждением).
+    /// Uninstall the game from disk (with confirmation).
     Uninstall(u32, String),
 }
 
-/// Состояние, нужное для кнопок (одинаковое для всех строк кадра).
+/// State needed for the buttons (the same for all rows of a frame).
 pub struct Ctx<'a> {
     pub launching: bool,
     pub installing: bool,
     pub logged_in: bool,
     pub net: &'a net::NetState,
-    /// Игры в очереди загрузок (не на паузе).
+    /// Games in the download queue (not paused).
     pub queued: &'a std::collections::HashSet<u32>,
-    /// Загрузки на паузе (кнопка «ПРОДОЛЖИТЬ»).
+    /// Paused downloads ("RESUME" button).
     pub paused: &'a std::collections::HashSet<u32>,
-    /// Коллекции Steam (для меню по правому щелчку).
+    /// Steam collections (for the right-click menu).
     pub collections: &'a [crate::colls::Coll],
-    /// Обновлять через Steam (для подсказки кнопки «Обновить»).
+    /// Update via Steam (for the "Update" button hint).
     pub update_via_steam: bool,
-    /// Какая игра сейчас запущена (кнопка «ОСТАНОВИТЬ» вместо «ИГРАТЬ»).
+    /// Which game is running now ("STOP" button instead of "PLAY").
     pub running: Option<u32>,
-    /// Какую игру сейчас запускает (или закрывает) Vaporust и что с ней происходит.
+    /// Which game Vaporust is launching (or closing) now and what is happening to it.
     pub status_app: Option<u32>,
     pub status: &'a str,
 }
@@ -75,9 +75,9 @@ impl Ctx<'_> {
     }
 }
 
-/// Компактный вид: таблица игр (значок, название, состояние, часы, последний запуск, размер).
-/// Щелчок по заголовку - сортировка, щелчок по строке - страница игры, двойной - «Играть»,
-/// правый - меню игры. Кнопок в строках нет: все действия на странице игры и в меню.
+/// Compact view: game table (icon, name, state, hours, last played, size).
+/// Click on a header - sort, click on a row - game page, double click - "Play",
+/// right click - game menu. Rows have no buttons: all actions are on the game page and in the menu.
 pub fn list(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, sort: &mut Sort, icons: bool) -> Option<Action> {
     let mut out = None;
     let w = ui.available_width() - 14.0;
@@ -86,7 +86,7 @@ pub fn list(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, sort: &mu
     let xs = [0.0, name_w, name_w + state_w, name_w + state_w + hours_w, name_w + state_w + hours_w + last_w];
     let small = egui::FontId::proportional(12.5);
 
-    // Заголовок: щелчок по столбцу с сортировкой - сортировать по нему.
+    // Header: clicking a sortable column sorts by it.
     let (head, _) = ui.allocate_exact_size(egui::vec2(w, 22.0), egui::Sense::hover());
     let heads: [(&str, Option<Sort>); 5] = [
         ("НАЗВАНИЕ", Some(Sort::Name)),
@@ -101,7 +101,7 @@ pub fn list(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, sort: &mu
         let resp = ui.interact(r, ui.id().with(("table_head", i)), if s.is_some() { egui::Sense::click() } else { egui::Sense::hover() });
         let on = s.is_some_and(|s| s == *sort);
         let color = if on { theme::ACCENT } else if resp.hovered() && s.is_some() { egui::Color32::WHITE } else { theme::WEAK };
-        // Текст не заходит в соседний столбец: рисуем только внутри своей ячейки (с зазором 8).
+        // Text does not spill into the next column: draw only inside its own cell (with an 8 gap).
         let cell = egui::Rect::from_min_max(r.min, egui::pos2((r.right() - 8.0).max(r.left()), r.bottom()));
         ui.painter_at(cell).text(r.left_center(), egui::Align2::LEFT_CENTER, *label, egui::FontId::proportional(11.0), color);
         if let Some(s) = s {
@@ -113,8 +113,8 @@ pub fn list(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, sort: &mu
     ui.painter().hline(head.x_range(), head.bottom(), egui::Stroke::new(1.0, egui::Color32::from_rgb(50, 57, 69)));
 
     let row_h = 28.0;
-    // Без промежутка между строками и ДО show_rows: она считает высоту строки вместе с промежутком,
-    // а строки рисуются вплотную - иначе при прокрутке внизу копилось пустое место.
+    // No spacing between rows, set BEFORE show_rows: it counts row height together with the spacing,
+    // while rows are drawn back to back - otherwise empty space piled up at the bottom when scrolling.
     ui.spacing_mut().item_spacing.y = 0.0;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show_rows(ui, row_h, rows.len(), |ui, range| {
         ui.spacing_mut().item_spacing.y = 0.0;
@@ -179,7 +179,7 @@ pub fn list(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, sort: &mu
             if resp.double_clicked() && r.ready && !c.launching && !c.installing {
                 out = Some(Action::Play(r.appid));
             } else if resp.double_clicked() && !r.ready && c.logged_in && !c.installing_now(r.appid) && !crate::custom::is_custom(r.appid) {
-                // Как в Steam: двойной щелчок по неустановленной игре - предложить установить.
+                // As in Steam: double click on a non-installed game - offer to install.
                 out = Some(Action::AskInstall(r.appid, r.name.clone()));
             } else if resp.clicked() {
                 out = Some(Action::Page(r.appid));
@@ -189,12 +189,12 @@ pub fn list(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, sort: &mu
     out
 }
 
-/// Плитка с обложками. Рисуются (и грузятся) только видимые ряды.
-/// `recent` - полка «Недавние игры» первым рядом (как на главной библиотеки Steam); пусто - без полки.
+/// Grid of covers. Only visible rows are drawn (and loaded).
+/// `recent` - the "Recent games" shelf as the first row (as on Steam's library home); empty - no shelf.
 pub fn grid(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, recent: &[Row]) -> Option<Action> {
     let mut out = None;
-    // Сколько обложек шириной не меньше 140 точек помещается, и растянуть их на всю ширину -
-    // справа не остается пустого места при любом размере окна.
+    // How many covers at least 140 points wide fit, stretched to the full width -
+    // no empty space is left on the right at any window size.
     let gap = 12.0;
     let avail = ui.available_width() - 16.0;
     let min_w = covers::W as f32;
@@ -202,14 +202,14 @@ pub fn grid(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, recent: &
     let w = ((avail - gap * (cols as f32 - 1.0)) / cols as f32).clamp(min_w, 260.0);
     let tile = egui::vec2(w, w * 1.5);
     let row_h = tile.y + gap;
-    // Полка «Недавние игры» - сверху, тех же размеров, что и сетка (столько же обложек в ряд),
-    // плюс подпись. Ряды разной высоты, поэтому видимые ряды считаем сами (show_viewport).
+    // The "Recent games" shelf on top, the same size as the grid (same number of covers per row),
+    // plus a caption. Rows differ in height, so visible rows are computed manually (show_viewport).
     let label_h = 26.0;
-    // Под полкой - разделительная линия: полка и общий список - разные разделы.
+    // Under the shelf - a separator line: the shelf and the full list are different sections.
     let shelf_h = if recent.is_empty() { 0.0 } else { label_h + row_h + label_h };
     let n_rows = rows.len().div_ceil(cols);
-    // Обход со снимками (tour.rs) может попросить открыть сетку с N-го ряда (хранится N + 1;
-    // большое число - до самого низа, egui ограничит прокрутку концом списка).
+    // The screenshot tour (tour.rs) can ask to open the grid at row N (stored as N + 1;
+    // a large number - to the very bottom, egui clamps scrolling to the end of the list).
     let tour_row = TOUR_GRID_ROW.swap(0, std::sync::atomic::Ordering::Relaxed);
     let mut area = egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt("lib_grid");
     if tour_row > 0 {
@@ -232,7 +232,7 @@ pub fn grid(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, recent: &
             for r in recent.iter().take(cols) {
                 tile_ui(&mut child, r, c, covers, tile, 0, &mut out);
             }
-            // Граница между полкой и всеми играми - тонкой линией (число игр уже в заголовке сверху).
+            // Border between the shelf and all games - a thin line (the game count is already in the header).
             let y = origin.y + label_h + row_h + label_h / 2.0;
             ui.painter().hline(origin.x..=origin.x + width - 16.0, y, egui::Stroke::new(1.0, egui::Color32::from_rgb(50, 57, 69)));
         }
@@ -249,15 +249,15 @@ pub fn grid(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, recent: &
     out
 }
 
-/// `section` - где плитка (0 полка «Недавние», 1 сетка): одна игра бывает в обоих местах, и
-/// анимация наведения у каждой своя - иначе подсвечивались обе.
+/// `section` - where the tile is (0 the "Recent" shelf, 1 the grid): one game can be in both, and
+/// each has its own hover animation - otherwise both were highlighted.
 fn tile_ui(ui: &mut egui::Ui, r: &Row, c: &Ctx, covers: &Covers, tile: egui::Vec2, section: u8, out: &mut Option<Action>) {
-    // Место в сетке - обычного размера, а щелчки и наведение ловим на увеличенной области: иначе
-    // у края увеличенной плитки (и ее кнопки) указатель «выпадал» из наведения и кнопка пропадала.
+    // The grid slot is normal size, but clicks and hover are caught on an enlarged area: otherwise
+    // at the edge of an enlarged tile (and its button) the pointer "fell out" of hover and the button vanished.
     let (base, _) = ui.allocate_exact_size(tile, egui::Sense::hover());
     let resp = ui.interact(base.expand2(base.size() * 0.03), egui::Id::new(("tile", section, r.appid)), egui::Sense::click());
-    // При наведении вся плитка плавно чуть увеличивается (как в Steam) вместе с кнопкой. Это та же
-    // картинка, только крупнее; перерисовка - лишь на время анимации (0.15 с).
+    // On hover the whole tile smoothly grows a little (as in Steam) together with the button. It is the same
+    // image, just bigger; repainting happens only during the animation (0.15 s).
     let t = ui.ctx().animate_bool_with_time(egui::Id::new(("tile_zoom", section, r.appid)), resp.hovered(), 0.15);
     let rect = base.expand2(base.size() * 0.03 * t);
     let painter = ui.painter().clone();
@@ -267,9 +267,9 @@ fn tile_ui(ui: &mut egui::Ui, r: &Row, c: &Ctx, covers: &Covers, tile: egui::Vec
             painter.image(tex.id(), rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), tint);
         }
         cover => {
-            // Пока грузится или обложки нет - темная карточка с названием.
+            // While loading or without a cover - a dark card with the name.
             painter.rect_filled(rect, 4.0, egui::Color32::from_gray(40));
-            // Длинное название - в несколько строк внутри плитки, по центру.
+            // A long name - several lines inside the tile, centered.
             let text = if matches!(cover, Cover::Loading) { "…".to_string() } else { r.name.clone() };
             let mut job = egui::text::LayoutJob::simple(text, egui::FontId::proportional(13.0), egui::Color32::from_gray(180), rect.width() - 16.0);
             job.halign = egui::Align::Center;
@@ -283,9 +283,9 @@ fn tile_ui(ui: &mut egui::Ui, r: &Row, c: &Ctx, covers: &Covers, tile: egui::Vec
         painter.text(rect.center(), egui::Align2::CENTER_CENTER, "загрузка…", egui::FontId::proportional(14.0), egui::Color32::WHITE);
     }
     collections_menu(&resp, r, c, out);
-    // Как в Steam: под обложкой ничего нет; при наведении в углу кнопка: зеленая «Играть» у
-    // установленных, синяя «Установить» у неустановленных. Щелчок по кнопке - действие, по
-    // остальной обложке - страница игры.
+    // As in Steam: nothing under the cover; on hover a button in the corner: green "Play" for
+    // installed games, blue "Install" for non-installed ones. Clicking the button - the action,
+    // clicking the rest of the cover - the game page.
     let hover = resp.hovered();
     let mut button_hit: Option<Action> = None;
     let can_play = r.ready && !c.launching && !c.installing;
@@ -306,7 +306,7 @@ fn tile_ui(ui: &mut egui::Ui, r: &Row, c: &Ctx, covers: &Covers, tile: egui::Vec
                 button_hit = Some(Action::Play(r.appid));
             }
         } else {
-            // Синяя кнопка со стрелкой вниз (скачать), как «Установить» в Steam.
+            // Blue button with a down arrow (download), like "Install" in Steam.
             painter.rect_filled(b, 4.0, if over { egui::Color32::from_rgb(71, 160, 240) } else { theme::ACCENT });
             let st = egui::Stroke::new(2.5, egui::Color32::WHITE);
             painter.line_segment([egui::pos2(cx, cy - 9.0), egui::pos2(cx, cy + 5.0)], st);
@@ -332,10 +332,10 @@ fn tile_ui(ui: &mut egui::Ui, r: &Row, c: &Ctx, covers: &Covers, tile: egui::Vec
     }
 }
 
-/// Меню по правому щелчку, порядок как в Steam: главное действие, переходы, коллекции,
-/// «Управление» (папка, удаление) и «Свойства» в конце.
+/// Right-click menu, ordered as in Steam: main action, navigation, collections,
+/// "Manage" (folder, uninstall) and "Properties" at the end.
 fn collections_menu(resp: &egui::Response, r: &Row, c: &Ctx, out: &mut Option<Action>) {
-    // Выбранное действие - через RefCell: им пользуются и кнопки, и вложенные подменю.
+    // The selected action goes through a RefCell: both buttons and nested submenus use it.
     let pick: std::cell::RefCell<Option<Action>> = std::cell::RefCell::new(None);
     resp.context_menu(|ui| {
         ui.set_min_width(200.0);
@@ -376,7 +376,7 @@ fn collections_menu(resp: &egui::Response, r: &Row, c: &Ctx, out: &mut Option<Ac
                     }
                 }
                 ui.separator();
-                // Поле для имени новой коллекции живет во временной памяти egui.
+                // The new collection name field lives in egui's temporary memory.
                 let id = egui::Id::new("new_collection_name");
                 let mut name = ui.data_mut(|d| d.get_temp::<String>(id)).unwrap_or_default();
                 ui.horizontal(|ui| {
@@ -416,13 +416,13 @@ fn collections_menu(resp: &egui::Response, r: &Row, c: &Ctx, out: &mut Option<Ac
     }
 }
 
-/// Список игр в левой колонке, как в Steam: значок и название; щелчок - страница игры,
-/// двойной щелчок - «Играть», правый щелчок - меню игры.
+/// Game list in the left column, as in Steam: icon and name; click - game page,
+/// double click - "Play", right click - game menu.
 pub fn sidebar(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, selected: Option<u32>, icons: bool) -> Option<Action> {
     let mut out = None;
     let row_h = 26.0;
-    // Без промежутка между строками и ДО show_rows: она считает высоту строки вместе с промежутком,
-    // а строки рисуются вплотную - иначе при прокрутке внизу копилось пустое место.
+    // No spacing between rows, set BEFORE show_rows: it counts row height together with the spacing,
+    // while rows are drawn back to back - otherwise empty space piled up at the bottom when scrolling.
     ui.spacing_mut().item_spacing.y = 0.0;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show_rows(ui, row_h, rows.len(), |ui, range| {
         ui.spacing_mut().item_spacing.y = 0.0;
@@ -476,7 +476,7 @@ pub fn sidebar(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, select
             if resp.double_clicked() && r.ready && !c.launching && !c.installing {
                 out = Some(Action::Play(r.appid));
             } else if resp.double_clicked() && !r.ready && c.logged_in && !c.installing_now(r.appid) && !crate::custom::is_custom(r.appid) {
-                // Как в Steam: двойной щелчок по неустановленной игре - предложить установить.
+                // As in Steam: double click on a non-installed game - offer to install.
                 out = Some(Action::AskInstall(r.appid, r.name.clone()));
             } else if resp.clicked() {
                 out = Some(Action::Page(r.appid));
@@ -486,17 +486,17 @@ pub fn sidebar(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, select
     out
 }
 
-/// Большая кнопка на странице игры: «ИГРАТЬ» (зеленая) или «УСТАНОВИТЬ» (голубая).
+/// Big button on the game page: "PLAY" (green) or "INSTALL" (light blue).
 fn big_main_button(ui: &mut egui::Ui, r: &Row, c: &Ctx, out: &mut Option<Action>) {
     if c.running == Some(r.appid) {
-        // Как в Steam: пока игра идет, вместо «ИГРАТЬ» - «ОСТАНОВИТЬ».
+        // As in Steam: while the game runs, "STOP" instead of "PLAY".
         let b = theme::big_button(ui, "ОСТАНОВИТЬ", theme::ACCENT, true)
             .on_hover_text("Просит игру закрыться, как крестик окна или Alt+F4. Игра может спросить о сохранении.");
         if b.clicked() {
             *out = Some(Action::Stop(r.appid));
         }
     } else if r.ready && c.launching && c.status_app == Some(r.appid) {
-        // Игра запускается: Steam поднимается, игра еще не появилась.
+        // The game is launching: Steam is starting, the game has not appeared yet.
         theme::big_button(ui, "ЗАПУСК...", theme::PLAY, false);
     } else if r.ready {
         let ok = !c.launching && !c.installing;
@@ -516,7 +516,7 @@ fn big_main_button(ui: &mut egui::Ui, r: &Row, c: &Ctx, out: &mut Option<Action>
             *out = Some(Action::Update(r.appid));
         }
     } else if c.installing_now(r.appid) {
-        // Игра качается - как в Steam, кнопка ставит ее на паузу.
+        // The game is downloading - as in Steam, the button pauses it.
         let b = theme::big_button(ui, "ПАУЗА", theme::ACCENT, true)
             .on_hover_text("Поставить загрузку на паузу: скачанное сохранится, продолжить - кнопкой «ДОКАЧАТЬ»");
         if b.clicked() {
@@ -542,7 +542,7 @@ fn big_main_button(ui: &mut egui::Ui, r: &Row, c: &Ctx, out: &mut Option<Action>
     }
 }
 
-/// Столбик на полосе под фоном: подпись мелко сверху, значение под ней.
+/// Stat column on the bar under the background: small caption on top, value below.
 fn stat(ui: &mut egui::Ui, label: &str, value: String) {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 1.0;
@@ -551,22 +551,22 @@ fn stat(ui: &mut egui::Ui, label: &str, value: String) {
     });
 }
 
-/// Данные для страницы игры, которые приходят из сети.
+/// Game page data that comes from the network.
 pub struct PageData<'a> {
     pub achievements: Option<&'a Result<Vec<aurelia::steam_client::GameAchievement>, String>>,
     pub news: Option<&'a Result<Vec<aurelia::web::discovery::NewsItem>, String>>,
     pub players: Option<i32>,
-    /// Сведения магазина (разработчик, издатель, дата выхода).
+    /// Store info (developer, publisher, release date).
     pub info: Option<&'a aurelia::steam_client::StoreAppInfo>,
-    /// Из открытого API магазина: жанры, трейлер, страница поддержки.
+    /// From the public store API: genres, trailer, support page.
     pub genres: &'a [String],
     pub trailer: Option<&'a str>,
     pub support: Option<&'a str>,
-    /// Своя заметка к игре.
+    /// Own note for the game.
     pub note: &'a str,
 }
 
-/// Страница игры в библиотеке: фон, кнопки, время, достижения, коллекции, новости.
+/// Game page in the library: background, buttons, playtime, achievements, collections, news.
 pub fn page(
     ui: &mut egui::Ui,
     r: &Row,
@@ -576,16 +576,16 @@ pub fn page(
     covers_on: bool,
 ) -> Option<Action> {
     let mut out = None;
-    // Своя прокрутка у каждой игры: страница новой игры открывается сверху.
+    // Each game has its own scroll: a new game's page opens at the top.
     egui::ScrollArea::vertical().id_salt(("game_page", r.appid)).auto_shrink([false, false]).show(ui, |ui| {
-        // Широкий фон игры (library_hero) с названием поверх; без обложек - только полоса с названием.
+        // Wide game background (library_hero) with the name on top; without covers - only a bar with the name.
         let w = ui.available_width();
         let h = if covers_on { (w / 3.1).clamp(140.0, 320.0) } else { 64.0 };
         let (rect, _) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::hover());
         let painter = ui.painter_at(rect);
         match covers_on.then(|| covers.hero(r.appid)) {
             Some(Cover::Ready(tex)) => {
-                // Обрезаем по высоте, чтобы фон заполнил полосу без искажений.
+                // Crop by height so the background fills the bar without distortion.
                 let s = tex.size_vec2();
                 let vis = (s.x / w * h / s.y).min(1.0);
                 let uv = egui::Rect::from_min_max(egui::pos2(0.0, (1.0 - vis) / 2.0), egui::pos2(1.0, (1.0 + vis) / 2.0));
@@ -595,7 +595,7 @@ pub fn page(
                 painter.rect_filled(rect, 0.0, theme::CARD);
             }
         }
-        // Затемнение снизу, чтобы название читалось на любом фоне.
+        // Darkening at the bottom so the name is readable on any background.
         let band_h = 56.0f32.min(h);
         let mut mesh = egui::Mesh::default();
         let band = egui::Rect::from_min_max(egui::pos2(rect.left(), rect.bottom() - band_h), rect.max);
@@ -615,10 +615,10 @@ pub fn page(
             egui::Color32::WHITE,
         );
 
-        // Полоса действий, как в Steam: большая кнопка, время, последний запуск, достижения, шестеренка.
+        // Action bar, as in Steam: big button, playtime, last played, achievements, gear.
         egui::Frame::none().fill(theme::CARD).inner_margin(egui::Margin::symmetric(14.0, 10.0)).show(ui, |ui| {
             ui.set_width(ui.available_width());
-            // Показатели: в узком окне - второй строкой, чтобы не обрезались.
+            // Stats: in a narrow window - on a second line so they are not cut off.
             let stats = |ui: &mut egui::Ui| {
                 if r.last_played > 0 {
                     stat(ui, "ПОСЛЕДНИЙ ЗАПУСК", fmt_day(r.last_played));
@@ -658,7 +658,7 @@ pub fn page(
                     stats(ui);
                 });
             }
-            // Что сейчас происходит с этой игрой (запуск Steam, ожидание игры, закрытие).
+            // What is happening with this game now (starting Steam, waiting for the game, closing).
             if c.launching && c.status_app == Some(r.appid) && !c.status.is_empty() {
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
@@ -670,7 +670,7 @@ pub fn page(
             }
         });
 
-        // Ссылки, как вкладки под полосой в Steam.
+        // Links, like the tabs under the bar in Steam.
         ui.add_space(6.0);
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 18.0;
@@ -789,7 +789,7 @@ pub fn page(
             });
         }
 
-        // Дополнения (DLC): сколько куплено и какие.
+        // DLC: how many are owned and which.
         if let Some(Ok(dlc)) = c.net.props.get(&r.appid).and_then(|p| p.dlc.as_ref()) {
             if !dlc.is_empty() {
                 let owned = dlc.iter().filter(|d| d.owned).count();
@@ -806,8 +806,8 @@ pub fn page(
                         out = Some(Action::Props(r.appid, r.name.clone()));
                     }
                 });
-                // Только дополнения с названием: номер вместо названия («DLC 271840») выглядит как
-                // ошибка. Без названия - обычно скрытые в магазине; их только считаем.
+                // Only DLC with a name: an id instead of a name ("DLC 271840") looks like
+                // a bug. Unnamed ones are usually hidden in the store; we only count them.
                 let mut sorted: Vec<_> = dlc.iter().filter_map(|d| c.net.app_names.get(&d.app_id).map(|n| (d, n.clone()))).collect();
                 let unnamed = dlc.len() - sorted.len();
                 sorted.sort_by_key(|(d, _)| !d.owned);
@@ -838,7 +838,7 @@ pub fn page(
             }
         }
 
-        // Дата покупки и подсказка о возврате (условия Steam: до 14 дней и до 2 часов в игре).
+        // Purchase date and a refund hint (Steam's terms: within 14 days and under 2 hours played).
         if let Some(lic) = c.net.licenses.as_ref().and_then(|l| crate::refund::find(&r.name, l)) {
             let when = chrono::DateTime::from_timestamp(lic.date, 0).map(|t| t.format("%d.%m.%Y").to_string()).unwrap_or_default();
             let how = match lic.method.as_str() {
@@ -862,7 +862,7 @@ pub fn page(
             }
         }
 
-        // Друзья в этой игре: сейчас (статус друга) и за две недели (если «Активность» загружалась).
+        // Friends in this game: now (friend status) and in two weeks (if "Activity" was loaded).
         let playing: Vec<String> = c
             .net
             .roster
@@ -888,7 +888,7 @@ pub fn page(
             }
         }
 
-        // Коллекции.
+        // Collections.
         if !c.collections.is_empty() {
             ui.add_space(8.0);
             ui.horizontal_wrapped(|ui| {
@@ -902,7 +902,7 @@ pub fn page(
             });
         }
 
-        // Новости.
+        // News.
         ui.add_space(8.0);
         ui.strong("Новости");
         match d.news {
@@ -933,7 +933,7 @@ pub fn page(
     out
 }
 
-/// «Семейная библиотека (владелец: имя)» - имя берем из списка друзей, если владелец там есть.
+/// "Family library (owner: name)" - the name is taken from the friend list if the owner is there.
 fn family_text(r: &Row, c: &Ctx) -> String {
     let name = r.owner.and_then(|id| {
         let roster = c.net.roster.read().ok()?;
@@ -945,5 +945,5 @@ fn family_text(r: &Row, c: &Ctx) -> String {
     }
 }
 
-/// Для обхода со снимками: открыть сетку с ряда N (значение N + 1, 0 - не трогать).
+/// For the screenshot tour: open the grid at row N (value N + 1, 0 - leave as is).
 pub static TOUR_GRID_ROW: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);

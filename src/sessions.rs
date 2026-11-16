@@ -1,6 +1,6 @@
-//! Где выполнен вход в аккаунт Steam: устройства и программы с действующим входом
-//! (Web API IAuthenticationService/EnumerateTokens). Только просмотр: выйти на устройстве
-//! можно на сайте Steam («Авторизованные устройства»).
+//! Where the Steam account is logged in: devices and programs with an active login
+//! (Web API IAuthenticationService/EnumerateTokens). View only: signing out on a device
+//! is done on the Steam site ("Authorized devices").
 
 use crate::webapi;
 use aurelia::steam_client::SteamClient;
@@ -8,7 +8,7 @@ use aurelia::steam_client::SteamClient;
 #[derive(Clone, Debug, Default)]
 pub struct Session {
     pub name: String,
-    /// «Клиент Steam», «Браузер», «Мобильное приложение»...
+    /// "Клиент Steam", "Браузер", "Мобильное приложение"...
     pub kind: String,
     pub logged_in: bool,
     pub last_time: u64,
@@ -56,7 +56,7 @@ pub fn parse(v: &serde_json::Value) -> Vec<Session> {
 }
 
 pub async fn load(client: &SteamClient) -> Result<Vec<Session>, String> {
-    // Этот метод Steam принимает только POST.
+    // This Steam method accepts only POST.
     let v = webapi::post(client, "IAuthenticationService/EnumerateTokens/v1", &[]).await?;
     Ok(parse(&v))
 }

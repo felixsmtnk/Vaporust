@@ -1,7 +1,7 @@
-//! Обход разделов со снимками экрана - для разработки и проверки интерфейса.
-//! Запуск: VAPORUST_TOUR=<папка> vaporust.exe. Vaporust сам открывает разделы главного окна
-//! по очереди и сохраняет снимок каждого (<папка>\NN_имя.png), затем пишет «done.txt».
-//! Ничего не покупает, не отправляет и не меняет: только переключает вкладки.
+//! Section tour with screenshots - for development and UI checks.
+//! Launch: VAPORUST_TOUR=<folder> vaporust.exe. Vaporust opens the main window sections
+//! one by one and saves a screenshot of each (<folder>\NN_name.png), then writes "done.txt".
+//! It buys, sends and changes nothing: it only switches tabs.
 
 use crate::net::NetState;
 use crate::{LauncherApp, View};
@@ -12,9 +12,9 @@ pub struct Tour {
     dir: PathBuf,
     step: usize,
     next_at: f64,
-    /// Снимок какого шага ждем (имя файла).
+    /// Which step's screenshot we are waiting for (file name).
     waiting: Option<String>,
-    /// Шаг применен, ждем, пока раздел догрузится.
+    /// The step is applied, waiting for the section to finish loading.
     shown: Option<String>,
     started: Option<f64>,
 }
@@ -27,7 +27,7 @@ impl Tour {
     }
 }
 
-/// Шаги обхода: имя и сколько секунд ждать загрузки раздела.
+/// Tour steps: name and how many seconds to wait for the section to load.
 const STEPS: &[(&str, f64)] = &[
     ("library_grid", 4.0),
     ("library_games", 20.0),
@@ -81,10 +81,10 @@ const STEPS: &[(&str, f64)] = &[
 impl LauncherApp {
     pub(crate) fn tour_tick(&mut self, ctx: &egui::Context, net: &NetState) {
         let Some(t) = self.tour.as_mut() else { return };
-        // На снимках не нужны всплывающие подсказки от случайно оказавшейся над окном мыши.
+        // Screenshots do not need tooltips from a mouse that happens to be over the window.
         ctx.style_mut(|s| s.interaction.tooltip_delay = 1.0e6);
         let now = ctx.input(|i| i.time);
-        // Готовые снимки.
+        // Finished screenshots.
         let shots: Vec<std::sync::Arc<egui::ColorImage>> = ctx.input(|i| {
             i.events
                 .iter()
@@ -98,7 +98,7 @@ impl LauncherApp {
                 if let Some(buf) = image::RgbaImage::from_raw(w as u32, h as u32, raw) {
                     let _ = buf.save(t.dir.join(format!("{name}.png")));
                 }
-                // Память на каждом шаге (для замеров): время, шаг, рабочий набор, частная, кэш картинок.
+                // Memory at each step (for measurements): time, step, working set, private, image cache.
                 let (ws, private) = crate::stats::memory();
                 let line = format!(
                     "{} {name} taskmgr={:.1} private={:.1} images={:.1}\n",
@@ -117,7 +117,7 @@ impl LauncherApp {
         if t.waiting.is_some() || now < t.next_at {
             return;
         }
-        // Ждем входа и библиотеки (до 40 с).
+        // Waiting for login and the library (up to 40 s).
         let started = *t.started.get_or_insert(now);
         if t.step == 0 && t.shown.is_none() && (net.owned.is_empty() || self.games.is_empty()) && now - started < 40.0 {
             return;
@@ -127,7 +127,7 @@ impl LauncherApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot);
             return;
         }
-        // VAPORUST_TOUR_STEPS=inventory,inventory_sell - только эти шаги (по началу имени).
+        // VAPORUST_TOUR_STEPS=inventory,inventory_sell - only these steps (by name prefix).
         let only: Vec<String> = std::env::var("VAPORUST_TOUR_STEPS").map(|v| v.split(',').map(|x| x.trim().to_string()).collect()).unwrap_or_default();
         while !only.is_empty() && STEPS.get(t.step).is_some_and(|(n, _)| !only.iter().any(|o| n.starts_with(o.as_str()))) {
             t.step += 1;
@@ -237,7 +237,7 @@ impl LauncherApp {
             "store_page_scrolled" => crate::storewin::TOUR_SCROLL.store(1400, std::sync::atomic::Ordering::Relaxed),
             "inventory" => self.open_inventory(false),
             "inventory_sell" => {
-                // Первый продаваемый предмет загруженного инвентаря (ничего не продаем - только показываем блок).
+                // The first sellable item of the loaded inventory (nothing is sold - only the block is shown).
                 let inv = net.inv.lock().unwrap();
                 let pick = inv.items.iter().find_map(|((app, _), r)| {
                     r.as_ref().ok()?.iter().find(|i| i.marketable).map(|i| (*app, i.class_id.clone()))

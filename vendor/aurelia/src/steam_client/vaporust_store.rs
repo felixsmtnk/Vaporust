@@ -1,4 +1,4 @@
-//! vaporust: очередь открытий магазина Steam (Store.GetDiscoveryQueue).
+//! vaporust: Steam store discovery queue (Store.GetDiscoveryQueue).
 
 use super::*;
 use steam_vent_proto::steammessages_store_steamclient::{
@@ -7,7 +7,7 @@ use steam_vent_proto::steammessages_store_steamclient::{
 };
 
 impl SteamClient {
-    /// Очередь открытий (обычно 12 игр, подобранных Steam). `rebuild` - собрать новую.
+    /// Discovery queue (usually 12 games picked by Steam). `rebuild` - build a new one.
     pub async fn discovery_queue(&self, country: &str, rebuild: bool) -> Result<Vec<u32>> {
         let connection = self.require_connection()?;
         let mut req = CStore_GetDiscoveryQueue_Request::new();
@@ -22,7 +22,7 @@ impl SteamClient {
         Ok(resp.appids.clone())
     }
 
-    /// Отметить игру очереди просмотренной (как «Далее» в очереди Steam).
+    /// Mark a queue game as viewed (like "Next" in the Steam queue).
     pub async fn discovery_skip(&self, appid: u32) -> Result<()> {
         let connection = self.require_connection()?;
         let mut req = CStore_SkipDiscoveryQueueItem_Request::new();
@@ -35,8 +35,8 @@ impl SteamClient {
 }
 
 impl SteamClient {
-    /// vaporust: веб-токен доступа (тот же, что у WebSession) - для методов Web API Steam
-    /// с параметром access_token (уведомления, значки, очки Steam, семья).
+    /// vaporust: web access token (the same one WebSession uses) - for Steam Web API methods
+    /// with the access_token parameter (notifications, badges, Steam Points, family).
     pub async fn web_access_token(&self) -> Result<String> {
         use steam_vent_proto::steammessages_auth_steamclient::{
             CAuthentication_AccessToken_GenerateForApp_Request, CAuthentication_AccessToken_GenerateForApp_Response,

@@ -1,10 +1,10 @@
-//! Проверка обновлений Vaporust и автообновление с GitHub Releases.
+//! Checking for Vaporust updates and auto-updating from GitHub Releases.
 //!
-//! Раз при запуске (если включено в настройках) спрашиваем GitHub API о релизах,
-//! находим новее текущей версии и архив под нашу разрядность (windows-x64 / windows-x86).
-//! «Обновить»: скачиваем zip, распаковываем сами (библиотека zip), переименовываем
-//! работающий vaporust.exe в vaporust.exe.old (Windows это позволяет), кладем новый и
-//! перезапускаемся. Старый файл удаляется при следующем запуске.
+//! Once at startup (if enabled in settings) we ask the GitHub API about releases,
+//! find one newer than the current version and the archive for our bitness (windows-x64 / windows-x86).
+//! "Update": download the zip, unpack it ourselves (zip crate), rename
+//! the running vaporust.exe to vaporust.exe.old (Windows allows that), put the new one in place and
+//! restart. The old file is deleted on the next start.
 
 use serde_json::Value;
 use std::cmp::Ordering;
@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 const API: &str = "https://api.github.com/repos/felixsmtnk/Vaporust/releases?per_page=10";
 pub const CURRENT: &str = env!("CARGO_PKG_VERSION");
 
-/// Имя архива под нашу разрядность.
+/// Archive name for our bitness.
 pub fn asset_suffix() -> &'static str {
     if cfg!(target_pointer_width = "64") {
         "windows-x64.zip"
@@ -30,7 +30,7 @@ pub struct Release {
     pub page: String,
     pub asset_url: Option<String>,
     pub asset_size: u64,
-    /// Файл «<архив>.sha256» из того же релиза (его собирает GitHub Actions вместе с архивом).
+    /// The "<archive>.sha256" file from the same release (GitHub Actions builds it together with the archive).
     pub sha_url: Option<String>,
 }
 
@@ -42,15 +42,15 @@ pub enum State {
     UpToDate,
     Available(Release),
     Downloading(String),
-    /// Новая версия на месте - нужен перезапуск.
+    /// The new version is in place - a restart is needed.
     Ready,
     Failed(String),
 }
 
 pub type Shared = Arc<Mutex<State>>;
 
-/// Сравнить версии вида 0.2.0-alpha, 0.1.0-alpha.3, 1.0.0. Версия без «-…» новее
-/// такой же с «-…»; части после «-» сравниваются по точкам (числа - как числа).
+/// Compare versions like 0.2.0-alpha, 0.1.0-alpha.3, 1.0.0. A version without "-..." is newer
+/// than the same with "-..."; parts after "-" are compared by dots (numbers as numbers).
 pub fn compare(a: &str, b: &str) -> Ordering {
     fn split(v: &str) -> (Vec<u64>, Option<Vec<String>>) {
         let v = v.trim().trim_start_matches('v');
@@ -107,7 +107,7 @@ fn get(url: &str) -> Result<Vec<u8>, String> {
     Ok(resp.bytes)
 }
 
-/// Самый новый релиз новее текущей версии (черновики пропускаем).
+/// The newest release newer than the current version (drafts are skipped).
 pub fn parse_latest(json: &[u8], current: &str) -> Result<Option<Release>, String> {
     let v: Value = serde_json::from_slice(json).map_err(|_| "непонятный ответ GitHub".to_string())?;
     let mut best: Option<Release> = None;
@@ -150,7 +150,7 @@ pub fn parse_latest(json: &[u8], current: &str) -> Result<Option<Release>, Strin
     Ok(best)
 }
 
-/// Проверить обновления в фоне.
+/// Check for updates in the background.
 pub fn check(state: &Shared, ctx: &eframe::egui::Context) {
     *state.lock().unwrap() = State::Checking;
     let (state, ctx) = (state.clone(), ctx.clone());
@@ -165,7 +165,7 @@ pub fn check(state: &Shared, ctx: &eframe::egui::Context) {
     });
 }
 
-/// Скачать и поставить новую версию (в фоне). После State::Ready нужен перезапуск.
+/// Download and install the new version (in the background). After State::Ready a restart is needed.
 pub fn install(release: Release, state: &Shared, ctx: &eframe::egui::Context) {
     let (state, ctx) = (state.clone(), ctx.clone());
     std::thread::spawn(move || {
@@ -194,8 +194,8 @@ pub fn install(release: Release, state: &Shared, ctx: &eframe::egui::Context) {
     });
 }
 
-/// Содержимое файла .sha256: 64 шестнадцатеричных знака (регистр любой, пробелы и имя файла
-/// после суммы допускаются, как у sha256sum).
+/// Contents of a .sha256 file: 64 hex characters (any case; spaces and a file name
+/// after the sum are allowed, as with sha256sum).
 fn parse_sha(text: &[u8]) -> Result<String, String> {
     let text = String::from_utf8_lossy(text);
     let first = text.split_whitespace().next().unwrap_or_default().trim_start_matches('\u{feff}');
@@ -206,8 +206,8 @@ fn parse_sha(text: &[u8]) -> Result<String, String> {
     }
 }
 
-/// Сравнить SHA-256 скачанного архива с опубликованной суммой. Не совпало - архив поврежден
-/// или подменен, ставить нельзя.
+/// Compare the SHA-256 of the downloaded archive with the published sum. A mismatch - the archive is damaged
+/// or tampered with, it must not be installed.
 fn verify_sha(data: &[u8], expected: &str) -> Result<(), String> {
     use sha2::{Digest, Sha256};
     let got: String = Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect();
@@ -218,7 +218,7 @@ fn verify_sha(data: &[u8], expected: &str) -> Result<(), String> {
     }
 }
 
-/// Разрядность exe по заголовку PE: Some(true) - 64 бит (x64), Some(false) - 32 бит (x86).
+/// Exe bitness from the PE header: Some(true) - 64 bit (x64), Some(false) - 32 bit (x86).
 fn pe_is_64(data: &[u8]) -> Option<bool> {
     if data.get(..2)? != b"MZ" {
         return None;
@@ -234,11 +234,11 @@ fn pe_is_64(data: &[u8]) -> Option<bool> {
     }
 }
 
-/// Распаковать архив и заменить exe (работающий файл переименовываем в .old).
+/// Unpack the archive and replace the exe (the running file is renamed to .old).
 pub fn replace_exe(exe: &Path, zip: &[u8]) -> Result<(), String> {
     use std::io::Read;
-    // Распаковываем сами (библиотека zip): системный tar.exe не понимает не-латинские буквы в
-    // путях (например, «C:\Users\Иван\...») на Windows с другим языком.
+    // We unpack ourselves (zip crate): the system tar.exe does not understand non-Latin letters in
+    // paths (for example "C:\Users\Иван\...") on Windows with a different language.
     let mut z = zip::ZipArchive::new(std::io::Cursor::new(zip)).map_err(|e| format!("не удалось открыть архив: {e}"))?;
     let idx = (0..z.len())
         .find(|&i| z.by_index(i).map(|f| f.name().to_ascii_lowercase().ends_with("vaporust.exe")).unwrap_or(false))
@@ -262,7 +262,7 @@ pub fn replace_exe(exe: &Path, zip: &[u8]) -> Result<(), String> {
     let _ = std::fs::remove_file(&old);
     std::fs::rename(exe, &old).map_err(|e| format!("не удалось заменить программу (папка доступна для записи?): {e}"))?;
     if let Err(e) = std::fs::copy(&new_exe, exe) {
-        // Вернуть как было.
+        // Restore as it was.
         let _ = std::fs::rename(&old, exe);
         return Err(format!("не удалось записать новую версию: {e}"));
     }
@@ -270,7 +270,7 @@ pub fn replace_exe(exe: &Path, zip: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-/// При запуске: убрать файл старой версии, оставшийся после обновления.
+/// At startup: remove the old version file left after an update.
 pub fn cleanup_old() {
     if let Ok(exe) = std::env::current_exe() {
         let _ = std::fs::remove_file(exe.with_extension("exe.old"));
@@ -278,7 +278,7 @@ pub fn cleanup_old() {
 }
 
 impl crate::LauncherApp {
-    /// Полоса над главным окном: «Доступна новая версия», ход установки, перезапуск.
+    /// Bar above the main window: "A new version is available", install progress, restart.
     pub(crate) fn update_banner(&mut self, ctx: &eframe::egui::Context) {
         use eframe::egui;
         let state = self.upd.lock().unwrap().clone();
@@ -345,7 +345,7 @@ impl crate::LauncherApp {
         });
     }
 
-    /// Проверить обновления по кнопке (показать и «нет обновлений», и ошибку).
+    /// Check for updates by a button (show both "no updates" and an error).
     pub(crate) fn check_updates_now(&mut self, ctx: &eframe::egui::Context) {
         self.upd_manual = true;
         self.upd_hidden = false;
@@ -380,14 +380,14 @@ mod tests {
         assert_eq!(r.asset_url.as_deref(), Some(if x64 { "d21" } else { "d21x86" }));
         assert_eq!(r.sha_url.as_deref(), Some(if x64 { "s21" } else { "s21x86" }));
         assert!(parse_latest(json, "0.2.1-alpha").unwrap().is_none());
-        // Старые релизы без .sha256 - суммы нет (установка откажется).
+        // Old releases without .sha256 - no sum (the install refuses).
         let r = parse_latest(json, "0.0.1").unwrap().unwrap();
         assert_eq!(r.version, "0.2.1-alpha");
     }
 
     #[test]
     fn checksum() {
-        // SHA-256 строки "abc".
+        // SHA-256 of the string "abc".
         let sum = "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD";
         let parsed = parse_sha(format!("{sum}\r\n").as_bytes()).unwrap();
         assert!(verify_sha(b"abc", &parsed).is_ok());
@@ -404,7 +404,7 @@ mod tests {
         assert_eq!(pe_is_64(b"old exe"), None);
     }
 
-    /// Живой тест: запрос к GitHub (только чтение).
+    /// Live test: a request to GitHub (read only).
     #[test]
     #[ignore]
     fn github_live() {
@@ -413,7 +413,7 @@ mod tests {
         println!("{:?}", parse_latest(&b, CURRENT).unwrap());
     }
 
-    /// Живой тест замены exe на копии в папке VAPORUST_DUMP: скачать alpha.3 и подменить.
+    /// Live test of exe replacement on a copy in the VAPORUST_DUMP folder: download alpha.3 and swap.
     #[test]
     #[ignore]
     fn replace_live() {

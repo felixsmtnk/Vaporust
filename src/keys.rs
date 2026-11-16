@@ -1,29 +1,29 @@
-//! Активация ключа продукта Steam (как «Игры -> Активировать в Steam...»).
-//! Тот же запрос, что делает страница store.steampowered.com/account/registerkey.
+//! Steam product key activation (like "Games -> Activate a Product on Steam...").
+//! The same request the page store.steampowered.com/account/registerkey makes.
 
 use aurelia::steam_client::SteamClient;
 
-/// Итог активации.
+/// Activation result.
 #[derive(Clone, Debug, PartialEq)]
 pub enum KeyResult {
-    /// Активирован: что добавилось на аккаунт.
+    /// Activated: what was added to the account.
     Ok(Vec<String>),
     Err(String),
 }
 
-/// Привести ключ к виду XXXXX-XXXXX-XXXXX (пробелы и регистр не важны).
+/// Normalize a key to XXXXX-XXXXX-XXXXX (spaces and case do not matter).
 pub fn normalize(key: &str) -> String {
     key.trim().to_uppercase().split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Можно ли отправлять ключ: не пустой и только латиница, цифры, дефис и пробел. Строже не
-/// проверяем - правильность ключа все равно проверит сам Steam.
+/// Whether the key can be sent: not empty and only Latin letters, digits, dash and space. No
+/// stricter check - Steam validates the key itself anyway.
 pub fn looks_like_key(key: &str) -> bool {
     let k = key.trim();
     !k.is_empty() && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == ' ')
 }
 
-/// Понятное объяснение кода отказа Steam (purchase_result_details).
+/// Clear explanation of a Steam refusal code (purchase_result_details).
 pub fn explain(code: i64) -> String {
     match code {
         9 => "Этот продукт уже есть на вашем аккаунте.".into(),
@@ -37,7 +37,7 @@ pub fn explain(code: i64) -> String {
     }
 }
 
-/// Разобрать ответ ajaxregisterkey.
+/// Parse the ajaxregisterkey response.
 pub fn parse(body: &str) -> KeyResult {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(body) else {
         return KeyResult::Err("Steam ответил непонятно (сессия устарела? войдите заново).".into());
@@ -88,7 +88,7 @@ mod tests {
         assert_eq!(normalize(" aaaaa-bbbbb-c1ccc \n"), "AAAAA-BBBBB-C1CCC");
         assert!(looks_like_key("AAAAA-BBBBB-C1CCC"));
         assert!(looks_like_key("AAAAA-BBBBB-CCCCC-DDDDD-EEEEE"));
-        assert!(!looks_like_key("АААА-BBBBB-CCCCC")); // кириллица
+        assert!(!looks_like_key("АААА-BBBBB-CCCCC")); // Cyrillic
         assert_eq!(
             parse(r#"{"success":1,"purchase_receipt_info":{"line_items":[{"packageid":1,"line_item_description":"Half-Life"}]}}"#),
             KeyResult::Ok(vec!["Half-Life".into()])
@@ -96,7 +96,7 @@ mod tests {
         assert!(matches!(parse(r#"{"success":2,"purchase_result_details":9}"#), KeyResult::Err(e) if e.contains("уже есть")));
     }
 
-    /// Живой тест: заведомо неверный ключ (одна неудачная попытка). Ожидается «Неверный ключ».
+    /// Live test: a deliberately wrong key (one failed attempt). Expected "Неверный ключ".
     #[test]
     #[ignore]
     fn activate_invalid_live() {
@@ -131,7 +131,7 @@ use crate::LauncherApp;
 use eframe::egui;
 
 impl LauncherApp {
-    /// Окно «Активировать ключ» (Аккаунт -> Активировать ключ).
+    /// "Activate a key" window (Account -> Activate a key).
     pub(crate) fn key_window(&mut self, ctx: &egui::Context, net: &NetState) {
         let Some(mut input) = self.key_input.take() else { return };
         let mut open = true;
@@ -205,7 +205,7 @@ impl LauncherApp {
         if let Some(k) = send {
             let _ = self.tx.send(Cmd::ActivateKey(k));
         }
-        // Новая игра на аккаунте - обновить библиотеку один раз.
+        // A new game on the account - refresh the library once.
         if refresh && !self.key_refreshed {
             self.key_refreshed = true;
             let _ = self.tx.send(Cmd::RefreshLibrary);

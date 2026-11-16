@@ -1,10 +1,10 @@
-//! Коллекции Steam (категории библиотеки) через Aurelia: «Избранное», «Скрытые» и свои.
+//! Steam collections (library categories) via Aurelia: "Favorites", "Hidden" and custom ones.
 //!
-//! В облаке Steam рядом с коллекциями лежат служебные записи (showcases, NewContentRollup…),
-//! их не показываем: только встроенные favorite/hidden и пользовательские `uc-…`.
-//! Динамические коллекции (по фильтру) не меняем - только показываем.
-//! Перед каждым изменением забираем свежую версию из облака (pull), потом отправляем (push),
-//! чтобы не затереть правки, сделанные в официальном Steam.
+//! The Steam cloud keeps service records next to collections (showcases, NewContentRollup...),
+//! we do not show them: only the built-in favorite/hidden and user `uc-...`.
+//! Dynamic collections (by filter) are not changed - only shown.
+//! Before every change we fetch the fresh version from the cloud (pull), then send it (push),
+//! so we do not overwrite edits made in the official Steam client.
 
 use aurelia::library::collections::{self, CollectionsStore};
 use aurelia::steam_client::SteamClient;
@@ -13,7 +13,7 @@ use eframe::egui;
 #[derive(Clone, Debug)]
 pub struct Coll {
     pub id: String,
-    /// Название для показа («Избранное» вместо Favorites и т.п.).
+    /// Display name ("Избранное" instead of Favorites and so on).
     pub name: String,
     pub apps: Vec<u32>,
     pub dynamic: bool,
@@ -21,13 +21,13 @@ pub struct Coll {
 
 pub enum CollCmd {
     Load,
-    /// Добавить (true) или убрать игру из коллекции.
+    /// Add (true) or remove a game from a collection.
     Toggle { id: String, appid: u32, add: bool },
-    /// Создать коллекцию и сразу добавить в нее игру (если есть).
+    /// Create a collection and add a game to it right away (if any).
     Create { name: String, appid: Option<u32> },
-    /// Переименовать свою коллекцию.
+    /// Rename an own collection.
     Rename { id: String, name: String },
-    /// Удалить свою коллекцию (игры остаются в библиотеке).
+    /// Delete an own collection (games stay in the library).
     Delete { id: String },
 }
 
@@ -47,7 +47,7 @@ fn visible(store: &CollectionsStore) -> Vec<Coll> {
             dynamic: c.is_dynamic(),
         })
         .collect();
-    // Избранное первым, Скрытые последними, свои - по алфавиту между ними.
+    // Favorites first, Hidden last, custom ones alphabetically in between.
     let rank = |c: &Coll| match c.id.as_str() {
         "favorite" => 0,
         "hidden" => 2,
@@ -62,8 +62,8 @@ fn es<E: std::fmt::Display>(e: E) -> String {
 }
 
 async fn run(client: &SteamClient, cmd: CollCmd) -> Result<Vec<Coll>, String> {
-    // Aurelia 0.2.5: pull скачивает коллекции Steam и сохраняет их локально; правки делаются
-    // в сохраненном хранилище (CollectionsStore::edit), push отправляет его в Steam.
+    // Aurelia 0.2.5: pull downloads Steam collections and stores them locally; edits are made
+    // in the stored copy (CollectionsStore::edit), push sends it to Steam.
     let mut store = collections::pull(client).await.map_err(es)?;
     let edit: Option<Box<dyn FnOnce(&mut CollectionsStore) -> anyhow::Result<()> + Send>> = match cmd {
         CollCmd::Load => None,
@@ -106,8 +106,8 @@ pub fn handle(client: &SteamClient, cmd: CollCmd, st: &crate::net::Shared, ctx: 
 mod live {
     use super::*;
 
-    /// Живой тест на аккаунте: временная коллекция создается, переименовывается и удаляется.
-    /// Остальные коллекции не меняются.
+    /// Live test on the account: a temporary collection is created, renamed and deleted.
+    /// Other collections are not changed.
     #[test]
     #[ignore]
     fn rename_delete_live() {
@@ -123,7 +123,7 @@ mod live {
             assert!(list.iter().any(|c| c.id == t && c.name == "Vaporust test 2"), "переименована");
             let list = run(&c, CollCmd::Delete { id: t.clone() }).await.unwrap();
             assert!(!list.iter().any(|c| c.id == t), "удалена");
-            // Повторная загрузка из облака: временной нет, остальные как были.
+            // Reload from the cloud: the temporary one is gone, the others are as they were.
             let after = run(&c, CollCmd::Load).await.unwrap();
             assert_eq!(names(&before), names(&after));
             println!("коллекций: {}, все на месте", after.len());

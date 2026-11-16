@@ -1,7 +1,7 @@
-//! «Статистика»: время в играх. Steam хранит только «всего» и «за две недели», поэтому
-//! историю по дням Vaporust записывает сам: при каждом обновлении библиотеки сравнивает
-//! общее время каждой игры с прошлым разом и разницу относит к сегодняшнему дню.
-//! Файл: <папка данных Vaporust>\playtime_<SteamID>.json - у каждого аккаунта своя история.
+//! "Statistics": playtime. Steam keeps only "total" and "two weeks", so
+//! Vaporust records the daily history itself: on every library refresh it compares
+//! each game's total time with the previous one and attributes the difference to today.
+//! File: <Vaporust data folder>\playtime_<SteamID>.json - each account has its own history.
 
 use crate::net::{Cmd, NetState};
 use crate::LauncherApp;
@@ -13,16 +13,16 @@ use std::path::PathBuf;
 #[derive(Default, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct History {
-    /// Чья история (SteamID). У каждого аккаунта свой файл: иначе общее время второго аккаунта
-    /// засчиталось бы как «сыграно сегодня».
+    /// Whose history (SteamID). Each account has its own file: otherwise the second account's total time
+    /// would count as "played today".
     pub owner: u64,
-    /// Старая общая история уже перенесена в эту (повторный перенос удвоил бы часы).
+    /// The old shared history is already merged into this one (merging again would double the hours).
     pub legacy_imported: bool,
-    /// С какого дня ведется запись (ГГГГ-ММ-ДД).
+    /// Day recording started (YYYY-MM-DD).
     pub since: String,
-    /// Последнее известное общее время: appid -> минут.
+    /// Last known total time: appid -> minutes.
     pub last: BTreeMap<u32, u32>,
-    /// День -> (appid -> минут, сыгранных в этот день).
+    /// Day -> (appid -> minutes played that day).
     pub days: BTreeMap<String, BTreeMap<u32, u32>>,
 }
 
@@ -38,9 +38,9 @@ fn read(p: &std::path::Path) -> Option<History> {
     std::fs::read_to_string(p).ok().and_then(|t| serde_json::from_str(&t).ok())
 }
 
-/// История аккаунта `owner` (свой файл). Старую общую историю (playtime.json из версий до
-/// разделения по аккаунтам) сама программа никому не отдает: чья она, достоверно не узнать.
-/// Ее переносит пользователь в «Статистике» (take_legacy) или отказывается (decline_legacy).
+/// History of account `owner` (own file). The old shared history (playtime.json from versions before
+/// the per-account split) is not given to anyone by the program itself: whose it is cannot be known reliably.
+/// The user moves it in "Statistics" (take_legacy) or declines (decline_legacy).
 pub fn load_for(owner: u64) -> History {
     file_for(owner).and_then(|p| read(&p)).map(|h| History { owner, ..h }).unwrap_or(History { owner, ..Default::default() })
 }
@@ -49,20 +49,20 @@ fn legacy_path() -> Option<PathBuf> {
     data_dir().map(|d| d.join("playtime.json"))
 }
 
-/// Старая общая история, если она еще не перенесена и не отклонена.
+/// The old shared history, if not moved and not declined yet.
 pub fn legacy() -> Option<History> {
     legacy_path().and_then(|p| read(&p))
 }
 
-/// Перенести старую историю в историю аккаунта `owner` (по просьбе пользователя): дни
-/// складываются с уже записанными, последние известные времена берутся новые. Старый файл
-/// переименовывается только после успешной записи.
-/// Возвращает историю и предупреждение (если перенос удался, а старый файл убрать не вышло).
+/// Move the old history into the history of account `owner` (at the user's request): days
+/// are added to those already recorded, the last known times are taken from the new one. The old file
+/// is renamed only after a successful write.
+/// Returns the history and a warning (if the move succeeded but the old file could not be removed).
 pub fn take_legacy(owner: u64, current: &History) -> Result<(History, Option<String>), String> {
     let old_path = legacy_path().ok_or("нет папки данных")?;
     let old = read(&old_path).ok_or("старой истории больше нет")?;
     if current.legacy_imported {
-        // Уже перенесена (например, в прошлый раз не удалось убрать старый файл) - не складывать второй раз.
+        // Already moved (for example the old file could not be removed last time) - do not add it twice.
         let _ = std::fs::rename(&old_path, old_path.with_extension("json.migrated"));
         return Ok((current.clone(), None));
     }
@@ -81,8 +81,8 @@ pub fn take_legacy(owner: u64, current: &History) -> Result<(History, Option<Str
     for (app, total) in old.last {
         h.last.entry(app).or_insert(total);
     }
-    // Сначала записать перенесенную историю (с пометкой legacy_imported), потом убрать старый файл.
-    // Если убрать не вышло - перенос все равно состоялся, а пометка не даст сложить часы дважды.
+    // First write the moved history (marked legacy_imported), then remove the old file.
+    // If removal fails - the move still happened, and the mark prevents adding the hours twice.
     save(&h)?;
     let warn = std::fs::rename(&old_path, old_path.with_extension("json.migrated"))
         .err()
@@ -91,8 +91,8 @@ pub fn take_legacy(owner: u64, current: &History) -> Result<(History, Option<Str
 }
 
 
-/// Похож ли старый общий файл на историю аккаунта с такими играми: не меньше 80% игр из файла
-/// есть у аккаунта, и ни у одной время в файле не больше нынешнего (время в игре не убывает).
+/// Whether the old shared file looks like the history of an account with these games: at least 80% of the file's games
+/// are owned, and none has more time in the file than now (playtime does not decrease).
 pub fn adopt_legacy(h: &History, totals: &[(u32, u32)]) -> bool {
     if h.last.is_empty() {
         return false;
@@ -113,8 +113,8 @@ fn save(h: &History) -> Result<(), String> {
     std::fs::rename(&tmp, &p).map_err(|e| e.to_string())
 }
 
-/// Учесть новые общие времена (appid, минут). Возвращает true, если что-то изменилось.
-/// Первый раз только запоминает (иначе все прошлые часы попали бы в один день).
+/// Take new total times (appid, minutes) into account. Returns true if something changed.
+/// The first time it only remembers (otherwise all past hours would land on one day).
 pub fn record(h: &mut History, today: &str, totals: &[(u32, u32)]) -> bool {
     if h.since.is_empty() {
         h.since = today.to_string();
@@ -131,7 +131,7 @@ pub fn record(h: &mut History, today: &str, totals: &[(u32, u32)]) -> bool {
                 changed = true;
             }
             None => {
-                // Новая игра на аккаунте: ее прошлое время не относим к сегодня.
+                // A new game on the account: its past time is not attributed to today.
                 h.last.insert(appid, total);
                 changed = true;
             }
@@ -141,7 +141,7 @@ pub fn record(h: &mut History, today: &str, totals: &[(u32, u32)]) -> bool {
     changed
 }
 
-/// Минут по дням за последние `n` дней (старые первыми): (день, минут).
+/// Minutes per day for the last `n` days (oldest first): (day, minutes).
 pub fn per_day(h: &History, today: chrono::NaiveDate, n: i64) -> Vec<(chrono::NaiveDate, u32)> {
     (0..n)
         .rev()
@@ -158,12 +158,12 @@ pub struct StatsUi {
     pub open: bool,
     pub asked: bool,
     pub history: Option<History>,
-    /// Последний учтенный список игр (по нему видно, что библиотека обновилась).
+    /// The last accounted game list (shows that the library was refreshed).
     pub seen: usize,
     pub seen_sum: u64,
-    /// Когда последний раз просили обновить библиотеку ради статистики.
+    /// When we last asked to refresh the library for the statistics.
     pub refresh_at: Option<std::time::Instant>,
-    /// Для какого аккаунта уже проверяли старую общую историю и есть ли она.
+    /// For which account the old shared history was already checked and whether it exists.
     pub legacy_checked: Option<u64>,
     pub legacy_present: bool,
 }
@@ -176,7 +176,7 @@ fn hours(min: u32) -> String {
     }
 }
 
-/// Строка графика: название слева, полоса, время справа (подпись не налезает на полосу).
+/// Chart row: name on the left, bar, time on the right (the caption does not overlap the bar).
 fn bar(ui: &mut egui::Ui, frac: f32, name: &str, value: String) {
     let w = ui.available_width().min(640.0);
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 20.0), egui::Sense::hover());
@@ -185,7 +185,7 @@ fn bar(ui: &mut egui::Ui, frac: f32, name: &str, value: String) {
     let p = ui.painter();
     let font = egui::FontId::proportional(12.5);
     let name = crate::richtext::fix(ui, name);
-    // Название обрезается по ширине колонки.
+    // The name is cut to the column width.
     let galley = ui.fonts(|f| {
         let mut job = egui::text::LayoutJob::simple_singleline(name.clone(), font.clone(), ui.visuals().text_color());
         job.wrap = egui::text::TextWrapping::truncate_at_width(name_w - 8.0);
@@ -212,14 +212,14 @@ impl LauncherApp {
         self.view = crate::View::Stats;
     }
 
-    /// Каждый кадр (дешево): библиотека обновилась - записать разницу во времени.
-    /// Раз в 30 минут, пока Vaporust открыт и вошел, - обновить библиотеку (время в играх).
+    /// Every frame (cheap): the library was refreshed - record the time difference.
+    /// Every 30 minutes while Vaporust is open and logged in - refresh the library (playtime).
     pub(crate) fn stats_tick(&mut self, net: &NetState) {
         if net.account.is_none() || net.owned.is_empty() {
             return;
         }
         let Some(me) = net.my_id else { return };
-        // Сменился аккаунт - своя история и заново «что уже учтено».
+        // The account changed - its own history and "what is already accounted" from scratch.
         if self.stats_ui.history.as_ref().is_some_and(|h| h.owner != me) {
             self.stats_ui.history = None;
             self.stats_ui.seen = 0;
@@ -245,10 +245,10 @@ impl LauncherApp {
         }
     }
 
-    /// Старая общая история (из версий до разделения по аккаунтам): спросить, чья она.
+    /// The old shared history (from versions before the per-account split): ask whose it is.
     fn legacy_offer(&mut self, ui: &mut egui::Ui, net: &NetState) {
         let Some(me) = net.my_id else { return };
-        // Отказ - отдельно для каждого аккаунта: настоящему владельцу предложение останется.
+        // A refusal is per account: the offer stays for the real owner.
         if self.settings.legacy_declined.contains(&me) || self.stats_ui.history.as_ref().is_some_and(|h| h.legacy_imported) {
             return;
         }
@@ -290,7 +290,7 @@ impl LauncherApp {
                     }
                 }
                 if ui.button("Это не моя").clicked() {
-                    // Только для этого аккаунта: файл остается, другим аккаунтам предложение покажется.
+                    // Only for this account: the file stays, other accounts will see the offer.
                     self.settings.legacy_declined.push(me);
                 }
             });
@@ -322,7 +322,7 @@ impl LauncherApp {
             ));
             ui.add_space(8.0);
 
-            // По дням - своя запись.
+            // By day - our own record.
             ui.strong("По дням (последние 30)");
             let today = chrono::Local::now().date_naive();
             let days = per_day(&h, today, 30);
@@ -364,7 +364,7 @@ impl LauncherApp {
             }
             ui.add_space(10.0);
 
-            // Последние две недели - от Steam.
+            // The last two weeks - from Steam.
             ui.strong("Последние две недели (по данным Steam)");
             match &net.my_recent {
                 None => {
@@ -385,7 +385,7 @@ impl LauncherApp {
             }
             ui.add_space(10.0);
 
-            // Больше всего часов за все время.
+            // The most hours of all time.
             ui.strong("Больше всего часов");
             let mut top: Vec<_> = net.owned.iter().filter(|g| g.playtime_forever_minutes > 0).collect();
             top.sort_by_key(|g| std::cmp::Reverse(g.playtime_forever_minutes));
@@ -416,7 +416,7 @@ mod tests {
         assert_eq!(d.iter().map(|x| x.1).collect::<Vec<_>>(), vec![0, 60, 70]);
     }
 
-    /// QA-04: старый общий файл достается аккаунту, только если это его игры.
+    /// QA-04: the old shared file goes to an account only if these are its games.
     #[test]
     fn legacy_file_owner() {
         let mut h = History::default();

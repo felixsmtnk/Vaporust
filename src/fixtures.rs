@@ -1,9 +1,9 @@
-//! Тесты разбора на сохраненных ответах Steam (папка testdata/steam).
+//! Parsing tests on saved Steam responses (folder testdata/steam).
 //!
-//! Страницы сняты БЕЗ входа (публичные страницы), поэтому в них нет ключей сессии. Если Valve
-//! поменяет разметку, снимите их заново (`capture_live`) - упавший тест покажет, какой разбор
-//! сломался. Ответы, доступные только со входом (кошелек, лицензии, свои лоты и т.п.),
-//! проверяются на коротких образцах прямо в тестах своих модулей.
+//! Pages were captured WITHOUT login (public pages), so they contain no session keys. If Valve
+//! changes the markup, capture them again (`capture_live`) - the failing test shows which parser
+//! broke. Responses available only with login (wallet, licenses, own listings and so on)
+//! are checked on short samples right in the tests of their modules.
 
 #[cfg(test)]
 pub(crate) mod capture {
@@ -13,8 +13,8 @@ pub(crate) mod capture {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata").join("steam")
     }
 
-    /// Убрать из страницы лишнее: скрипты (кроме нужных разбору), стили, ссылки на стили,
-    /// метатеги и комментарии. Так файлы меньше, а случайных ключей в них нет.
+    /// Strip the page of extras: scripts (except those the parsers need), styles, stylesheet links,
+    /// meta tags and comments. This makes the files smaller and keeps random keys out.
     pub fn trim(html: &str) -> String {
         const KEEP: [&str; 4] = ["g_rgAppContextData", "InitializeCommentThread", "InitializeForum", "g_rgWalletInfo"];
         let mut out = String::with_capacity(html.len() / 2);
@@ -43,7 +43,7 @@ pub(crate) mod capture {
             }
             rest = &after[end..];
         }
-        // Пустые строки подряд - одной.
+        // Consecutive empty lines - as one.
         let mut lines: Vec<&str> = Vec::new();
         for l in out.lines() {
             let l = l.trim_end();
@@ -53,7 +53,7 @@ pub(crate) mod capture {
             lines.push(l);
         }
         let mut s = lines.join("\n");
-        // Ключ сессии гостя на всякий случай заменить.
+        // Replace the guest session key just in case.
         for key in ["g_sessionID = \"", "sessionid=\"", "\"sessionid\":\"", "name=\"sessionid\" value=\""] {
             let mut from = 0;
             while let Some(p) = s[from..].find(key) {
@@ -72,7 +72,7 @@ pub(crate) mod capture {
         Some(&s[i..j])
     }
 
-    /// Снять страницы заново: `cargo test capture_live -- --ignored`. Только чтение, без входа.
+    /// Capture the pages again: `cargo test capture_live -- --ignored`. Read only, no login.
     #[test]
     #[ignore]
     fn capture_live() {
@@ -93,8 +93,8 @@ pub(crate) mod capture {
                 std::fs::write(dir().join(name), &body).unwrap();
                 println!("{name}: {} КБ", body.len() / 1024);
             };
-            // Публичный профиль с витринами, значками и группами.
-            const GABE: u64 = 76561197960435530; // Robin Walker (Valve), открытый профиль
+            // Public profile with showcases, badges and groups.
+            const GABE: u64 = 76561197960435530; // Robin Walker (Valve), a public profile
             let profile = get(format!("https://steamcommunity.com/profiles/{GABE}/?l=russian")).await;
             save("profile.html", &profile);
             save("profile.xml", &get(format!("https://steamcommunity.com/profiles/{GABE}/?xml=1")).await);
@@ -104,7 +104,7 @@ pub(crate) mod capture {
             );
             save("badges.html", &get(format!("https://steamcommunity.com/profiles/{GABE}/badges/?l=english")).await);
             save("group.xml", &get("https://steamcommunity.com/groups/steamuniverse/memberslistxml/?xml=1&l=russian".into()).await);
-            // Обсуждения, тема и руководство Half-Life.
+            // Half-Life discussions, topic and guide.
             let topics = get("https://steamcommunity.com/app/70/discussions/?l=english&fp=1".into()).await;
             save("topics.html", &topics);
             let topic_url = crate::community::parse_topics(&trim(&topics))
@@ -116,11 +116,11 @@ pub(crate) mod capture {
             let guides = get("https://steamcommunity.com/app/70/guides/?browsefilter=toprated&l=russian".into()).await;
             let guide = first_between(&guides, "sharedfiles/filedetails/?id=", "\"").unwrap().split('&').next().unwrap().to_string();
             save("guide.html", &get(format!("https://steamcommunity.com/sharedfiles/filedetails/?id={guide}&l=russian")).await);
-            // Мод Мастерской L4D2 (скриншоты).
+            // L4D2 Workshop mod (screenshots).
             let ws = get("https://steamcommunity.com/workshop/browse/?appid=550&browsesort=trend&section=readytouseitems".into()).await;
             let item = first_between(&ws, "sharedfiles/filedetails/?id=", "\"").unwrap().split('&').next().unwrap().to_string();
             save("workshop_item.html", &get(format!("https://steamcommunity.com/sharedfiles/filedetails/?id={item}")).await);
-            // Отзывы (страница сообщества) и страница одного отзыва.
+            // Reviews (community page) and a single review page.
             let reviews = get(
                 "https://steamcommunity.com/app/70/homecontent/?userreviewsoffset=0&p=1&numperpage=10&browsefilter=trendweek\
                  &appHubSubSection=10&filterLanguage=russian&l=russian"
@@ -130,7 +130,7 @@ pub(crate) mod capture {
             save("reviews.html", &reviews);
             let review_url = crate::store::parse_reviews(&reviews).into_iter().map(|r| r.url).find(|u| !u.is_empty()).expect("нет отзывов");
             save("review_page.html", &get(review_url).await);
-            // Кураторы, магазин, площадка.
+            // Curators, store, market.
             save(
                 "curators.json",
                 &get("https://store.steampowered.com/curators/ajaxgetcurators/render/?query=&start=0&count=10&filter=top_curators_reviewing&appid=70&l=russian".into()).await,
@@ -169,7 +169,7 @@ mod tests {
 
     #[test]
     fn profile_xml_and_comments() {
-        // Подробности (имя, адрес) Steam дает только для первых групп, остальные - одними номерами.
+        // Steam gives details (name, URL) only for the first groups, the rest - as bare ids.
         let xml = page("profile.xml");
         let groups = crate::profile_extra::parse_groups(&xml);
         assert!(groups.len() >= 3 && groups.len() == xml.matches("<groupName>").count(), "группы: {}", groups.len());
@@ -259,7 +259,7 @@ mod tests {
         assert!(r.sha_url.is_some(), "у релизов CI есть .sha256");
     }
 
-    /// Испорченные и пустые ответы: разбор не падает и не выдумывает данные.
+    /// Corrupted and empty responses: parsing does not crash and does not invent data.
     #[test]
     fn garbage_in() {
         for junk in ["", "<html></html>", "{\"success\":false}", "<<<>>>\u{0}\u{feff}", "{\"clanID\":", "<div class=\"badge_row"] {
@@ -291,7 +291,7 @@ mod tests {
             let _ = crate::richtext::parse(junk);
             let _ = crate::chatfmt::parse(junk);
         }
-        // Обрезанные настоящие страницы (обрыв связи посреди ответа) тоже не роняют программу.
+        // Truncated real pages (connection lost mid-response) do not crash the program either.
         for name in ["profile.html", "topic.html", "reviews.html", "guide.html", "badges.html", "workshop_item.html"] {
             let full = page(name);
             for n in 1..12 {

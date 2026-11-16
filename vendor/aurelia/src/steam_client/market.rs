@@ -167,7 +167,7 @@ pub async fn inventory_via(
     inventory_via_lang(web, app_id, context_id, "english").await
 }
 
-/// vaporust: то же, что `inventory_via`, но с языком названий предметов (напр. "russian").
+/// vaporust: the same as `inventory_via`, but with a language for item names (e.g. "russian").
 pub async fn inventory_via_lang(
     web: &WebSession,
     app_id: u32,

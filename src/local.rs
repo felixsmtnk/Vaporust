@@ -1,8 +1,8 @@
-//! Локальный Steam: поиск через реестр, сканирование библиотек, запуск игры
-//! через урезанный Steam.
+//! Local Steam: finding it via the registry, scanning libraries, launching a game
+//! through a stripped-down Steam.
 //!
-//! Версия 0.3: Steam и игра определяются по процессам, а не по реестру
-//! (ActiveUser и RunningAppID в реестре оказались ненадежными).
+//! Version 0.3: Steam and the game are detected by processes, not by the registry
+//! (ActiveUser and RunningAppID in the registry turned out to be unreliable).
 
 use std::{
     fs,
@@ -15,23 +15,23 @@ use std::{
 
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
-// Флаги урезанного запуска Steam. Valve может менять их поддержку между версиями.
-/// Флаги урезанного Steam по умолчанию (меняются в «Настройках»).
+// Flags for the stripped-down Steam launch. Valve may change their support between versions.
+/// Default flags of the stripped-down Steam (changed in "Settings").
 pub const DEFAULT_STEAM_ARGS: &str = "-silent -no-browser -cef-disable-gpu -nofriendsui";
 
 #[derive(Clone)]
 pub struct Game {
     pub appid: u32,
     pub name: String,
-    /// Папка игры: <библиотека>\steamapps\common\<installdir>
+    /// Game folder: <library>\steamapps\common\<installdir>
     pub dir: PathBuf,
-    /// Полностью установлена (StateFlags содержит 4). false = недокачана.
+    /// Fully installed (StateFlags contains 4). false = not finished downloading.
     pub ready: bool,
-    /// Steam пометил игру как требующую обновления (StateFlags != 4).
+    /// Steam marked the game as needing an update (StateFlags != 4).
     pub needs_update: bool,
-    /// Размер на диске (SizeOnDisk из appmanifest), байт.
+    /// Size on disk (SizeOnDisk from appmanifest), bytes.
     pub size: u64,
-    /// Недокачанная загрузка Vaporust, спрятанная от Steam (appmanifest переименован).
+    /// An unfinished Vaporust download hidden from Steam (appmanifest renamed).
     pub stashed: bool,
 }
 
@@ -43,14 +43,14 @@ pub struct SteamInfo {
 
 #[derive(Clone, Default)]
 pub struct LaunchOptions {
-    /// Эксперимент: замораживать steamwebhelper во время игры.
-    /// Закрывать его бесполезно: Steam сразу запускает его заново (проверено в 0.3).
+    /// Experiment: freeze steamwebhelper while playing.
+    /// Closing it is useless: Steam restarts it right away (checked in 0.3).
     pub freeze_webhelper: bool,
-    /// Флаги запуска скрытого Steam; пусто - DEFAULT_STEAM_ARGS.
+    /// Launch flags of the hidden Steam; empty - DEFAULT_STEAM_ARGS.
     pub steam_args: String,
 }
 
-// ---------- Реестр ----------
+// ---------- Registry ----------
 
 #[cfg(windows)]
 pub fn find_steam() -> Option<SteamInfo> {
@@ -85,7 +85,7 @@ fn active_user() -> u32 {
     0
 }
 
-/// Сбрасывает залипший ActiveUser: после ручного закрытия Steam он может остаться != 0.
+/// Resets a stuck ActiveUser: after Steam is closed manually it may stay != 0.
 #[cfg(windows)]
 fn reset_active_user() {
     use winreg::{
@@ -102,7 +102,7 @@ fn reset_active_user() {
 #[cfg(not(windows))]
 fn reset_active_user() {}
 
-// ---------- Разбор VDF/ACF (минимальный, построчный) ----------
+// ---------- VDF/ACF parsing (minimal, line by line) ----------
 
 fn kv(line: &str) -> Option<(String, String)> {
     let mut parts = line.trim().split('"').filter(|s| !s.trim().is_empty());
@@ -111,12 +111,12 @@ fn kv(line: &str) -> Option<(String, String)> {
     Some((k.to_string(), v.replace("\\\\", "\\")))
 }
 
-/// Строка «ключ» «значение» из VDF (для других модулей).
+/// A "key" "value" line from VDF (for other modules).
 pub fn kv_pub(line: &str) -> Option<(String, String)> {
     kv(line)
 }
 
-/// Библиотеки Steam без повторов (главная папка Steam первой).
+/// Steam libraries without duplicates (the main Steam folder first).
 pub fn library_dirs(steam_dir: &Path) -> Vec<PathBuf> {
     let mut dirs = vec![steam_dir.to_path_buf()];
     let vdf = steam_dir.join("steamapps").join("libraryfolders.vdf");
@@ -136,7 +136,7 @@ pub fn library_dirs(steam_dir: &Path) -> Vec<PathBuf> {
     dirs
 }
 
-/// Свободное место на диске, где лежит папка.
+/// Free space on the disk where the folder is.
 #[cfg(windows)]
 pub fn free_space(dir: &Path) -> Option<u64> {
     use std::os::windows::ffi::OsStrExt;
@@ -154,7 +154,7 @@ pub fn free_space(_dir: &Path) -> Option<u64> {
     None
 }
 
-/// Сколько файлов игры уже лежит в библиотеке (для продолжения прерванной установки).
+/// How many game files already exist in the library (for resuming an interrupted install).
 pub fn installed_size(library: &Path, appid: u32) -> u64 {
     let acf = library
         .join("steamapps")
@@ -183,7 +183,7 @@ pub fn installed_size(library: &Path, appid: u32) -> u64 {
     walk(&library.join("steamapps").join("common").join(dir))
 }
 
-/// Запущен ли сейчас steam.exe.
+/// Whether steam.exe is running now.
 pub fn steam_running() -> bool {
     let t = std::time::Instant::now();
     let v = process_named("steam.exe");
@@ -191,8 +191,8 @@ pub fn steam_running() -> bool {
     v
 }
 
-/// Есть ли процесс с таким именем. Снимок ToolHelp - только имена, без путей к exe (sysinfo для
-/// этого спрашивал путь у каждого процесса: ~10 мс против ~1 мс).
+/// Whether a process with this name exists. A ToolHelp snapshot - names only, no exe paths (sysinfo
+/// asked every process for its path: ~10 ms versus ~1 ms).
 #[cfg(windows)]
 pub fn process_named(name: &str) -> bool {
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
@@ -234,7 +234,7 @@ pub fn scan_games(steam_dir: &Path) -> Vec<Game> {
         };
         for e in entries.flatten() {
             let fname = e.file_name().to_string_lossy().to_string();
-            // Спрятанные от Steam недокачанные загрузки Vaporust (см. stash_manifest) тоже наши.
+            // Unfinished Vaporust downloads hidden from Steam (see stash_manifest) are ours too.
             let stashed = fname.starts_with("appmanifest_") && fname.ends_with(STASH_EXT);
             if !(fname.starts_with("appmanifest_") && fname.ends_with(".acf")) && !stashed {
                 continue;
@@ -256,7 +256,7 @@ pub fn scan_games(steam_dir: &Path) -> Vec<Game> {
                 }
             }
             if let (Some(appid), Some(name), Some(installdir)) = (appid, name, installdir) {
-                // 228980 = Steamworks Common Redistributables, не игра
+                // 228980 = Steamworks Common Redistributables, not a game
                 if appid != 228980 && !games.iter().any(|g| g.appid == appid) {
                     let dir = lib.join("steamapps").join("common").join(installdir);
                     let ready = !stashed && flags & 4 != 0;
@@ -269,10 +269,10 @@ pub fn scan_games(steam_dir: &Path) -> Vec<Game> {
     games
 }
 
-// ---------- appmanifest игры: состояние, язык, бета ----------
+// ---------- Game appmanifest: state, language, beta ----------
 
-/// Окончание имени спрятанного appmanifest. Steam читает только appmanifest_*.acf, поэтому
-/// недокачанную игру, поставленную на паузу в Vaporust, он не видит и не докачивает сам.
+/// Suffix of a hidden appmanifest. Steam reads only appmanifest_*.acf, so it does not see
+/// an unfinished game paused in Vaporust and does not resume it by itself.
 pub const STASH_EXT: &str = ".acf.vaporust-paused";
 
 fn manifest_paths(library: &Path, appid: u32) -> (PathBuf, PathBuf) {
@@ -283,8 +283,8 @@ fn manifest_paths(library: &Path, appid: u32) -> (PathBuf, PathBuf) {
     )
 }
 
-/// Спрятать appmanifest недокачанной игры от Steam. Только при закрытом Steam.
-/// Полностью установленные игры (StateFlags == 4) не трогаем.
+/// Hide the appmanifest of an unfinished game from Steam. Only while Steam is closed.
+/// Fully installed games (StateFlags == 4) are not touched.
 pub fn stash_manifest(library: &Path, appid: u32) -> bool {
     let (acf, hidden) = manifest_paths(library, appid);
     let info = read_acf(&acf);
@@ -294,13 +294,13 @@ pub fn stash_manifest(library: &Path, appid: u32) -> bool {
     fs::rename(&acf, &hidden).is_ok()
 }
 
-/// Вернуть appmanifest на место перед продолжением загрузки.
+/// Put the appmanifest back before resuming the download.
 pub fn unstash_manifest(library: &Path, appid: u32) -> bool {
     let (acf, hidden) = manifest_paths(library, appid);
     hidden.exists() && !acf.exists() && fs::rename(&hidden, &acf).is_ok()
 }
 
-/// steamapps\appmanifest_<appid>.acf игры (рядом с папкой common).
+/// The game's steamapps\appmanifest_<appid>.acf (next to the common folder).
 pub fn appmanifest_path(game: &Game) -> PathBuf {
     game.dir
         .parent()
@@ -316,7 +316,7 @@ pub struct AcfInfo {
     pub bytes_to_download: u64,
     pub bytes_downloaded: u64,
     pub last_updated: u64,
-    /// UserConfig - что выбрал пользователь; MountedConfig - что сейчас установлено.
+    /// UserConfig - what the user chose; MountedConfig - what is installed now.
     pub user_language: String,
     pub user_beta: String,
     pub mounted_language: String,
@@ -324,7 +324,7 @@ pub struct AcfInfo {
 }
 
 impl AcfInfo {
-    /// Steam что-то докачивает / должен обновить (4 = полностью установлена и актуальна).
+    /// Steam is downloading something / must update (4 = fully installed and up to date).
     pub fn updating(&self) -> bool {
         self.state_flags != 0 && self.state_flags != 4
     }
@@ -377,14 +377,14 @@ pub fn read_acf(path: &Path) -> AcfInfo {
     info
 }
 
-/// Записать UserConfig.<key> (пустое значение - удалить ключ) и пометить игру как
-/// требующую обновления: Steam докачает нужное при следующем запуске. Только при закрытом Steam.
+/// Write UserConfig.<key> (empty value - remove the key) and mark the game as
+/// needing an update: Steam downloads what is needed on the next launch. Only while Steam is closed.
 pub fn set_user_config(path: &Path, key: &str, value: &str) -> Result<(), String> {
     set_config_block(path, "UserConfig", key, value, true)
 }
 
-/// То же в MountedConfig («что установлено сейчас») - без пометки «нужно обновление».
-/// Нужно после смены беты без Steam: файлы новой ветки уже скачаны.
+/// The same in MountedConfig ("what is installed now") - without the "update needed" mark.
+/// Needed after changing the beta without Steam: the new branch files are already downloaded.
 pub fn set_mounted_config(path: &Path, key: &str, value: &str) -> Result<(), String> {
     set_config_block(path, "MountedConfig", key, value, false)
 }
@@ -413,7 +413,7 @@ fn set_config_block(path: &Path, block: &str, key: &str, value: &str, mark_updat
                 in_user = false;
             }
             if depth == 1 && !user_seen && !value.is_empty() {
-                // Блока нет - добавляем перед концом файла.
+                // No block - add it before the end of the file.
                 out.push(format!("\t\"{block}\""));
                 out.push("\t{".into());
                 out.push(format!("\t\t\"{key}\"\t\t\"{value}\""));
@@ -434,7 +434,7 @@ fn set_config_block(path: &Path, block: &str, key: &str, value: &str, mark_updat
                 continue;
             }
             if mark_update && depth == 1 && k.eq_ignore_ascii_case("StateFlags") {
-                // 2 = UpdateRequired: Steam сверит конфигурацию и докачает файлы.
+                // 2 = UpdateRequired: Steam checks the configuration and downloads the files.
                 let flags = kv(t).and_then(|(_, v)| v.parse::<u32>().ok()).unwrap_or(4) | 2;
                 let indent: String = line.chars().take_while(|c| c.is_whitespace()).collect();
                 out.push(format!("{indent}\"StateFlags\"\t\t\"{flags}\""));
@@ -454,9 +454,9 @@ fn set_config_block(path: &Path, block: &str, key: &str, value: &str, mark_updat
     fs::write(path, body).map_err(|e| format!("Не удалось записать файл игры: {e}"))
 }
 
-/// Игры, установленные сразу в нескольких библиотеках Steam: (appid, название, папки
-/// библиотек). Из-за таких дублей Steam видит два разных файла игры и может без конца
-/// ее «обновлять».
+/// Games installed in several Steam libraries at once: (appid, name, library
+/// folders). Because of such duplicates Steam sees two different game files and may keep
+/// "updating" it endlessly.
 pub fn find_duplicates(steam_dir: &Path) -> Vec<(u32, String, Vec<PathBuf>)> {
     let mut map: std::collections::BTreeMap<u32, (String, Vec<PathBuf>)> = Default::default();
     for lib in library_dirs(steam_dir) {
@@ -478,7 +478,7 @@ pub fn find_duplicates(steam_dir: &Path) -> Vec<(u32, String, Vec<PathBuf>)> {
     map.into_iter().filter(|(_, (_, libs))| libs.len() > 1).map(|(id, (n, l))| (id, n, l)).collect()
 }
 
-/// Установленные версии хранилищ игры из appmanifest: InstalledDepots, депо -> manifest ID.
+/// Installed depot versions of a game from appmanifest: InstalledDepots, depot -> manifest ID.
 pub fn installed_depots(path: &Path) -> std::collections::BTreeMap<u32, u64> {
     let mut out = std::collections::BTreeMap::new();
     let Ok(text) = fs::read_to_string(path) else { return out };
@@ -507,7 +507,7 @@ pub fn installed_depots(path: &Path) -> std::collections::BTreeMap<u32, u64> {
     out
 }
 
-/// Размеры установленных хранилищ из appmanifest (InstalledDepots: depot -> size).
+/// Sizes of installed depots from appmanifest (InstalledDepots: depot -> size).
 pub fn installed_depot_sizes(path: &Path) -> std::collections::BTreeMap<u32, u64> {
     let mut out = std::collections::BTreeMap::new();
     let Ok(text) = fs::read_to_string(path) else { return out };
@@ -532,10 +532,10 @@ pub fn installed_depot_sizes(path: &Path) -> std::collections::BTreeMap<u32, u64
     out
 }
 
-/// Записать в appmanifest версии хранилищ (manifest ID в InstalledDepots), номер сборки
-/// (buildid/TargetBuildID, если задан) и StateFlags. Остальное - байт в байт.
-/// Нужно для закрепления версии: Steam сверяет эти номера с последними и, если они
-/// совпадают, ничего не обновляет. Резервная копия - один раз, *.acf.vaporust-pin.bak.
+/// Write depot versions into appmanifest (manifest ID in InstalledDepots), the build number
+/// (buildid/TargetBuildID, if given) and StateFlags. Everything else - byte for byte.
+/// Needed for version pinning: Steam compares these numbers with the latest ones and, if they
+/// match, updates nothing. A backup - once, *.acf.vaporust-pin.bak.
 pub fn write_depot_versions(
     path: &Path,
     manifests: &std::collections::BTreeMap<u32, u64>,
@@ -563,7 +563,7 @@ pub fn write_depot_versions(
                 out.push(format!("{indent}\"{k}\"\t\t\"{b}\""));
                 continue;
             }
-            // У актуальной игры Steam держит TargetBuildID = 0 (нечего докачивать).
+            // For an up-to-date game Steam keeps TargetBuildID = 0 (nothing to download).
             if top && state_flags == 4 && k.eq_ignore_ascii_case("TargetBuildID") {
                 out.push(format!("{indent}\"{k}\"\t\t\"0\""));
                 continue;
@@ -590,17 +590,17 @@ pub fn write_depot_versions(
     fs::rename(&tmp, path).map_err(|e| format!("Не удалось записать файл игры: {e}"))
 }
 
-/// Открыть папку в Проводнике.
+/// Open a folder in Explorer.
 pub fn open_folder(dir: &Path) {
-    // Проводник не понимает путей с «/» (так Steam пишет свою папку в реестр) и открывает
-    // вместо них «Документы» - приводим к обратным слэшам.
+    // Explorer does not understand paths with "/" (that is how Steam writes its folder to the registry)
+    // and opens "Documents" instead - convert to backslashes.
     let p = PathBuf::from(dir.to_string_lossy().replace('/', "\\"));
     let _ = Command::new("explorer.exe").arg(p).spawn();
 }
 
-// ---------- Процессы ----------
+// ---------- Processes ----------
 
-/// Путь в единый вид для сравнения: нижний регистр, обратные слэши.
+/// Path in a uniform form for comparison: lowercase, backslashes.
 fn norm(p: &Path) -> String {
     p.to_string_lossy().to_lowercase().replace('/', "\\")
 }
@@ -639,7 +639,7 @@ impl Procs {
         self.named(name).next().is_some()
     }
 
-    /// Игра запущена = есть процесс, чей exe лежит в папке игры.
+    /// The game is running = there is a process whose exe lies in the game folder.
     fn game_running(&mut self, game_dir: &str) -> bool {
         self.refresh();
         self.sys
@@ -653,7 +653,7 @@ impl Procs {
         self.named(name).map(|p| p.pid().as_u32()).collect()
     }
 
-    /// Убивает все процессы с этими именами, возвращает, сколько убито.
+    /// Kills all processes with these names, returns how many were killed.
     fn kill_all(&mut self, names: &[&str]) -> usize {
         self.refresh();
         let mut n = 0;
@@ -668,10 +668,10 @@ impl Procs {
     }
 }
 
-// ---------- Заморозка процессов ----------
+// ---------- Freezing processes ----------
 
-/// Приостановка процесса целиком (NtSuspendProcess) и сброс его памяти в файл подкачки.
-/// Процесс остается жив, поэтому Steam не перезапускает его.
+/// Suspends the whole process (NtSuspendProcess) and flushes its memory to the page file.
+/// The process stays alive, so Steam does not restart it.
 #[cfg(windows)]
 mod freeze {
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
@@ -724,8 +724,8 @@ mod freeze {
     }
 }
 
-/// Список замороженных процессов. Размораживает все при выходе из run_chain
-/// любым путем (конец игры, ошибка, «Перестать ждать»).
+/// List of frozen processes. Unfreezes all of them when run_chain exits
+/// by any path (game over, error, "Stop waiting").
 #[derive(Default)]
 struct Frozen(Vec<u32>);
 
@@ -751,9 +751,9 @@ impl Drop for Frozen {
     }
 }
 
-// ---------- Запуск игры через урезанный Steam ----------
+// ---------- Launching a game through the stripped-down Steam ----------
 
-/// Ждет условия; false при тайм-ауте или отмене.
+/// Waits for a condition; false on timeout or cancel.
 fn wait_until(timeout: Duration, cancel: &AtomicBool, mut cond: impl FnMut() -> bool) -> bool {
     let start = Instant::now();
     while start.elapsed() < timeout {
@@ -775,19 +775,19 @@ fn shutdown_steam(steam: &SteamInfo, procs: &mut Procs, set: &dyn Fn(&str)) {
     if !wait_until(Duration::from_secs(30), &never, || !procs.steam_running()) {
         set("Steam не закрылся за 30 с, завершаю принудительно...");
     }
-    // Добиваем остатки в любом случае (webhelper и оверлей иногда остаются висеть).
+    // Finish off leftovers in any case (webhelper and the overlay sometimes stay hanging).
     procs.kill_all(&["steam.exe", "steamwebhelper.exe", "gameoverlayui.exe"]);
     reset_active_user();
 }
 
-/// Закрыть Steam по кнопке (например, после «Не следить за игрой»).
+/// Close Steam by button (for example after "Stop tracking the game").
 pub fn close_steam(steam: &SteamInfo, set: &dyn Fn(&str)) {
     let mut procs = Procs::new();
     shutdown_steam(steam, &mut procs, set);
 }
 
-/// Поднять Steam в урезанном режиме и дождаться входа. Ok(Some(true)) - Steam запустили мы
-/// (значит, и закрываем мы), Ok(Some(false)) - он уже был открыт пользователем, Ok(None) - отмена.
+/// Start Steam in stripped-down mode and wait for login. Ok(Some(true)) - we started Steam
+/// (so we close it too), Ok(Some(false)) - the user had it open already, Ok(None) - cancelled.
 fn start_hidden_steam(
     steam: &SteamInfo,
     args: &str,
@@ -795,7 +795,7 @@ fn start_hidden_steam(
     cancel: &AtomicBool,
     set: &dyn Fn(&str),
 ) -> Result<Option<bool>, String> {
-    // Если Steam уже запущен пользователем, мы его не трогаем и не закрываем.
+    // If the user already runs Steam, we do not touch it and do not close it.
     if procs.steam_running() {
         return Ok(Some(false));
     }
@@ -817,8 +817,8 @@ fn start_hidden_steam(
     Ok(Some(true))
 }
 
-/// Обновить игру настоящим Steam без запуска игры (новая версия, смена языка или беты).
-/// Steam поднимается незаметно, лаунчер показывает прогресс из appmanifest и закрывает Steam.
+/// Update a game with the real Steam without launching it (new version, language or beta change).
+/// Steam starts invisibly, the launcher shows progress from appmanifest and closes Steam.
 pub fn update_via_steam(
     steam: &SteamInfo,
     game: &Game,
@@ -866,8 +866,8 @@ pub fn update_via_steam(
             } else {
                 "Steam обновляет игру...".into()
             });
-            // Сам Steam может не начать загрузку (например, если в его настройках «обновлять
-            // только при запуске») - через 45 с просим проверить файлы игры, это докачает недостающее.
+            // Steam itself may not start downloading (for example if its settings say "update
+            // only on launch") - after 45 s we ask it to verify the game files, which downloads what is missing.
             if !nudged && started.elapsed() > Duration::from_secs(45) && info.bytes_downloaded == 0 {
                 nudged = true;
                 set("Steam не начал обновление сам - запускаю проверку файлов игры...");
@@ -885,7 +885,7 @@ pub fn update_via_steam(
                 "Игра обновлена.".to_string()
             });
         }
-        // Пока качает, steamwebhelper не нужен - замораживаем, как во время игры.
+        // While downloading, steamwebhelper is not needed - freeze it, as during play.
         if opts.freeze_webhelper
             && started.elapsed() >= Duration::from_secs(20)
             && last_freeze.map_or(true, |t| t.elapsed() >= Duration::from_secs(10))
@@ -903,8 +903,8 @@ pub fn update_via_steam(
     result
 }
 
-/// Steam не запущен уже 10 с подряд (короткие пропуски, например перезапуск Steam после
-/// обновления самого Steam, не считаются).
+/// Steam has not been running for 10 s in a row (short gaps, e.g. Steam restarting after
+/// updating itself, do not count).
 fn steam_closed(gone_since: &mut Option<Instant>) -> bool {
     if steam_running() {
         *gone_since = None;
@@ -943,8 +943,8 @@ pub fn run_chain(
         .spawn()
         .map_err(|e| format!("Не удалось отправить команду запуска: {e}"))?;
 
-    // Ждем процесс игры. Если Steam сначала обновляет игру (новая версия, сменили язык или
-    // бету), показываем прогресс из appmanifest и не считаем это зависанием.
+    // Waiting for the game process. If Steam first updates the game (new version, changed language or
+    // beta), show progress from appmanifest and do not treat it as a hang.
     let acf = appmanifest_path(game);
     let mut deadline = Instant::now() + Duration::from_secs(120);
     let mut steam_gone: Option<Instant> = None;
@@ -955,8 +955,8 @@ pub fn run_chain(
         if procs.game_running(&game_dir) {
             break;
         }
-        // Steam закрыли (например, кнопкой «Закрыть Steam»), пока он обновлял игру или еще не
-        // запустил ее: ждать больше нечего.
+        // Steam was closed (for example with the "Close Steam" button) while it was updating the game or
+        // had not launched it yet: nothing more to wait for.
         if steam_closed(&mut steam_gone) {
             return Err("Steam закрыт, запуск отменен.".into());
         }
@@ -992,15 +992,15 @@ pub fn run_chain(
     loop {
         thread::sleep(Duration::from_secs(1));
         if cancelled() {
-            return Ok(CANCEL_MSG.into()); // Frozen размораживает при выходе
+            return Ok(CANCEL_MSG.into()); // Frozen unfreezes on drop
         }
         if procs.game_running(&game_dir) {
             gone_since = None;
         } else if gone_since.get_or_insert_with(Instant::now).elapsed() >= Duration::from_secs(6) {
             break;
         }
-        // Через 20 с после старта игры замораживаем webhelper; раз в 10 с
-        // подхватываем новые его процессы, если Steam их создал.
+        // 20 s after the game starts we freeze the webhelper; every 10 s
+        // we pick up its new processes if Steam created them.
         if opts.freeze_webhelper
             && started.elapsed() >= Duration::from_secs(20)
             && last_freeze.map_or(true, |t| t.elapsed() >= Duration::from_secs(10))
@@ -1016,7 +1016,7 @@ pub fn run_chain(
             }
         }
     }
-    // Размораживаем до закрытия Steam, иначе он не сможет нормально завершиться.
+    // Unfreeze before closing Steam, otherwise it cannot shut down properly.
     frozen.resume_all();
 
     if we_started {
@@ -1084,11 +1084,11 @@ mod acf_tests {
         set_user_config(&p, "BetaKey", "beta").unwrap();
         let i = read_acf(&p);
         assert_eq!((i.user_language.as_str(), i.user_beta.as_str()), ("russian", "beta"));
-        assert_eq!(i.mounted_language, "english"); // MountedConfig не тронут
+        assert_eq!(i.mounted_language, "english"); // MountedConfig is untouched
         assert_eq!(i.state_flags, 6);
         assert!(i.updating());
 
-        set_user_config(&p, "BetaKey", "").unwrap(); // public = ключ убран
+        set_user_config(&p, "BetaKey", "").unwrap(); // public = the key is removed
         assert_eq!(read_acf(&p).user_beta, "");
     }
 
@@ -1100,7 +1100,7 @@ mod acf_tests {
     }
 }
 
-/// Номер сборки (buildid) из appmanifest.
+/// Build number (buildid) from appmanifest.
 pub fn acf_buildid(path: &Path) -> Option<String> {
     let text = fs::read_to_string(path).ok()?;
     let mut depth = 0;
@@ -1122,7 +1122,7 @@ pub fn acf_buildid(path: &Path) -> Option<String> {
     None
 }
 
-/// Общие хранилища из appmanifest (SharedDepots: depot -> игра, которой оно принадлежит).
+/// Shared depots from appmanifest (SharedDepots: depot -> the game it belongs to).
 pub fn shared_depots(path: &Path) -> std::collections::BTreeMap<u32, u32> {
     let mut out = std::collections::BTreeMap::new();
     let Ok(text) = fs::read_to_string(path) else { return out };
@@ -1151,16 +1151,16 @@ pub fn shared_depots(path: &Path) -> std::collections::BTreeMap<u32, u32> {
     out
 }
 
-/// Изменения списков хранилищ в appmanifest (для смены языка без Steam).
+/// Changes to the depot lists in appmanifest (for changing the language without Steam).
 #[derive(Default, Debug)]
 pub struct DepotEdit {
-    /// Убрать из InstalledDepots.
+    /// Remove from InstalledDepots.
     pub remove_installed: Vec<u32>,
-    /// Добавить в InstalledDepots: (depot, manifest, size).
+    /// Add to InstalledDepots: (depot, manifest, size).
     pub add_installed: Vec<(u32, u64, u64)>,
-    /// Убрать из SharedDepots.
+    /// Remove from SharedDepots.
     pub remove_shared: Vec<u32>,
-    /// Добавить в SharedDepots: (depot, игра-владелец).
+    /// Add to SharedDepots: (depot, owner game).
     pub add_shared: Vec<(u32, u32)>,
 }
 
@@ -1174,13 +1174,13 @@ fn installed_entry(d: u32, m: u64, s: u64) -> Vec<String> {
     ]
 }
 
-/// Поправить InstalledDepots и SharedDepots, остальное - байт в байт. Нет блока - создается.
+/// Fix InstalledDepots and SharedDepots, the rest - byte for byte. A missing block is created.
 pub fn edit_depot_lists(path: &Path, e: &DepotEdit) -> Result<(), String> {
     let text = fs::read_to_string(path).map_err(|err| format!("Не удалось прочитать файл игры: {err}"))?;
     let mut out: Vec<String> = Vec::new();
     let mut stack: Vec<String> = Vec::new();
     let mut pending = String::new();
-    // Пропуск убираемого хранилища внутри InstalledDepots: глубина, до которой пропускаем.
+    // Skipping a removed depot inside InstalledDepots: the depth up to which we skip.
     let mut skip_to: Option<usize> = None;
     let (mut seen_inst, mut seen_shared) = (false, false);
     let lines: Vec<&str> = text.lines().collect();
@@ -1244,7 +1244,7 @@ pub fn edit_depot_lists(path: &Path, e: &DepotEdit) -> Result<(), String> {
         if let Some((k, _)) = kv(t) {
             if stack.len() == 2 && stack[1].eq_ignore_ascii_case("SharedDepots") {
                 let d: Option<u32> = k.parse().ok();
-                // Убираемые и те, что добавятся заново (без дублей).
+                // Removed ones and those that will be added again (without duplicates).
                 if d.is_some_and(|d| e.remove_shared.contains(&d) || e.add_shared.iter().any(|x| x.0 == d)) {
                     continue;
                 }
@@ -1253,7 +1253,7 @@ pub fn edit_depot_lists(path: &Path, e: &DepotEdit) -> Result<(), String> {
             if stack.len() == 2 && stack[1].eq_ignore_ascii_case("InstalledDepots") {
                 let d: Option<u32> = k.parse().ok();
                 if d.is_some_and(|d| e.remove_installed.contains(&d) || e.add_installed.iter().any(|x| x.0 == d)) {
-                    // Пропустить блок хранилища целиком.
+                    // Skip the whole depot block.
                     if lines.get(i).is_some_and(|l| l.trim() == "{") {
                         skip_to = Some(stack.len());
                         stack.push(String::new());
@@ -1292,7 +1292,7 @@ mod depot_edit_tests {
         assert_eq!(installed_depots(&p).into_iter().collect::<Vec<_>>(), vec![(61, 1), (63, 3)]);
         assert_eq!(shared_depots(&p).into_iter().collect::<Vec<_>>(), vec![(73, 70), (228988, 228980)]);
         assert_eq!(read_acf(&p).user_language, "french");
-        // Блоков нет - создаются.
+        // No blocks - they are created.
         fs::write(&p, "\"AppState\"\n{\n\t\"appid\"\t\t\"60\"\n}\n").unwrap();
         edit_depot_lists(&p, &DepotEdit { add_installed: vec![(62, 2, 20)], add_shared: vec![(141, 70)], ..Default::default() })
             .unwrap();
@@ -1302,16 +1302,16 @@ mod depot_edit_tests {
     }
 }
 
-/// Автономный режим Steam: в config\loginusers.vdf у аккаунта, под которым Steam входит сам
-/// (AutoLogin "1", иначе MostRecent "1"), поставить WantsOfflineMode и SkipOfflineModeWarning.
-/// Тогда Steam без сети сразу стартует автономно, без окна «Не удалось подключиться».
-/// Это та же настройка, что ставит сам Steam кнопкой «Перейти в автономный режим».
-/// Только при закрытом Steam (на выходе он перезаписывает файл). Ok(true) - файл изменен.
+/// Steam offline mode: in config\loginusers.vdf, for the account Steam logs into by itself
+/// (AutoLogin "1", otherwise MostRecent "1"), set WantsOfflineMode and SkipOfflineModeWarning.
+/// Then Steam without network starts offline right away, without the "Could not connect" window.
+/// This is the same setting Steam itself sets with the "Go Offline" button.
+/// Only while Steam is closed (it rewrites the file on exit). Ok(true) - the file was changed.
 pub fn set_steam_offline(steam_dir: &Path, on: bool) -> Result<bool, String> {
     let path = steam_dir.join("config").join("loginusers.vdf");
     let text = fs::read_to_string(&path).map_err(|e| format!("Не удалось прочитать loginusers.vdf: {e}"))?;
     let lines: Vec<&str> = text.lines().collect();
-    // Блоки аккаунтов: (строка начала "{", строка конца "}", AutoLogin, MostRecent).
+    // Account blocks: (start line "{", end line "}", AutoLogin, MostRecent).
     let mut blocks: Vec<(usize, usize, bool, bool)> = Vec::new();
     let (mut depth, mut start) = (0, 0);
     let (mut auto, mut recent) = (false, false);
@@ -1357,7 +1357,7 @@ pub fn set_steam_offline(steam_dir: &Path, on: bool) -> Result<bool, String> {
             }
         }
         if i == e && on {
-            // Ключей не было - добавить перед концом блока аккаунта.
+            // The keys were missing - add them before the end of the account block.
             if !seen_want {
                 out.push(format!("\t\t\"WantsOfflineMode\"\t\t\"{want}\""));
                 changed = true;
@@ -1397,7 +1397,7 @@ mod offline_tests {
         fs::write(&p, body).unwrap();
         assert!(set_steam_offline(&dir, true).unwrap());
         let t = fs::read_to_string(&p).unwrap();
-        // Изменен только аккаунт с автовходом (b): ключи добавлены в его блок.
+        // Only the auto-login account (b) was changed: the keys were added to its block.
         let b = t.split("\"2\"").nth(1).unwrap();
         assert!(b.contains("\"WantsOfflineMode\"\t\t\"1\"") && b.contains("\"SkipOfflineModeWarning\"\t\t\"1\""));
         assert!(t.split("\"2\"").next().unwrap().contains("\"WantsOfflineMode\"\t\t\"0\""));
@@ -1408,13 +1408,13 @@ mod offline_tests {
     }
 }
 
-// ---------- Остановка игры ----------
+// ---------- Stopping a game ----------
 
-/// Запущенная игра (appid, название, папка): ставится, когда Vaporust увидел процесс игры,
-/// и снимается после ее выхода. По ней работают кнопки «Закрыть игру».
+/// Running game (appid, name, folder): set when Vaporust sees the game process,
+/// and cleared after it exits. The "Close game" buttons work from it.
 pub static RUNNING: Mutex<Option<(u32, String, PathBuf)>> = Mutex::new(None);
 
-/// Снимает RUNNING при выходе из run_chain или из потока запуска без Steam.
+/// Clears RUNNING when leaving run_chain or the launch-without-Steam thread.
 pub struct RunningGuard;
 
 impl RunningGuard {
@@ -1430,7 +1430,7 @@ impl Drop for RunningGuard {
     }
 }
 
-/// Процессы, чей exe лежит в папке игры.
+/// Processes whose exe lies in the game folder.
 fn game_pids(dir: &Path) -> Vec<u32> {
     let mut d = norm(dir);
     if !d.ends_with('\\') {
@@ -1446,8 +1446,8 @@ fn game_pids(dir: &Path) -> Vec<u32> {
         .filter(|p| p.pid().as_u32() != me && p.exe().is_some_and(|e| norm(e).starts_with(&d)))
         .map(|p| p.pid().as_u32())
         .collect();
-    // И их дочерние процессы: многие игры запускают саму игру не из своей папки (Plants vs. Zombies
-    // распаковывает и запускает popcapgame1.exe во временной папке, а PlantsVsZombies.exe только ждет).
+    // And their child processes: many games start the actual game outside their folder (Plants vs. Zombies
+    // unpacks and starts popcapgame1.exe in a temp folder, and PlantsVsZombies.exe only waits).
     loop {
         let more: Vec<u32> = procs
             .sys
@@ -1467,9 +1467,9 @@ fn game_pids(dir: &Path) -> Vec<u32> {
     pids
 }
 
-/// Остановить игру. Мягко: окнам игры отправляется WM_CLOSE (как крестик окна или
-/// Alt+F4), игра может сохраниться и выйти сама. Принудительно: процессы завершаются
-/// сразу (несохраненное пропадет). Возвращает число процессов игры.
+/// Stop a game. Gently: WM_CLOSE is sent to the game windows (like the window's close button or
+/// Alt+F4), the game may save and exit by itself. Forcefully: processes are terminated
+/// immediately (unsaved progress is lost). Returns the number of game processes.
 pub fn stop_game(dir: &Path, force: bool) -> usize {
     let pids = game_pids(dir);
     if pids.is_empty() {
@@ -1489,7 +1489,7 @@ pub fn stop_game(dir: &Path, force: bool) -> usize {
     pids.len()
 }
 
-/// Игра еще работает (есть процессы в ее папке).
+/// The game is still running (there are processes in its folder).
 pub fn game_alive(dir: &Path) -> bool {
     !game_pids(dir).is_empty()
 }
@@ -1522,8 +1522,8 @@ fn close_windows_of(_pids: &[u32]) {}
 mod stop_tests {
     use super::*;
 
-    /// Живой тест: копия Блокнота закрывается мягко, копия cmd (окна своего нет) - только
-    /// принудительно.
+    /// Live test: a copy of Notepad closes gently, a copy of cmd (it has no window) - only
+    /// forcefully.
     #[test]
     #[ignore]
     fn stop_game_live() {
@@ -1547,7 +1547,7 @@ mod stop_tests {
         assert!(a.try_wait().unwrap().is_some(), "Блокнот закрылся мягко");
         let mut b = {
             use std::os::windows::process::CommandExt;
-            // CREATE_NO_WINDOW: у процесса нет ни одного окна.
+            // CREATE_NO_WINDOW: the process has no windows at all.
             Command::new(dir.join("cmd.exe")).args(["/c", "ping -n 60 127.0.0.1 >nul"]).creation_flags(0x0800_0000).spawn().unwrap()
         };
         thread::sleep(Duration::from_secs(2));
@@ -1562,10 +1562,10 @@ mod stop_tests {
     }
 }
 
-// ---------- Перепривязка (relink) ----------
+// ---------- Relink ----------
 
-/// Другие библиотеки, где уже лежит папка этой игры (steamapps\common\<папка>): например,
-/// файлы перенесли вручную или переустановили Windows.
+/// Other libraries that already contain this game's folder (steamapps\common\<folder>): for example,
+/// files were moved manually or Windows was reinstalled.
 pub fn relink_candidates(steam_dir: &Path, game: &Game) -> Vec<PathBuf> {
     let Some(installdir) = game.dir.file_name() else { return Vec::new() };
     library_dirs(steam_dir)
@@ -1575,8 +1575,8 @@ pub fn relink_candidates(steam_dir: &Path, game: &Game) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Привязать игру к другой библиотеке, где ее файлы уже лежат: перенести appmanifest и
-/// запись в libraryfolders.vdf. Файлы игры не трогаются. Только при закрытом Steam.
+/// Attach the game to another library where its files already are: move the appmanifest and
+/// the libraryfolders.vdf entry. Game files are not touched. Only while Steam is closed.
 pub fn relink_game(steam_dir: &Path, game: &Game, dest_lib: &Path) -> Result<PathBuf, String> {
     let installdir = game.dir.file_name().ok_or("Не удалось определить папку игры.")?;
     let dest_common = dest_lib.join("steamapps").join("common").join(installdir);
@@ -1595,12 +1595,12 @@ pub fn relink_game(steam_dir: &Path, game: &Game, dest_lib: &Path) -> Result<Pat
     fs::copy(&src, &tmp).map_err(|e| format!("Не удалось записать appmanifest: {e}"))?;
     fs::rename(&tmp, &dest).map_err(|e| format!("Не удалось записать appmanifest: {e}"))?;
     fs::remove_file(&src).map_err(|e| format!("Не удалось убрать старый appmanifest: {e}"))?;
-    // Список игр библиотек: Steam все равно пересчитает его сам, но пусть сразу будет верным.
+    // Library game lists: Steam will recount them anyway, but let them be right from the start.
     let _ = move_app_in_libraryfolders(steam_dir, game.appid, dest_lib);
     Ok(dest_common)
 }
 
-/// В libraryfolders.vdf перенести строку игры в блок "apps" библиотеки dest_lib.
+/// In libraryfolders.vdf move the game line into the "apps" block of the dest_lib library.
 fn move_app_in_libraryfolders(steam_dir: &Path, appid: u32, dest_lib: &Path) -> Result<(), String> {
     let path = steam_dir.join("steamapps").join("libraryfolders.vdf");
     let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
@@ -1608,7 +1608,7 @@ fn move_app_in_libraryfolders(steam_dir: &Path, appid: u32, dest_lib: &Path) -> 
     let want = norm(dest_lib);
     let want = want.trim_end_matches('\\');
     let key = appid.to_string();
-    // Проход: глубина, путь текущей библиотеки, внутри ли блока "apps".
+    // Pass state: depth, path of the current library, whether we are inside the "apps" block.
     let (mut depth, mut lib_path, mut in_apps, mut pending_apps) = (0, String::new(), false, false);
     let mut size = "0".to_string();
     let mut dest_apps_open: Option<usize> = None;
@@ -1697,12 +1697,12 @@ mod relink_tests {
     }
 }
 
-/// Путь для показа: как он записан на диске (Steam хранит свою папку строчными буквами
-/// и с «/»: «c:/program files (x86)/steam» -> «C:\Program Files (x86)\Steam»).
+/// Path for display: as it is written on disk (Steam stores its folder in lowercase
+/// and with "/": "c:/program files (x86)/steam" -> "C:\Program Files (x86)\Steam").
 pub fn pretty_path(p: &std::path::Path) -> String {
     match std::fs::canonicalize(p) {
         Ok(c) => {
-            // canonicalize дает «длинный» путь Windows: \\?\C:\... или \\?\UNC\сервер\папка.
+            // canonicalize returns a "long" Windows path: \\?\C:\... or \\?\UNC\server\folder.
             let s = c.display().to_string();
             if let Some(unc) = s.strip_prefix(r"\\?\UNC\") {
                 format!(r"\\{unc}")
@@ -1726,7 +1726,7 @@ mod pretty_path_tests {
     }
 }
 
-/// Сколько места занимает папка (со всеми вложенными), байт.
+/// How much space a folder takes (with all subfolders), bytes.
 pub fn dir_size(p: &Path) -> u64 {
     let Ok(rd) = fs::read_dir(p) else { return 0 };
     rd.flatten()
@@ -1738,11 +1738,11 @@ pub fn dir_size(p: &Path) -> u64 {
         .sum()
 }
 
-/// Удалить игру с диска самостоятельно: папку игры, незаконченную загрузку
-/// (steamapps\downloading\<appid>) и appmanifest - в том числе спрятанный от Steam
-/// (недокачанные загрузки Vaporust, которые Aurelia не находит). Только при закрытом Steam.
+/// Uninstall a game from disk by ourselves: the game folder, the unfinished download
+/// (steamapps\downloading\<appid>) and the appmanifest - including one hidden from Steam
+/// (unfinished Vaporust downloads that Aurelia does not find). Only while Steam is closed.
 pub fn uninstall_files(game: &Game) -> Result<(), String> {
-    // Защита от ошибки в пути: удаляем только <библиотека>\steamapps\common\<папка игры>.
+    // Protection against a path error: we delete only <library>\steamapps\common\<game folder>.
     let common = game.dir.parent().ok_or("неверная папка игры")?;
     let steamapps = common.parent().ok_or("неверная папка игры")?;
     let name_is = |p: &Path, n: &str| p.file_name().is_some_and(|f| f.to_string_lossy().eq_ignore_ascii_case(n));
@@ -1750,8 +1750,8 @@ pub fn uninstall_files(game: &Game) -> Result<(), String> {
     if !name_is(common, "common") || !name_is(steamapps, "steamapps") || leaf.trim().is_empty() || leaf == "." || leaf == ".." {
         return Err(format!("папка игры выглядит неправильно: {}", game.dir.display()));
     }
-    // Папку делят несколько игр (common\Half-Life у Counter-Strike, Half-Life, Blue Shift...):
-    // целиком ее удалять нельзя.
+    // Several games share the folder (common\Half-Life for Counter-Strike, Half-Life, Blue Shift...):
+    // it must not be deleted as a whole.
     if let Some(other) = other_owner(steamapps, game.appid, &leaf) {
         return Err(format!("эту папку использует и другая игра ({other}), целиком ее удалять нельзя"));
     }
@@ -1774,7 +1774,7 @@ pub fn uninstall_files(game: &Game) -> Result<(), String> {
     Ok(())
 }
 
-/// Другая игра (название) в этой библиотеке с той же папкой installdir.
+/// Another game (name) in this library with the same installdir folder.
 fn other_owner(steamapps: &Path, appid: u32, installdir: &str) -> Option<String> {
     for e in fs::read_dir(steamapps).ok()?.flatten() {
         let f = e.file_name().to_string_lossy().to_string();
@@ -1828,7 +1828,7 @@ mod uninstall_tests {
         assert!(!steamapps.join(format!("appmanifest_777{STASH_EXT}")).exists());
         assert!(steamapps.join("appmanifest_778.acf").exists(), "чужое не трогаем");
         assert!(steamapps.join("common").exists());
-        // Общая папка (как common\Half-Life у Counter-Strike и Half-Life) - отказ, файлы целы.
+        // Shared folder (like common\Half-Life of Counter-Strike and Half-Life) - refused, files intact.
         let shared = steamapps.join("common").join("Half-Life");
         fs::create_dir_all(&shared).unwrap();
         fs::write(shared.join("hl.exe"), b"x").unwrap();
@@ -1838,14 +1838,14 @@ mod uninstall_tests {
         let err = uninstall_files(&cs).unwrap_err();
         assert!(err.contains("Half-Life"), "{err}");
         assert!(shared.join("hl.exe").exists());
-        // Неправильный путь - отказ.
+        // Wrong path - refused.
         let bad = Game { dir: root.join("x"), ..game };
         assert!(uninstall_files(&bad).is_err());
         fs::remove_dir_all(&root).unwrap();
     }
 }
 
-/// Значение верхнего уровня appmanifest (например, AutoUpdateBehavior).
+/// Top-level appmanifest value (for example AutoUpdateBehavior).
 pub fn acf_top(path: &Path, key: &str) -> Option<String> {
     let text = fs::read_to_string(path).ok()?;
     let mut depth = 0;
@@ -1868,8 +1868,8 @@ pub fn acf_top(path: &Path, key: &str) -> Option<String> {
     None
 }
 
-/// Изменить (или добавить) значение верхнего уровня appmanifest. Только при закрытом Steam.
-/// Остальной файл - байт в байт; запись через .tmp.
+/// Change (or add) a top-level appmanifest value. Only while Steam is closed.
+/// The rest of the file - byte for byte; written via .tmp.
 pub fn set_acf_top(path: &Path, key: &str, value: &str) -> Result<(), String> {
     let text = fs::read_to_string(path).map_err(|e| format!("Не удалось прочитать файл игры: {e}"))?;
     let mut out: Vec<String> = Vec::new();
@@ -1880,7 +1880,7 @@ pub fn set_acf_top(path: &Path, key: &str, value: &str) -> Result<(), String> {
         if t == "{" {
             depth += 1;
         } else if t == "}" {
-            // Ключа не было - добавить в конец верхнего уровня.
+            // The key was missing - add it at the end of the top level.
             if depth == 1 && !done {
                 out.push(format!("\t\"{key}\"\t\t\"{value}\""));
                 done = true;
@@ -1922,16 +1922,16 @@ mod acf_top_tests {
         assert_eq!(acf_top(&p, "AutoUpdateBehavior").as_deref(), Some("1"));
         let t = fs::read_to_string(&p).unwrap();
         assert!(t.contains("\t\t\"AutoUpdateBehavior\"\t\t\"9\""), "вложенное не тронуто");
-        // Нет ключа - добавляется.
+        // No key - it is added.
         set_acf_top(&p, "AllowOtherDownloadsWhileRunning", "1").unwrap();
         assert_eq!(acf_top(&p, "AllowOtherDownloadsWhileRunning").as_deref(), Some("1"));
         fs::remove_file(&p).unwrap();
     }
 }
 
-/// Добавить новую папку библиотеки Steam (например, на другом диске), как «Настройки ->
-/// Хранилище -> Добавить диск» в Steam. Только при закрытом Steam. Создает в папке steamapps и
-/// libraryfolder.vdf, дописывает запись в steamapps\libraryfolders.vdf (бэкап .vdf.vaporust.bak).
+/// Add a new Steam library folder (for example on another disk), like "Settings ->
+/// Storage -> Add drive" in Steam. Only while Steam is closed. Creates steamapps and
+/// libraryfolder.vdf in the folder, appends an entry to steamapps\libraryfolders.vdf (backup .vdf.vaporust.bak).
 pub fn add_library(steam_dir: &Path, folder: &Path) -> Result<PathBuf, String> {
     if !folder.is_absolute() {
         return Err("нужен полный путь к папке".into());
@@ -1949,7 +1949,7 @@ pub fn add_library(steam_dir: &Path, folder: &Path) -> Result<PathBuf, String> {
         }
     }
     fs::create_dir_all(folder.join("steamapps")).map_err(|e| format!("не удалось создать папку: {e}"))?;
-    // Номер библиотеки, как у Steam: случайное большое число.
+    // Library id, as in Steam: a random large number.
     let contentid = {
         let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(1);
         ((t ^ (std::process::id() as u128) << 40) % 9_000_000_000_000_000_000 + 1_000_000_000_000_000_000) as u64
@@ -1961,7 +1961,7 @@ pub fn add_library(steam_dir: &Path, folder: &Path) -> Result<PathBuf, String> {
     }
     let vdf = steam_dir.join("steamapps").join("libraryfolders.vdf");
     let text = fs::read_to_string(&vdf).map_err(|e| format!("не удалось прочитать libraryfolders.vdf: {e}"))?;
-    // Следующий номер записи: на 1 больше самого большого.
+    // Next entry number: one more than the largest.
     let mut next = 0u32;
     let mut depth = 0;
     for line in text.lines() {
@@ -1984,7 +1984,7 @@ pub fn add_library(steam_dir: &Path, folder: &Path) -> Result<PathBuf, String> {
     let entry = format!(
         "\t\"{next}\"\n\t{{\n\t\t\"path\"\t\t\"{esc}\"\n\t\t\"label\"\t\t\"\"\n\t\t\"contentid\"\t\t\"{contentid}\"\n\t\t\"totalsize\"\t\t\"0\"\n\t\t\"update_clean_bytes_tally\"\t\t\"0\"\n\t\t\"time_last_update_verified\"\t\t\"0\"\n\t\t\"apps\"\n\t\t{{\n\t\t}}\n\t}}\n"
     );
-    // Вставить перед последней «}» файла.
+    // Insert before the last "}" of the file.
     let end = text.rfind('}').ok_or("libraryfolders.vdf поврежден")?;
     let mut body = String::with_capacity(text.len() + entry.len());
     body.push_str(text[..end].trim_end_matches(['\r', '\n']));
@@ -2024,16 +2024,16 @@ mod add_library_tests {
         let t = fs::read_to_string(steam.join("steamapps").join("libraryfolders.vdf")).unwrap();
         assert!(t.contains("\t\"1\"\n\t{"), "{t}");
         assert!(t.trim_end().ends_with('}'));
-        // Повтор - отказ; внутри другой библиотеки - отказ.
+        // A repeat - refused; inside another library - refused.
         assert!(add_library(&steam, &lib).is_err());
         assert!(add_library(&steam, &lib.join("steamapps").join("x")).is_err());
         fs::remove_dir_all(&root).unwrap();
     }
 }
 
-/// Очистить временные файлы загрузок Steam (appcache\httpcache): помогает, когда загрузки
-/// Steam зависают. Скачанные игры и недокачанные загрузки не трогаются. Только при закрытом Steam.
-/// Возвращает, сколько байт освобождено.
+/// Clear Steam's temporary download files (appcache\httpcache): helps when Steam downloads
+/// hang. Downloaded games and unfinished downloads are not touched. Only while Steam is closed.
+/// Returns how many bytes were freed.
 pub fn clear_download_cache(steam_dir: &Path) -> Result<u64, String> {
     let dir = steam_dir.join("appcache").join("httpcache");
     if !dir.is_dir() {
@@ -2050,7 +2050,7 @@ pub fn clear_download_cache(steam_dir: &Path) -> Result<u64, String> {
     Ok(size.saturating_sub(dir_size(&dir)))
 }
 
-/// Регион загрузки, выбранный в настройках Steam (config.vdf: CellIDServerOverride), если задан.
+/// Download region chosen in Steam settings (config.vdf: CellIDServerOverride), if set.
 pub fn steam_cell_override(steam_dir: &Path) -> Option<u32> {
     let t = std::fs::read_to_string(steam_dir.join("config").join("config.vdf")).ok()?;
     let line = t.lines().find(|l| l.contains("\"CellIDServerOverride\""))?;
@@ -2058,14 +2058,14 @@ pub fn steam_cell_override(steam_dir: &Path) -> Option<u32> {
     (v > 0).then_some(v)
 }
 
-/// Папка временной библиотеки для загрузок при открытом Steam (Steam ее не видит: ее нет в
-/// libraryfolders.vdf). Лежит в той же библиотеке, чтобы перенос был простым переименованием.
+/// Temporary library folder for downloads while Steam is open (Steam does not see it: it is not in
+/// libraryfolders.vdf). It lives in the same library so the move is a simple rename.
 pub fn staging_dir(library: &Path) -> PathBuf {
     library.join("VaporustStaging")
 }
 
-/// Докачанную во временной библиотеке игру перенести в настоящую: папку common\<игра> и
-/// appmanifest (переименованием, на том же диске). Steam увидит готовую игру.
+/// Move a game finished in the temporary library to the real one: the common\<game> folder and
+/// appmanifest (by rename, on the same disk). Steam sees a ready game.
 pub fn unstage(library: &Path, appid: u32) -> Result<(), String> {
     let staging = staging_dir(library);
     let acf = staging.join("steamapps").join(format!("appmanifest_{appid}.acf"));
@@ -2085,7 +2085,7 @@ pub fn unstage(library: &Path, appid: u32) -> Result<(), String> {
     let acf_to = library.join("steamapps").join(format!("appmanifest_{appid}.acf"));
     fs::rename(&acf, &acf_to).map_err(|e| format!("перенос appmanifest: {e}"))?;
     let _ = fs::remove_dir_all(staging.join("steamapps").join("downloading").join(appid.to_string()));
-    // Пустая временная библиотека больше не нужна.
+    // An empty temporary library is no longer needed.
     let left = fs::read_dir(staging.join("steamapps").join("common")).map(|mut d| d.next().is_none()).unwrap_or(true);
     let acfs = fs::read_dir(staging.join("steamapps"))
         .map(|d| d.flatten().any(|e| e.file_name().to_string_lossy().starts_with("appmanifest_")))
@@ -2113,8 +2113,8 @@ mod staging_tests {
     }
 }
 
-/// Недокачанную игру Vaporust из библиотеки - во временную папку (чтобы докачать при открытом Steam):
-/// appmanifest (или спрятанный .acf.vaporust-paused), папку common\<игра> и steamapps\downloading\<appid>.
+/// An unfinished Vaporust game from the library goes to the temporary folder (to finish it while Steam is open):
+/// appmanifest (or the hidden .acf.vaporust-paused), the common\<game> folder and steamapps\downloading\<appid>.
 pub fn to_staging(library: &Path, appid: u32) -> Result<(), String> {
     let apps = library.join("steamapps");
     let st = staging_dir(library).join("steamapps");

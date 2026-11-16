@@ -1,6 +1,6 @@
-//! «Сообщество» игры: обсуждения (список тем, тема с ответами, свой ответ) и руководства.
-//! Обсуждения - страницы сообщества Steam (как их видит браузер), ответы - через тот же
-//! механизм комментариев, что и на сайте; руководства - Web API IPublishedFileService/QueryFiles.
+//! Game "Community": discussions (topic list, topic with replies, own reply) and guides.
+//! Discussions - Steam community pages (as a browser sees them), replies - via the same
+//! comment mechanism as on the site; guides - Web API IPublishedFileService/QueryFiles.
 
 use crate::net::{Cmd, NetState};
 use crate::profile_extra::{parse_comments, Comment};
@@ -25,9 +25,9 @@ pub struct TopicView {
     pub title: String,
     pub author: String,
     pub time: u64,
-    /// Текст первого сообщения с абзацами и картинками.
+    /// First post text with paragraphs and images.
     pub items: Vec<crate::richtext::Item>,
-    /// Для ответов: владелец ветки, форум, тема, extended_data.
+    /// For replies: thread owner, forum, topic, extended_data.
     pub owner: String,
     pub forum: String,
     pub topic: String,
@@ -57,7 +57,7 @@ fn text(s: &str) -> String {
     crate::store::plain_text(s).split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Список тем со страницы обсуждений (l=english).
+/// Topic list from the discussions page (l=english).
 pub fn parse_topics(html: &str) -> Vec<Topic> {
     html.split("class=\"forum_topic ")
         .skip(1)
@@ -70,7 +70,7 @@ pub fn parse_topics(html: &str) -> Vec<Topic> {
                 .unwrap_or(0);
             let last = between(t, "forum_topic_lastpost\"", ">").and_then(|a| between(a, "data-timestamp=\"", "\"")).and_then(|n| n.parse().ok()).unwrap_or(0);
             let name_html = between(t, "class=\"forum_topic_name", "</div>").and_then(|n| n.split_once('>').map(|x| x.1)).unwrap_or("");
-            // Метка «PINNED:» - в своем span, ее убираем.
+            // The "PINNED:" label is in its own span, we remove it.
             let name_html = match name_html.find("</span>") {
                 Some(i) if name_html.contains("forum_topic_label") => &name_html[i + 7..],
                 _ => name_html,
@@ -89,7 +89,7 @@ pub fn parse_topics(html: &str) -> Vec<Topic> {
         .collect()
 }
 
-/// Первый пост темы и данные для ответов.
+/// The topic's first post and data for replies.
 pub fn parse_topic(html: &str, url: &str) -> TopicView {
     let op = html.split("class=\"forum_op ").nth(1).unwrap_or("");
     let title = between(op, "class=\"topic\"", "</div>").and_then(|t| t.split_once('>').map(|x| x.1)).map(text).unwrap_or_default();
@@ -102,7 +102,7 @@ pub fn parse_topic(html: &str, url: &str) -> TopicView {
     let mut v = TopicView { url: url.to_string(), title, author, time, items, ..Default::default() };
     if let Some(args) = between(html, "InitializeCommentThread( \"ForumTopic\", \"", "\n") {
         if let Some(json) = args.split_once(", {").map(|x| format!("{{{}", x.1)) {
-            // Объект кончается перед вторым аргументом: «}, 'https://steamcommunity.com/comment/…', 40 );».
+            // The object ends before the second argument: "}, 'https://steamcommunity.com/comment/...', 40 );".
             let json = json.rsplit_once("}, '").map(|x| format!("{}}}", x.0)).unwrap_or(json);
             if let Ok(j) = serde_json::from_str::<serde_json::Value>(&json) {
                 let s = |k: &str| j.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
@@ -115,7 +115,7 @@ pub fn parse_topic(html: &str, url: &str) -> TopicView {
         }
     }
     v.can_reply = html.contains("\"can_reply\":1") && !v.owner.is_empty();
-    // Первая страница ответов уже на странице темы.
+    // The first page of replies is already on the topic page.
     if let Some(area) = html.split("commentthread_area").nth(1) {
         v.replies = parse_comments(area);
     }
@@ -135,7 +135,7 @@ pub async fn load_topic(client: &SteamClient, url: &str) -> Result<TopicView, St
     let web = webapi::web_session(client).await?;
     let html = web.get_text(&format!("{url}?l=english")).await.map_err(|e| format!("{e:#}"))?;
     let mut v = parse_topic(&html, url);
-    // Остальные - как их догружает сайт (POST render с данными ветки).
+    // The rest - the way the site loads them (POST render with the thread data).
     if !v.owner.is_empty() && (v.replies.len() as u32) < v.total {
         let fields = [
             ("start", "0".to_string()),
@@ -185,7 +185,7 @@ pub async fn reply(client: &SteamClient, t: &TopicView, msg: &str) -> Result<(),
     }
 }
 
-/// Руководства игры: лучшие или по тексту (по-русски, если есть, иначе все языки).
+/// Game guides: top rated or by text (in Russian if available, otherwise all languages).
 pub async fn load_guides(client: &SteamClient, appid: u32, search: &str) -> Result<Vec<Guide>, String> {
     let mut p = vec![
         ("appid", appid.to_string()),
@@ -219,7 +219,7 @@ pub async fn load_guides(client: &SteamClient, appid: u32, search: &str) -> Resu
         .collect())
 }
 
-/// Руководство целиком: название и разделы (заголовок + текст с картинками).
+/// Whole guide: title and sections (heading + text with images).
 #[derive(Clone, Debug, Default)]
 pub struct GuideView {
     pub id: u64,
@@ -228,7 +228,7 @@ pub struct GuideView {
     pub sections: Vec<(String, Vec<crate::richtext::Item>)>,
 }
 
-/// Разобрать страницу руководства (sharedfiles/filedetails).
+/// Parse a guide page (sharedfiles/filedetails).
 pub fn parse_guide(html: &str, id: u64) -> GuideView {
     let title = between(html, "class=\"workshopItemTitle\">", "<").map(text).unwrap_or_default();
     let intro = between(html, "class=\"guideTopDescription\">", "</div>").map(crate::richtext::parse).unwrap_or_default();
@@ -264,7 +264,7 @@ pub async fn load_guide(client: &SteamClient, id: u64) -> Result<GuideView, Stri
 #[derive(Default)]
 pub struct CommunityUi {
     pub appid: Option<(u32, String)>,
-    /// 0 - обсуждения, 1 - руководства.
+    /// 0 - discussions, 1 - guides.
     pub tab: u8,
     pub page: u32,
     pub asked: Option<(u32, u8, u32)>,
@@ -319,7 +319,7 @@ impl LauncherApp {
             ui.weak(m);
         }
         ui.separator();
-        // Открытая тема.
+        // Open topic.
         if st.tab == 0 {
             if let Some(t) = &net.comm_topic {
                 if ui.button("< К списку тем").clicked() {
@@ -442,7 +442,7 @@ impl LauncherApp {
                 }
             }
         } else if let Some(g) = &net.comm_guide {
-            // Открытое руководство - целиком, в программе.
+            // Open guide - in full, inside the program.
             let mut back = false;
             ui.horizontal(|ui| {
                 if ui.button("< К руководствам").clicked() {
@@ -465,7 +465,7 @@ impl LauncherApp {
                         ui.label(egui::RichText::new(crate::richtext::fix(ui, &g.title)).size(20.0).strong());
                         ui.add_space(6.0);
                         crate::richtext::show(ui, &g.intro);
-                        // Оглавление.
+                        // Table of contents.
                         if g.sections.len() > 1 {
                             egui::CollapsingHeader::new("Содержание").default_open(false).show(ui, |ui| {
                                 for (name, _) in &g.sections {
@@ -578,7 +578,7 @@ mod tests {
 
 #[cfg(test)]
 mod guide_live {
-    /// Живой тест (только чтение): лучшее руководство L4D2 открывается в программе.
+    /// Live test (read only): the top L4D2 guide opens in the program.
     #[test]
     #[ignore]
     fn guide_live() {

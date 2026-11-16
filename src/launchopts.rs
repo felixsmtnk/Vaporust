@@ -1,8 +1,8 @@
-//! Параметры запуска игр: поле LaunchOptions в localconfig.vdf пользователя Steam.
+//! Game launch options: the LaunchOptions field in the Steam user's localconfig.vdf.
 //!
-//! Путь в файле: UserLocalConfigStore / Software / Valve / Steam / apps / <appid> / LaunchOptions.
-//! Steam перезаписывает этот файл при выходе, поэтому сохранять можно только при закрытом Steam.
-//! Файл правится построчно: все, кроме одной нужной строки, остается байт в байт.
+//! Path in the file: UserLocalConfigStore / Software / Valve / Steam / apps / <appid> / LaunchOptions.
+//! Steam rewrites this file on exit, so it can be saved only while Steam is closed.
+//! The file is edited line by line: everything except the one needed line stays byte for byte.
 
 use std::{
     fs,
@@ -11,8 +11,8 @@ use std::{
 
 const APPS_PATH: [&str; 5] = ["UserLocalConfigStore", "Software", "Valve", "Steam", "apps"];
 
-/// localconfig.vdf текущего пользователя: тот, что менялся последним
-/// (Steam переписывает его при каждом выходе вошедшего аккаунта).
+/// The current user's localconfig.vdf: the most recently modified one
+/// (Steam rewrites it every time the logged-in account exits).
 pub fn find_localconfig(steam_dir: &Path) -> Option<PathBuf> {
     fs::read_dir(steam_dir.join("userdata"))
         .ok()?
@@ -26,7 +26,7 @@ pub fn find_localconfig(steam_dir: &Path) -> Option<PathBuf> {
         .map(|(_, p)| p)
 }
 
-/// Строки в кавычках из строки VDF (с разбором \" и \\).
+/// Quoted strings from a VDF line (handling \" and \\).
 fn tokens(line: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut chars = line.chars();
@@ -59,14 +59,14 @@ fn escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-/// Где в файле лежит блок игры и ее строка LaunchOptions.
+/// Where the game block and its LaunchOptions line are in the file.
 #[derive(Default)]
 struct Found {
-    /// Строка с закрывающей скобкой блока apps.
+    /// Line with the closing brace of the apps block.
     apps_close: Option<usize>,
-    /// Строка с закрывающей скобкой блока игры.
+    /// Line with the closing brace of the game block.
     app_close: Option<usize>,
-    /// Строка "LaunchOptions" внутри блока игры и ее значение.
+    /// The "LaunchOptions" line inside the game block and its value.
     launch: Option<(usize, String)>,
 }
 
@@ -111,7 +111,7 @@ fn locate(lines: &[&str], appid: u32) -> Found {
     found
 }
 
-/// Когда игры запускались последний раз (unix-время) - поле LastPlayed в том же разделе apps.
+/// When games were last launched (unix time) - the LastPlayed field in the same apps section.
 pub fn read_last_played(localconfig: &Path) -> std::collections::HashMap<u32, u64> {
     let mut out = std::collections::HashMap::new();
     let Ok(text) = fs::read_to_string(localconfig) else {
@@ -147,7 +147,7 @@ pub fn read_last_played(localconfig: &Path) -> std::collections::HashMap<u32, u6
     out
 }
 
-/// Текущие параметры запуска игры ("" если не заданы).
+/// Current launch options of a game ("" if not set).
 pub fn read(localconfig: &Path, appid: u32) -> Result<String, String> {
     let text = fs::read_to_string(localconfig)
         .map_err(|e| format!("Не удалось прочитать настройки Steam: {e}"))?;
@@ -155,7 +155,7 @@ pub fn read(localconfig: &Path, appid: u32) -> Result<String, String> {
     Ok(locate(&lines, appid).launch.map(|(_, v)| v).unwrap_or_default())
 }
 
-/// Записать параметры запуска. Steam должен быть закрыт.
+/// Write launch options. Steam must be closed.
 pub fn write(localconfig: &Path, appid: u32, value: &str) -> Result<(), String> {
     let text = fs::read_to_string(localconfig)
         .map_err(|e| format!("Не удалось прочитать настройки Steam: {e}"))?;
@@ -163,16 +163,16 @@ pub fn write(localconfig: &Path, appid: u32, value: &str) -> Result<(), String> 
     let found = locate(&lines, appid);
     let mut out: Vec<String> = lines.iter().map(|s| s.to_string()).collect();
     let tabs = |n: usize| "\t".repeat(n);
-    let depth = APPS_PATH.len() + 1; // глубина содержимого блока игры
+    let depth = APPS_PATH.len() + 1; // depth of the game block contents
     let value = value.trim().replace(['\r', '\n'], " ");
     let kv = format!("{}\"LaunchOptions\"\t\t\"{}\"", tabs(depth), escape(&value));
 
     if let Some((i, _)) = found.launch {
-        // Сохраняем отступ, как был в файле.
+        // Keep the indentation as it was in the file.
         let indent: String = lines[i].chars().take_while(|c| c.is_whitespace()).collect();
         out[i] = format!("{indent}\"LaunchOptions\"\t\t\"{}\"", escape(&value));
     } else if value.is_empty() {
-        return Ok(()); // нечего удалять
+        return Ok(()); // nothing to remove
     } else if let Some(i) = found.app_close {
         out.insert(i, kv);
     } else if let Some(i) = found.apps_close {
@@ -189,7 +189,7 @@ pub fn write(localconfig: &Path, appid: u32, value: &str) -> Result<(), String> 
         return Err("В настройках Steam не найден раздел apps. Запустите Steam один раз обычным способом.".into());
     }
 
-    // Резервная копия до первой нашей правки, затем запись через временный файл.
+    // Backup before our first edit, then write via a temporary file.
     let backup = localconfig.with_extension("vdf.vaporust.bak");
     if !backup.exists() {
         fs::copy(localconfig, &backup).map_err(|e| format!("Не удалось сделать резервную копию: {e}"))?;
@@ -198,7 +198,7 @@ pub fn write(localconfig: &Path, appid: u32, value: &str) -> Result<(), String> 
     fs::write(&tmp, out.join("\n")).map_err(|e| format!("Не удалось записать настройки: {e}"))?;
     fs::rename(&tmp, localconfig).map_err(|e| format!("Не удалось записать настройки: {e}"))?;
 
-    // Проверка: читаем обратно.
+    // Check: read it back.
     let back = read(localconfig, appid)?;
     if back != value {
         return Err(format!("После записи прочиталось «{back}» вместо «{value}»."));
@@ -235,7 +235,7 @@ mod tests {
         assert_eq!(read(&p, 80).unwrap(), "-high");
         write(&p, 90, "-w 800").unwrap();
         assert_eq!(read(&p, 90).unwrap(), "-w 800");
-        // Второй раздел apps (не тот путь) не тронут.
+        // The second apps section (wrong path) is untouched.
         assert!(fs::read_to_string(&p).unwrap().contains("\"wrong\""));
         write(&p, 70, "").unwrap();
         assert_eq!(read(&p, 70).unwrap(), "");
@@ -244,8 +244,8 @@ mod tests {
 
 #[cfg(test)]
 mod real_file {
-    /// Ручная проверка на копии настоящего файла:
-    /// VAPORUST_LC=<копия localconfig.vdf> cargo test real_copy -- --ignored
+    /// Manual check on a copy of the real file:
+    /// VAPORUST_LC=<copy of localconfig.vdf> cargo test real_copy -- --ignored
     #[test]
     #[ignore]
     fn real_copy() {
