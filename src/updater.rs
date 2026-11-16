@@ -291,58 +291,75 @@ impl crate::LauncherApp {
         if !show {
             return;
         }
-        egui::TopBottomPanel::top("update_banner").show(ctx, |ui| {
-            ui.add_space(3.0);
+        // A slim strip in the program's style: a colored edge on the left, the text, one main
+        // (blue) button and quiet secondary ones on the right.
+        let accent = match &state {
+            State::Ready => crate::theme::PLAY,
+            State::Failed(_) => egui::Color32::from_rgb(200, 90, 90),
+            _ => crate::theme::ACCENT,
+        };
+        let frame = egui::Frame::none().fill(egui::Color32::from_rgb(24, 40, 58)).inner_margin(egui::Margin { left: 14.0, right: 10.0, top: 6.0, bottom: 6.0 });
+        let primary = |ui: &mut egui::Ui, text: &str| ui.add(egui::Button::new(egui::RichText::new(text).color(egui::Color32::WHITE)).fill(crate::theme::ACCENT).rounding(3.0));
+        let quiet = |ui: &mut egui::Ui, text: &str| ui.add(egui::Button::new(egui::RichText::new(text).color(crate::theme::WEAK)).frame(false)).on_hover_cursor(egui::CursorIcon::PointingHand);
+        let panel = egui::TopBottomPanel::top("update_banner").frame(frame).show_separator_line(false).show(ctx, |ui| {
             ui.horizontal(|ui| match &state {
                 State::Available(r) => {
-                    ui.colored_label(egui::Color32::from_rgb(240, 200, 80), trf!("Доступна новая версия Vaporust {}", "A new Vaporust version is available: {}", r.version));
+                    ui.label(egui::RichText::new(trf!("Вышла новая версия Vaporust {}", "Vaporust {} is available", r.version)).strong().color(egui::Color32::WHITE));
                     if r.asset_size > 0 {
-                        ui.weak(format!("({})", crate::net::fmt_bytes(r.asset_size)));
+                        ui.label(egui::RichText::new(crate::net::fmt_bytes(r.asset_size)).color(crate::theme::WEAK));
                     }
-                    let notes: String = r.notes.lines().take(25).collect::<Vec<_>>().join("\n");
-                    if !r.page.is_empty() && ui.button(tr!("Что нового", "What's new")).on_hover_text(notes).clicked() {
-                        ui.ctx().open_url(egui::OpenUrl::new_tab(&r.page));
-                    }
-                    if r.asset_url.is_some() {
-                        if ui.button(tr!("Обновить", "Update")).on_hover_text(tr!("Скачать и установить, затем перезапустить Vaporust", "Download and install, then restart Vaporust")).clicked() {
-                            install(r.clone(), &self.upd, ui.ctx());
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if quiet(ui, tr!("Позже", "Later")).clicked() {
+                            self.upd_hidden = true;
                         }
-                    } else {
-                        ui.weak(tr!("(архива для этой Windows в релизе нет - скачайте со страницы)", "(the release has no archive for this Windows - download it from the page)"));
-                    }
-                    if ui.button(tr!("Позже", "Later")).clicked() {
-                        self.upd_hidden = true;
-                    }
+                        let notes: String = r.notes.lines().take(25).collect::<Vec<_>>().join("\n");
+                        if !r.page.is_empty() && quiet(ui, tr!("Что нового", "What's new")).on_hover_text(notes).clicked() {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(&r.page));
+                        }
+                        if r.asset_url.is_some() {
+                            if primary(ui, tr!("Обновить", "Update")).on_hover_text(tr!("Скачать и установить, затем перезапустить Vaporust", "Download and install, then restart Vaporust")).clicked() {
+                                install(r.clone(), &self.upd, ui.ctx());
+                            }
+                        } else {
+                            ui.label(egui::RichText::new(tr!("архива для этой Windows в выпуске нет - скачайте со страницы", "the release has no archive for this Windows - download it from the page")).color(crate::theme::WEAK));
+                        }
+                    });
                 }
                 State::Downloading(t) => {
                     crate::spin::spinner(ui);
-                    ui.label(t);
+                    ui.label(egui::RichText::new(t).color(egui::Color32::WHITE));
                 }
                 State::Ready => {
-                    ui.colored_label(egui::Color32::from_rgb(110, 200, 110), tr!("Новая версия установлена.", "The new version is installed."));
-                    if ui.button(tr!("Перезапустить Vaporust", "Restart Vaporust")).clicked() {
-                        if crate::portable::restart().is_ok() {
+                    ui.label(egui::RichText::new(tr!("Новая версия установлена", "The new version is installed")).strong().color(egui::Color32::WHITE));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if primary(ui, tr!("Перезапустить Vaporust", "Restart Vaporust")).clicked() && crate::portable::restart().is_ok() {
                             crate::tray::request_exit();
                             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                         }
-                    }
+                    });
                 }
                 State::UpToDate => {
-                    ui.label(trf!("У вас последняя версия Vaporust ({CURRENT}).", "You have the latest Vaporust version ({CURRENT})."));
-                    if ui.small_button("OK").clicked() {
-                        self.upd_hidden = true;
-                    }
+                    ui.label(egui::RichText::new(trf!("У вас последняя версия Vaporust ({CURRENT})", "You have the latest Vaporust version ({CURRENT})")).color(egui::Color32::WHITE));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if quiet(ui, "OK").clicked() {
+                            self.upd_hidden = true;
+                        }
+                    });
                 }
                 State::Failed(e) => {
-                    ui.colored_label(egui::Color32::from_rgb(230, 110, 110), e);
-                    if ui.small_button("OK").clicked() {
-                        self.upd_hidden = true;
-                    }
+                    ui.label(egui::RichText::new(e).color(egui::Color32::from_rgb(240, 150, 150)));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if quiet(ui, "OK").clicked() {
+                            self.upd_hidden = true;
+                        }
+                    });
                 }
                 _ => {}
             });
-            ui.add_space(3.0);
         });
+        let r = panel.response.rect;
+        ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("update_banner_edge")))
+            .rect_filled(egui::Rect::from_min_max(r.min, egui::pos2(r.min.x + 3.0, r.max.y)), 0.0, accent);
     }
 
     /// Check for updates by a button (show both "no updates" and an error).

@@ -26,7 +26,7 @@ pub fn section_of(v: View) -> Option<Section> {
 }
 
 /// Large top bar item (turns white on hover, the selected one is light blue with an underline).
-fn top_item(ui: &mut egui::Ui, on: bool, text: &str) -> egui::Response {
+pub(crate) fn top_item(ui: &mut egui::Ui, on: bool, text: &str) -> egui::Response {
     let mut t = egui::RichText::new(text).size(15.0).strong();
     if on {
         t = t.color(theme::ACCENT);

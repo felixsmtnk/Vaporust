@@ -46,6 +46,7 @@ mod invent;
 mod invwin;
 mod exp;
 mod lite;
+mod loginui;
 mod restore;
 mod logo;
 mod launchopts;
@@ -1833,19 +1834,24 @@ impl LauncherApp {
         if net.account.is_some() {
             self.top_nav(ui, net);
         } else if self.settings.local_mode {
-            // No-login mode: only installed games and launching via Steam.
-            ui.horizontal_wrapped(|ui| {
-                ui.label(egui::RichText::new(tr!("Режим без входа в аккаунт", "No-login mode")).strong());
-                ui.weak(tr!("Установленные игры из файлов Steam, запуск через Steam. Пароль Steam в Vaporust не вводится.", "Installed games from Steam files, launched through Steam. The Steam password is not entered in Vaporust."));
-                // There is no top menu without login: library and settings are here.
-                if ui.selectable_label(self.view == View::Library, tr!("Библиотека", "Library")).clicked() {
+            // No-login mode: only installed games and launching via Steam. The same top bar as with
+            // a login, with the sections that work without it and a sign-in button.
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 18.0;
+                ui.label(egui::RichText::new("VAPORUST").size(14.0).strong().color(theme::TEXT));
+                if nav::top_item(ui, self.view == View::Library, tr!("БИБЛИОТЕКА", "LIBRARY")).clicked() {
                     self.view = View::Library;
                 }
-                if ui.selectable_label(self.view == View::Settings, tr!("Настройки", "Settings")).clicked() {
+                if nav::top_item(ui, self.view == View::Settings, tr!("НАСТРОЙКИ", "SETTINGS")).clicked() {
                     self.view = View::Settings;
                 }
+                ui.label(egui::RichText::new(tr!("без входа", "no login")).size(12.0).color(theme::WEAK)).on_hover_text(tr!(
+                    "Установленные игры из файлов Steam, запуск через Steam. Пароль Steam в Vaporust не вводится.",
+                    "Installed games from Steam files, launched through Steam. The Steam password is not entered in Vaporust."
+                ));
+                let b = egui::Button::new(egui::RichText::new(tr!("Войти в аккаунт", "Sign in")).color(egui::Color32::WHITE)).fill(theme::ACCENT).rounding(3.0);
                 if ui
-                    .button(tr!("Войти в аккаунт", "Log in"))
+                    .add(b)
                     .on_hover_text(tr!("Включит магазин, друзей и чат, загрузку и обновление игр без Steam", "Turns on the store, friends and chat, game downloads and updates without Steam"))
                     .clicked()
                 {
@@ -1854,85 +1860,41 @@ impl LauncherApp {
                 }
             });
         } else if net.offline {
-            ui.horizontal_wrapped(|ui| {
-                ui.colored_label(egui::Color32::from_rgb(230, 170, 60), tr!("Нет связи со Steam.", "No connection to Steam."))
-                    .on_hover_text(&net.offline_reason);
-                ui.label(tr!("Автономный режим: игры из сохраненного списка, запуск через Steam без сети.", "Offline mode: games from the saved list, launched through Steam without network."));
-                if ui.add_enabled(!net.busy, egui::Button::new(tr!("Переподключиться", "Reconnect"))).clicked() {
+            // No connection: a quiet amber status in the top bar with the actions next to it.
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                ui.label(egui::RichText::new("VAPORUST").size(14.0).strong().color(theme::TEXT));
+                ui.add_space(8.0);
+                let (dot, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
+                ui.painter().circle_filled(dot.center(), 4.0, egui::Color32::from_rgb(230, 170, 60));
+                ui.label(egui::RichText::new(tr!("Нет связи со Steam", "No connection to Steam")).color(egui::Color32::from_rgb(230, 170, 60)))
+                    .on_hover_text(trf!(
+                        "Автономный режим: игры из сохраненного списка, запуск через Steam без сети.\n{}",
+                        "Offline mode: games from the saved list, launched through Steam without network.\n{}",
+                        net.offline_reason
+                    ));
+                if net.busy {
+                    crate::spin::spinner(ui);
+                } else if ui.add(egui::Button::new(tr!("Переподключиться", "Reconnect")).rounding(3.0)).clicked() {
                     self.offline_retry = Some(std::time::Instant::now());
                     let _ = self.tx.send(Cmd::Restore);
                 }
                 if ui
-                    .add_enabled(!net.busy, egui::Button::new(tr!("Войти заново", "Log in again")))
-                    .on_hover_text(tr!("Если дело не в сети: войти в аккаунт логином и паролем или QR-кодом", "If it is not the network: log in with login and password or a QR code"))
+                    .add_enabled(!net.busy, egui::Button::new(tr!("Войти заново", "Sign in again")).frame(false))
+                    .on_hover_text(tr!("Если дело не в сети: войти в аккаунт логином и паролем или QR-кодом", "If it is not the network: sign in with login and password or a QR code"))
                     .clicked()
                 {
                     let mut s = self.net.lock().unwrap();
                     s.offline = false;
                     s.need_login = true;
                 }
-                if net.busy {
-                    crate::spin::spinner(ui);
-                }
             });
-        } else if net.need_login {
-            ui.label(tr!("Вход в Steam (нужен для списка всех игр, времени в игре и достижений)", "Steam login (needed for the list of all games, playtime and achievements)"));
-            egui::Grid::new("login").num_columns(2).show(ui, |ui| {
-                ui.label(tr!("Логин:", "Login:"));
-                ui.text_edit_singleline(&mut self.login_user);
-                ui.end_row();
-                ui.label(tr!("Пароль:", "Password:"));
-                ui.add(egui::TextEdit::singleline(&mut self.login_pass).password(true));
-                ui.end_row();
-                ui.label(tr!("Код Steam Guard:", "Steam Guard code:"));
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.login_code)
-                        .hint_text(tr!("если пришел на почту или в приложение", "if it came by email or in the app")),
-                );
-                ui.end_row();
-            });
-            ui.horizontal(|ui| {
-                // While waiting for the QR code, the user can change their mind and log in with a password (the QR wait is interrupted).
-                let waiting_qr = net.qr_url.is_some();
-                let can = (!net.busy || waiting_qr) && !self.login_user.is_empty() && !self.login_pass.is_empty();
-                if ui.add_enabled(can, egui::Button::new(tr!("Войти", "Log in"))).clicked() {
-                    let code = self.login_code.trim().to_string();
-                    let _ = self.tx.send(Cmd::Login {
-                        user: self.login_user.trim().to_string(),
-                        pass: std::mem::take(&mut self.login_pass),
-                        code: (!code.is_empty()).then_some(code),
-                    });
-                    self.login_code.clear();
-                }
-                if ui
-                    .add_enabled(!net.busy, egui::Button::new(tr!("Войти по QR-коду", "Log in with a QR code")))
-                    .clicked()
-                {
-                    let _ = self.tx.send(Cmd::LoginQr);
-                }
-                if ui
-                    .button(tr!("Без входа", "Without login"))
-                    .on_hover_text(tr!("Только установленные игры и запуск через Steam: пароль Steam вводить не нужно. Войти можно позже.", "Installed games only, launched through Steam: no Steam password needed. You can log in later."))
-                    .clicked()
-                {
-                    self.settings.local_mode = true;
-                    let mut s = self.net.lock().unwrap();
-                    s.need_login = false;
-                    s.qr_url = None;
-                    s.message.clear();
-                }
-            });
-            if let Some(url) = &net.qr_url {
-                if net.qr_scanned {
-                    ui.label(tr!("Код отсканирован, подтвердите вход в приложении Steam.", "The code is scanned, confirm the login in the Steam app."));
-                } else {
-                    ui.label(tr!("Отсканируйте код в мобильном приложении Steam:", "Scan the code in the Steam mobile app:"));
-                }
-                draw_qr(ui, url);
-                if ui.button(tr!("Отменить вход по QR", "Cancel QR login")).clicked() {
-                    let _ = self.tx.send(Cmd::CancelQr);
-                }
-            }
+        } else if self.login_screen(net) {
+            // The login form itself is a page in the middle of the window (loginui.rs); the top bar
+            // keeps only the name, the window buttons and dragging.
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new("VAPORUST").size(14.0).strong().color(theme::TEXT));
+            return;
         }
         if !net.message.is_empty() {
             ui.label(&net.message);
@@ -2111,19 +2073,22 @@ impl LauncherApp {
     }
 }
 
-fn draw_qr(ui: &mut egui::Ui, url: &str) {
+/// The login QR code in a white square `size` points wide (cells are whole points, so it stays sharp).
+pub(crate) fn draw_qr(ui: &mut egui::Ui, url: &str, size: f32) {
     let Ok(code) = qrcode::QrCode::new(url.as_bytes()) else {
         ui.label(url);
         return;
     };
     let w = code.width();
     let colors = code.to_colors();
-    let cell = 4.0;
-    let quiet = 4;
-    let size = (w + 2 * quiet) as f32 * cell;
+    let quiet = 3;
+    let cell = (size / (w + 2 * quiet) as f32).floor().max(1.0);
     let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 0.0, egui::Color32::WHITE);
+    painter.rect_filled(rect, 6.0, egui::Color32::WHITE);
+    // Center the code inside the square.
+    let used = (w + 2 * quiet) as f32 * cell;
+    let rect = egui::Rect::from_min_size(rect.min + egui::vec2(((size - used) / 2.0).floor(), ((size - used) / 2.0).floor()), egui::vec2(used, used));
     for y in 0..w {
         for x in 0..w {
             if colors[y * w + x] == qrcode::Color::Dark {
@@ -2535,7 +2500,9 @@ impl eframe::App for LauncherApp {
             self.update_banner(ctx);
 
             let bottom_frame = egui::Frame::none().fill(theme::TOP).inner_margin(egui::Margin::symmetric(8.0, 3.0));
-            egui::TopBottomPanel::bottom("status").frame(bottom_frame).show(ctx, |ui| {
+            // No bottom bar on the login page and in the first-run wizard: only the card is there.
+            let bottom_bar = !(self.login_screen(&net) || self.wizard_active(&net));
+            egui::TopBottomPanel::bottom("status").frame(bottom_frame).show_animated(ctx, bottom_bar, |ui| {
                 ui.add_space(2.0);
                 let full = ui.max_rect();
                 let row = ui.horizontal(|ui| {
@@ -2613,7 +2580,9 @@ impl eframe::App for LauncherApp {
             let mut side_action = None;
             // Compact view (table): no left column, filters as a row above the table.
             let table_mode = self.settings.view == settings::View::List || !self.settings.covers;
-            if self.view == View::Library && !table_mode {
+            let login_screen = self.login_screen(&net);
+            let wizard = !login_screen && self.wizard_active(&net);
+            if self.view == View::Library && !table_mode && !login_screen && !wizard {
                 let side = egui::Frame::none().fill(theme::SIDEBAR).inner_margin(egui::Margin::symmetric(6.0, 6.0));
                 egui::SidePanel::left("games")
                     .frame(side)
@@ -2627,6 +2596,14 @@ impl eframe::App for LauncherApp {
                 // Each page (and each game) has its own scroll: otherwise a new page opened
                 // at the position the previous one was scrolled to (egui tells scroll areas apart by id).
                 let page_key = (self.view, self.lib_page, self.ach_open.as_ref().map(|a| a.0));
+                if login_screen {
+                    self.login_page(ui, &net);
+                    return;
+                }
+                if wizard {
+                    self.wizard_page(ui);
+                    return;
+                }
                 if self.view != View::Library {
                     ui.push_id(page_key, |ui| self.section_view(ui, &net));
                     return;
@@ -2812,7 +2789,6 @@ impl eframe::App for LauncherApp {
         self.stats_tick(&net);
         self.popups_ui(ctx);
         self.custom_tick(ctx);
-        self.wizard(ctx);
         self.uninstall_dialog(ctx, &net);
         self.note_dialog(ctx);
         self.run_request_tick(ctx);

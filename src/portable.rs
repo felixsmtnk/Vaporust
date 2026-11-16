@@ -45,5 +45,12 @@ pub fn init() -> Option<PathBuf> {
 /// Restart Vaporust (a new process; the caller closes the current window).
 pub fn restart() -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    std::process::Command::new(exe).spawn().map(|_| ()).map_err(|e| trf!("Не удалось перезапустить: {e}", "Could not restart: {e}"))
+    // The login folder is chosen again at start (portable::init, accounts::init). An inherited
+    // AURELIA_CONFIG_DIR would keep the previous account's folder: switching back to the main
+    // account then signed into the other one.
+    std::process::Command::new(exe)
+        .env_remove("AURELIA_CONFIG_DIR")
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| trf!("Не удалось перезапустить: {e}", "Could not restart: {e}"))
 }

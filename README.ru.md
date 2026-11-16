@@ -288,6 +288,7 @@ Aurelia выросла из **[SteamFlow](https://github.com/weter11/SteamFlow)*
 - [egui / eframe](https://github.com/emilk/egui), [ehttp](https://github.com/emilk/ehttp) - интерфейс и загрузка картинок
 - [tokio](https://tokio.rs/), [sysinfo](https://github.com/GuillaumeGomez/sysinfo), [winreg](https://github.com/gentoo90/winreg-rs), [windows-sys](https://github.com/microsoft/windows-rs), [image](https://github.com/image-rs/image), [arboard](https://github.com/1Password/arboard), [rfd](https://github.com/PolyMeilex/rfd), [chrono](https://github.com/chronotope/chrono), [qrcode](https://github.com/kennytm/qrcode-rust), [zip](https://github.com/zip-rs/zip2)
 - [SteamDatabase/Protobufs](https://github.com/SteamDatabase/Protobufs), [SteamKit2](https://github.com/SteamRE/SteamKit), [node-steamcommunity](https://github.com/DoctorMcKay/node-steamcommunity), [node-steam-user](https://github.com/DoctorMcKay/node-steam-user) - описания протоколов и сайта Steam
+- [Steam Shadow Launcher](https://github.com/Shightrox/steam-shadow-launcher) и [TcNo Account Switcher](https://github.com/TCNOco/TcNo-Acc-Switcher) - как переключать аккаунт Steam через loginusers.vdf
 - Похожие проекты: [OpenSteamClient](https://github.com/OpenSteamClient/OpenSteamClient), [SteamCMD](https://developer.valvesoftware.com/wiki/SteamCMD)
 </details>
 

@@ -292,6 +292,7 @@ analysing the Steam protocol. Thanks also to **[OpenSteamClient](https://github.
 - [egui / eframe](https://github.com/emilk/egui), [ehttp](https://github.com/emilk/ehttp) - the interface and image loading
 - [tokio](https://tokio.rs/), [sysinfo](https://github.com/GuillaumeGomez/sysinfo), [winreg](https://github.com/gentoo90/winreg-rs), [windows-sys](https://github.com/microsoft/windows-rs), [image](https://github.com/image-rs/image), [arboard](https://github.com/1Password/arboard), [rfd](https://github.com/PolyMeilex/rfd), [chrono](https://github.com/chronotope/chrono), [qrcode](https://github.com/kennytm/qrcode-rust), [zip](https://github.com/zip-rs/zip2)
 - [SteamDatabase/Protobufs](https://github.com/SteamDatabase/Protobufs), [SteamKit2](https://github.com/SteamRE/SteamKit), [node-steamcommunity](https://github.com/DoctorMcKay/node-steamcommunity), [node-steam-user](https://github.com/DoctorMcKay/node-steam-user) - descriptions of the Steam protocols and website
+- [Steam Shadow Launcher](https://github.com/Shightrox/steam-shadow-launcher) and [TcNo Account Switcher](https://github.com/TCNOco/TcNo-Acc-Switcher) - how to switch the Steam account through loginusers.vdf
 - Similar projects: [OpenSteamClient](https://github.com/OpenSteamClient/OpenSteamClient), [SteamCMD](https://developer.valvesoftware.com/wiki/SteamCMD)
 </details>
 
