@@ -5,7 +5,9 @@
 What went into each released version, newest first. Plans for the future are in
 [ROADMAP.md](ROADMAP.md), archives and full release notes are on the [Releases](../../releases) page.
 
-## 🔧 Coming in the next version
+## ✅ 0.8.1-alpha: fixes after review
+
+*Released 2026-11-16.* Fixes after the Codex review of 0.8.0-alpha.
 
 - Switching the interface language during a download no longer breaks the download schedule or the
   "download complete" handling (the kind of operation is no longer recognised by its text).
