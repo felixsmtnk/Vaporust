@@ -5,6 +5,20 @@
 What went into each released version, newest first. Plans for the future are in
 [ROADMAP.md](ROADMAP.md), archives and full release notes are on the [Releases](../../releases) page.
 
+## ✅ 0.8.3-alpha: new sign-in and accounts
+
+*Released 2026-11-16.* A new sign-in screen and first-run wizard, reliable account switching.
+
+- **Sign-in screen** in the middle of the window, in the program's style: account name, password and
+  Steam Guard code on the left, the QR code on the right, a language switch; it fits low windows too.
+- **First-run wizard** comes after sign-in (or "Continue without login"), redrawn as a card with
+  choice cards and switches.
+- **Account switching** also switches Steam: auto-login in Steam's `loginusers.vdf`, a restore point
+  before each switch and "Restore the previous Steam login"; a new account or one switched while
+  Steam was open is switched in Steam after sign-in.
+- Fix: switching back to the main account no longer opens another account's session.
+- The top bar without login, the no-login and offline bars and the update bar are restyled.
+
 ## ✅ 0.8.2-alpha: chat look and fixes
 
 *Released 2026-11-16.* A small update after the second Codex review.
