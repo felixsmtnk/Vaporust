@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="../../releases/tag/v0.7.0-alpha"><b>Скачать для Windows</b></a> ·
+  <a href="../../releases/tag/v0.7.1-alpha"><b>Скачать для Windows</b></a> ·
   <a href="#пароль-и-безопасность">Пароль и безопасность</a> ·
   <a href="#что-умеет">Возможности</a> ·
   <a href="#вопросы">Вопросы</a> ·
@@ -110,8 +110,8 @@
 
 1. Нужен **Windows 10 или 11** и установленный **Steam**, в который хоть раз входили с галочкой
    «Запомнить пароль».
-2. Скачайте со страницы [последнего выпуска](../../releases/tag/v0.7.0-alpha) файл
-   `Vaporust-0.7.0-alpha-windows-x64.zip` (для 32-битной Windows - `windows-x86`).
+2. Скачайте со страницы [последнего выпуска](../../releases/tag/v0.7.1-alpha) файл
+   `Vaporust-0.7.1-alpha-windows-x64.zip` (для 32-битной Windows - `windows-x86`).
 3. Распакуйте в любую папку и запустите `vaporust.exe`. Установка не нужна.
 4. Войдите в аккаунт Steam: пароль и код Steam Guard или QR-код из приложения Steam. Или нажмите
    «Без входа»: тогда видны только установленные игры, а запускаются они через Steam как обычно.
@@ -330,7 +330,7 @@ started hidden and closed with the game, so achievements and cloud saves work as
   Risky or barely tested actions (market selling, trades, version rollback, public community
   actions) are off until you enable "Experimental features". See [SECURITY.md](SECURITY.md).
 - The code was written with AI assistance (Claude by Anthropic), directed and tested by the author.
-- **Status: alpha (0.7.0-alpha).** The interface is in Russian for now; English is planned for the beta.
+- **Status: alpha (0.7.1-alpha).** The interface is in Russian for now; English is planned for the beta.
 
 **Disclaimer:** an independent, unofficial project, **not affiliated with, endorsed or sponsored
 by Valve Corporation or Steam**. Steam and Valve are trademarks of Valve Corporation. The
