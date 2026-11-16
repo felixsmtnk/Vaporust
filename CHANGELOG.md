@@ -5,7 +5,9 @@
 What went into each released version, newest first. Plans for the future are in
 [ROADMAP.md](ROADMAP.md), archives and full release notes are on the [Releases](../../releases) page.
 
-## 🔧 Coming in the next version
+## ✅ 0.8.0-alpha: in English, lighter
+
+*Released 2026-11-16.* The whole interface in English, light mode for weak PCs, a weekly check of Steam pages.
 
 - **English interface.** The whole interface is available in English and Russian ("Settings ->
   Window -> Interface language", by default it follows the Windows language; also on the first
