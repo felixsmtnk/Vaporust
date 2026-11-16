@@ -39,8 +39,8 @@ fn visible(store: &CollectionsStore) -> Vec<Coll> {
         .map(|c| Coll {
             id: c.id.clone(),
             name: match c.id.as_str() {
-                "favorite" => "Избранное".into(),
-                "hidden" => "Скрытые".into(),
+                "favorite" => tr!("Избранное", "Favorites").into(),
+                "hidden" => tr!("Скрытые", "Hidden").into(),
                 _ => c.name.clone(),
             },
             apps: c.added.iter().copied().filter(|a| c.contains(*a)).collect(),
@@ -95,7 +95,7 @@ pub fn handle(client: &SteamClient, cmd: CollCmd, st: &crate::net::Shared, ctx: 
                 s.collections = Some(list);
                 s.collections_error = None;
             }
-            Err(e) => s.collections_error = Some(format!("Коллекции: {e}")),
+            Err(e) => s.collections_error = Some(trf!("Коллекции: {e}", "Collections: {e}")),
         }
         drop(s);
         ctx.request_repaint();

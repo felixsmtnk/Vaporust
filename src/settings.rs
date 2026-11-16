@@ -22,10 +22,10 @@ impl Sort {
 
     pub fn label(self) -> &'static str {
         match self {
-            Sort::Name => "по имени",
-            Sort::Playtime => "по времени в игре",
-            Sort::LastPlayed => "недавно запущенные",
-            Sort::Size => "по размеру на диске",
+            Sort::Name => tr!("по имени", "by name"),
+            Sort::Playtime => tr!("по времени в игре", "by playtime"),
+            Sort::LastPlayed => tr!("недавно запущенные", "recently played"),
+            Sort::Size => tr!("по размеру на диске", "by size on disk"),
         }
     }
 }
@@ -41,10 +41,13 @@ pub enum View {
 }
 
 /// Friends status (Steam EPersonaState).
-pub const PERSONAS: [(u32, &str); 4] = [(1, "В сети"), (3, "Отошел"), (2, "Не беспокоить"), (7, "Невидимка")];
+#[allow(non_snake_case)]
+pub fn PERSONAS() -> [(u32, &'static str); 4] {
+    [(1, tr!("В сети", "Online")), (3, tr!("Отошел", "Away")), (2, tr!("Не беспокоить", "Do not disturb")), (7, tr!("Невидимка", "Invisible"))]
+}
 
 pub fn persona_label(state: u32) -> &'static str {
-    PERSONAS.iter().find(|(s, _)| *s == state).map_or("Невидимка", |(_, l)| l)
+    PERSONAS().iter().find(|(s, _)| *s == state).map_or(tr!("Невидимка", "Invisible"), |(_, l)| l)
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -146,6 +149,10 @@ pub struct Settings {
     pub local_mode: bool,
     /// Experimental features (selling, trades, version rollback, public actions).
     pub experimental: bool,
+    /// Interface language: "ru", "en" or "" (as in Windows).
+    pub language: String,
+    /// Light mode: less background work (see lite.rs).
+    pub light_mode: bool,
     pub window: Option<crate::winpos::WinPos>,
     /// Performance: animations (stickers, GIFs, chat effects, loading icons).
     pub animations: bool,
@@ -276,6 +283,8 @@ impl Default for Settings {
             legacy_declined: Vec::new(),
             local_mode: false,
             experimental: false,
+            light_mode: false,
+            language: String::new(),
             window: None,
             animations: true,
             covers: true,

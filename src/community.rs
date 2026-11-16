@@ -180,8 +180,8 @@ pub async fn reply(client: &SteamClient, t: &TopicView, msg: &str) -> Result<(),
     if status == 200 && v.get("success").and_then(|s| s.as_bool()) == Some(true) {
         Ok(())
     } else {
-        let why = v.get("error").and_then(|e| e.as_str()).map(text).unwrap_or_else(|| format!("код {status}"));
-        Err(format!("Ответ не отправлен: {why}"))
+        let why = v.get("error").and_then(|e| e.as_str()).map(text).unwrap_or_else(|| trf!("код {status}", "code {status}"));
+        Err(trf!("Ответ не отправлен: {why}", "Reply not sent: {why}"))
     }
 }
 
@@ -251,12 +251,12 @@ pub fn parse_guide(html: &str, id: u64) -> GuideView {
 pub async fn load_guide(client: &SteamClient, id: u64) -> Result<GuideView, String> {
     let web = webapi::web_session(client).await?;
     let html = web
-        .get_text(&format!("https://steamcommunity.com/sharedfiles/filedetails/?id={id}&l={lang}", lang = crate::lang::STEAM))
+        .get_text(&format!("https://steamcommunity.com/sharedfiles/filedetails/?id={id}&l={lang}", lang = crate::lang::steam()))
         .await
         .map_err(|e| format!("{e:#}"))?;
     let g = parse_guide(&html, id);
     if g.sections.is_empty() && g.intro.is_empty() {
-        return Err("Не удалось прочитать руководство - откройте его в браузере.".into());
+        return Err(tr!("Не удалось прочитать руководство - откройте его в браузере.", "Could not read the guide - open it in the browser.").into());
     }
     Ok(g)
 }
@@ -302,16 +302,16 @@ impl LauncherApp {
         let mut new_topic = false;
         let mut back = false;
         ui.horizontal(|ui| {
-            ui.heading(format!("Сообщество: {name}"));
+            ui.heading(trf!("Сообщество: {name}", "Community: {name}"));
             ui.separator();
-            if ui.selectable_label(st.tab == 0, "Обсуждения").clicked() {
+            if ui.selectable_label(st.tab == 0, tr!("Обсуждения", "Discussions")).clicked() {
                 st.tab = 0;
                 back = true;
             }
-            if ui.selectable_label(st.tab == 1, "Руководства").clicked() {
+            if ui.selectable_label(st.tab == 1, tr!("Руководства", "Guides")).clicked() {
                 st.tab = 1;
             }
-            if crate::exp::button(ui, "Новая тема...").on_hover_text("Создать тему в «Общем обсуждении» игры").clicked() {
+            if crate::exp::button(ui, tr!("Новая тема...", "New topic...")).on_hover_text(tr!("Создать тему в «Общем обсуждении» игры", "Create a topic in the game's \"General Discussions\"")).clicked() {
                 new_topic = true;
             }
         });
@@ -322,12 +322,12 @@ impl LauncherApp {
         // Open topic.
         if st.tab == 0 {
             if let Some(t) = &net.comm_topic {
-                if ui.button("< К списку тем").clicked() {
+                if ui.button(tr!("< К списку тем", "< Back to topics")).clicked() {
                     back = true;
                 }
                 match t {
                     Err(e) => {
-                        ui.label(format!("Тема не загрузилась: {e}"));
+                        ui.label(trf!("Тема не загрузилась: {e}", "The topic did not load: {e}"));
                     }
                     Ok(t) => {
                         let mut send = None;
@@ -338,14 +338,14 @@ impl LauncherApp {
                                 if t.time > 0 {
                                     ui.weak(crate::socialwin::fmt_date(t.time));
                                 }
-                                if ui.small_button("Открыть в браузере").clicked() {
+                                if ui.small_button(tr!("Открыть в браузере", "Open in browser")).clicked() {
                                     open_url = Some(t.url.clone());
                                 }
                             });
                             ui.add_space(6.0);
                             crate::richtext::show(ui, &t.items);
                             ui.separator();
-                            ui.strong(format!("Ответы ({})", t.total));
+                            ui.strong(trf!("Ответы ({})", "Replies ({})", t.total));
                             for c in &t.replies {
                                 ui.horizontal_top(|ui| {
                                     if !c.avatar.is_empty() {
@@ -365,16 +365,16 @@ impl LauncherApp {
                                 ui.add_space(4.0);
                             }
                             if (t.replies.len() as u32) < t.total {
-                                ui.weak("Показаны первые 50 ответов - остальные в браузере.");
+                                ui.weak(tr!("Показаны первые 50 ответов - остальные в браузере.", "The first 50 replies are shown - the rest are in the browser."));
                             }
                             ui.add_space(6.0);
                             if t.can_reply {
-                                ui.add(egui::TextEdit::multiline(&mut st.draft).hint_text("Ваш ответ").desired_rows(3).desired_width(f32::INFINITY));
-                                if ui.add_enabled(!st.draft.trim().is_empty() && crate::exp::on(), egui::Button::new("Ответить")).on_disabled_hover_text(crate::exp::HINT).clicked() {
+                                ui.add(egui::TextEdit::multiline(&mut st.draft).hint_text(tr!("Ваш ответ", "Your reply")).desired_rows(3).desired_width(f32::INFINITY));
+                                if ui.add_enabled(!st.draft.trim().is_empty() && crate::exp::on(), egui::Button::new(tr!("Ответить", "Reply"))).on_disabled_hover_text(crate::exp::HINT()).clicked() {
                                     send = Some(st.draft.trim().to_string());
                                 }
                             } else {
-                                ui.weak("Отвечать в этой теме нельзя (закрыта или нет прав).");
+                                ui.weak(tr!("Отвечать в этой теме нельзя (закрыта или нет прав).", "You cannot reply in this topic (it is locked or you lack permission)."));
                             }
                         });
                         if let Some(m) = send {
@@ -394,14 +394,14 @@ impl LauncherApp {
         }
         if st.tab == 0 {
             ui.horizontal(|ui| {
-                if ui.add_enabled(st.page > 1, egui::Button::new("< Новее")).clicked() {
+                if ui.add_enabled(st.page > 1, egui::Button::new(tr!("< Новее", "< Newer"))).clicked() {
                     st.page -= 1;
                 }
-                ui.label(format!("страница {}", st.page));
-                if ui.button("Дальше >").clicked() {
+                ui.label(trf!("страница {}", "page {}", st.page));
+                if ui.button(tr!("Дальше >", "Next >")).clicked() {
                     st.page += 1;
                 }
-                if ui.button("Обновить").clicked() {
+                if ui.button(tr!("Обновить", "Refresh")).clicked() {
                     st.asked = None;
                 }
             });
@@ -411,7 +411,7 @@ impl LauncherApp {
                         for t in list {
                             ui.horizontal(|ui| {
                                 if t.sticky {
-                                    ui.colored_label(egui::Color32::from_rgb(230, 170, 60), "закреплено");
+                                    ui.colored_label(egui::Color32::from_rgb(230, 170, 60), tr!("закреплено", "pinned"));
                                 }
                                 if ui.link(egui::RichText::new(crate::richtext::fix(ui, &t.title)).strong()).clicked() {
                                     open_topic = Some(t.url.clone());
@@ -419,23 +419,23 @@ impl LauncherApp {
                             });
                             ui.horizontal(|ui| {
                                 ui.weak(crate::richtext::fix(ui, &t.author));
-                                ui.weak(format!("ответов: {}", t.replies));
+                                ui.weak(trf!("ответов: {}", "replies: {}", t.replies));
                                 if t.last > 0 {
-                                    ui.weak(format!("последний {}", crate::socialwin::fmt_date(t.last)));
+                                    ui.weak(trf!("последний {}", "last {}", crate::socialwin::fmt_date(t.last)));
                                 }
                                 if t.locked {
-                                    ui.weak("закрыта");
+                                    ui.weak(tr!("закрыта", "locked"));
                                 }
                             });
                             ui.add_space(4.0);
                         }
                         if list.is_empty() {
-                            ui.weak("Тем нет.");
+                            ui.weak(tr!("Тем нет.", "No topics."));
                         }
                     });
                 }
                 Some(Err(e)) => {
-                    ui.label(format!("Не удалось загрузить: {e}"));
+                    ui.label(trf!("Не удалось загрузить: {e}", "Could not load: {e}"));
                 }
                 _ => {
                     crate::spin::spinner(ui);
@@ -445,11 +445,11 @@ impl LauncherApp {
             // Open guide - in full, inside the program.
             let mut back = false;
             ui.horizontal(|ui| {
-                if ui.button("< К руководствам").clicked() {
+                if ui.button(tr!("< К руководствам", "< Back to guides")).clicked() {
                     back = true;
                 }
                 if let Ok(g) = g {
-                    if ui.button("Открыть в браузере").clicked() {
+                    if ui.button(tr!("Открыть в браузере", "Open in browser")).clicked() {
                         open_url = Some(format!("https://steamcommunity.com/sharedfiles/filedetails/?id={}", g.id));
                     }
                 }
@@ -467,7 +467,7 @@ impl LauncherApp {
                         crate::richtext::show(ui, &g.intro);
                         // Table of contents.
                         if g.sections.len() > 1 {
-                            egui::CollapsingHeader::new("Содержание").default_open(false).show(ui, |ui| {
+                            egui::CollapsingHeader::new(tr!("Содержание", "Contents")).default_open(false).show(ui, |ui| {
                                 for (name, _) in &g.sections {
                                     ui.label(crate::richtext::fix(ui, name));
                                 }
@@ -488,8 +488,8 @@ impl LauncherApp {
             }
         } else {
             ui.horizontal(|ui| {
-                let edit = ui.add(egui::TextEdit::singleline(&mut st.search).hint_text("Поиск руководств").desired_width(260.0));
-                if (edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) || ui.button("Найти").clicked() {
+                let edit = ui.add(egui::TextEdit::singleline(&mut st.search).hint_text(tr!("Поиск руководств", "Search guides")).desired_width(260.0));
+                if (edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) || ui.button(tr!("Найти", "Find")).clicked() {
                     st.asked = None;
                 }
             });
@@ -502,24 +502,24 @@ impl LauncherApp {
                                     ui.add(egui::Image::new(crate::richtext::ugc_small(&g.preview, 128)).fit_to_exact_size(egui::vec2(64.0, 64.0)));
                                 }
                                 ui.vertical(|ui| {
-                                    if ui.link(egui::RichText::new(&g.title).strong()).on_hover_text("Читать").clicked() {
+                                    if ui.link(egui::RichText::new(&g.title).strong()).on_hover_text(tr!("Читать", "Read")).clicked() {
                                         open_guide = Some(g.id);
                                     }
                                     if !g.desc.is_empty() {
                                         ui.add(egui::Label::new(egui::RichText::new(g.desc.chars().take(220).collect::<String>()).weak()).wrap());
                                     }
-                                    ui.weak(format!("оценок: {}, просмотров: {}", g.votes_up, crate::store::group_digits(g.views)));
+                                    ui.weak(trf!("оценок: {}, просмотров: {}", "ratings: {}, views: {}", g.votes_up, crate::store::group_digits(g.views)));
                                 });
                             });
                             ui.add_space(6.0);
                         }
                         if list.is_empty() {
-                            ui.weak("Руководств не найдено.");
+                            ui.weak(tr!("Руководств не найдено.", "No guides found."));
                         }
                     });
                 }
                 Some(Err(e)) => {
-                    ui.label(format!("Не удалось загрузить: {e}"));
+                    ui.label(trf!("Не удалось загрузить: {e}", "Could not load: {e}"));
                 }
                 _ => {
                     crate::spin::spinner(ui);

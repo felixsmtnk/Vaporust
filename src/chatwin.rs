@@ -101,7 +101,7 @@ pub type SharedChat = Arc<Mutex<Option<ChatWin>>>;
 /// Called from the main window's frame while the chat is open.
 pub fn show(ctx: &egui::Context, chat: &SharedChat, net: &Shared, tx: &UnboundedSender<Cmd>) {
     let title = match chat.lock().unwrap().as_ref() {
-        Some(c) => format!("Чат: {}", c.name),
+        Some(c) => trf!("Чат: {}", "Chat: {}", c.name),
         None => return,
     };
     let (chat, net, tx) = (chat.clone(), net.clone(), tx.clone());
@@ -160,7 +160,7 @@ impl ChatWin {
                 .typing_at
                 .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(6))
             {
-                ui.weak(format!("{} печатает...", self.name));
+                ui.weak(trf!("{} печатает...", "{} is typing...", self.name));
             }
             if let Some(s) = &conv.status {
                 ui.horizontal(|ui| {
@@ -191,10 +191,10 @@ impl ChatWin {
             // Reply to a message: above the input field - who we reply to (sent as a quote).
             if let Some((who, text)) = self.reply.clone() {
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(format!("Ответ {who}:")).color(crate::theme::WEAK));
+                    ui.label(egui::RichText::new(trf!("Ответ {who}:", "Reply to {who}:")).color(crate::theme::WEAK));
                     let short: String = text.chars().take(60).collect();
                     ui.add(egui::Label::new(egui::RichText::new(short).italics()).truncate());
-                    if ui.small_button("✖").on_hover_text("Не отвечать").clicked() {
+                    if ui.small_button("✖").on_hover_text(tr!("Не отвечать", "Cancel reply")).clicked() {
                         self.reply = None;
                     }
                 });
@@ -202,7 +202,7 @@ impl ChatWin {
             ui.horizontal(|ui| {
                 let edit = ui.add(
                     egui::TextEdit::singleline(&mut self.input)
-                        .hint_text("Сообщение, Enter - отправить")
+                        .hint_text(tr!("Сообщение, Enter - отправить", "Message, Enter - send"))
                         .desired_width(ui.available_width() - 150.0),
                 );
                 if std::mem::take(&mut self.focus_input) {
@@ -211,7 +211,7 @@ impl ChatWin {
                 let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 if ui
                     .selectable_label(self.picker_open, ":)")
-                    .on_hover_text("Смайлики и стикеры")
+                    .on_hover_text(tr!("Смайлики и стикеры", "Emoticons and stickers"))
                     .clicked()
                 {
                     self.picker_open = !self.picker_open;
@@ -222,18 +222,18 @@ impl ChatWin {
                 }
                 if ui
                     .button("🖼")
-                    .on_hover_text("Отправить картинку (или перетащите файл в окно, или Ctrl+V)")
+                    .on_hover_text(tr!("Отправить картинку (или перетащите файл в окно, или Ctrl+V)", "Send an image (or drag a file into the window, or Ctrl+V)"))
                     .clicked()
                 {
                     if let Some(path) = rfd::FileDialog::new()
-                        .set_title("Картинка для отправки")
-                        .add_filter("Картинки", &["png", "jpg", "jpeg", "gif", "webp", "bmp"])
+                        .set_title(tr!("Картинка для отправки", "Image to send"))
+                        .add_filter(tr!("Картинки", "Images"), &["png", "jpg", "jpeg", "gif", "webp", "bmp"])
                         .pick_file()
                     {
                         send_image = Some(path);
                     }
                 }
-                let clicked = ui.button("Отправить").clicked();
+                let clicked = ui.button(tr!("Отправить", "Send")).clicked();
                 if (enter || clicked) && !self.input.trim().is_empty() {
                     let text = std::mem::take(&mut self.input).trim().to_string();
                     let mut msg = crate::emoticons_to_bbcode(&text, net);
@@ -260,11 +260,11 @@ impl ChatWin {
         let my_avatar = net.my_id.and_then(|m| net.profiles.get(&m)).and_then(|p| p.as_ref().ok()).and_then(|p| p.avatar_url.clone());
         let (status, status_color) = match friend.as_ref() {
             Some(f) if f.game_name.as_ref().is_some_and(|g| !g.is_empty()) => {
-                (format!("В игре: {}", f.game_name.clone().unwrap_or_default()), egui::Color32::from_rgb(140, 200, 80))
+                (trf!("В игре: {}", "In game: {}", f.game_name.clone().unwrap_or_default()), egui::Color32::from_rgb(140, 200, 80))
             }
-            Some(f) if f.persona_state.unwrap_or(0) == 0 => ("не в сети".to_string(), egui::Color32::GRAY),
-            Some(f) if matches!(f.persona_state, Some(3 | 4)) => ("отошел".to_string(), egui::Color32::from_rgb(110, 140, 170)),
-            Some(_) => ("в сети".to_string(), egui::Color32::from_rgb(90, 170, 230)),
+            Some(f) if f.persona_state.unwrap_or(0) == 0 => (tr!("не в сети", "offline").to_string(), egui::Color32::GRAY),
+            Some(f) if matches!(f.persona_state, Some(3 | 4)) => (tr!("отошел", "away").to_string(), egui::Color32::from_rgb(110, 140, 170)),
+            Some(_) => (tr!("в сети", "online").to_string(), egui::Color32::from_rgb(90, 170, 230)),
             None => (String::new(), egui::Color32::GRAY),
         };
         // Ctrl+F - search, Esc - close search.
@@ -294,7 +294,7 @@ impl ChatWin {
                             if ui.selectable_label(*tid == id, text).clicked() && *tid != id {
                                 switch = Some((*tid, tname.clone()));
                             }
-                            if ui.small_button("✖").on_hover_text("Закрыть беседу").clicked() {
+                            if ui.small_button("✖").on_hover_text(tr!("Закрыть беседу", "Close conversation")).clicked() {
                                 close_tab = Some(*tid);
                             }
                             ui.add_space(6.0);
@@ -338,7 +338,7 @@ impl ChatWin {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let r = ui
                         .add(egui::Button::new("").frame(self.search_open).min_size(egui::vec2(30.0, 26.0)))
-                        .on_hover_text("Поиск в переписке (Ctrl+F)");
+                        .on_hover_text(tr!("Поиск в переписке (Ctrl+F)", "Search the conversation (Ctrl+F)"));
                     draw_magnifier(ui.painter(), r.rect, if r.hovered() { egui::Color32::WHITE } else { crate::theme::TEXT });
                     if r.clicked() {
                         self.search_open = !self.search_open;
@@ -357,13 +357,13 @@ impl ChatWin {
                 ui.horizontal(|ui| {
                     let edit = ui.add(
                         egui::TextEdit::singleline(&mut self.search)
-                            .hint_text("Поиск в переписке, Esc - закрыть")
+                            .hint_text(tr!("Поиск в переписке, Esc - закрыть", "Search the conversation, Esc - close"))
                             .desired_width(ui.available_width() - 30.0),
                     );
                     if std::mem::take(&mut self.focus_search) {
                         edit.request_focus();
                     }
-                    if ui.small_button("✖").on_hover_text("Закрыть поиск").clicked() {
+                    if ui.small_button("✖").on_hover_text(tr!("Закрыть поиск", "Close search")).clicked() {
                         self.search_open = false;
                         self.search.clear();
                     }
@@ -381,19 +381,19 @@ impl ChatWin {
                     if !conv.history_loaded && conv.error.is_none() {
                         ui.horizontal(|ui| {
                             crate::spin::spinner(ui);
-                            ui.weak("Загружаю переписку...");
+                            ui.weak(tr!("Загружаю переписку...", "Loading the conversation..."));
                         });
                     }
                     if conv.history_loaded && conv.lines.is_empty() {
                         ui.add_space(20.0);
-                        ui.vertical_centered(|ui| ui.weak("Переписки пока нет. Напишите первым."));
+                        ui.vertical_centered(|ui| ui.weak(tr!("Переписки пока нет. Напишите первым.", "No messages yet. Write first.")));
                     }
-                    if conv.more_history && ui.add_enabled(!conv.loading_older, egui::Button::new("Показать более ранние сообщения")).clicked() {
+                    if conv.more_history && ui.add_enabled(!conv.loading_older, egui::Button::new(tr!("Показать более ранние сообщения", "Show earlier messages"))).clicked() {
                         let _ = tx.send(Cmd::OlderChat(id));
                     }
                     if !query.is_empty() {
                         let n = conv.lines.iter().filter(|l| l.text.to_lowercase().contains(&query)).count();
-                        ui.weak(format!("Найдено: {n} (среди загруженных {} сообщений)", conv.lines.len()));
+                        ui.weak(trf!("Найдено: {n} (среди загруженных {} сообщений)", "Found: {n} (among {} loaded messages)", conv.lines.len()));
                     }
                     let mut last_day = String::new();
                     let mut last: Option<(bool, u64)> = None;
@@ -412,7 +412,7 @@ impl ChatWin {
                             ui.vertical_centered(|ui| ui.label(egui::RichText::new(&day).size(11.5).color(crate::theme::WEAK)));
                             ui.add_space(2.0);
                         }
-                        let who = if l.from_self { "Вы" } else { self.name.as_str() };
+                        let who = if l.from_self { tr!("Вы", "You") } else { self.name.as_str() };
                         // New group: another sender or a break longer than 5 minutes.
                         let new_group = last.is_none_or(|(s, t)| s != l.from_self || l.time.saturating_sub(t) > 300);
                         last = Some((l.from_self, l.time));
@@ -424,21 +424,21 @@ impl ChatWin {
                         if let Some(rect) = ui.data(|d| d.get_temp::<egui::Rect>(msg_key)) {
                             let r = ui.interact(rect, msg_key, egui::Sense::click());
                             r.context_menu(|ui| {
-                                if ui.button("Ответить").clicked() {
+                                if ui.button(tr!("Ответить", "Reply")).clicked() {
                                     self.reply = Some((who.to_string(), chatfmt::preview(&l.text).0));
                                     self.focus_input = true;
                                     ui.close_menu();
                                 }
-                                if ui.button("Копировать текст").clicked() {
+                                if ui.button(tr!("Копировать текст", "Copy text")).clicked() {
                                     ui.ctx().copy_text(chatfmt::preview(&l.text).0);
                                     ui.close_menu();
                                 }
                                 // Reactions: own Steam emoticons (needs the message number - history messages have it).
                                 let mine = net.emoticons.as_ref().map(|e| e.0.clone()).unwrap_or_default();
                                 if l.ordinal > 0 || l.time > 0 {
-                                    ui.menu_button("Реакция", |ui| {
+                                    ui.menu_button(tr!("Реакция", "Reaction"), |ui| {
                                         if mine.is_empty() {
-                                            ui.weak("Нет своих смайликов Steam");
+                                            ui.weak(tr!("Нет своих смайликов Steam", "You have no Steam emoticons"));
                                             if net.emoticons.is_none() && !self.emoticons_requested {
                                                 self.emoticons_requested = true;
                                                 let _ = tx.send(Cmd::LoadEmoticons);
@@ -503,9 +503,9 @@ impl ChatWin {
                                                 });
                                             });
                                             let r = r.response.interact(egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if mine {
-                                                format!("{name}: ваша реакция, щелчок - убрать")
+                                                trf!("{name}: ваша реакция, щелчок - убрать", "{name}: your reaction, click to remove")
                                             } else {
-                                                format!("{name}: щелчок - поставить такую же")
+                                                trf!("{name}: щелчок - поставить такую же", "{name}: click to add the same")
                                             });
                                             if r.clicked() {
                                                 let _ = tx.send(Cmd::ChatReaction {
@@ -583,14 +583,14 @@ impl ChatWin {
     fn picker(&mut self, ui: &mut egui::Ui, net: &NetState) -> Option<String> {
         let mut send = None;
         ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.picker_tab, 0, "Смайлики");
-            ui.selectable_value(&mut self.picker_tab, 1, "Стикеры");
-            ui.selectable_value(&mut self.picker_tab, 2, "Эффекты");
+            ui.selectable_value(&mut self.picker_tab, 0, tr!("Смайлики", "Emoticons"));
+            ui.selectable_value(&mut self.picker_tab, 1, tr!("Стикеры", "Stickers"));
+            ui.selectable_value(&mut self.picker_tab, 2, tr!("Эффекты", "Effects"));
         });
         let Some((emoticons, stickers)) = &net.emoticons else {
             ui.horizontal(|ui| {
                 crate::spin::spinner(ui);
-                ui.weak("Загружаю ваши смайлики и стикеры...");
+                ui.weak(tr!("Загружаю ваши смайлики и стикеры...", "Loading your emoticons and stickers..."));
             });
             return None;
         };
@@ -604,13 +604,13 @@ impl ChatWin {
                         // Only purchased effects (from the Steam inventory; reread when the tab is opened).
                         let Some(list) = net.chat_effects.clone() else {
                             crate::spin::spinner(ui);
-                            ui.weak("Загружаю ваши эффекты...");
+                            ui.weak(tr!("Загружаю ваши эффекты...", "Loading your effects..."));
                             return;
                         };
                         if list.is_empty() {
                             ui.vertical(|ui| {
-                                ui.weak("У вас нет эффектов комнаты. Их получают за очки в магазине очков Steam.");
-                                ui.hyperlink_to("Магазин очков Steam", "https://store.steampowered.com/points/shop/");
+                                ui.weak(tr!("У вас нет эффектов комнаты. Их получают за очки в магазине очков Steam.", "You have no room effects. They are bought for points in the Steam Points Shop."));
+                                ui.hyperlink_to(tr!("Магазин очков Steam", "Steam Points Shop"), "https://store.steampowered.com/points/shop/");
                             });
                         }
                         // Icon failed to load (network error) - forget the error once so egui tries again.
@@ -628,7 +628,7 @@ impl ChatWin {
                                 .fit_to_exact_size(egui::vec2(48.0, 48.0));
                             if ui
                                 .add(egui::ImageButton::new(img))
-                                .on_hover_text(format!("{} - отправить", crate::effects::short_name(name)))
+                                .on_hover_text(trf!("{} - отправить", "{} - send", crate::effects::short_name(name)))
                                 .clicked()
                             {
                                 // As in the Steam client: the /roomeffect command, the server turns it into [roomeffect].
@@ -638,7 +638,7 @@ impl ChatWin {
                         }
                     } else if self.picker_tab == 0 {
                         if emoticons.is_empty() {
-                            ui.weak("У вас нет смайликов Steam.");
+                            ui.weak(tr!("У вас нет смайликов Steam.", "You have no Steam emoticons."));
                         }
                         for name in emoticons {
                             let img = egui::Image::new(chatfmt::emoticon_url(name))
@@ -657,14 +657,14 @@ impl ChatWin {
                         }
                     } else {
                         if stickers.is_empty() {
-                            ui.weak("У вас нет стикеров (или инвентарь Steam недоступен).");
+                            ui.weak(tr!("У вас нет стикеров (или инвентарь Steam недоступен).", "You have no stickers (or the Steam inventory is unavailable)."));
                         }
                         for name in stickers {
                             let img = egui::Image::new(chatfmt::sticker_url(name))
                                 .fit_to_exact_size(egui::vec2(72.0, 72.0));
                             if ui
                                 .add(egui::ImageButton::new(img))
-                                .on_hover_text(format!("{name} - отправить"))
+                                .on_hover_text(trf!("{name} - отправить", "{name} - send"))
                                 .clicked()
                             {
                                 // A sticker is sent with the /sticker command: the server turns it into [sticker type=...].

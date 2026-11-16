@@ -104,8 +104,8 @@ pub fn hint(l: &License, playtime_min: u32, now: i64) -> Option<String> {
         return None;
     }
     let until = chrono::DateTime::from_timestamp(l.date + 14 * 86_400, 0)?.with_timezone(&chrono::Local);
-    Some(format!(
-        "Можно вернуть: куплена {} дн. назад, наиграно {} мин из 120. Срок до {}.",
+    Some(trf!(
+        "Можно вернуть: куплена {} дн. назад, наиграно {} мин из 120. Срок до {}.", "Refundable: bought {} days ago, played {} min of 120. Deadline {}.",
         days,
         playtime_min,
         until.format("%d.%m.%Y")

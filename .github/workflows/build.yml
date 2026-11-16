@@ -1,7 +1,7 @@
-# Сборка Vaporust для Windows: 64 бит (x64) и 32 бит (x86).
-# - при каждом push и pull request: сборка обеих версий и тесты (x64);
-# - при метке вида v0.2.0-alpha: архивы прикладываются к ЧЕРНОВИКУ релиза на GitHub
-#   (публикует его автор вручную после проверки).
+# Vaporust build for Windows: 64-bit (x64) and 32-bit (x86).
+# - on every push and pull request: both builds and the tests (x64);
+# - on a tag like v0.2.0-alpha: the archives are attached to a DRAFT release on GitHub
+#   (the author publishes it by hand after checking).
 name: build
 
 on:
@@ -11,7 +11,7 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Права по умолчанию - только чтение; запись нужна лишь заданию release (черновик релиза).
+# Default permissions are read-only; only the release job (the draft release) needs write access.
 permissions:
   contents: read
 
@@ -40,8 +40,8 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
-      # aws-lc (шифрование HTTPS) для 32 бит собирается из исходников: нужны NASM и C11.
-      - name: NASM для 32-битной сборки
+      # aws-lc (HTTPS encryption) is built from source for 32-bit: NASM and C11 are needed.
+      - name: NASM for the 32-bit build
         if: matrix.arch == 'x86'
         shell: pwsh
         run: |
@@ -50,13 +50,13 @@ jobs:
           "AWS_LC_SYS_C_STD=11" | Out-File -FilePath $env:GITHUB_ENV -Append
           "CFLAGS_i686_pc_windows_msvc=/std:c11" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: Сборка
+      - name: Build
         shell: pwsh
         run: |
           $env:CARGO_TERM_COLOR = "never"
           cargo build --release --locked --target ${{ matrix.target }} 2>&1 | Tee-Object -Variable log
           if ($LASTEXITCODE -ne 0) {
-            # Ошибки - одной аннотацией запуска (их видно и без входа в GitHub).
+            # Errors as one run annotation (visible without logging in to GitHub).
             $lines = $log | ForEach-Object { "$_" } |
               Where-Object { $_ -match '^\s*error|NASM|panicked|fatal error|error C\d|LNK\d|failed to run|thread .main.' } |
               Select-Object -First 60
@@ -64,14 +64,14 @@ jobs:
             exit 1
           }
 
-      - name: Тесты
+      - name: Tests
         if: matrix.arch == 'x64'
         shell: pwsh
         run: |
           $env:CARGO_TERM_COLOR = "never"
           cargo test --release --locked --target ${{ matrix.target }} 2>&1 | Tee-Object -Variable log
           if ($LASTEXITCODE -ne 0) {
-            # Упавшие тесты и причины - аннотацией (видно и без входа в GitHub).
+            # Failed tests and reasons as an annotation (visible without logging in to GitHub).
             $lines = $log | ForEach-Object { "$_" } |
               Where-Object { $_ -match 'FAILED|panicked|assertion|left:|right:|^error|failures:' } |
               Select-Object -First 60
@@ -79,13 +79,13 @@ jobs:
             exit 1
           }
 
-      - name: Тесты Aurelia
+      - name: Aurelia tests
         if: matrix.arch == 'x64'
         shell: pwsh
         run: |
           $env:CARGO_TERM_COLOR = "never"
-          # Только библиотека (Vaporust не использует консольную программу Aurelia). Пропущены проверки
-          # кэша шейдеров Vulkan: это функция Linux, на Windows она не применяется.
+          # Only the library (Vaporust does not use the Aurelia command-line program). Skipped: the checks
+          # of the Vulkan shader cache: a Linux feature that does not apply on Windows.
           cargo test --release --locked --lib --manifest-path vendor/aurelia/Cargo.toml --target-dir target/aurelia `
             -- --skip launch::shaders --skip precache_shaders 2>&1 | Tee-Object -Variable log
           if ($LASTEXITCODE -ne 0) {
@@ -96,13 +96,13 @@ jobs:
             exit 1
           }
 
-      - name: Архив
+      - name: Archive
         shell: pwsh
         run: |
           $v = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
           $name = "Vaporust-$v-windows-${{ matrix.arch }}"
           New-Item -ItemType Directory -Force pkg | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/vaporust.exe", README.md, LICENSE pkg/
+          Copy-Item "target/${{ matrix.target }}/release/vaporust.exe", README.md, README.ru.md, LICENSE pkg/
           Compress-Archive -Path pkg/* -DestinationPath "$name.zip" -Force
           (Get-FileHash "$name.zip" -Algorithm SHA256).Hash | Out-File "$name.zip.sha256" -Encoding ascii
           "ZIP=$name.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
@@ -115,12 +115,12 @@ jobs:
             ${{ env.ZIP }}.sha256
 
   release:
-    # Черновик релиза с обоими архивами - только для меток v*.
+    # A draft release with both archives - only for v* tags.
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
-      contents: write # черновик релиза
-      id-token: write # подпись происхождения архивов
+      contents: write # draft release
+      id-token: write # provenance attestation of the archives
       attestations: write
     runs-on: ubuntu-latest
     steps:
@@ -128,8 +128,8 @@ jobs:
         with:
           path: out
           merge-multiple: true
-      # Подпись происхождения: любой может проверить, что архив собран здесь из этого кода
-      # (gh attestation verify <архив> --repo felixsmtnk/Vaporust).
+      # Provenance attestation: anyone can verify that the archive was built here from this code
+      # (gh attestation verify <archive> --repo felixsmtnk/Vaporust).
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: out/*.zip

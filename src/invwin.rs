@@ -107,7 +107,7 @@ impl LauncherApp {
         let closed = ctx.show_viewport_immediate(
             egui::ViewportId::from_hash_of("vaporust_inventory"),
             egui::ViewportBuilder::default()
-                .with_title("Инвентарь - Vaporust")
+                .with_title(tr!("Инвентарь - Vaporust", "Inventory - Vaporust"))
                 .with_inner_size([900.0, 620.0])
                 .with_min_inner_size([620.0, 400.0])
                 .with_icon(crate::icons::icon(crate::icons::Kind::Launcher))
@@ -154,7 +154,7 @@ impl LauncherApp {
         egui::TopBottomPanel::top("inv_top").show_inside(ui, |ui| {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                for (tab, label) in [(Tab::Items, "Инвентарь"), (Tab::Listings, "Мои лоты"), (Tab::Market, "Торговая площадка"), (Tab::Offers, "Обмены")] {
+                for (tab, label) in [(Tab::Items, tr!("Инвентарь", "Inventory")), (Tab::Listings, tr!("Мои лоты", "My listings")), (Tab::Market, tr!("Торговая площадка", "Community Market")), (Tab::Offers, tr!("Обмены", "Trades"))] {
                     ui.selectable_value(&mut w.tab, tab, label);
                 }
                 ui.separator();
@@ -163,13 +163,13 @@ impl LauncherApp {
                         crate::spin::spinner(ui);
                     }
                     Some(Ok(wl)) => {
-                        ui.label(format!("Кошелек: {}", crate::invent::money(wl.balance_cents, wl.currency)));
+                        ui.label(trf!("Кошелек: {}", "Wallet: {}", crate::invent::money(wl.balance_cents, wl.currency)));
                     }
                     Some(Err(e)) => {
-                        ui.weak("Кошелек: нет данных").on_hover_text(e);
+                        ui.weak(tr!("Кошелек: нет данных", "Wallet: no data")).on_hover_text(e);
                     }
                 }
-                if ui.small_button("Обновить").on_hover_text("Перечитать кошелек, лоты и предметы").clicked() {
+                if ui.small_button(tr!("Обновить", "Refresh")).on_hover_text(tr!("Перечитать кошелек, лоты и предметы", "Reload the wallet, listings and items")).clicked() {
                     cmds.push(InvCmd::Wallet);
                     cmds.push(InvCmd::Listings);
                     if let Some(appid) = w.app {
@@ -218,7 +218,7 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
                 crate::spin::spinner(ui);
             }
             Some(Err(e)) => {
-                ui.label(format!("Не удалось загрузить: {e}"));
+                ui.label(trf!("Не удалось загрузить: {e}", "Could not load: {e}"));
             }
             Some(Ok(apps)) => {
                 for a in apps {
@@ -265,8 +265,8 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
     if parts.is_empty() {
         egui::CentralPanel::default().show_inside(ui, |ui| match error {
             Some(e) if !loading => {
-                ui.label(format!("Не удалось загрузить предметы: {e}"));
-                ui.weak("Steam ограничивает частые запросы инвентаря - попробуйте «Обновить» через минуту.");
+                ui.label(trf!("Не удалось загрузить предметы: {e}", "Could not load items: {e}"));
+                ui.weak(tr!("Steam ограничивает частые запросы инвентаря - попробуйте «Обновить» через минуту.", "Steam limits frequent inventory requests - try \"Refresh\" in a minute."));
             }
             _ => {
                 crate::spin::spinner(ui);
@@ -291,10 +291,10 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
                     ui.weak(&it.item_type);
                 }
                 if s.amount > 1 {
-                    ui.label(format!("Количество: {}", s.amount));
+                    ui.label(trf!("Количество: {}", "Quantity: {}", s.amount));
                 }
-                ui.label(if it.tradable { "Можно обменять" } else { "Нельзя обменять" });
-                ui.label(if it.marketable { "Можно продать на площадке" } else { "Нельзя продать на площадке" });
+                ui.label(if it.tradable { tr!("Можно обменять", "Tradable") } else { tr!("Нельзя обменять", "Not tradable") });
+                ui.label(if it.marketable { tr!("Можно продать на площадке", "Marketable") } else { tr!("Нельзя продать на площадке", "Not marketable") });
                 if it.marketable && !it.market_hash_name.is_empty() {
                     let key = (appid, it.market_hash_name.clone());
                     ui.separator();
@@ -306,35 +306,35 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
                             }
                             ui.horizontal(|ui| {
                                 crate::spin::spinner(ui);
-                                ui.weak("Узнаю цену...");
+                                ui.weak(tr!("Узнаю цену...", "Checking the price..."));
                             });
                         }
                         Some(Err(_)) => {
-                            ui.weak("Цену узнать не удалось (Steam ограничивает частые запросы).");
+                            ui.weak(tr!("Цену узнать не удалось (Steam ограничивает частые запросы).", "Could not get the price (Steam limits frequent requests)."));
                         }
                         Some(Ok(p)) => {
                             egui::Grid::new("price").num_columns(2).show(ui, |ui| {
-                                ui.weak("Самая низкая");
+                                ui.weak(tr!("Самая низкая", "Lowest"));
                                 ui.label(p.lowest_price.as_deref().unwrap_or("-"));
                                 ui.end_row();
-                                ui.weak("Средняя");
+                                ui.weak(tr!("Средняя", "Median"));
                                 ui.label(p.median_price.as_deref().unwrap_or("-"));
                                 ui.end_row();
-                                ui.weak("Продано за сутки");
+                                ui.weak(tr!("Продано за сутки", "Sold in 24 hours"));
                                 ui.label(p.volume.as_deref().unwrap_or("0"));
                                 ui.end_row();
                             });
                         }
                     }
                     crate::trade::market_block(ui, &mut w.mk, st, appid, s.ctx, it);
-                    if ui.button("Страница на площадке").clicked() {
+                    if ui.button(tr!("Страница на площадке", "Market page")).clicked() {
                         ui.ctx().open_url(egui::OpenUrl::new_tab(invent::listing_url(appid, &it.market_hash_name)));
                     }
                 }
                 ui.separator();
                 if ui
-                    .button("Открыть в инвентаре Steam")
-                    .on_hover_text("Продать, обменять или использовать предмет - на сайте Steam")
+                    .button(tr!("Открыть в инвентаре Steam", "Open in the Steam inventory"))
+                    .on_hover_text(tr!("Продать, обменять или использовать предмет - на сайте Steam", "Sell, trade or use an item on the Steam website"))
                     .clicked()
                 {
                     let url = format!("https://steamcommunity.com/profiles/{my_id}/inventory/#{appid}_{}_{}", s.ctx, it.asset_id);
@@ -348,15 +348,15 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
         // Search width fits the space (little when an item is open on the right), the count wraps.
         ui.horizontal_wrapped(|ui| {
             let fw = (ui.available_width() - 110.0).clamp(90.0, 220.0);
-            ui.add(egui::TextEdit::singleline(&mut w.filter).hint_text("Поиск по предметам").desired_width(fw));
-            ui.weak(format!("Предметов: {}", list.len()));
+            ui.add(egui::TextEdit::singleline(&mut w.filter).hint_text(tr!("Поиск по предметам", "Search items")).desired_width(fw));
+            ui.weak(trf!("Предметов: {}", "Items: {}", list.len()));
             if loading {
                 crate::spin::spinner(ui);
             }
         });
         ui.add_space(4.0);
         if list.is_empty() {
-            ui.weak(if total == 0 { "Здесь пусто." } else { "Ничего не найдено." });
+            ui.weak(if total == 0 { tr!("Здесь пусто.", "Nothing here.") } else { tr!("Ничего не найдено.", "Nothing found.") });
             return;
         }
         // Tiles; only visible rows are loaded and drawn.
@@ -413,7 +413,7 @@ fn item_row(ui: &mut egui::Ui, icon_url: &Option<String>, name: &str, url: Strin
             egui::Image::new(icon(u, 64)).paint_at(ui, rect);
         }
         ui.vertical(|ui| {
-            ui.hyperlink_to(name, url).on_hover_text("Открыть страницу предмета на площадке в браузере");
+            ui.hyperlink_to(name, url).on_hover_text(tr!("Открыть страницу предмета на площадке в браузере", "Open the item's market page in the browser"));
             if !sub.is_empty() {
                 ui.weak(sub);
             }
@@ -430,7 +430,7 @@ fn item_row(ui: &mut egui::Ui, icon_url: &Option<String>, name: &str, url: Strin
 
 fn listings_tab(ui: &mut egui::Ui, st: &InvState, mk: &mut crate::trade::MarketUi) {
     egui::CentralPanel::default().show_inside(ui, |ui| {
-        if ui.button("Торговая площадка в браузере").clicked() {
+        if ui.button(tr!("Торговая площадка в браузере", "Community Market in the browser")).clicked() {
             ui.ctx().open_url(egui::OpenUrl::new_tab("https://steamcommunity.com/market/"));
         }
         ui.add_space(6.0);
@@ -439,18 +439,18 @@ fn listings_tab(ui: &mut egui::Ui, st: &InvState, mk: &mut crate::trade::MarketU
                 crate::spin::spinner(ui);
             }
             Some(Err(e)) => {
-                ui.label(format!("Не удалось загрузить: {e}"));
+                ui.label(trf!("Не удалось загрузить: {e}", "Could not load: {e}"));
             }
             Some(Ok(m)) => {
-                ui.strong(format!("Выставлено на продажу: {}", m.lots.len()));
+                ui.strong(trf!("Выставлено на продажу: {}", "Listed for sale: {}", m.lots.len()));
                 if m.to_confirm > 0 {
                     ui.colored_label(
                         egui::Color32::from_rgb(240, 200, 80),
-                        format!("Ждут подтверждения в мобильном приложении Steam: {}", m.to_confirm),
+                        trf!("Ждут подтверждения в мобильном приложении Steam: {}", "Waiting for confirmation in the Steam mobile app: {}", m.to_confirm),
                     );
                 }
                 if m.lots.is_empty() {
-                    ui.weak("Нет активных лотов.");
+                    ui.weak(tr!("Нет активных лотов.", "No active listings."));
                 }
                 ui.add_space(4.0);
                 for l in &m.lots {
@@ -459,16 +459,16 @@ fn listings_tab(ui: &mut egui::Ui, st: &InvState, mk: &mut crate::trade::MarketU
                         &l.icon,
                         &l.name,
                         invent::listing_url(l.appid, &l.hash_name),
-                        &format!("вы получите {}", invent::money(l.receive, l.currency)),
+                        &trf!("вы получите {}", "you receive {}", invent::money(l.receive, l.currency)),
                         &invent::money(l.pay, l.currency),
-                        "Цена для покупателя (с комиссией Steam)",
+                        tr!("Цена для покупателя (с комиссией Steam)", "Buyer pays (with the Steam fee)"),
                     );
                     crate::trade::remove_lot_button(ui, mk, &l.id, &l.name);
                 }
                 ui.add_space(10.0);
-                ui.strong(format!("Заявки на покупку: {}", m.orders.len()));
+                ui.strong(trf!("Заявки на покупку: {}", "Buy orders: {}", m.orders.len()));
                 if m.orders.is_empty() {
-                    ui.weak("Нет открытых заявок.");
+                    ui.weak(tr!("Нет открытых заявок.", "No open buy orders."));
                 }
                 let cur = invent::wallet_currency(st);
                 for o in &m.orders {
@@ -477,8 +477,8 @@ fn listings_tab(ui: &mut egui::Ui, st: &InvState, mk: &mut crate::trade::MarketU
                         &o.icon,
                         &o.name,
                         invent::listing_url(o.appid, &o.hash_name),
-                        &format!("{} шт.", o.quantity),
-                        &format!("по {}", invent::money(o.price, cur)),
+                        &trf!("{} шт.", "{} pcs.", o.quantity),
+                        &trf!("по {}", "at {}", invent::money(o.price, cur)),
                         "",
                     );
                     crate::trade::cancel_order_button(ui, mk, &o.id, &o.name);
@@ -493,41 +493,41 @@ fn market_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, cmds: &mut Vec<I
         ui.horizontal(|ui| {
             let edit = ui.add(
                 egui::TextEdit::singleline(&mut w.query)
-                    .hint_text("Название предмета, Enter - искать")
+                    .hint_text(tr!("Название предмета, Enter - искать", "Item name, Enter - search"))
                     .desired_width(300.0),
             );
             let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            if (enter || ui.button("Искать").clicked()) && !w.query.trim().is_empty() {
+            if (enter || ui.button(tr!("Искать", "Search")).clicked()) && !w.query.trim().is_empty() {
                 cmds.push(InvCmd::Search { query: w.query.trim().to_string(), start: 0 });
             }
             if st.searching {
                 crate::spin::spinner(ui);
             }
         });
-        ui.weak("Цена - самая низкая на площадке сейчас. Купить - на странице предмета в браузере.")
+        ui.weak(tr!("Цена - самая низкая на площадке сейчас. Купить - на странице предмета в браузере.", "The price is the lowest on the market right now. Buy on the item page in the browser."))
             .on_hover_text(
-                "Steam находит только то, что сейчас кто-то продает. Очень дорогие предметы \
+                tr!("Steam находит только то, что сейчас кто-то продает. Очень дорогие предметы \
                  (дороже предела площадки, около 2000 $, например AWP | Dragon Lore) на ней не \
-                 выставляют, поэтому их не найти.",
+                 выставляют, поэтому их не найти.", "Steam only finds what someone is selling right now. Very expensive items (above the market limit, about $2000, for example AWP | Dragon Lore) are not listed there, so they cannot be found."),
             );
         ui.add_space(4.0);
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match &st.search {
             None => {}
             Some((_, Err(e))) => {
-                ui.label(format!("Не удалось: {e}"));
+                ui.label(trf!("Не удалось: {e}", "Failed: {e}"));
             }
             Some((query, Ok((total, list)))) => {
                 if list.is_empty() {
                     if !st.searching {
-                        ui.weak("Ничего не найдено.");
+                        ui.weak(tr!("Ничего не найдено.", "Nothing found."));
                         ui.weak(
-                            "Steam ищет только предметы, которые сейчас кто-то продает. Очень дорогие \
-                             предметы (дороже предела площадки, около 2000 $) на ней не выставляют.",
+                            tr!("Steam ищет только предметы, которые сейчас кто-то продает. Очень дорогие \
+                             предметы (дороже предела площадки, около 2000 $) на ней не выставляют.", "Steam only searches items that someone is selling right now. Very expensive items (above the market limit, about $2000) are not listed there."),
                         );
                     }
                     return;
                 }
-                ui.weak(format!("Найдено: {total}, показано {}", list.len()));
+                ui.weak(trf!("Найдено: {total}, показано {}", "Found: {total}, shown {}", list.len()));
                 ui.add_space(4.0);
                 for r in list {
                     item_row(
@@ -535,14 +535,14 @@ fn market_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, cmds: &mut Vec<I
                         &r.icon,
                         &r.name,
                         invent::listing_url(r.appid, &r.hash_name),
-                        &format!("{} · лотов: {}", r.app_name, r.listings),
+                        &trf!("{} · лотов: {}", "{} · listings: {}", r.app_name, r.listings),
                         &r.price_text,
                         "",
                     );
                 }
                 if (list.len() as u32) < *total {
                     ui.horizontal(|ui| {
-                        if ui.add_enabled(!st.searching, egui::Button::new("Показать еще")).clicked() {
+                        if ui.add_enabled(!st.searching, egui::Button::new(tr!("Показать еще", "Show more"))).clicked() {
                             cmds.push(InvCmd::Search { query: query.clone(), start: list.len() as u32 });
                         }
                         if st.searching {

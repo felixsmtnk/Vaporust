@@ -25,10 +25,10 @@ pub enum Kind {
 impl Kind {
     pub fn label(&self) -> &'static str {
         match self {
-            Kind::Folder => "Папка игры без установки",
-            Kind::Download => "Незаконченная загрузка",
-            Kind::Shaders => "Кэш шейдеров удаленной игры",
-            Kind::Workshop => "Моды Мастерской удаленной игры",
+            Kind::Folder => tr!("Папка игры без установки", "Game folder without an installation"),
+            Kind::Download => tr!("Незаконченная загрузка", "Unfinished download"),
+            Kind::Shaders => tr!("Кэш шейдеров удаленной игры", "Shader cache of a removed game"),
+            Kind::Workshop => tr!("Моды Мастерской удаленной игры", "Workshop mods of a removed game"),
         }
     }
 }
@@ -216,17 +216,17 @@ pub fn to_recycle_bin(paths: &[&Path]) -> Result<(), String> {
     op.fFlags = (FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT) as u16;
     let r = unsafe { SHFileOperationW(&mut op) };
     if r != 0 || op.fAnyOperationsAborted != 0 {
-        return Err(format!("Windows не удалил (код {r})."));
+        return Err(trf!("Windows не удалил (код {r}).", "Windows did not delete it (code {r})."));
     }
     if paths.iter().any(|p| p.exists()) {
-        return Err("Часть файлов осталась на месте (заняты другой программой?).".into());
+        return Err(tr!("Часть файлов осталась на месте (заняты другой программой?).", "Some files stayed in place (used by another program?).").into());
     }
     Ok(())
 }
 
 #[cfg(not(windows))]
 pub fn to_recycle_bin(_paths: &[&Path]) -> Result<(), String> {
-    Err("Только для Windows.".into())
+    Err(tr!("Только для Windows.", "Windows only.").into())
 }
 
 /// "Storage" tab.
@@ -271,8 +271,8 @@ impl LauncherApp {
         let mut rescan = false;
         let mut open_game: Option<u32> = None;
         ui.horizontal(|ui| {
-            ui.heading("Хранилище");
-            if ui.button("Пересчитать").clicked() {
+            ui.heading(tr!("Хранилище", "Storage"));
+            if ui.button(tr!("Пересчитать", "Recount")).clicked() {
                 rescan = true;
             }
         });
@@ -282,7 +282,7 @@ impl LauncherApp {
         let Some(libs) = data else {
             ui.horizontal(|ui| {
                 crate::spin::spinner(ui);
-                ui.label("Считаю, сколько занимают игры...");
+                ui.label(tr!("Считаю, сколько занимают игры...", "Counting how much space games take..."));
             });
             return;
         };
@@ -299,26 +299,26 @@ impl LauncherApp {
                         ui.add(
                             egui::ProgressBar::new(used as f32 / total.max(1) as f32)
                                 .desired_width(ui.available_width().min(560.0))
-                                .text(format!(
-                                    "занято {} из {}, свободно {}",
+                                .text(trf!(
+                                    "занято {} из {}, свободно {}", "{} of {} used, {} free",
                                     net::fmt_bytes(used),
                                     net::fmt_bytes(total),
                                     net::fmt_bytes(free)
                                 )),
                         );
                     }
-                    ui.label(format!(
-                        "Игры Steam: {} ({} шт.){}",
+                    ui.label(trf!(
+                        "Игры Steam: {} ({} шт.){}", "Steam games: {} ({} pcs.){}",
                         net::fmt_bytes(games_total),
                         lib.games.len(),
-                        if left_total > 0 { format!(", остатки: {}", net::fmt_bytes(left_total)) } else { String::new() }
+                        if left_total > 0 { trf!(", остатки: {}", ", leftovers: {}", net::fmt_bytes(left_total)) } else { String::new() }
                     ));
                     // Games by size.
                     let all = w.show_all.contains(&lib.path);
                     let n = if all { lib.games.len() } else { lib.games.len().min(8) };
                     egui::Grid::new(("storage_games", &lib.path)).num_columns(3).striped(true).show(ui, |ui| {
                         for g in &lib.games[..n] {
-                            if ui.link(&g.name).on_hover_text("Страница игры в библиотеке").clicked() {
+                            if ui.link(&g.name).on_hover_text(tr!("Страница игры в библиотеке", "Game page in the library")).clicked() {
                                 open_game = Some(g.appid);
                             }
                             ui.label(net::fmt_bytes(g.size));
@@ -328,7 +328,7 @@ impl LauncherApp {
                         }
                     });
                     if lib.games.len() > 8 {
-                        let t = if all { "Свернуть".to_string() } else { format!("Показать все ({})", lib.games.len()) };
+                        let t = if all { tr!("Свернуть", "Collapse").to_string() } else { trf!("Показать все ({})", "Show all ({})", lib.games.len()) };
                         if ui.small_button(t).clicked() {
                             if all {
                                 w.show_all.remove(&lib.path);
@@ -340,9 +340,9 @@ impl LauncherApp {
                     // Leftovers of uninstalled games.
                     if !lib.leftovers.is_empty() {
                         ui.add_space(8.0);
-                        ui.strong("Остатки, которые можно удалить");
+                        ui.strong(tr!("Остатки, которые можно удалить", "Leftovers that can be deleted"));
                         if steam_open {
-                            ui.colored_label(egui::Color32::from_rgb(230, 170, 60), "Удаление - при закрытом Steam.");
+                            ui.colored_label(egui::Color32::from_rgb(230, 170, 60), tr!("Удаление - при закрытом Steam.", "Deleting works while Steam is closed."));
                         }
                         // As a table: what, folder, size, buttons - in even columns.
                         egui::Grid::new(("leftovers", lib.path.to_string_lossy().to_string())).num_columns(4).striped(true).spacing([14.0, 4.0]).show(ui, |ui| {
@@ -353,29 +353,29 @@ impl LauncherApp {
                                 ui.label(&name);
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| ui.label(net::fmt_bytes(l.size)));
                                 ui.horizontal(|ui| {
-                                if ui.small_button("Открыть").clicked() {
+                                if ui.small_button(tr!("Открыть", "Open")).clicked() {
                                     local::open_folder(&l.path);
                                 }
                                 if w.confirm.as_ref() == Some(&l.path) {
-                                    ui.label("В Корзину?");
-                                    if ui.add_enabled(!steam_open, egui::Button::new("Да")).clicked() {
+                                    ui.label(tr!("В Корзину?", "To the Recycle Bin?"));
+                                    if ui.add_enabled(!steam_open, egui::Button::new(tr!("Да", "Yes"))).clicked() {
                                         let mut paths: Vec<&Path> = vec![&l.path];
                                         if let Some(x) = &l.extra {
                                             paths.push(x);
                                         }
                                         w.note = Some(match to_recycle_bin(&paths) {
-                                            Ok(()) => format!("«{name}» в Корзине ({}).", net::fmt_bytes(l.size)),
-                                            Err(e) => format!("«{name}» не удален: {e}"),
+                                            Ok(()) => trf!("«{name}» в Корзине ({}).", "\"{name}\" is in the Recycle Bin ({}).", net::fmt_bytes(l.size)),
+                                            Err(e) => trf!("«{name}» не удален: {e}", "\"{name}\" not deleted: {e}"),
                                         });
                                         w.confirm = None;
                                         rescan = true;
                                     }
-                                    if ui.button("Нет").clicked() {
+                                    if ui.button(tr!("Нет", "No")).clicked() {
                                         w.confirm = None;
                                     }
                                 } else if ui
-                                    .add_enabled(!steam_open, egui::Button::new("Удалить..."))
-                                    .on_hover_text("В Корзину Windows: если нужно, можно восстановить оттуда.")
+                                    .add_enabled(!steam_open, egui::Button::new(tr!("Удалить...", "Uninstall...")))
+                                    .on_hover_text(tr!("В Корзину Windows: если нужно, можно восстановить оттуда.", "To the Windows Recycle Bin: you can restore it from there if needed."))
                                     .clicked()
                                 {
                                     w.confirm = Some(l.path.clone());
@@ -386,8 +386,8 @@ impl LauncherApp {
                         }
                         });
                         ui.weak(
-                            "Папка без установки: игра удалена или перенесена, а файлы остались (часто там \
-                             сохранения или моды - загляните перед удалением кнопкой «Открыть»).",
+                            tr!("Папка без установки: игра удалена или перенесена, а файлы остались (часто там \
+                             сохранения или моды - загляните перед удалением кнопкой «Открыть»).", "A folder without an installation: the game was removed or moved, but the files stayed (often saves or mods are there - look before deleting with the \"Open\" button)."),
                         );
                     }
                 });

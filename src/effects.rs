@@ -60,7 +60,7 @@ fn labels() -> &'static HashMap<String, String> {
     LABELS.get_or_init(|| {
         let mut map = HashMap::new();
         let Some(dir) = STEAM_DIR.get() else { return map };
-        let Ok(text) = std::fs::read_to_string(dir.join("steamui/localization/friendsui_russian-json.js")) else {
+        let Ok(text) = std::fs::read_to_string(dir.join(format!("steamui/localization/friendsui_{}-json.js", crate::lang::steam()))) else {
             return map;
         };
         let key = "\"ChatRoom_RoomEffect";
@@ -104,14 +104,14 @@ fn unescape(s: &str) -> String {
 pub fn label(name: &str, sender: &str) -> String {
     let text = match labels().get(&name.to_lowercase()) {
         Some(t) => t.replace("%1$s", sender),
-        None => format!("{sender}: эффект комнаты «{name}»"),
+        None => trf!("{sender}: эффект комнаты «{name}»", "{sender}: room effect \"{name}\""),
     };
-    if sender != "Вы" {
+    if sender != tr!("Вы", "You") {
         return text;
     }
     // Steam writes a name; for us "Вы" needs the second-person verb: "Вы запускаете конфетти!".
     let mut text = text;
-    for (a, b) in [("запускает", "запускаете"), ("пускает", "пускаете"), ("бросает", "бросаете")] {
+    for (a, b) in [(tr!("запускает", "launches"), tr!("запускаете", "launch")), (tr!("пускает", "releases"), tr!("пускаете", "release")), (tr!("бросает", "throws"), tr!("бросаете", "throw"))] {
         if text.contains(a) {
             text = text.replacen(a, b, 1);
             break;
@@ -123,7 +123,7 @@ pub fn label(name: &str, sender: &str) -> String {
 /// Without the sender name: "balloons" and the like (for notifications and the picker panel).
 pub fn short_name(name: &str) -> String {
     if name.eq_ignore_ascii_case("snow") {
-        return "снегопад".into(); // Steam says "пускает снежок" - easy to confuse with the snowball effect
+        return tr!("снегопад", "snowfall").into(); // Steam says "пускает снежок" - easy to confuse with the snowball effect
     }
     match labels().get(&name.to_lowercase()) {
         Some(t) => t

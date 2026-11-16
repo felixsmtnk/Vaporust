@@ -48,7 +48,7 @@ pub async fn load(games: Vec<(u32, String)>) -> Result<Vec<FeedItem>, String> {
         }
     }
     if out.is_empty() && errors > 0 {
-        return Err("Steam не ответил (нет связи?).".into());
+        return Err(tr!("Steam не ответил (нет связи?).", "Steam did not answer (no connection?).").into());
     }
     let mut seen = HashSet::new();
     out.retain(|n| seen.insert((n.appid, n.title.clone())));
@@ -62,7 +62,7 @@ pub async fn load(games: Vec<(u32, String)>) -> Result<Vec<FeedItem>, String> {
 async fn events(appid: u32, count: u32) -> Result<Vec<FeedItem>, String> {
     let url = format!(
         "https://store.steampowered.com/events/ajaxgetpartnereventspageable/?clan_accountid=0&appid={appid}&offset=0&count={count}&l={lang}&origin=https:%2F%2Fstore.steampowered.com",
-        lang = crate::lang::STEAM
+        lang = crate::lang::steam()
     );
     let http = aurelia::core::net::steam_web_client().map_err(|e| format!("{e:#}"))?;
     let r = http.get(url).send().await.map_err(|e| format!("{e:#}"))?;
@@ -140,8 +140,8 @@ impl LauncherApp {
         let installed: HashSet<u32> = self.games.iter().map(|g| g.appid).collect();
         let mut open_game = None;
         ui.horizontal(|ui| {
-            ui.heading("Новости ваших игр");
-            if ui.button("Обновить").clicked() {
+            ui.heading(tr!("Новости ваших игр", "News of your games"));
+            if ui.button(tr!("Обновить", "Refresh")).clicked() {
                 let _ = self.tx.send(Cmd::NewsFeed(self.news_games(net)));
             }
             if net.news_busy {
@@ -150,11 +150,11 @@ impl LauncherApp {
         });
         let items = match &net.news_feed {
             None => {
-                ui.weak("Загружаю новости...");
+                ui.weak(tr!("Загружаю новости...", "Loading news..."));
                 return;
             }
             Some(Err(e)) => {
-                ui.label(format!("Не удалось загрузить: {e}"));
+                ui.label(trf!("Не удалось загрузить: {e}", "Could not load: {e}"));
                 return;
             }
             Some(Ok(v)) => v,
@@ -173,24 +173,24 @@ impl LauncherApp {
                 .game
                 .and_then(|id| games.iter().find(|g| g.0 == id))
                 .map(|g| g.1.clone())
-                .unwrap_or_else(|| "Все игры".into());
+                .unwrap_or_else(|| tr!("Все игры", "All games").into());
             egui::ComboBox::from_id_salt("news_game").selected_text(current).height(360.0).show_ui(ui, |ui| {
-                ui.selectable_value(&mut st.game, None, "Все игры");
+                ui.selectable_value(&mut st.game, None, tr!("Все игры", "All games"));
                 for (id, name) in &games {
                     ui.selectable_value(&mut st.game, Some(*id), name);
                 }
             });
-            ui.checkbox(&mut st.only_installed, "Только установленные");
+            ui.checkbox(&mut st.only_installed, tr!("Только установленные", "Installed only"));
         });
         ui.separator();
         // Open news item - in full.
         if let Some(n) = st.open.as_ref().and_then(|key| items.iter().find(|n| (n.appid, n.date, &n.title) == (key.0, key.1, &key.2))) {
             let mut back = false;
             ui.horizontal(|ui| {
-                if ui.button("< К новостям").clicked() {
+                if ui.button(tr!("< К новостям", "< Back to news")).clicked() {
                     back = true;
                 }
-                if ui.button("Открыть в браузере").clicked() {
+                if ui.button(tr!("Открыть в браузере", "Open in browser")).clicked() {
                     ui.ctx().open_url(egui::OpenUrl::new_tab(&n.url));
                 }
             });
@@ -240,19 +240,19 @@ impl LauncherApp {
             .filter(|n| !st.only_installed || installed.contains(&n.appid))
             .collect();
         if shown.is_empty() {
-            ui.weak("Новостей нет.");
+            ui.weak(tr!("Новостей нет.", "No news."));
         }
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             for n in shown {
                 ui.horizontal(|ui| {
                     ui.weak(crate::socialwin::fmt_date(n.date));
-                    if ui.link(&n.game).on_hover_text("Страница игры в библиотеке").clicked() {
+                    if ui.link(&n.game).on_hover_text(tr!("Страница игры в библиотеке", "Game page in the library")).clicked() {
                         open_game = Some(n.appid);
                     }
                 });
                 if ui.add(egui::Label::new(egui::RichText::new(&n.title).strong()).sense(egui::Sense::click()))
                     .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    .on_hover_text("Читать целиком")
+                    .on_hover_text(tr!("Читать целиком", "Read in full"))
                     .clicked()
                 {
                     open = Some((n.appid, n.date, n.title.clone()));
@@ -294,7 +294,7 @@ mod tests {
 impl LauncherApp {
     /// "What's new" shelf above the games on the library home: 4 fresh news items of own games.
     pub(crate) fn whats_new_shelf(&mut self, ui: &mut egui::Ui, net: &NetState) {
-        if !self.settings.whats_new {
+        if !self.settings.whats_new || crate::lite::on() {
             return;
         }
         if !self.news_ui.asked && (!net.owned.is_empty() || !self.games.is_empty()) {
@@ -309,12 +309,12 @@ impl LauncherApp {
             return;
         }
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("ЧТО НОВОГО").size(13.0).color(crate::theme::TEXT));
+            ui.label(egui::RichText::new(tr!("ЧТО НОВОГО", "WHAT'S NEW")).size(13.0).color(crate::theme::TEXT));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("Скрыть").on_hover_text("Вернуть - Настройки, раздел «Библиотека»").clicked() {
+                if ui.small_button(tr!("Скрыть", "Hide")).on_hover_text(tr!("Вернуть - Настройки, раздел «Библиотека»", "Bring it back - Settings, \"Library\" section")).clicked() {
                     self.settings.whats_new = false;
                 }
-                if ui.link("Все новости").clicked() {
+                if ui.link(tr!("Все новости", "All news")).clicked() {
                     self.close_extras(crate::View::News);
                     self.view = crate::View::News;
                 }

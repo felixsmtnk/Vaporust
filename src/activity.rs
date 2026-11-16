@@ -67,7 +67,7 @@ pub async fn load(client: &SteamClient, friends: Vec<(u64, String)>) -> Result<V
         }
     }
     if ok == 0 {
-        return Err("Steam не ответил.".into());
+        return Err(tr!("Steam не ответил.", "Steam did not answer.").into());
     }
     out.sort_by_key(|f| std::cmp::Reverse(f.games.iter().map(|g| g.two_weeks).sum::<u32>()));
     Ok(out)
@@ -98,7 +98,7 @@ pub struct ActivityUi {
 }
 
 fn hours(min: u32) -> String {
-    format!("{:.1} ч", min as f32 / 60.0)
+    trf!("{:.1} ч", "{:.1} h", min as f32 / 60.0)
 }
 
 impl LauncherApp {
@@ -128,21 +128,21 @@ impl LauncherApp {
             let _ = self.tx.send(Cmd::Feed { start: 0 });
         }
         ui.horizontal(|ui| {
-            if ui.button("Обновить").clicked() {
+            if ui.button(tr!("Обновить", "Refresh")).clicked() {
                 let _ = self.tx.send(Cmd::Feed { start: 0 });
             }
             if net.feed_busy {
                 crate::spin::spinner(ui);
             }
         });
-        ui.weak("События друзей, как на главной странице сообщества Steam.");
+        ui.weak(tr!("События друзей, как на главной странице сообщества Steam.", "Friends' events, as on the Steam Community home page."));
         let page = match &net.feed {
             None => {
                 crate::spin::spinner(ui);
                 return;
             }
             Some(Err(e)) => {
-                ui.label(format!("Не удалось загрузить: {e}"));
+                ui.label(trf!("Не удалось загрузить: {e}", "Could not load: {e}"));
                 return;
             }
             Some(Ok(p)) => p.clone(),
@@ -164,7 +164,7 @@ impl LauncherApp {
                     ui.vertical(|ui| {
                         let r = ui.add(egui::Label::new(&e.text).wrap().sense(egui::Sense::click()));
                         if let Some(a) = e.appid {
-                            if r.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Страница игры в магазине").clicked() {
+                            if r.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tr!("Страница игры в магазине", "Game page in the store")).clicked() {
                                 open_store = Some(a);
                             }
                         }
@@ -179,10 +179,10 @@ impl LauncherApp {
                 });
             }
             if page.entries.is_empty() {
-                ui.weak("Событий нет.");
+                ui.weak(tr!("Событий нет.", "No events."));
             }
             if let Some(n) = page.next {
-                if ui.add_enabled(!net.feed_busy, egui::Button::new("Показать раньше")).clicked() {
+                if ui.add_enabled(!net.feed_busy, egui::Button::new(tr!("Показать раньше", "Show earlier"))).clicked() {
                     more = Some(n);
                 }
             }
@@ -197,10 +197,10 @@ impl LauncherApp {
 
     pub(crate) fn activity_contents(&mut self, ui: &mut egui::Ui, net: &NetState) {
         ui.horizontal(|ui| {
-            ui.heading("Активность друзей");
+            ui.heading(tr!("Активность друзей", "Friends activity"));
             ui.separator();
-            ui.selectable_value(&mut self.activity_ui.tab, 0, "Лента событий");
-            ui.selectable_value(&mut self.activity_ui.tab, 1, "Во что играли");
+            ui.selectable_value(&mut self.activity_ui.tab, 0, tr!("Лента событий", "Activity feed"));
+            ui.selectable_value(&mut self.activity_ui.tab, 1, tr!("Во что играли", "What they played"));
         });
         if self.activity_ui.tab == 0 {
             self.feed_contents(ui, net);
@@ -212,7 +212,7 @@ impl LauncherApp {
         }
         let mut refresh = false;
         ui.horizontal(|ui| {
-            if ui.button("Обновить").clicked() {
+            if ui.button(tr!("Обновить", "Refresh")).clicked() {
                 refresh = true;
             }
             if net.activity_busy {
@@ -222,14 +222,14 @@ impl LauncherApp {
         if refresh {
             self.ask_activity(net);
         }
-        ui.weak("Во что друзья играли за последние две недели (у кого данные об играх открыты вам).");
+        ui.weak(tr!("Во что друзья играли за последние две недели (у кого данные об играх открыты вам).", "What friends played in the last two weeks (those whose game details are visible to you)."));
         let list = match &net.activity {
             None => {
                 crate::spin::spinner(ui);
                 return;
             }
             Some(Err(e)) => {
-                ui.label(format!("Не удалось загрузить: {e}"));
+                ui.label(trf!("Не удалось загрузить: {e}", "Could not load: {e}"));
                 return;
             }
             Some(Ok(v)) => v.clone(),
@@ -237,23 +237,23 @@ impl LauncherApp {
         let mut open_store = None;
         let mut open_chat = None;
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            ui.strong("Популярно у друзей");
+            ui.strong(tr!("Популярно у друзей", "Popular with friends"));
             egui::Grid::new("act_popular").num_columns(3).striped(true).show(ui, |ui| {
                 for (appid, name, count, total) in popular(&list).into_iter().take(15) {
-                    if ui.link(&name).on_hover_text("Страница в магазине").clicked() {
+                    if ui.link(&name).on_hover_text(tr!("Страница в магазине", "Store page")).clicked() {
                         open_store = Some(appid);
                     }
-                    ui.label(format!("друзей: {count}"));
-                    ui.weak(format!("всего {}", hours(total)));
+                    ui.label(trf!("друзей: {count}", "friends: {count}"));
+                    ui.weak(trf!("всего {}", "total {}", hours(total)));
                     ui.end_row();
                 }
             });
             ui.add_space(10.0);
-            ui.strong("По друзьям");
+            ui.strong(tr!("По друзьям", "By friend"));
             for f in &list {
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
-                    if ui.link(egui::RichText::new(&f.name).strong()).on_hover_text("Написать").clicked() {
+                    if ui.link(egui::RichText::new(&f.name).strong()).on_hover_text(tr!("Написать", "Message")).clicked() {
                         open_chat = Some((f.steamid, f.name.clone()));
                     }
                 });
@@ -263,12 +263,12 @@ impl LauncherApp {
                         if ui.link(&g.name).clicked() {
                             open_store = Some(g.appid);
                         }
-                        ui.weak(format!("{} за 2 недели, всего {}", hours(g.two_weeks), hours(g.forever)));
+                        ui.weak(trf!("{} за 2 недели, всего {}", "{} in 2 weeks, total {}", hours(g.two_weeks), hours(g.forever)));
                     });
                 }
             }
             if list.is_empty() {
-                ui.weak("Никто из друзей не играл последние две недели (или скрыл данные об играх).");
+                ui.weak(tr!("Никто из друзей не играл последние две недели (или скрыл данные об играх).", "None of your friends played in the last two weeks (or they hide their game details)."));
             }
         });
         if let Some(a) = open_store {

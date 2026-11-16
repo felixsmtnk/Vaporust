@@ -57,7 +57,7 @@ pub async fn load(client: &SteamClient, me: u64) -> Result<Family, String> {
     let apps = webapi::get(
         client,
         "IFamilyGroupsService/GetSharedLibraryApps/v1",
-        &[("family_groupid", id.clone()), ("include_own", "true".into()), ("language", crate::lang::STEAM.into())],
+        &[("family_groupid", id.clone()), ("include_own", "true".into()), ("language", crate::lang::steam().into())],
     )
     .await
     .unwrap_or_default();
@@ -132,7 +132,7 @@ impl LauncherApp {
     /// Member name: friends, profiles, otherwise the number (and request the profile).
     fn member_name(&mut self, id: u64, net: &NetState) -> String {
         if Some(id) == net.my_id {
-            return "Вы".into();
+            return tr!("Вы", "You").into();
         }
         if let Some(n) = net.roster.read().unwrap().get(&id).and_then(|f| f.persona_name.clone()) {
             return n;
@@ -154,11 +154,11 @@ impl LauncherApp {
             let _ = self.tx.send(Cmd::Family);
         }
         ui.horizontal(|ui| {
-            ui.heading("Семья Steam");
-            if ui.button("Обновить").clicked() {
+            ui.heading(tr!("Семья Steam", "Steam Family"));
+            if ui.button(tr!("Обновить", "Refresh")).clicked() {
                 let _ = self.tx.send(Cmd::Family);
             }
-            ui.hyperlink_to("Управление семьей на сайте", "https://store.steampowered.com/account/familymanagement");
+            ui.hyperlink_to(tr!("Управление семьей на сайте", "Manage the family on the website"), "https://store.steampowered.com/account/familymanagement");
         });
         let fam = match &net.family_group {
             None => {
@@ -166,37 +166,37 @@ impl LauncherApp {
                 return;
             }
             Some(Err(e)) => {
-                ui.label(format!("Не удалось загрузить: {e}"));
+                ui.label(trf!("Не удалось загрузить: {e}", "Could not load: {e}"));
                 return;
             }
             Some(Ok(f)) => f.clone(),
         };
         if fam.none {
-            ui.label("Вы не состоите в семье Steam. Создать семью или вступить в нее можно на сайте Steam.");
+            ui.label(tr!("Вы не состоите в семье Steam. Создать семью или вступить в нее можно на сайте Steam.", "You are not in a Steam Family. You can create or join a family on the Steam website."));
             return;
         }
         let mut open_profile = None;
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.label(egui::RichText::new(&fam.name).size(18.0).strong());
-            ui.weak(format!("Свободных мест: {}", fam.free_spots));
+            ui.weak(trf!("Свободных мест: {}", "Free slots: {}", fam.free_spots));
             invite_block(ui, &fam, net, &self.tx, &mut self.family_ui.invite);
             ui.add_space(6.0);
-            ui.strong("Участники");
+            ui.strong(tr!("Участники", "Members"));
             egui::Grid::new("family_members").num_columns(4).striped(true).show(ui, |ui| {
                 for m in &fam.members {
                     let name = self.member_name(m.steamid, net);
-                    if ui.link(&name).on_hover_text("Профиль").clicked() {
+                    if ui.link(&name).on_hover_text(tr!("Профиль", "Profile")).clicked() {
                         open_profile = Some(m.steamid);
                     }
-                    ui.label(if m.role == 2 { "ребенок" } else { "взрослый" });
-                    ui.label(format!("игр в общей библиотеке: {}", m.shared));
-                    ui.weak(format!("в семье с {}", crate::socialwin::fmt_date(m.joined)));
+                    ui.label(if m.role == 2 { tr!("ребенок", "child") } else { tr!("взрослый", "adult") });
+                    ui.label(trf!("игр в общей библиотеке: {}", "games in the shared library: {}", m.shared));
+                    ui.weak(trf!("в семье с {}", "in the family since {}", crate::socialwin::fmt_date(m.joined)));
                     ui.end_row();
                 }
             });
             ui.add_space(10.0);
-            ui.strong("Во что играли в семье");
-            ui.weak("Время в чужих играх из общей библиотеки (Steam считает его для каждого участника).");
+            ui.strong(tr!("Во что играли в семье", "What the family played"));
+            ui.weak(tr!("Время в чужих играх из общей библиотеки (Steam считает его для каждого участника).", "Time in other members' games from the shared library (Steam counts it for each member)."));
             // Game names that are neither in the shared library nor in the cache - ask Steam once.
             let unknown: Vec<u32> = fam
                 .plays
@@ -218,10 +218,10 @@ impl LauncherApp {
                         .filter(|n| !n.is_empty())
                         .cloned()
                         .or_else(|| net.app_names.get(&p.appid).cloned())
-                        .unwrap_or_else(|| format!("Игра {}", p.appid));
+                        .unwrap_or_else(|| trf!("Игра {}", "Game {}", p.appid));
                     ui.label(game);
-                    ui.label(format!("{:.1} ч", p.seconds as f64 / 3600.0));
-                    ui.weak(format!("последний раз {}", crate::socialwin::fmt_date(p.latest)));
+                    ui.label(trf!("{:.1} ч", "{:.1} h", p.seconds as f64 / 3600.0));
+                    ui.weak(trf!("последний раз {}", "last time {}", crate::socialwin::fmt_date(p.latest)));
                     ui.end_row();
                 }
             });
@@ -270,11 +270,11 @@ fn invite_block(
     };
     if !fam.pending.is_empty() {
         ui.add_space(4.0);
-        ui.strong("Отправленные приглашения");
+        ui.strong(tr!("Отправленные приглашения", "Sent invitations"));
         for (id, role) in &fam.pending {
             ui.horizontal(|ui| {
-                ui.label(format!("{} ({})", name_of(*id), if *role == 2 { "ребенок" } else { "взрослый" }));
-                if crate::exp::small_button(ui, "Отменить").clicked() {
+                ui.label(format!("{} ({})", name_of(*id), if *role == 2 { tr!("ребенок", "child") } else { tr!("взрослый", "adult") }));
+                if crate::exp::small_button(ui, tr!("Отменить", "Cancel")).clicked() {
                     let _ = tx.send(Cmd::FamilyCancel { family: fam.id.clone(), steamid: *id });
                 }
             });
@@ -294,34 +294,34 @@ fn invite_block(
         .collect();
     friends.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
     ui.horizontal(|ui| {
-        ui.label("Пригласить:");
-        let current = friends.iter().find(|(id, _)| *id == inv.0).map(|(_, n)| n.clone()).unwrap_or_else(|| "выберите друга".into());
+        ui.label(tr!("Пригласить:", "Invite:"));
+        let current = friends.iter().find(|(id, _)| *id == inv.0).map(|(_, n)| n.clone()).unwrap_or_else(|| tr!("выберите друга", "choose a friend").into());
         egui::ComboBox::from_id_salt("family_invite").selected_text(current).show_ui(ui, |ui| {
             for (id, n) in &friends {
                 ui.selectable_value(&mut inv.0, *id, n);
             }
         });
-        ui.radio_value(&mut inv.1, 1, "взрослый");
-        ui.radio_value(&mut inv.1, 2, "ребенок");
+        ui.radio_value(&mut inv.1, 1, tr!("взрослый", "adult"));
+        ui.radio_value(&mut inv.1, 2, tr!("ребенок", "child"));
         if inv.1 == 0 {
             inv.1 = 1;
         }
         if !inv.2 {
-            if ui.add_enabled(inv.0 != 0 && crate::exp::on(), egui::Button::new("Пригласить...")).on_disabled_hover_text(crate::exp::HINT).clicked() {
+            if ui.add_enabled(inv.0 != 0 && crate::exp::on(), egui::Button::new(tr!("Пригласить...", "Invite..."))).on_disabled_hover_text(crate::exp::HINT()).clicked() {
                 inv.2 = true;
             }
         } else {
-            if ui.button("Да, отправить приглашение").clicked() {
+            if ui.button(tr!("Да, отправить приглашение", "Yes, send the invitation")).clicked() {
                 let _ = tx.send(Cmd::FamilyInvite { family: fam.id.clone(), steamid: inv.0, role: inv.1 });
                 *inv = (0, 1, false);
             }
-            if ui.button("Отмена").clicked() {
+            if ui.button(tr!("Отмена", "Cancel")).clicked() {
                 inv.2 = false;
             }
         }
     });
     if inv.2 {
-        ui.weak("Steam попросит подтвердить приглашение письмом на почту. Вступивший получит доступ к общей библиотеке.");
+        ui.weak(tr!("Steam попросит подтвердить приглашение письмом на почту. Вступивший получит доступ к общей библиотеке.", "Steam asks to confirm the invitation by email. The new member gets access to the shared library."));
     }
     if let Some(m) = &net.action_msg {
         ui.label(m);

@@ -1,130 +1,120 @@
-# Дорожная карта Vaporust
+# Vaporust roadmap
 
-Куда движется проект. Порядок примерный: приоритеты меняются по отзывам. Что уже вышло - в
-[CHANGELOG.md](CHANGELOG.md).
+**English** · [Русский](ROADMAP.ru.md)
 
-Значки: 📋 в планах · ⏸ отложено · ⛔ пока нереализуемо · 💭 идея на будущее.
+Where the project is heading. The order is approximate: priorities change with feedback. What has
+already shipped - in [CHANGELOG.md](CHANGELOG.md).
 
-Многое здесь опирается на [Aurelia](https://github.com/Drackrath/Aurelia), на которой построен Vaporust.
+Icons: 📋 planned · ⏸ postponed · ⛔ not possible for now · 💭 idea for the future.
 
-**Содержание**
-- [Планы](#планы): [легкий режим](#-следующее-легкий-режим), [перевод](#-затем-перевод-интерфейса), [новый дизайн](#-затем-новый-дизайн)
-- [Отложено](#-отложено), [Пока нереализуемо](#-пока-нереализуемо), [Идеи на будущее](#-идеи-на-будущее)
+Much here relies on [Aurelia](https://github.com/Drackrath/Aurelia), which Vaporust is built on.
 
----
-
-# Планы
-
-## 📋 Следующее: легкий режим
-
-Отдельный небольшой этап, раньше нового дизайна: слабые компьютеры - главная причина, зачем
-сделан Vaporust.
-
-- Один переключатель: без картинок и анимаций, библиотека только таблицей, реже опрос Steam.
-- Цель - 25-35 МБ памяти на ноутбуке с графикой Intel, с замерами: какой счетчик, на каком
-  компьютере, сумма по всем процессам Vaporust и Steam.
-- Основа уже есть в «Настройки - Производительность» (анимации, обложки, экономия памяти).
-
-## 📋 Затем: перевод интерфейса
-
-До нового дизайна, а не после: иначе все экраны пришлось бы переделывать дважды - сначала вид,
-потом тексты.
-
-- Простая система перевода: все надписи интерфейса - в одном месте по ключам, русский и английский.
-- Язык текстов Steam (описания, новости, отзывы) - по выбору; уже собран в одно место
-  (`src/lang.rs`).
-- Новый дизайн сразу делается на переводимых строках.
-
-## 📋 Затем: новый дизайн
-
-Переделка интерфейса: кнопки и разделы на тех же местах, что в клиенте Steam, но компактно.
-Начинаем с конкретных проблем, которые уже видны:
-
-- Читаемость при 1366x768 и масштабе 125-150%: обрезанные названия в левом списке игр, мелкий
-  бледный второстепенный текст.
-- Страница игры: десять ссылок одной строкой с одинаковым весом - оставить основные (магазин,
-  достижения, сообщество, Мастерская), остальное (папка, ярлык, заметка, поддержка, трейлер) -
-  в меню управления.
-- Длинные названия игр, друзей и групп во всех списках.
-- Понятная группировка действий: главное действие одно и заметное, служебные - в меню.
-- Страницы не «прыгают», пока догружаются картинки: место под обложку и скриншоты резервируется
-  заранее, видны заглушки.
-- Общие размеры текста: подписи и пояснения (отзывы, даты, названия наград, магазин очков)
-  читаются при 100% без увеличения масштаба.
-- Общие детали интерфейса с правилами для узкого окна и масштаба 100-200%: строка поиска и
-  фильтров, строка настройки, таблица, заголовок страницы, пустое состояние и ошибка, диалог
-  (Esc - отмена). Инвентарь в узком окне: «сетка <-> предмет» вместо двух колонок.
-- Готовность функций в этой карте - по уровням: «есть в интерфейсе», «проверено вручную»,
-  «проверены сбои», «проверено на втором компьютере».
-- Заодно - порядок в коде: модули по папкам (интерфейс, сеть, файлы Steam, Windows), состояние
-  экранов - отдельными структурами, разбор страниц Steam - по возможности через разбор HTML, а не
-  поиск подстрок.
-## 📋 Потом: остаток функций
-
-**Библиотека и игры**
-- Steam Cloud вкл/выкл для каждой игры.
-- Полный список регионов загрузки, как в Steam (Steam хранит его только внутри своего клиента).
-
-**Магазин и площадка**
-- Покупка с торговой площадки, новая заявка на покупку, предложить обмен другу (пока на сайте Steam).
-- Подписки на кураторов; свои метки игр.
-
-**Профиль и сообщество**
-- Выбор избранного значка; лайки и комментарии в ленте активности; ограничения в семье Steam.
-
-**Программа**
-- Светлая тема.
-- Английский интерфейс и выбор языка.
-
-## 📋 В последнюю очередь
-
-Сложное: на каждый пункт - неделя и больше.
-
-- Удаленная установка игры на другой свой ПК.
-- Загрузка своих скриншотов в облако Steam.
-- Режим для геймпада (как Big Picture).
-- Трейлеры и видео прямо в программе.
-- Страницы распродаж с их витринами.
-- Трансляции (смотреть стримы друзей).
-- Настройка витрин профиля.
-- Написание руководств.
-- Запись игрового процесса. Возможна и без внедрения в игру (захват окна средствами Windows),
-  но это большая работа и не в приоритете.
+**Contents**
+- [Plans](#plans): [measurements](#-next-measurements-on-a-weak-laptop), [new design](#-then-new-design)
+- [Postponed](#-postponed), [Not possible for now](#-not-possible-for-now), [Ideas for the future](#-ideas-for-the-future)
 
 ---
 
-## ⏸ Отложено
+# Plans
 
-- **Окно друзей и чата поверх игры** по горячей клавише - легкий «оверлей» без внедрения в игру.
-- **Бесплатные раздачи** (уведомления о бесплатных играх) и **«охотник за достижениями»**.
-- **Портативная версия** (данные рядом с программой, для флешки). Чтобы вход работал на любом ПК,
-  его пришлось бы хранить без шифрования. Вернемся, когда будет безопасное решение.
-- **Закрытые беты с паролем.** Steam не показывает закрытые ветки, пока их не открыли паролем;
-  пока такие беты включаются в самом Steam.
-- **Приглашение в игру из чата.** Из отдельного сеанса невозможно: Steam берет игру из сеанса,
-  который отправил приглашение. Приглашать - из самой игры или оверлея Steam.
+## 📋 Next: measurements on a weak laptop
 
-## ⛔ Пока нереализуемо
+Light mode and the English interface are ready (see the CHANGELOG). What is left is to prove the
+benefit with numbers.
 
-Вернемся, если найдется способ.
+- A "regular Steam vs Vaporust" table on a ThinkPad E330: memory of all Vaporust and Steam
+  processes, time until the game starts, CPU load; with the counter and the PC named.
+- The light mode goal is 25-35 MB of memory on a laptop with Intel graphics.
 
-- **Настоящий оверлей внутри игры.** Требует внедрения в процесс игры, за это античиты (VAC, EAC)
-  могут заблокировать аккаунт. Вместо него - окно поверх игры по горячей клавише (см. «Отложено»).
-- **Steam Input (раскладки геймпадов).** Работает только внутри самого Steam: игры, запущенные
-  через Vaporust, его получают, но настраивать раскладки приходится в Steam.
-- **Remote Play, Remote Play Together, Steam Link.** Потоковая передача видео по закрытому протоколу.
-- **Покупка подарка и пополнение кошелька.** Только на сайте Steam: Vaporust не вводит платежные данные.
-- **Смена пароля и почты, Steam Guard, мобильный подтверждатель.** Безопасность аккаунта - только в
-  официальном Steam и приложении.
+## 📋 Then: new design
 
-## 💭 Идеи на будущее
+A redesign of the interface: buttons and sections in the same places as in the Steam client, but
+compact. We start with concrete problems that are already visible:
 
-- **Голосовой чат Steam.** Закрытый протокол поверх WebRTC: очень большая работа, и программа
-  станет тяжелее.
-- **Windows 7.** Сам Steam не работает на Windows 7 с 1 января 2024 года, поэтому там остается
-  только запуск без Steam; плюс нужна особая сборка Rust.
-- **Новые версии Aurelia.** Следить за ними и переносить (сейчас внутри 0.2.5).
+- Readability at 1366x768 and 125-150% scale: cut-off names in the left game list, small pale
+  secondary text.
+- Game page: ten links in one row with the same weight - keep the main ones (store, achievements,
+  community, Workshop), move the rest (folder, shortcut, note, support, trailer) to the manage menu.
+- Long names of games, friends and groups in all lists.
+- Clear grouping of actions: one main and noticeable action, service actions in a menu.
+- Pages do not "jump" while images load: space for the cover and screenshots is reserved in
+  advance, placeholders are shown.
+- Common text sizes: captions and explanations (reviews, dates, award names, Points Shop) are
+  readable at 100% without zooming.
+- Common interface parts with rules for a narrow window and 100-200% scale: a search and filter
+  row, a settings row, a table, a page header, an empty state and an error, a dialog (Esc -
+  cancel). Inventory in a narrow window: "grid <-> item" instead of two columns.
+- Feature readiness in this roadmap - by levels: "in the interface", "tested by hand", "failures
+  tested", "tested on a second PC".
+- Along the way - order in the code: modules in folders (interface, network, Steam files,
+  Windows), screen state in separate structures, parsing Steam pages with an HTML parser where
+  possible instead of substring search.
+
+## 📋 Later: remaining features
+
+**Library and games**
+- Steam Cloud on/off per game.
+- The full list of download regions, as in Steam (Steam keeps it only inside its client).
+
+**Store and market**
+- Buying from the Community Market, a new buy order, offering a trade to a friend (on the Steam website for now).
+- Following curators; your own game tags.
+
+**Profile and community**
+- Choosing the favorite badge; likes and comments in the activity feed; Steam Family restrictions.
+
+**Program**
+- A light theme.
+
+## 📋 Last
+
+Hard things: a week or more each.
+
+- Remote install of a game on another of your PCs.
+- Uploading your screenshots to the Steam cloud.
+- A gamepad mode (like Big Picture).
+- Trailers and videos right in the program.
+- Sale pages with their storefronts.
+- Broadcasts (watching friends' streams).
+- Setting up profile showcases.
+- Writing guides.
+- Gameplay recording. Possible without injecting into the game (window capture by Windows), but
+  it is a lot of work and not a priority.
 
 ---
 
-Есть идея или нашли ошибку? Создайте [issue](../../issues).
+## ⏸ Postponed
+
+- **A friends and chat window over the game** by a hotkey - a light "overlay" without injecting into the game.
+- **Free giveaways** (notifications about free games) and an **"achievement hunter"**.
+- **A portable version** (data next to the program, for a USB stick). For the login to work on
+  any PC it would have to be stored unencrypted. We will come back when there is a safe solution.
+- **Private betas with a password.** Steam does not show private branches until they are unlocked
+  with a password; for now such betas are turned on in Steam itself.
+- **Inviting to a game from the chat.** Impossible from a separate session: Steam takes the game
+  from the session that sent the invitation. Invite from the game itself or the Steam overlay.
+
+## ⛔ Not possible for now
+
+We will come back if a way is found.
+
+- **A real in-game overlay.** It requires injecting into the game process, and anti-cheats (VAC,
+  EAC) may ban the account for that. Instead - a window over the game by a hotkey (see "Postponed").
+- **Steam Input (gamepad layouts).** It works only inside Steam itself: games launched through
+  Vaporust get it, but layouts have to be set up in Steam.
+- **Remote Play, Remote Play Together, Steam Link.** Video streaming over a closed protocol.
+- **Buying a gift and adding funds to the wallet.** Only on the Steam website: Vaporust does not
+  enter payment details.
+- **Changing the password and email, Steam Guard, the mobile authenticator.** Account security -
+  only in the official Steam and app.
+
+## 💭 Ideas for the future
+
+- **Steam voice chat.** A closed protocol over WebRTC: a lot of work, and the program would get heavier.
+- **Windows 7.** Steam itself has not worked on Windows 7 since January 1, 2024, so only launching
+  without Steam is left there; plus a special Rust build is needed.
+- **New Aurelia versions.** Follow them and bring them in (0.2.5 inside now).
+
+---
+
+Have an idea or found a bug? Open an [issue](../../issues).

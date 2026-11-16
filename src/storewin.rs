@@ -46,13 +46,13 @@ impl Sort {
     const ALL: [Sort; 7] = [Sort::Default, Sort::Name, Sort::PriceAsc, Sort::PriceDesc, Sort::Discount, Sort::Reviews, Sort::Newest];
     fn label(self) -> &'static str {
         match self {
-            Sort::Default => "как в Steam",
-            Sort::Name => "по названию",
-            Sort::PriceAsc => "сначала дешевые",
-            Sort::PriceDesc => "сначала дорогие",
-            Sort::Discount => "по размеру скидки",
-            Sort::Reviews => "по отзывам",
-            Sort::Newest => "сначала новые",
+            Sort::Default => tr!("как в Steam", "as in Steam"),
+            Sort::Name => tr!("по названию", "by name"),
+            Sort::PriceAsc => tr!("сначала дешевые", "cheapest first"),
+            Sort::PriceDesc => tr!("сначала дорогие", "most expensive first"),
+            Sort::Discount => tr!("по размеру скидки", "by discount"),
+            Sort::Reviews => tr!("по отзывам", "by reviews"),
+            Sort::Newest => tr!("сначала новые", "newest first"),
         }
     }
 }
@@ -89,7 +89,7 @@ pub struct StoreWin {
     asked: HashSet<u32>,
     deals_asked: bool,
     events_asked: bool,
-    /// Which chart is open (index in store::CHARTS) and which were already requested.
+    /// Which chart is open (index in store::CHARTS()) and which were already requested.
     chart: u8,
     charts_asked: HashSet<u8>,
     discovery_asked: bool,
@@ -107,7 +107,7 @@ fn store_url(appid: u32) -> String {
 
 /// "Overwhelmingly Positive (96% positive, 118575 reviews)" -> in Russian.
 fn review_ru(s: &str) -> String {
-    s.replace(" positive", " положительных").replace(" reviews", " отзывов")
+    s.replace(" positive", tr!(" положительных", " positive")).replace(" reviews", tr!(" отзывов", " reviews"))
 }
 
 fn fmt_date(unix: u64) -> String {
@@ -122,9 +122,9 @@ fn fmt_date(unix: u64) -> String {
 /// Price considering the discount, free and "coming soon".
 fn price_ui(ui: &mut egui::Ui, a: &StoreAppInfo) {
     if a.coming_soon {
-        ui.weak(format!("Скоро{}", a.release_date.as_ref().map(|d| format!(": {}", ru_date(d))).unwrap_or_default()));
+        ui.weak(trf!("Скоро{}", "Coming soon{}", a.release_date.as_ref().map(|d| format!(": {}", ru_date(d))).unwrap_or_default()));
     } else if a.is_free {
-        ui.label("Бесплатно");
+        ui.label(tr!("Бесплатно", "Free"));
     } else if let Some(p) = &a.price {
         if a.discount_pct > 0 {
             ui.label(
@@ -140,7 +140,7 @@ fn price_ui(ui: &mut egui::Ui, a: &StoreAppInfo) {
             ui.label(p);
         }
     } else if a.region_locked {
-        ui.weak("недоступна в регионе");
+        ui.weak(tr!("недоступна в регионе", "not available in your region"));
     }
 }
 
@@ -213,7 +213,7 @@ impl LauncherApp {
         let closed = ctx.show_viewport_immediate(
             egui::ViewportId::from_hash_of("vaporust_store"),
             egui::ViewportBuilder::default()
-                .with_title("Магазин Steam - Vaporust")
+                .with_title(tr!("Магазин Steam - Vaporust", "Steam Store - Vaporust"))
                 .with_inner_size([900.0, 640.0])
                 .with_min_inner_size([600.0, 400.0])
                 .with_icon(crate::icons::icon(crate::icons::Kind::Launcher))
@@ -261,7 +261,7 @@ impl LauncherApp {
             let row1 = own_tabs || !w.pages.is_empty() || st.friend_wishlist.is_some();
             if row1 {
             ui.horizontal(|ui| {
-                if !w.pages.is_empty() && ui.button("< Назад").clicked() {
+                if !w.pages.is_empty() && ui.button(tr!("< Назад", "< Back")).clicked() {
                     w.pages.pop();
                 }
                 // "Discounts" - one section with two lists (Deals and Events).
@@ -270,11 +270,11 @@ impl LauncherApp {
                 // in the separate store window.
                 let tabs: &[(Tab, &str)] = if own_tabs {
                     &[
-                        (Tab::Home, "Главная"),
-                        (Tab::Deals, "Скидки"),
-                        (Tab::Charts, "Чарты"),
-                        (Tab::Discovery, "Рекомендации"),
-                        (Tab::Wishlist, "Желаемое"),
+                        (Tab::Home, tr!("Главная", "Home")),
+                        (Tab::Deals, tr!("Скидки", "Specials")),
+                        (Tab::Charts, tr!("Чарты", "Charts")),
+                        (Tab::Discovery, tr!("Рекомендации", "Recommendations")),
+                        (Tab::Wishlist, tr!("Желаемое", "Wishlist")),
                     ]
                 } else {
                     &[]
@@ -291,12 +291,12 @@ impl LauncherApp {
                 }
                 // A friend's wishlist - a temporary section while it is open.
                 if let Some((_, name, _)) = st.friend_wishlist.clone() {
-                    let text = egui::RichText::new(format!("Желаемое: {name}")).size(15.0);
+                    let text = egui::RichText::new(trf!("Желаемое: {name}", "Wishlist: {name}")).size(15.0);
                     if ui.selectable_label(w.tab == Tab::FriendWishlist && w.pages.is_empty(), text).clicked() {
                         w.tab = Tab::FriendWishlist;
                         w.pages.clear();
                     }
-                    if ui.small_button("✖").on_hover_text("Закрыть").clicked() {
+                    if ui.small_button("✖").on_hover_text(tr!("Закрыть", "Close")).clicked() {
                         close_friend_wish = true;
                     }
                 }
@@ -317,11 +317,11 @@ impl LauncherApp {
                         }
                         if w.tab != Tab::Home {
                             let active = [w.only_discount, w.only_free, w.hide_owned].iter().filter(|b| **b).count();
-                            let label = if active > 0 { format!("Фильтры ({active})") } else { "Фильтры".to_string() };
+                            let label = if active > 0 { trf!("Фильтры ({active})", "Filters ({active})") } else { tr!("Фильтры", "Filters").to_string() };
                             $ui.menu_button(label, |ui| {
-                                ui.checkbox(&mut w.only_discount, "Только со скидкой");
-                                ui.checkbox(&mut w.only_free, "Только бесплатные");
-                                ui.checkbox(&mut w.hide_owned, "Скрыть купленные");
+                                ui.checkbox(&mut w.only_discount, tr!("Только со скидкой", "Discounted only"));
+                                ui.checkbox(&mut w.only_free, tr!("Только бесплатные", "Free only"));
+                                ui.checkbox(&mut w.hide_owned, tr!("Скрыть купленные", "Hide owned"));
                             });
                             egui::ComboBox::from_id_salt("store_sort")
                                 .selected_text(w.sort.label())
@@ -330,7 +330,7 @@ impl LauncherApp {
                                         ui.selectable_value(&mut w.sort, s, s.label());
                                     }
                                 });
-                            $ui.weak("Порядок:");
+                            $ui.weak(tr!("Порядок:", "Order:"));
                         }
                     };
                 }
@@ -340,40 +340,40 @@ impl LauncherApp {
                         Tab::Home | Tab::Search => {
                             let edit = ui.add(
                                 egui::TextEdit::singleline(&mut w.query)
-                                    .hint_text("Название игры, Enter - искать")
+                                    .hint_text(tr!("Название игры, Enter - искать", "Game name, Enter - search"))
                                     .desired_width((ui.available_width() * 0.5).clamp(140.0, 320.0)),
                             );
                             let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                            if (enter || ui.button("Найти").clicked()) && !w.query.trim().is_empty() {
+                            if (enter || ui.button(tr!("Найти", "Find")).clicked()) && !w.query.trim().is_empty() {
                                 cmds.push(Cmd::Store(StoreCmd::Search(w.query.trim().to_string())));
                                 w.tab = Tab::Search;
                             }
                             if st.searching {
                                 crate::spin::spinner(ui);
                             }
-                            if w.tab == Tab::Search && ui.button("К витрине").clicked() {
+                            if w.tab == Tab::Search && ui.button(tr!("К витрине", "Back to the storefront")).clicked() {
                                 w.tab = Tab::Home;
                             }
                         }
                         Tab::Wishlist | Tab::FriendWishlist => {
-                            ui.add(egui::TextEdit::singleline(&mut w.wish_query).hint_text("Поиск в списке").desired_width(260.0));
+                            ui.add(egui::TextEdit::singleline(&mut w.wish_query).hint_text(tr!("Поиск в списке", "Search the list")).desired_width(260.0));
                         }
                         Tab::Deals | Tab::Events => {
-                            ui.selectable_value(&mut w.tab, Tab::Deals, "Популярное со скидкой")
-                                .on_hover_text("Самые продаваемые игры в вашем регионе, на которые сейчас есть скидка");
-                            ui.selectable_value(&mut w.tab, Tab::Events, "Акции Steam")
-                                .on_hover_text("Скидка дня, скидки недели и выходных, бесплатные выходные, новинки");
+                            ui.selectable_value(&mut w.tab, Tab::Deals, tr!("Популярное со скидкой", "Popular discounted"))
+                                .on_hover_text(tr!("Самые продаваемые игры в вашем регионе, на которые сейчас есть скидка", "The best-selling games in your region that are on sale now"));
+                            ui.selectable_value(&mut w.tab, Tab::Events, tr!("Акции Steam", "Steam events"))
+                                .on_hover_text(tr!("Скидка дня, скидки недели и выходных, бесплатные выходные, новинки", "Daily deal, weekly and weekend deals, free weekends, new releases"));
                         }
                         Tab::Charts => {
-                            for (i, (name, hint)) in store::CHARTS.iter().enumerate() {
+                            for (i, (name, hint)) in store::CHARTS().iter().enumerate() {
                                 ui.selectable_value(&mut w.chart, i as u8, *name).on_hover_text(*hint);
                             }
                         }
                         Tab::Discovery => {
                             let current: Vec<u32> = st.discovery.as_ref().and_then(|r| r.as_ref().ok()).cloned().unwrap_or_default();
                             if ui
-                                .button("Другие игры")
-                                .on_hover_text("Отметить эти игры просмотренными (как «Далее» в Steam) и подобрать новые")
+                                .button(tr!("Другие игры", "Other games"))
+                                .on_hover_text(tr!("Отметить эти игры просмотренными (как «Далее» в Steam) и подобрать новые", "Mark these games as viewed (like \"Next\" in Steam) and pick new ones"))
                                 .clicked()
                             {
                                 cmds.push(Cmd::Store(StoreCmd::Discovery { rebuild: false, skip: current }));
@@ -423,12 +423,12 @@ impl LauncherApp {
                 return;
             }
             let hint = match w.tab {
-                Tab::Deals => Some("Самые продаваемые игры в вашем регионе, на которые сейчас есть скидка."),
-                Tab::Charts => Some(store::CHARTS[w.chart as usize].1),
-                Tab::Discovery => Some("Игры, которые Steam подобрал для вас по вашим играм и списку желаемого."),
+                Tab::Deals => Some(tr!("Самые продаваемые игры в вашем регионе, на которые сейчас есть скидка.", "The best-selling games in your region that are on sale now.")),
+                Tab::Charts => Some(store::CHARTS()[w.chart as usize].1),
+                Tab::Discovery => Some(tr!("Игры, которые Steam подобрал для вас по вашим играм и списку желаемого.", "Games Steam picked for you based on your games and wishlist.")),
                 Tab::Events => Some(
-                    "Что Steam сейчас продвигает на главной странице: скидка дня, скидки середины недели и \
-                     выходных, бесплатные выходные, новинки и обновления. Желтым - вид акции и до какого числа.",
+                    tr!("Что Steam сейчас продвигает на главной странице: скидка дня, скидки середины недели и \
+                     выходных, бесплатные выходные, новинки и обновления. Желтым - вид акции и до какого числа.", "What Steam promotes on its home page now: daily deal, midweek and weekend deals, free weekends, new releases and updates. In yellow - the kind of event and its end date."),
                 ),
                 _ => None,
             };
@@ -450,7 +450,7 @@ impl LauncherApp {
                         let until = chrono::Local
                             .timestamp_opt(*end as i64, 0)
                             .single()
-                            .map(|t| format!(" · до {}", t.format("%d.%m")))
+                            .map(|t| trf!(" · до {}", " · until {}", t.format("%d.%m")))
                             .unwrap_or_default();
                         (*id, format!("{kind}{until}"))
                     })
@@ -492,16 +492,16 @@ impl LauncherApp {
             };
             match ids {
                 None if w.tab == Tab::Search => {
-                    ui.weak("Введите название игры и нажмите Enter.");
+                    ui.weak(tr!("Введите название игры и нажмите Enter.", "Enter a game name and press Enter."));
                 }
                 None => {
                     crate::spin::spinner(ui);
                 }
                 Some(Err(e)) => {
-                    ui.label(format!("Не удалось загрузить: {e}"));
+                    ui.label(trf!("Не удалось загрузить: {e}", "Could not load: {e}"));
                 }
                 Some(Ok(ids)) if ids.is_empty() => {
-                    ui.weak(if st.searching { "Ищу..." } else { "Ничего не найдено." });
+                    ui.weak(if st.searching { tr!("Ищу...", "Searching...") } else { tr!("Ничего не найдено.", "Nothing found.") });
                 }
                 Some(Ok(all)) => {
                     let mut missing = Vec::new();
@@ -538,13 +538,13 @@ impl LauncherApp {
                     let loaded = all.iter().filter(|id| st.apps.contains_key(id)).count();
                     ui.horizontal(|ui| {
                         if w.tab == Tab::Wishlist {
-                            ui.weak(format!("Игр в списке желаемого: {}", all.len()));
+                            ui.weak(trf!("Игр в списке желаемого: {}", "Games in the wishlist: {}", all.len()));
                         }
                         if filtering {
-                            ui.weak(format!("Показано: {}", ids.len()));
+                            ui.weak(trf!("Показано: {}", "Shown: {}", ids.len()));
                             if loaded < all.len() {
                                 crate::spin::spinner(ui);
-                                ui.weak(format!("загружаю данные об играх: {loaded} из {}", all.len()));
+                                ui.weak(trf!("загружаю данные об играх: {loaded} из {}", "loading game details: {loaded} of {}", all.len()));
                             }
                         }
                     });
@@ -563,12 +563,12 @@ impl LauncherApp {
                                         {
                                             let pos = all.iter().position(|x| *x == id).unwrap_or(0);
                                             row.context_menu(|ui| {
-                                                ui.weak(format!("Место в списке: {}", pos + 1));
+                                                ui.weak(trf!("Место в списке: {}", "Place in the list: {}", pos + 1));
                                                 for (label, to) in [
-                                                    ("В начало", 0usize),
-                                                    ("Выше", pos.saturating_sub(1)),
-                                                    ("Ниже", (pos + 1).min(all.len() - 1)),
-                                                    ("В конец", all.len() - 1),
+                                                    (tr!("В начало", "To the top"), 0usize),
+                                                    (tr!("Выше", "Up"), pos.saturating_sub(1)),
+                                                    (tr!("Ниже", "Down"), (pos + 1).min(all.len() - 1)),
+                                                    (tr!("В конец", "To the bottom"), all.len() - 1),
                                                 ] {
                                                     if ui.add_enabled(to != pos, egui::Button::new(label)).clicked() {
                                                         moved = Some((pos, to));
@@ -586,7 +586,7 @@ impl LauncherApp {
                                     ui.allocate_ui(egui::vec2(ui.available_width(), ROW_H), |ui| {
                                         ui.horizontal(|ui| {
                                             crate::spin::spinner(ui);
-                                            ui.weak(format!("игра {id}"));
+                                            ui.weak(trf!("игра {id}", "game {id}"));
                                         });
                                     });
                                 }
@@ -657,7 +657,7 @@ fn curators_block(ui: &mut egui::Ui, appid: u32, st: &store::StoreState, cmds: &
         return;
     }
     ui.add_space(10.0);
-    ui.label(egui::RichText::new("КУРАТОРЫ").size(13.0).color(crate::theme::TEXT));
+    ui.label(egui::RichText::new(tr!("КУРАТОРЫ", "CURATORS")).size(13.0).color(crate::theme::TEXT));
     // Three first, the rest by a button (like "All curators" in Steam).
     let key = egui::Id::new(("curators_all", appid));
     let all: bool = ui.data(|d| d.get_temp(key)).unwrap_or(false);
@@ -674,17 +674,17 @@ fn curators_block(ui: &mut egui::Ui, appid: u32, st: &store::StoreState, cmds: &
                             ui.ctx().open_url(egui::OpenUrl::new_tab(c.link.clone()));
                         }
                         let (t, col) = match c.state {
-                            0 => ("рекомендует", egui::Color32::from_rgb(102, 192, 244)),
-                            1 => ("не рекомендует", egui::Color32::from_rgb(200, 90, 70)),
-                            _ => ("информационный обзор", egui::Color32::from_rgb(190, 160, 90)),
+                            0 => (tr!("рекомендует", "recommends"), egui::Color32::from_rgb(102, 192, 244)),
+                            1 => (tr!("не рекомендует", "does not recommend"), egui::Color32::from_rgb(200, 90, 70)),
+                            _ => (tr!("информационный обзор", "informational review"), egui::Color32::from_rgb(190, 160, 90)),
                         };
                         ui.label(egui::RichText::new(t).color(col).small());
-                        ui.weak(egui::RichText::new(format!("{} подписчиков", crate::store::group_digits(c.followers))).small());
+                        ui.weak(egui::RichText::new(trf!("{} подписчиков", "{} followers", crate::store::group_digits(c.followers))).small());
                     });
                     if !c.blurb.is_empty() {
                         ui.label(crate::richtext::fix(ui, &c.blurb));
                     }
-                    if !c.review_url.is_empty() && ui.small_button("Полный обзор").clicked() {
+                    if !c.review_url.is_empty() && ui.small_button(tr!("Полный обзор", "Full review")).clicked() {
                         ui.ctx().open_url(egui::OpenUrl::new_tab(c.review_url.clone()));
                     }
                 });
@@ -692,7 +692,7 @@ fn curators_block(ui: &mut egui::Ui, appid: u32, st: &store::StoreState, cmds: &
         });
         ui.add_space(3.0);
     }
-    if list.len() > 3 && ui.small_button(if all { "Свернуть".to_string() } else { format!("Все кураторы ({})", list.len()) }).clicked() {
+    if list.len() > 3 && ui.small_button(if all { tr!("Свернуть", "Collapse").to_string() } else { trf!("Все кураторы ({})", "All curators ({})", list.len()) }).clicked() {
         ui.data_mut(|d| d.insert_temp(key, !all));
     }
 }
@@ -730,11 +730,11 @@ fn home_view(
         r.clone().map(|v| v.into_iter().filter(|id| st.apps.get(id).is_some_and(|a| a.discount_pct > 0)).collect())
     });
     let shelves: Vec<(&str, Option<Result<Vec<u32>, String>>, Tab, Option<u8>)> = vec![
-        ("ОСОБЫЕ ПРЕДЛОЖЕНИЯ", st.deals.clone(), Tab::Deals, None),
-        ("ЛИДЕРЫ ПРОДАЖ", chart(0), Tab::Charts, Some(0)),
-        ("ПОПУЛЯРНЫЕ НОВИНКИ", chart(2), Tab::Charts, Some(2)),
-        ("РЕКОМЕНДУЕМ ВАМ", st.discovery.clone(), Tab::Discovery, None),
-        ("СКИДКИ В ЖЕЛАЕМОМ", wish_sales, Tab::Wishlist, None),
+        (tr!("ОСОБЫЕ ПРЕДЛОЖЕНИЯ", "SPECIAL OFFERS"), st.deals.clone(), Tab::Deals, None),
+        (tr!("ЛИДЕРЫ ПРОДАЖ", "TOP SELLERS"), chart(0), Tab::Charts, Some(0)),
+        (tr!("ПОПУЛЯРНЫЕ НОВИНКИ", "POPULAR NEW RELEASES"), chart(2), Tab::Charts, Some(2)),
+        (tr!("РЕКОМЕНДУЕМ ВАМ", "RECOMMENDED FOR YOU"), st.discovery.clone(), Tab::Discovery, None),
+        (tr!("СКИДКИ В ЖЕЛАЕМОМ", "WISHLIST DISCOUNTS"), wish_sales, Tab::Wishlist, None),
     ];
     const CARD_W: f32 = 230.0;
     const GAP: f32 = 10.0;
@@ -748,7 +748,7 @@ fn home_view(
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(title).size(14.0).color(egui::Color32::WHITE));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.link("Все").clicked() {
+                    if ui.link(tr!("Все", "All")).clicked() {
                         *goto = Some((tab, chart_no));
                     }
                 });
@@ -762,10 +762,10 @@ fn home_view(
                     crate::spin::spinner(ui);
                 }
                 Some(Err(e)) => {
-                    ui.weak(format!("Не удалось загрузить: {e}"));
+                    ui.weak(trf!("Не удалось загрузить: {e}", "Could not load: {e}"));
                 }
                 Some(Ok(v)) if v.is_empty() => {
-                    ui.weak("Пусто.");
+                    ui.weak(tr!("Пусто.", "Empty."));
                 }
                 Some(Ok(v)) => {
                     ui.horizontal(|ui| {
@@ -808,11 +808,11 @@ fn home_card(ui: &mut egui::Ui, appid: u32, a: Option<&StoreAppInfo>, w: f32, ow
             child.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 5.0;
                 if owned {
-                    ui.label(egui::RichText::new("в библиотеке").small().color(GREEN));
+                    ui.label(egui::RichText::new(tr!("в библиотеке", "in library")).small().color(GREEN));
                 } else if a.coming_soon {
-                    ui.weak("Скоро");
+                    ui.weak(tr!("Скоро", "Coming soon"));
                 } else if a.is_free {
-                    ui.label("Бесплатно");
+                    ui.label(tr!("Бесплатно", "Free"));
                 } else if let Some(p) = &a.price {
                     if a.discount_pct > 0 {
                         ui.label(
@@ -827,10 +827,10 @@ fn home_card(ui: &mut egui::Ui, appid: u32, a: Option<&StoreAppInfo>, w: f32, ow
                     }
                     ui.label(egui::RichText::new(p).strong());
                 } else if a.region_locked {
-                    ui.weak("недоступна");
+                    ui.weak(tr!("недоступна", "unavailable"));
                 }
                 if wished && !owned {
-                    ui.label(egui::RichText::new("в желаемом").small().color(egui::Color32::from_rgb(110, 160, 230)));
+                    ui.label(egui::RichText::new(tr!("в желаемом", "wishlisted")).small().color(egui::Color32::from_rgb(110, 160, 230)));
                 }
             });
         }
@@ -853,9 +853,9 @@ fn capsule(_ui: &egui::Ui, appid: u32, a: Option<&StoreAppInfo>) -> String {
 fn review_short(s: &str) -> (String, egui::Color32) {
     let short = s.split(" (").next().unwrap_or(s).trim().to_string();
     let l = short.to_lowercase();
-    let color = if l.contains("отрицат") {
+    let color = if l.contains("отрицат") || l.contains("negative") {
         egui::Color32::from_rgb(200, 90, 70)
-    } else if l.contains("смешан") {
+    } else if l.contains("смешан") || l.contains("mixed") {
         egui::Color32::from_rgb(190, 160, 90)
     } else {
         egui::Color32::from_rgb(102, 192, 244)
@@ -866,9 +866,9 @@ fn review_short(s: &str) -> (String, egui::Color32) {
 /// Price block on the right: the discount as a big badge, the old price struck through, the new one large.
 fn price_block(ui: &mut egui::Ui, a: &StoreAppInfo) {
     if a.coming_soon {
-        ui.weak("Скоро");
+        ui.weak(tr!("Скоро", "Coming soon"));
     } else if a.is_free {
-        ui.strong("Бесплатно");
+        ui.strong(tr!("Бесплатно", "Free"));
     } else if let Some(p) = &a.price {
         ui.label(egui::RichText::new(p).size(15.0).strong());
         if a.discount_pct > 0 {
@@ -884,7 +884,7 @@ fn price_block(ui: &mut egui::Ui, a: &StoreAppInfo) {
             );
         }
     } else if a.region_locked {
-        ui.weak("недоступна");
+        ui.weak(tr!("недоступна", "unavailable"));
     }
 }
 
@@ -920,9 +920,9 @@ fn list_row(ui: &mut egui::Ui, a: &StoreAppInfo, owned: bool, wished: bool, badg
             ui.label(egui::RichText::new(b).small().color(egui::Color32::from_rgb(240, 200, 80)));
         }
         if owned {
-            ui.label(egui::RichText::new("в библиотеке").small().color(GREEN));
+            ui.label(egui::RichText::new(tr!("в библиотеке", "in library")).small().color(GREEN));
         } else if wished {
-            ui.label(egui::RichText::new("в желаемом").small().color(egui::Color32::from_rgb(110, 160, 230)));
+            ui.label(egui::RichText::new(tr!("в желаемом", "wishlisted")).small().color(egui::Color32::from_rgb(110, 160, 230)));
         }
     });
     let price_rect = egui::Rect::from_min_max(egui::pos2(rect.right() - 140.0, rect.top() + 8.0), rect.max - egui::vec2(10.0, 4.0));
@@ -964,51 +964,51 @@ fn game_page(
                 ui.horizontal(|ui| price_ui(ui, a));
                 if a.discount_pct > 0 {
                     if let Some(end) = a.discount_end {
-                        ui.weak(format!("Скидка до {}", fmt_date(end)));
+                        ui.weak(trf!("Скидка до {}", "Discount until {}", fmt_date(end)));
                     }
                 }
                 if let Some(r) = &a.review_summary {
-                    ui.label(format!("Отзывы: {}", review_ru(r)));
+                    ui.label(trf!("Отзывы: {}", "Reviews: {}", review_ru(r)));
                 }
                 if let Some(d) = &a.release_date {
-                    ui.weak(format!("Дата выхода: {}", ru_date(d)));
+                    ui.weak(trf!("Дата выхода: {}", "Release date: {}", ru_date(d)));
                 }
                 if let Some(p) = ex.and_then(|e| e.players) {
-                    ui.weak(format!("Сейчас играют: {p}"));
+                    ui.weak(trf!("Сейчас играют: {p}", "Playing now: {p}"));
                 }
                 ui.add_space(6.0);
                 ui.horizontal_wrapped(|ui| {
                     if owned.contains(&appid) {
                         if installed.contains(&appid) {
-                            if ui.button("Играть").clicked() {
+                            if ui.button(tr!("Играть", "Play")).clicked() {
                                 *play = Some(appid);
                             }
-                        } else if ui.button("Установить").clicked() {
+                        } else if ui.button(tr!("Установить", "Install")).clicked() {
                             *install = Some((appid, a.name.clone()));
                         }
-                        ui.label(egui::RichText::new("в библиотеке").color(GREEN));
-                        if crate::exp::button(ui, "Написать обзор").on_hover_text("Свой обзор игры (или изменить уже написанный)").clicked() {
+                        ui.label(egui::RichText::new(tr!("в библиотеке", "in library")).color(GREEN));
+                        if crate::exp::button(ui, tr!("Написать обзор", "Write a review")).on_hover_text(tr!("Свой обзор игры (или изменить уже написанный)", "Your own review of the game (or edit the one you wrote)")).clicked() {
                             UI_REQ.lock().unwrap().push(UiReq::Review(appid, a.name.clone()));
                         }
-                        if ui.button("Страница в браузере").clicked() {
+                        if ui.button(tr!("Страница в браузере", "Page in browser")).clicked() {
                             ui.ctx().open_url(egui::OpenUrl::new_tab(store_url(appid)));
                         }
                     } else {
                         if ui
-                            .button("Купить в Steam")
-                            .on_hover_text("Откроется страница игры в браузере: покупка проходит на сайте Steam.")
+                            .button(tr!("Купить в Steam", "Buy on Steam"))
+                            .on_hover_text(tr!("Откроется страница игры в браузере: покупка проходит на сайте Steam.", "The game page opens in the browser: the purchase happens on the Steam website."))
                             .clicked()
                         {
                             ui.ctx().open_url(egui::OpenUrl::new_tab(store_url(appid)));
                         }
-                        if !a.is_free && !a.coming_soon && a.price.is_some() && ui.button("В корзину").on_hover_text("Положить в корзину Steam (оплата - на сайте Steam)").clicked() {
+                        if !a.is_free && !a.coming_soon && a.price.is_some() && ui.button(tr!("В корзину", "Add to cart")).on_hover_text(tr!("Положить в корзину Steam (оплата - на сайте Steam)", "Add to the Steam cart (payment on the Steam website)")).clicked() {
                             UI_REQ.lock().unwrap().push(UiReq::Cart(appid));
                         }
                         if wish.contains(&appid) {
-                            if ui.button("Убрать из желаемого").clicked() {
+                            if ui.button(tr!("Убрать из желаемого", "Remove from wishlist")).clicked() {
                                 cmds.push(Cmd::Store(StoreCmd::WishlistSet(appid, false)));
                             }
-                        } else if ui.button("В список желаемого").clicked() {
+                        } else if ui.button(tr!("В список желаемого", "Add to wishlist")).clicked() {
                             cmds.push(Cmd::Store(StoreCmd::WishlistSet(appid, true)));
                         }
                         // "Not interested", as in Steam: the game disappears from recommendations.
@@ -1018,15 +1018,15 @@ fn game_page(
                         }
                         let ignored = st.ignored.as_ref().is_some_and(|s| s.contains(&appid));
                         let (text, hint) = if ignored {
-                            ("Интересует снова", "Вернуть игру в рекомендации магазина")
+                            (tr!("Интересует снова", "Interested again"), tr!("Вернуть игру в рекомендации магазина", "Bring the game back into store recommendations"))
                         } else {
-                            ("Не интересует", "Скрыть игру из рекомендаций магазина (как в Steam)")
+                            (tr!("Не интересует", "Not interested"), tr!("Скрыть игру из рекомендаций магазина (как в Steam)", "Hide the game from store recommendations (as in Steam)"))
                         };
                         if ui.button(text).on_hover_text(hint).clicked() {
                             cmds.push(Cmd::Store(StoreCmd::Ignore(appid, !ignored)));
                         }
                         if let Some(t) = ex.and_then(|e| e.trailer.as_deref()) {
-                            if ui.button("Трейлер").on_hover_text("Открыть трейлер в браузере").clicked() {
+                            if ui.button(tr!("Трейлер", "Trailer")).on_hover_text(tr!("Открыть трейлер в браузере", "Open the trailer in the browser")).clicked() {
                                 ui.ctx().open_url(egui::OpenUrl::new_tab(t));
                             }
                         }
@@ -1037,10 +1037,10 @@ fn game_page(
 
         ui.add_space(6.0);
         if !a.developers.is_empty() {
-            ui.label(format!("Разработчик: {}", a.developers.join(", ")));
+            ui.label(trf!("Разработчик: {}", "Developer: {}", a.developers.join(", ")));
         }
         if !a.publishers.is_empty() {
-            ui.label(format!("Издатель: {}", a.publishers.join(", ")));
+            ui.label(trf!("Издатель: {}", "Publisher: {}", a.publishers.join(", ")));
         }
         // Tags: first the 12 most prominent, "all tags" expands the rest; a click - the tag in the Steam store.
         let all_tags: Vec<String> = a.tags.iter().filter_map(|t| t.name.clone()).collect();
@@ -1052,12 +1052,12 @@ fn game_page(
                     let r = ui
                         .add(egui::Label::new(egui::RichText::new(t).small().background_color(egui::Color32::from_gray(50))).sense(egui::Sense::click()))
                         .on_hover_cursor(egui::CursorIcon::PointingHand)
-                        .on_hover_text("Игры с этой меткой в магазине Steam");
+                        .on_hover_text(tr!("Игры с этой меткой в магазине Steam", "Games with this tag in the Steam store"));
                     if r.clicked() {
                         ui.ctx().open_url(egui::OpenUrl::new_tab(format!("https://store.steampowered.com/tags/ru/{}/", t.replace(' ', "%20"))));
                     }
                 }
-                if all_tags.len() > 12 && ui.small_button(if open { "свернуть" } else { "все метки" }).clicked() {
+                if all_tags.len() > 12 && ui.small_button(if open { tr!("свернуть", "collapse") } else { tr!("все метки", "all tags") }).clicked() {
                     ui.data_mut(|d| d.insert_temp(key, !open));
                 }
             });
@@ -1075,7 +1075,7 @@ fn game_page(
                                     .sense(egui::Sense::click()),
                             )
                             .on_hover_cursor(egui::CursorIcon::PointingHand)
-                            .on_hover_text("Открыть в полном размере в браузере");
+                            .on_hover_text(tr!("Открыть в полном размере в браузере", "Open full size in the browser"));
                         if r.clicked() {
                             ui.ctx().open_url(egui::OpenUrl::new_tab(s.split('?').next().unwrap_or(s)));
                         }
@@ -1089,7 +1089,7 @@ fn game_page(
         if !short.is_empty() {
             ui.label(&short);
         }
-        egui::CollapsingHeader::new("Описание").id_salt(("desc", appid)).show(ui, |ui| {
+        egui::CollapsingHeader::new(tr!("Описание", "Description")).id_salt(("desc", appid)).show(ui, |ui| {
             for b in store::description_blocks(&a.full_description) {
                 match b {
                     store::Block::Heading(t) => {
@@ -1109,15 +1109,15 @@ fn game_page(
             }
         });
 
-        egui::CollapsingHeader::new("Новости").id_salt(("news", appid)).show(ui, |ui| match ex.and_then(|e| e.news.as_ref()) {
+        egui::CollapsingHeader::new(tr!("Новости", "News")).id_salt(("news", appid)).show(ui, |ui| match ex.and_then(|e| e.news.as_ref()) {
             None => {
                 crate::spin::spinner(ui);
             }
             Some(Err(e)) => {
-                ui.weak(format!("Не удалось загрузить: {e}"));
+                ui.weak(trf!("Не удалось загрузить: {e}", "Could not load: {e}"));
             }
             Some(Ok(n)) if n.is_empty() => {
-                ui.weak("Новостей нет.");
+                ui.weak(tr!("Новостей нет.", "No news."));
             }
             Some(Ok(items)) => {
                 for n in items {
@@ -1135,7 +1135,7 @@ fn game_page(
         });
 
         if let Some((min, rec)) = ex.and_then(|e| e.requirements.as_ref()) {
-            egui::CollapsingHeader::new("Системные требования").id_salt(("req", appid)).show(ui, |ui| {
+            egui::CollapsingHeader::new(tr!("Системные требования", "System requirements")).id_salt(("req", appid)).show(ui, |ui| {
                 if !min.is_empty() {
                     ui.label(min);
                 }
@@ -1146,16 +1146,16 @@ fn game_page(
             });
         }
 
-        egui::CollapsingHeader::new("Отзывы").id_salt(("reviews", appid)).show(ui, |ui| {
+        egui::CollapsingHeader::new(tr!("Отзывы", "Reviews")).id_salt(("reviews", appid)).show(ui, |ui| {
             if let Some(r) = &a.review_summary {
                 let (short, color) = review_short(r);
                 ui.horizontal(|ui| {
-                    ui.label("Итог:");
+                    ui.label(tr!("Итог:", "Summary:"));
                     ui.label(egui::RichText::new(short).color(color).strong());
                     ui.weak(review_ru(r).split_once('(').map(|x| format!("({}", x.1)).unwrap_or_default());
                 });
             } else {
-                ui.weak("Отзывов пока мало.");
+                ui.weak(tr!("Отзывов пока мало.", "Not many reviews yet."));
             }
             let rv = ex.and_then(|e| e.reviews.as_ref());
             let (sort, lang) = rv.map(|r| (r.sort, r.lang)).unwrap_or((0, 0));
@@ -1169,17 +1169,17 @@ fn game_page(
             ui.horizontal_wrapped(|ui| {
                 let (mut r2, mut l2) = (sort, lang);
                 egui::ComboBox::from_id_salt(("rev_sort", appid))
-                    .selected_text(store::REVIEW_SORTS[r2 as usize].1)
+                    .selected_text(store::REVIEW_SORTS()[r2 as usize].1)
                     .show_ui(ui, |ui| {
-                        for (i, (_, label)) in store::REVIEW_SORTS.iter().enumerate() {
+                        for (i, (_, label)) in store::REVIEW_SORTS().iter().enumerate() {
                             ui.selectable_value(&mut r2, i as u8, *label);
                         }
                     });
                 egui::ComboBox::from_id_salt(("rev_lang", appid))
-                    .selected_text(store::REVIEW_LANGS[l2 as usize].1)
+                    .selected_text(store::REVIEW_LANGS()[l2 as usize].1)
                     .height(320.0)
                     .show_ui(ui, |ui| {
-                        for (i, (_, label)) in store::REVIEW_LANGS.iter().enumerate() {
+                        for (i, (_, label)) in store::REVIEW_LANGS().iter().enumerate() {
                             ui.selectable_value(&mut l2, i as u8, *label);
                         }
                     });
@@ -1187,11 +1187,11 @@ fn game_page(
                     cmds.push(Cmd::Store(StoreCmd::Reviews { appid, sort: r2, lang: l2, page: 1 }));
                 }
                 ui.separator();
-                ui.selectable_value(&mut kind, 0, "Все");
-                ui.selectable_value(&mut kind, 1, "Положительные");
-                ui.selectable_value(&mut kind, 2, "Отрицательные");
+                ui.selectable_value(&mut kind, 0, tr!("Все", "All"));
+                ui.selectable_value(&mut kind, 1, tr!("Положительные", "Positive"));
+                ui.selectable_value(&mut kind, 2, tr!("Отрицательные", "Negative"));
                 ui.separator();
-                ui.hyperlink_to("В браузере", format!("https://steamcommunity.com/app/{appid}/reviews/"));
+                ui.hyperlink_to(tr!("В браузере", "In browser"), format!("https://steamcommunity.com/app/{appid}/reviews/"));
             });
             ui.data_mut(|d| d.insert_temp(type_key, kind));
             let Some(rv) = rv else {
@@ -1199,7 +1199,7 @@ fn game_page(
                 return;
             };
             if let Some(e) = &rv.error {
-                ui.colored_label(egui::Color32::from_rgb(230, 110, 110), format!("Не удалось загрузить отзывы: {e}"));
+                ui.colored_label(egui::Color32::from_rgb(230, 110, 110), trf!("Не удалось загрузить отзывы: {e}", "Could not load reviews: {e}"));
             }
             let shown: Vec<&store::Review> =
                 rv.list.iter().filter(|r| kind == 0 || (kind == 1) == r.positive).collect();
@@ -1208,17 +1208,17 @@ fn game_page(
                 cmds.push(Cmd::Store(StoreCmd::Reviews { appid, sort, lang, page: rv.pages + 1 }));
             }
             if shown.is_empty() && !rv.loading && rv.error.is_none() {
-                ui.weak("Отзывов с такими условиями нет.");
+                ui.weak(tr!("Отзывов с такими условиями нет.", "No reviews with these conditions."));
             }
             for r in shown {
                 review_card(ui, r, st, cmds);
             }
             if rv.loading {
                 crate::spin::spinner(ui);
-            } else if rv.more && ui.button("Показать еще").clicked() {
+            } else if rv.more && ui.button(tr!("Показать еще", "Show more")).clicked() {
                 cmds.push(Cmd::Store(StoreCmd::Reviews { appid, sort, lang, page: rv.pages + 1 }));
             } else if sort == 0 && rv.list.len() >= 10 {
-                ui.weak("За все время Steam показывает только первые 10 отзывов. Больше - выберите период (например, «за год») или «Новые».");
+                ui.weak(tr!("За все время Steam показывает только первые 10 отзывов. Больше - выберите период (например, «за год») или «Новые».", "For all time Steam shows only the first 10 reviews. For more, choose a period (for example \"this year\") or \"Newest\"."));
             }
         });
 
@@ -1226,7 +1226,7 @@ fn game_page(
         if let Some(sim) = ex.and_then(|e| e.similar.as_ref()) {
             if !sim.is_empty() {
                 ui.add_space(8.0);
-                ui.strong("Похожие игры");
+                ui.strong(tr!("Похожие игры", "Similar games"));
                 egui::ScrollArea::horizontal().id_salt("similar").show(ui, |ui| {
                     ui.horizontal(|ui| {
                         for &id in sim {
@@ -1254,9 +1254,9 @@ fn game_page(
 /// and own votes.
 fn review_card(ui: &mut egui::Ui, r: &store::Review, st: &store::StoreState, cmds: &mut Vec<Cmd>) {
     let (color, verdict) = if r.positive {
-        (egui::Color32::from_rgb(102, 192, 244), "Рекомендует")
+        (egui::Color32::from_rgb(102, 192, 244), tr!("Рекомендует", "Recommended"))
     } else {
-        (egui::Color32::from_rgb(220, 100, 80), "Не рекомендует")
+        (egui::Color32::from_rgb(220, 100, 80), tr!("Не рекомендует", "Not recommended"))
     };
     egui::Frame::none()
         .fill(ui.visuals().faint_bg_color)
@@ -1308,10 +1308,10 @@ fn review_card(ui: &mut egui::Ui, r: &store::Review, st: &store::StoreState, cmd
             let funny_n = r.funny_n + u32::from(mine == Some(2));
             ui.horizontal_wrapped(|ui| {
                 if helpful_n > 0 {
-                    ui.label(egui::RichText::new(format!("Полезно: {helpful_n}")).small().color(egui::Color32::from_rgb(150, 200, 120)));
+                    ui.label(egui::RichText::new(trf!("Полезно: {helpful_n}", "Helpful: {helpful_n}")).small().color(egui::Color32::from_rgb(150, 200, 120)));
                 }
                 if funny_n > 0 {
-                    ui.label(egui::RichText::new(format!("Забавно: {funny_n}")).small().color(egui::Color32::from_rgb(230, 190, 90)));
+                    ui.label(egui::RichText::new(trf!("Забавно: {funny_n}", "Funny: {funny_n}")).small().color(egui::Color32::from_rgb(230, 190, 90)));
                 }
                 // Steam points awards (reactions) - icons with a count, as on the site.
                 for (id, n) in r.awards.iter().take(8) {
@@ -1322,21 +1322,21 @@ fn review_card(ui: &mut egui::Ui, r: &store::Review, st: &store::StoreState, cmd
             });
             if !r.url.is_empty() {
                 ui.horizontal_wrapped(|ui| {
-                    ui.weak(egui::RichText::new("Этот обзор:").small());
-                    for (kind, label) in [(0u8, "Полезный"), (1, "Бесполезный"), (2, "Забавный")] {
+                    ui.weak(egui::RichText::new(tr!("Этот обзор:", "This review is:")).small());
+                    for (kind, label) in [(0u8, tr!("Полезный", "Helpful")), (1, tr!("Бесполезный", "Not helpful")), (2, tr!("Забавный", "Funny"))] {
                         // The chosen vote is highlighted; "helpful" and "not helpful" are mutually exclusive.
                         let on = mine == Some(kind);
                         let text = if on { egui::RichText::new(label).small().strong() } else { egui::RichText::new(label).small() };
-                        if ui.add_enabled(crate::exp::on(), egui::SelectableLabel::new(on, text)).on_disabled_hover_text(crate::exp::HINT).clicked() && !on {
+                        if ui.add_enabled(crate::exp::on(), egui::SelectableLabel::new(on, text)).on_disabled_hover_text(crate::exp::HINT()).clicked() && !on {
                             cmds.push(Cmd::Store(StoreCmd::ReviewVote { url: r.url.clone(), kind }));
                         }
                     }
                     if let Some(Ok((_, rid, _))) = full {
-                        if *rid > 0 && crate::exp::small_button(ui, "Наградить...").on_hover_text("Наградить обзор очками Steam").clicked() {
-                            UI_REQ.lock().unwrap().push(UiReq::Award(1, rid.to_string(), format!("обзор {}", r.author)));
+                        if *rid > 0 && crate::exp::small_button(ui, tr!("Наградить...", "Award...")).on_hover_text(tr!("Наградить обзор очками Steam", "Award the review with Steam Points")).clicked() {
+                            UI_REQ.lock().unwrap().push(UiReq::Award(1, rid.to_string(), trf!("обзор {}", "review {}", r.author)));
                         }
                     }
-                    if cut && ui.small_button("Читать полностью").clicked() {
+                    if cut && ui.small_button(tr!("Читать полностью", "Read more")).clicked() {
                         cmds.push(Cmd::Store(StoreCmd::ReviewFull(r.url.clone())));
                     }
                     if let Some(m) = st.review_vote.get(&r.url).filter(|m| !m.is_empty()) {
@@ -1384,7 +1384,7 @@ pub(crate) fn ru_date(d: &str) -> String {
 
 /// Price region choice (country). By default - the Steam wallet region.
 fn region_combo(ui: &mut egui::Ui, current: &str, saved: &mut Option<String>, cmds: &mut Vec<Cmd>, w: &mut StoreWin) {
-    let label = store::COUNTRIES
+    let label = store::COUNTRIES()
         .iter()
         .find(|(c, _)| *c == current)
         .map(|(_, n)| n.to_string())
@@ -1392,7 +1392,7 @@ fn region_combo(ui: &mut egui::Ui, current: &str, saved: &mut Option<String>, cm
     egui::ComboBox::from_id_salt("country")
         .selected_text(label)
         .show_ui(ui, |ui| {
-            for &(cc, name) in store::COUNTRIES.iter() {
+            for &(cc, name) in store::COUNTRIES().iter() {
                 if ui.selectable_label(current == cc, name).clicked() && current != cc {
                     *saved = Some(cc.to_string());
                     cmds.push(Cmd::Store(StoreCmd::Country(cc.to_string())));
@@ -1406,5 +1406,5 @@ fn region_combo(ui: &mut egui::Ui, current: &str, saved: &mut Option<String>, cm
             }
         })
         .response
-        .on_hover_text("Регион цен. По умолчанию - регион вашего кошелька Steam.");
+        .on_hover_text(tr!("Регион цен. По умолчанию - регион вашего кошелька Steam.", "Price region. By default - the region of your Steam wallet."));
 }

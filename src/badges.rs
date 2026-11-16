@@ -117,7 +117,7 @@ pub async fn craft(client: &SteamClient, me: u64, appid: u32, foil: bool) -> Res
     if ok {
         Ok(())
     } else {
-        Err(format!("Steam не создал значок (код {status})."))
+        Err(trf!("Steam не создал значок (код {status}).", "Steam did not create the badge (code {status})."))
     }
 }
 
@@ -144,8 +144,8 @@ impl LauncherApp {
             let _ = self.tx.send(Cmd::Badges);
         }
         ui.horizontal(|ui| {
-            ui.heading("Значки и карточки");
-            if ui.button("Обновить").clicked() {
+            ui.heading(tr!("Значки и карточки", "Badges and cards"));
+            if ui.button(tr!("Обновить", "Refresh")).clicked() {
                 let _ = self.tx.send(Cmd::Badges);
             }
         });
@@ -158,7 +158,7 @@ impl LauncherApp {
                 return;
             }
             Some(Err(e)) => {
-                ui.label(format!("Не удалось загрузить: {e}"));
+                ui.label(trf!("Не удалось загрузить: {e}", "Could not load: {e}"));
                 return;
             }
             Some(Ok(b)) => b.clone(),
@@ -170,36 +170,36 @@ impl LauncherApp {
             let span = (b.xp + b.xp_to_next).saturating_sub(b.xp_level_start).max(1);
             let done = b.xp.saturating_sub(b.xp_level_start);
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(format!("Уровень Steam {}", b.level)).size(18.0).strong());
+                ui.label(egui::RichText::new(trf!("Уровень Steam {}", "Steam level {}", b.level)).size(18.0).strong());
                 ui.add(
                     egui::ProgressBar::new(done as f32 / span as f32)
                         .desired_width(260.0)
-                        .text(format!("{} XP, до уровня {} еще {} XP", b.xp, b.level + 1, b.xp_to_next)),
+                        .text(trf!("{} XP, до уровня {} еще {} XP", "{} XP, to level {}: {} XP more", b.xp, b.level + 1, b.xp_to_next)),
                 );
             });
-            ui.weak(format!("Значков: {}", b.badges_count));
+            ui.weak(trf!("Значков: {}", "Badges: {}", b.badges_count));
             ui.add_space(8.0);
 
             // Ready sets.
             let ready: Vec<&GameCards> = b.games.iter().filter(|g| g.ready).collect();
             if !ready.is_empty() {
-                ui.strong("Можно создать значок");
+                ui.strong(tr!("Можно создать значок", "A badge can be crafted"));
                 for g in ready {
                     ui.horizontal(|ui| {
-                        ui.label(format!("{}{}", g.name, if g.foil { " (металлический)" } else { "" }));
+                        ui.label(format!("{}{}", g.name, if g.foil { tr!(" (металлический)", " (foil)") } else { "" }));
                         if self.badges_ui.confirm == Some((g.appid, g.foil)) {
-                            ui.label("Карточки набора будут израсходованы. Создать?");
-                            if ui.button("Да").clicked() {
+                            ui.label(tr!("Карточки набора будут израсходованы. Создать?", "The set's cards will be used up. Craft?"));
+                            if ui.button(tr!("Да", "Yes")).clicked() {
                                 let _ = self.tx.send(Cmd::CraftBadge { appid: g.appid, foil: g.foil });
                                 self.badges_ui.confirm = None;
                             }
-                            if ui.button("Нет").clicked() {
+                            if ui.button(tr!("Нет", "No")).clicked() {
                                 self.badges_ui.confirm = None;
                             }
                         } else if ui
-                            .add_enabled(crate::exp::on(), egui::Button::new("Создать значок..."))
-                            .on_disabled_hover_text(crate::exp::HINT)
-                            .on_hover_text("Из полного набора карточек: значок, опыт Steam, фон и смайлик игры")
+                            .add_enabled(crate::exp::on(), egui::Button::new(tr!("Создать значок...", "Craft badge...")))
+                            .on_disabled_hover_text(crate::exp::HINT())
+                            .on_hover_text(tr!("Из полного набора карточек: значок, опыт Steam, фон и смайлик игры", "From a full card set: a badge, Steam XP, a background and an emoticon of the game"))
                             .clicked()
                         {
                             self.badges_ui.confirm = Some((g.appid, g.foil));
@@ -213,17 +213,17 @@ impl LauncherApp {
             let mut drops: Vec<&GameCards> = b.games.iter().filter(|g| g.drops > 0).collect();
             drops.sort_by_key(|g| std::cmp::Reverse(g.drops));
             let total: u32 = drops.iter().map(|g| g.drops).sum();
-            ui.strong(format!("Еще выпадет карточек: {total} (в играх: {})", drops.len()));
+            ui.strong(trf!("Еще выпадет карточек: {total} (в играх: {})", "Card drops remaining: {total} (in games: {})", drops.len()));
             ui.weak(
-                "Карточки выпадают, пока игра запущена через Steam (обычное «Играть» в Vaporust). При запуске без \
-                 Steam они не выпадают.",
+                tr!("Карточки выпадают, пока игра запущена через Steam (обычное «Играть» в Vaporust). При запуске без \
+                 Steam они не выпадают.", "Cards drop while the game runs through Steam (the normal \"Play\" in Vaporust). When launched without Steam they do not drop."),
             );
             egui::Grid::new("drops").num_columns(3).striped(true).show(ui, |ui| {
                 for g in &drops {
-                    if ui.link(&g.name).on_hover_text("Страница значка в Steam").clicked() {
+                    if ui.link(&g.name).on_hover_text(tr!("Страница значка в Steam", "Badge page on Steam")).clicked() {
                         open_url = Some(format!("https://steamcommunity.com/profiles/{me}/gamecards/{}/", g.appid));
                     }
-                    ui.label(format!("еще {}", g.drops));
+                    ui.label(trf!("еще {}", "{} more", g.drops));
                     ui.weak(hours_ru(&g.hours));
                     ui.end_row();
                 }
@@ -231,7 +231,7 @@ impl LauncherApp {
             ui.add_space(8.0);
 
             // All sets: how much is collected.
-            ui.strong("Наборы карточек");
+            ui.strong(tr!("Наборы карточек", "Card sets"));
             egui::Grid::new("sets").num_columns(3).striped(true).show(ui, |ui| {
                 for g in b.games.iter().filter(|g| g.total > 0 || g.ready) {
                     if ui.link(&g.name).clicked() {
@@ -241,9 +241,9 @@ impl LauncherApp {
                     ui.add(
                         egui::ProgressBar::new(g.owned as f32 / total as f32)
                             .desired_width(140.0)
-                            .text(format!("{} из {}", g.owned, g.total)),
+                            .text(trf!("{} из {}", "{} of {}", g.owned, g.total)),
                     );
-                    ui.weak(if g.ready { "готов" } else { "" });
+                    ui.weak(if g.ready { tr!("готов", "ready") } else { "" });
                     ui.end_row();
                 }
             });
@@ -307,7 +307,7 @@ mod tests {
 /// "8.8 hrs on record" -> "8.8 ч в игре".
 fn hours_ru(s: &str) -> String {
     match s.trim().strip_suffix("hrs on record").or_else(|| s.trim().strip_suffix("hr on record")) {
-        Some(n) => format!("{} ч в игре", n.trim()),
+        Some(n) => trf!("{} ч в игре", "{} h on record", n.trim()),
         None => s.to_string(),
     }
 }

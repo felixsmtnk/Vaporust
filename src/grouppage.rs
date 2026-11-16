@@ -61,13 +61,13 @@ pub fn parse(xml: &str) -> Option<GroupInfo> {
 
 /// Group page URL -> XML URL.
 fn xml_url(url: &str) -> String {
-    format!("{}/memberslistxml/?xml=1&l={}", url.trim_end_matches('/'), crate::lang::STEAM)
+    format!("{}/memberslistxml/?xml=1&l={}", url.trim_end_matches('/'), crate::lang::steam())
 }
 
 pub async fn load(url: &str) -> Result<GroupInfo, String> {
     let http = aurelia::core::net::steam_web_client().map_err(|e| format!("{e:#}"))?;
     let t = http.get(xml_url(url)).send().await.map_err(|e| format!("{e:#}"))?.text().await.map_err(|e| format!("{e:#}"))?;
-    parse(&t).ok_or_else(|| "Группа не найдена.".to_string())
+    parse(&t).ok_or_else(|| tr!("Группа не найдена.", "Group not found.").to_string())
 }
 
 /// Join (join = true) or leave the group. Visible to others (the profile's group list).
@@ -78,7 +78,7 @@ pub async fn membership(client: &SteamClient, g: &GroupInfo, join: bool) -> Resu
     let r = if join {
         web.post_form(&format!("{page}/"), &[("action", "join".into()), ("sessionID", sid)], &page).await
     } else {
-        let me = client.my_steam_id().ok_or("нет входа")?;
+        let me = client.my_steam_id().ok_or(tr!("нет входа", "not logged in"))?;
         web.post_form(
             &format!("https://steamcommunity.com/profiles/{me}/home_process"),
             &[("sessionID", sid), ("action", "leaveGroup".into()), ("groupId", g.id64.to_string())],
@@ -109,7 +109,7 @@ impl LauncherApp {
         let g = match r {
             Ok(g) => g.clone(),
             Err(e) => {
-                ui.label(format!("Не удалось загрузить группу: {e}"));
+                ui.label(trf!("Не удалось загрузить группу: {e}", "Could not load the group: {e}"));
                 return;
             }
         };
@@ -133,22 +133,22 @@ impl LauncherApp {
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
                         let d = crate::store::group_digits;
-                        ui.label(egui::RichText::new(format!("{} участников", d(g.members))).strong());
-                        ui.label(egui::RichText::new(format!("{} в игре", d(g.in_game))).color(crate::theme::PLAY_TEXT));
-                        ui.label(egui::RichText::new(format!("{} в сети", d(g.online))).color(egui::Color32::from_rgb(90, 170, 230)));
-                        ui.weak(format!("{} в чате", d(g.in_chat)));
+                        ui.label(egui::RichText::new(trf!("{} участников", "{} members", d(g.members))).strong());
+                        ui.label(egui::RichText::new(trf!("{} в игре", "{} in game", d(g.in_game))).color(crate::theme::PLAY_TEXT));
+                        ui.label(egui::RichText::new(trf!("{} в сети", "{} online", d(g.online))).color(egui::Color32::from_rgb(90, 170, 230)));
+                        ui.weak(trf!("{} в чате", "{} in chat", d(g.in_chat)));
                     });
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
                         match self.group_ui.confirm {
                             None => match member {
                                 Some(true) => {
-                                    if ui.button("Выйти из группы...").clicked() {
+                                    if ui.button(tr!("Выйти из группы...", "Leave group...")).clicked() {
                                         self.group_ui.confirm = Some(false);
                                     }
                                 }
                                 Some(false) => {
-                                    if crate::exp::button(ui, "Вступить в группу...").clicked() {
+                                    if crate::exp::button(ui, tr!("Вступить в группу...", "Join group...")).clicked() {
                                         self.group_ui.confirm = Some(true);
                                     }
                                 }
@@ -156,20 +156,20 @@ impl LauncherApp {
                             },
                             Some(join) => {
                                 ui.label(if join {
-                                    "Вступить? Группа появится в вашем профиле."
+                                    tr!("Вступить? Группа появится в вашем профиле.", "Join? The group appears in your profile.")
                                 } else {
-                                    "Выйти из группы? Если она закрытая, вернуться можно только по приглашению."
+                                    tr!("Выйти из группы? Если она закрытая, вернуться можно только по приглашению.", "Leave the group? If it is private, you can only come back by invitation.")
                                 });
-                                if crate::exp::button(ui, if join { "Вступить" } else { "Выйти" }).clicked() {
+                                if crate::exp::button(ui, if join { tr!("Вступить", "Join") } else { tr!("Выйти", "Leave") }).clicked() {
                                     let _ = self.tx.send(Cmd::GroupMembership { url: url.clone(), info: g.clone(), join });
                                     self.group_ui.confirm = None;
                                 }
-                                if ui.button("Отмена").clicked() {
+                                if ui.button(tr!("Отмена", "Cancel")).clicked() {
                                     self.group_ui.confirm = None;
                                 }
                             }
                         }
-                        if ui.button("Страница в браузере").clicked() {
+                        if ui.button(tr!("Страница в браузере", "Page in browser")).clicked() {
                             ui.ctx().open_url(egui::OpenUrl::new_tab(&url));
                         }
                     });

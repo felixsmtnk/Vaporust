@@ -27,8 +27,8 @@ pub async fn resolve_vanity(name: &str) -> Result<u64, String> {
     let id = body.split("<steamID64>").nth(1).and_then(|s| s.split("</steamID64>").next());
     match id.and_then(|s| s.trim().parse::<u64>().ok()) {
         Some(id) => Ok(id),
-        None if body.contains("could not be found") => Err(format!("Профиль «{name}» не найден.")),
-        None => Err("Steam не ответил, попробуйте еще раз.".into()),
+        None if body.contains("could not be found") => Err(trf!("Профиль «{name}» не найден.", "Profile \"{name}\" not found.")),
+        None => Err(tr!("Steam не ответил, попробуйте еще раз.", "Steam did not answer, try again.").into()),
     }
 }
 
@@ -37,20 +37,20 @@ pub async fn resolve_vanity(name: &str) -> Result<u64, String> {
 pub fn parse_friend_input(input: &str) -> Result<u64, String> {
     let q = input.trim().trim_end_matches('/');
     if q.is_empty() {
-        return Err("Введите SteamID, ссылку на профиль или код друга.".into());
+        return Err(tr!("Введите SteamID, ссылку на профиль или код друга.", "Enter a SteamID, a profile link or a friend code.").into());
     }
     if let Some(pos) = q.find("/profiles/") {
         let id = &q[pos + "/profiles/".len()..];
         let id: String = id.chars().take_while(|c| c.is_ascii_digit()).collect();
-        return id.parse().map_err(|_| "Не удалось прочитать номер из ссылки.".to_string());
+        return id.parse().map_err(|_| tr!("Не удалось прочитать номер из ссылки.", "Could not read the number from the link.").to_string());
     }
-    let n: u64 = q.parse().map_err(|_| "Это не похоже на SteamID, ссылку или код друга.".to_string())?;
+    let n: u64 = q.parse().map_err(|_| tr!("Это не похоже на SteamID, ссылку или код друга.", "This does not look like a SteamID, a link or a friend code.").to_string())?;
     if n >= STEAMID64_BASE {
         Ok(n)
     } else if n > 0 && n < u32::MAX as u64 {
         Ok(STEAMID64_BASE + n) // friend code
     } else {
-        Err("Неверный номер.".into())
+        Err(tr!("Неверный номер.", "Wrong number.").into())
     }
 }
 
@@ -116,11 +116,11 @@ pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx
                 let res = c.add_friend(id).await;
                 let Some(mut cur) = crate::net::lock_current(&st) else { return }; // a response of the previous login - not written
                 cur.friend_msg = Some(match res {
-                    Ok(a) => format!(
-                        "Заявка отправлена{}.",
+                    Ok(a) => trf!(
+                        "Заявка отправлена{}.", "Request sent{}.",
                         a.persona_name.map(|n| format!(": {n}")).unwrap_or_default()
                     ),
-                    Err(e) => format!("Заявка не отправлена: {}", err(e)),
+                    Err(e) => trf!("Заявка не отправлена: {}", "Request not sent: {}", err(e)),
                 });
             }
             SocialCmd::Block(id, block) => {
@@ -128,9 +128,9 @@ pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx
                 let Some(mut cur) = crate::net::lock_current(&st) else { return }; // a response of the previous login - not written
                 let mut s = cur;
                 s.friend_msg = Some(match &res {
-                    Ok(()) if block => "Пользователь заблокирован.".into(),
-                    Ok(()) => "Пользователь разблокирован.".into(),
-                    Err(e) => format!("Не получилось: {e}"),
+                    Ok(()) if block => tr!("Пользователь заблокирован.", "User blocked.").into(),
+                    Ok(()) => tr!("Пользователь разблокирован.", "User unblocked.").into(),
+                    Err(e) => trf!("Не получилось: {e}", "Failed: {e}"),
                 });
                 if res.is_ok() {
                     if block {
@@ -145,8 +145,8 @@ pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx
                 let Some(mut cur) = crate::net::lock_current(&st) else { return }; // a response of the previous login - not written
                 let mut s = cur;
                 s.friend_msg = Some(match res {
-                    Ok(()) => "Готово.".into(),
-                    Err(e) => format!("Не получилось: {}", err(e)),
+                    Ok(()) => tr!("Готово.", "Done.").into(),
+                    Err(e) => trf!("Не получилось: {}", "Failed: {}", err(e)),
                 });
                 // Remove from the list right away without waiting for an update from Steam.
                 s.roster.write().unwrap().remove(&id);
@@ -205,7 +205,7 @@ pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx
                             set.remove(&id);
                         }
                     }
-                    Err(e) => w.error = Some(format!("Подписка не изменена: {}", err(e))),
+                    Err(e) => w.error = Some(trf!("Подписка не изменена: {}", "Subscription not changed: {}", err(e))),
                 }
             }
         }
@@ -278,10 +278,10 @@ pub async fn block_user(c: &SteamClient, id: u64, block: bool) -> Result<(), Str
         .await
         .map_err(|e| format!("{e:#}"))?
         .1;
-    let v: serde_json::Value = serde_json::from_str(&t).map_err(|_| "Steam ответил не так, как ожидалось".to_string())?;
+    let v: serde_json::Value = serde_json::from_str(&t).map_err(|_| tr!("Steam ответил не так, как ожидалось", "Steam answered unexpectedly").to_string())?;
     if v["success"].as_i64() == Some(1) || v["success"].as_bool() == Some(true) {
         Ok(())
     } else {
-        Err(format!("Steam отказал (код {})", v["success"]))
+        Err(trf!("Steam отказал (код {})", "Steam refused (code {})", v["success"]))
     }
 }

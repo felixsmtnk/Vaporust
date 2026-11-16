@@ -64,40 +64,40 @@ pub fn friend_menu(resp: &egui::Response, id: u64, name: &str, fav: bool, out: &
     resp.context_menu(|ui| {
         ui.label(egui::RichText::new(name).strong());
         ui.separator();
-        if ui.button(if fav { "Убрать из избранных" } else { "В избранные" }).clicked() {
+        if ui.button(if fav { tr!("Убрать из избранных", "Remove from favorites") } else { tr!("В избранные", "Add to favorites") }).clicked() {
             *out = Some(FriendAction::Favorite(id));
             ui.close_menu();
         }
-        if ui.button("Задать ник...").on_hover_text("Ваш ник для друга (виден только вам, как в Steam)").clicked() {
+        if ui.button(tr!("Задать ник...", "Set nickname...")).on_hover_text(tr!("Ваш ник для друга (виден только вам, как в Steam)", "Your nickname for the friend (only you see it, as in Steam)")).clicked() {
             *out = Some(FriendAction::Nick(id, name.to_string()));
             ui.close_menu();
         }
-        if ui.button("Заметка...").clicked() {
+        if ui.button(tr!("Заметка...", "Note...")).clicked() {
             *out = Some(FriendAction::Note(id, name.to_string()));
             ui.close_menu();
         }
-        if ui.button("Профиль").clicked() {
+        if ui.button(tr!("Профиль", "Profile")).clicked() {
             *out = Some(FriendAction::Profile(id));
             ui.close_menu();
         }
-        if ui.button("Написать").clicked() {
+        if ui.button(tr!("Написать", "Message")).clicked() {
             *out = Some(FriendAction::Chat(id, name.to_string()));
             ui.close_menu();
         }
-        if ui.button("Список желаемого").clicked() {
+        if ui.button(tr!("Список желаемого", "Wishlist")).clicked() {
             *out = Some(FriendAction::Wishlist(id, name.to_string()));
             ui.close_menu();
         }
-        if ui.button("Скриншоты").clicked() {
+        if ui.button(tr!("Скриншоты", "Screenshots")).clicked() {
             *out = Some(FriendAction::Shots(id, name.to_string()));
             ui.close_menu();
         }
         ui.separator();
-        if ui.button("Удалить из друзей…").clicked() {
+        if ui.button(tr!("Удалить из друзей…", "Remove friend…")).clicked() {
             *out = Some(FriendAction::Remove(id));
             ui.close_menu();
         }
-        if crate::exp::button(ui, "Заблокировать...").clicked() {
+        if crate::exp::button(ui, tr!("Заблокировать...", "Block...")).clicked() {
             *out = Some(FriendAction::Block(id));
             ui.close_menu();
         }
@@ -183,13 +183,13 @@ impl LauncherApp {
                 }
             }
             ui.painter().rect_stroke(ar.expand(1.0), 3.0, egui::Stroke::new(2.0, color));
-            if resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Мой профиль").clicked() {
+            if resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tr!("Мой профиль", "My profile")).clicked() {
                 open_profile = true;
             }
             ui.vertical(|ui| {
                 ui.set_max_width((ui.available_width() - 66.0).max(60.0));
                 ui.spacing_mut().item_spacing.y = 0.0;
-                let name = me.and_then(|p| p.persona_name.clone()).unwrap_or_else(|| "Вы".into());
+                let name = me.and_then(|p| p.persona_name.clone()).unwrap_or_else(|| tr!("Вы", "You").into());
                 ui.add(egui::Label::new(egui::RichText::new(crate::richtext::fix(ui, &name)).size(15.0).strong()).truncate());
                 // Status - a click opens the choice, as in Steam.
                 // A down arrow after the status and a hand cursor - it is clear the status can be changed.
@@ -201,7 +201,7 @@ impl LauncherApp {
                 let btn = egui::Button::new("").frame(false).min_size(egui::vec2(text_w + 13.0, galley.size().y + 2.0));
                 let st = egui::menu::menu_custom_button(ui, btn, |ui| {
                     let before = self.settings.persona;
-                    for (state, label) in crate::settings::PERSONAS {
+                    for (state, label) in crate::settings::PERSONAS() {
                         ui.radio_value(&mut self.settings.persona, state, label);
                     }
                     if self.settings.persona != before {
@@ -222,48 +222,48 @@ impl LauncherApp {
                 ));
                 st.response
                     .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    .on_hover_text("Сменить статус. «Невидимка»: вы видите друзей, они вас - нет.");
+                    .on_hover_text(tr!("Сменить статус. «Невидимка»: вы видите друзей, они вас - нет.", "Change status. \"Invisible\": you see friends, they do not see you."));
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 // On the right, the friends menu icon (with the number of new requests): add friend, requests, activity, groups.
                 let menu = egui::menu::menu_custom_button(ui, egui::Button::new("").frame(false).min_size(egui::vec2(28.0, 28.0)), |ui| {
                     ui.set_min_width(220.0);
-                    if ui.button("Добавить друга...").clicked() {
+                    if ui.button(tr!("Добавить друга...", "Add friend...")).clicked() {
                         self.social_ui.add_open = true;
                         ui.close_menu();
                     }
                     // Requests are on the "Friends" page (submenus covered the other items).
                     let req = if incoming.is_empty() {
-                        egui::RichText::new("Заявки в друзья")
+                        egui::RichText::new(tr!("Заявки в друзья", "Friend requests"))
                     } else {
-                        egui::RichText::new(format!("Заявки в друзья ({})", incoming.len())).color(egui::Color32::from_rgb(240, 200, 80))
+                        egui::RichText::new(trf!("Заявки в друзья ({})", "Friend requests ({})", incoming.len())).color(egui::Color32::from_rgb(240, 200, 80))
                     };
                     if ui.button(req).clicked() {
                         open_page = Some(1);
                         ui.close_menu();
                     }
-                    if !outgoing.is_empty() && ui.button(format!("Отправленные заявки ({})", outgoing.len())).clicked() {
+                    if !outgoing.is_empty() && ui.button(trf!("Отправленные заявки ({})", "Sent requests ({})", outgoing.len())).clicked() {
                         open_page = Some(2);
                         ui.close_menu();
                     }
-                    if ui.button("Все друзья").clicked() {
+                    if ui.button(tr!("Все друзья", "All friends")).clicked() {
                         open_page = Some(0);
                         ui.close_menu();
                     }
-                    if ui.button("Недавние игроки").on_hover_text("С кем вы недавно играли в сетевых играх").clicked() {
+                    if ui.button(tr!("Недавние игроки", "Recent players")).on_hover_text(tr!("С кем вы недавно играли в сетевых играх", "Who you recently played online games with")).clicked() {
                         open_page = Some(3);
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.button("Активность друзей").on_hover_text("Лента событий и во что играли за две недели").clicked() {
+                    if ui.button(tr!("Активность друзей", "Friends activity")).on_hover_text(tr!("Лента событий и во что играли за две недели", "Activity feed and what they played in two weeks")).clicked() {
                         self.open_activity();
                         ui.close_menu();
                     }
-                    if ui.button("Групповые чаты").clicked() {
+                    if ui.button(tr!("Групповые чаты", "Group chats")).clicked() {
                         self.open_groups();
                         ui.close_menu();
                     }
-                    if ui.button("Создать групповой чат...").clicked() {
+                    if ui.button(tr!("Создать групповой чат...", "Create a group chat...")).clicked() {
                         self.net.lock().unwrap().action_msg = None;
                         self.social_ui.group_create = Some((String::new(), Default::default()));
                         ui.close_menu();
@@ -282,7 +282,7 @@ impl LauncherApp {
                 }
                 menu.response
                     .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    .on_hover_text("Заявки в друзья, активность, групповые чаты");
+                    .on_hover_text(tr!("Заявки в друзья, активность, групповые чаты", "Friend requests, activity, group chats"));
             });
         });
         if let Some(t) = open_page {
@@ -347,7 +347,7 @@ impl LauncherApp {
                 return;
             }
             Some(Err(e)) => {
-                ui.label(format!("Не удалось загрузить профиль: {e}"));
+                ui.label(trf!("Не удалось загрузить профиль: {e}", "Could not load the profile: {e}"));
                 return;
             }
             Some(Ok(p)) => p.clone(),
@@ -402,7 +402,7 @@ impl LauncherApp {
                                 }
                                 if !p.is_public {
                                     ui.add_space(6.0);
-                                    ui.weak("Профиль скрыт настройками приватности.");
+                                    ui.weak(tr!("Профиль скрыт настройками приватности.", "The profile is hidden by privacy settings."));
                                 }
                             });
                             ui.vertical(|ui| {
@@ -410,7 +410,7 @@ impl LauncherApp {
                                 ui.add_space(8.0);
                                 if let Some(l) = extra.as_ref().and_then(|x| x.level) {
                                     ui.horizontal(|ui| {
-                                        ui.label(egui::RichText::new("Уровень").size(22.0).color(egui::Color32::WHITE));
+                                        ui.label(egui::RichText::new(tr!("Уровень", "Level")).size(22.0).color(egui::Color32::WHITE));
                                         crate::profile_extra::level_badge(ui, l);
                                     });
                                 }
@@ -426,36 +426,36 @@ impl LauncherApp {
                                 }
                                 ui.add_space(10.0);
                                 if is_me {
-                                    if crate::exp::button(ui, "Редактировать профиль").clicked() {
+                                    if crate::exp::button(ui, tr!("Редактировать профиль", "Edit profile")).clicked() {
                                         act = Some(ProfileAct::Edit);
                                     }
                                 } else {
                                     ui.horizontal_wrapped(|ui| {
-                                        if is_friend && ui.button("Написать").clicked() {
+                                        if is_friend && ui.button(tr!("Написать", "Message")).clicked() {
                                             act = Some(ProfileAct::Chat);
                                         }
-                                        if !is_friend && ui.button("Добавить в друзья").clicked() {
+                                        if !is_friend && ui.button(tr!("Добавить в друзья", "Add friend")).clicked() {
                                             let _ = self.tx.send(Cmd::Social(SocialCmd::AddFriend(id)));
                                         }
-                                        ui.menu_button("Еще", |ui| {
-                                            if ui.button("Список желаемого").clicked() {
+                                        ui.menu_button(tr!("Еще", "More"), |ui| {
+                                            if ui.button(tr!("Список желаемого", "Wishlist")).clicked() {
                                                 act = Some(ProfileAct::Wishlist);
                                                 ui.close_menu();
                                             }
-                                            if ui.button("Открыть в браузере").clicked() {
+                                            if ui.button(tr!("Открыть в браузере", "Open in browser")).clicked() {
                                                 act = Some(ProfileAct::Url(p.profile_url.clone()));
                                                 ui.close_menu();
                                             }
-                                            if crate::exp::button(ui, "Наградить...").on_hover_text("Наградить профиль очками Steam").clicked() {
+                                            if crate::exp::button(ui, tr!("Наградить...", "Award...")).on_hover_text(tr!("Наградить профиль очками Steam", "Award the profile with Steam Points")).clicked() {
                                                 self.net.lock().unwrap().action_msg = None;
-                                                self.social_ui.award = Some((3, id.to_string(), "этот профиль".into()));
+                                                self.social_ui.award = Some((3, id.to_string(), tr!("этот профиль", "this profile").into()));
                                                 ui.close_menu();
                                             }
                                             ui.separator();
                                             // Blocked: by Steam (1 - blocked, 5/6 - ignored) or in this session.
                                             let rel = net.roster.read().unwrap().get(&id).map(|f| f.relationship).unwrap_or(0);
                                             let blocked = net.blocked.contains(&id) || matches!(rel, 1 | 5 | 6);
-                                            if crate::exp::button(ui, if blocked { "Разблокировать..." } else { "Заблокировать..." }).clicked() {
+                                            if crate::exp::button(ui, if blocked { tr!("Разблокировать...", "Unblock...") } else { tr!("Заблокировать...", "Block...") }).clicked() {
                                                 self.social_ui.confirm_block = Some((id, !blocked));
                                                 ui.close_menu();
                                             }
@@ -532,17 +532,17 @@ impl LauncherApp {
             Some(ProfileAct::Count(label, href)) => {
                 // Own sections open in the program, the rest in the browser.
                 let l = label.to_lowercase();
-                if is_me && l.starts_with("значки") {
+                if is_me && (l.starts_with("значки") || l.starts_with("badges")) {
                     self.open_badges();
-                } else if is_me && l.starts_with("инвентарь") {
+                } else if is_me && (l.starts_with("инвентарь") || l.starts_with("inventory")) {
                     self.open_inventory(false);
-                } else if is_me && l.starts_with("друзья") {
+                } else if is_me && (l.starts_with("друзья") || l.starts_with("friends")) {
                     self.open_friends_page(0);
-                } else if is_me && l.starts_with("игры") {
+                } else if is_me && (l.starts_with("игры") || l.starts_with("games")) {
                     self.close_extras(crate::View::Library);
                     self.view = crate::View::Library;
                     self.lib_page = None;
-                } else if l.starts_with("скриншоты") {
+                } else if (l.starts_with("скриншоты") || l.starts_with("screenshots")) {
                     if is_me {
                         self.open_shots(None);
                     } else {
@@ -563,19 +563,19 @@ impl LauncherApp {
         if let Some((id, name, mut text)) = self.social_ui.note_edit.take() {
             let mut keep = true;
             let mut save = false;
-            egui::Window::new(format!("Заметка: {name}"))
+            egui::Window::new(trf!("Заметка: {name}", "Note: {name}"))
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
                 .show(ctx, |ui| {
-                    ui.weak("Видна только вам: например, как друга зовут на самом деле или откуда вы знакомы.");
+                    ui.weak(tr!("Видна только вам: например, как друга зовут на самом деле или откуда вы знакомы.", "Only you see it: for example the friend's real name or how you met."));
                     ui.add(egui::TextEdit::multiline(&mut text).desired_rows(3).desired_width(320.0));
                     ui.horizontal(|ui| {
-                        if ui.button("Сохранить").clicked() {
+                        if ui.button(tr!("Сохранить", "Save")).clicked() {
                             save = true;
                             keep = false;
                         }
-                        if ui.button("Отмена").clicked() {
+                        if ui.button(tr!("Отмена", "Cancel")).clicked() {
                             keep = false;
                         }
                     });
@@ -597,16 +597,16 @@ impl LauncherApp {
         if self.social_ui.add_open {
             let closed = ctx.show_viewport_immediate(
                 egui::ViewportId::from_hash_of("vaporust_add_friend"),
-                viewport("Добавить друга - Vaporust", [460.0, 300.0], [400.0, 240.0]),
+                viewport(tr!("Добавить друга - Vaporust", "Add friend - Vaporust"), [460.0, 300.0], [400.0, 240.0]),
                 |ctx, _| {
                     crate::winframe::title_bar_auto(ctx);
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    ui.label("Код друга, SteamID64 или ссылка на профиль (…/profiles/… или …/id/имя)");
-                    ui.weak("Код друга есть в Steam: Друзья, затем «Добавить друга».");
+                    ui.label(tr!("Код друга, SteamID64 или ссылка на профиль (…/profiles/… или …/id/имя)", "Friend code, SteamID64 or profile link (…/profiles/… or …/id/name)"));
+                    ui.weak(tr!("Код друга есть в Steam: Друзья, затем «Добавить друга».", "The friend code is in Steam: Friends, then \"Add a Friend\"."));
                     ui.horizontal(|ui| {
                         let edit = ui.add(egui::TextEdit::singleline(&mut self.social_ui.add_input).desired_width(260.0));
                         let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                        let find = enter || ui.button("Найти").clicked();
+                        let find = enter || ui.button(tr!("Найти", "Find")).clicked();
                         let vanity = social::vanity_name(&self.social_ui.add_input);
                         if find && vanity.is_some() {
                             let name = vanity.unwrap();
@@ -642,7 +642,7 @@ impl LauncherApp {
                             None => {
                                 ui.horizontal(|ui| {
                                     crate::spin::spinner(ui);
-                                    ui.weak(format!("Ищу профиль «{name}»..."));
+                                    ui.weak(trf!("Ищу профиль «{name}»...", "Looking for profile \"{name}\"..."));
                                 });
                             }
                             Some(Ok(id)) => {
@@ -665,7 +665,7 @@ impl LauncherApp {
                                 crate::spin::spinner(ui);
                             }
                             Some(Err(e)) => {
-                                ui.label(format!("Аккаунт не найден: {e}"));
+                                ui.label(trf!("Аккаунт не найден: {e}", "Account not found: {e}"));
                             }
                             Some(Ok(p)) => {
                                 ui.horizontal(|ui| {
@@ -676,14 +676,14 @@ impl LauncherApp {
                                     // Already friends / request already sent / it is you - no button.
                                     let rel = net.roster.read().unwrap().get(&id).map(|f| f.relationship);
                                     if Some(id) == net.my_id {
-                                        ui.weak("это вы");
+                                        ui.weak(tr!("это вы", "that is you"));
                                     } else if rel == Some(3) {
-                                        ui.weak("уже в друзьях");
+                                        ui.weak(tr!("уже в друзьях", "already a friend"));
                                     } else if rel == Some(4) {
-                                        ui.weak("заявка уже отправлена");
+                                        ui.weak(tr!("заявка уже отправлена", "request already sent"));
                                     } else if rel == Some(2) {
-                                        ui.weak("ждет вашего ответа (заявки - в панели друзей)");
-                                    } else if ui.button("Отправить заявку").clicked() {
+                                        ui.weak(tr!("ждет вашего ответа (заявки - в панели друзей)", "waits for your answer (requests are in the friends panel)"));
+                                    } else if ui.button(tr!("Отправить заявку", "Send request")).clicked() {
                                         let _ = self.tx.send(Cmd::Social(SocialCmd::AddFriend(id)));
                                     }
                                 });
@@ -712,18 +712,18 @@ impl LauncherApp {
                 .and_then(|f| f.persona_name.clone())
                 .unwrap_or_else(|| id.to_string());
             let mut close = false;
-            egui::Window::new("Удалить из друзей?")
+            egui::Window::new(tr!("Удалить из друзей?", "Remove friend?"))
                 .id(egui::Id::new("confirm_remove"))
                 .collapsible(false)
                 .resizable(false)
                 .show(ctx, |ui| {
-                    ui.label(format!("Удалить «{name}» из списка друзей?"));
+                    ui.label(trf!("Удалить «{name}» из списка друзей?", "Remove \"{name}\" from the friend list?"));
                     ui.horizontal(|ui| {
-                        if ui.button("Да, удалить").clicked() {
+                        if ui.button(tr!("Да, удалить", "Yes, uninstall")).clicked() {
                             let _ = self.tx.send(Cmd::Social(SocialCmd::RemoveFriend(id)));
                             close = true;
                         }
-                        if ui.button("Отмена").clicked() {
+                        if ui.button(tr!("Отмена", "Cancel")).clicked() {
                             close = true;
                         }
                     });
@@ -744,23 +744,23 @@ impl LauncherApp {
                 .or_else(|| net.profiles.get(&id).and_then(|p| p.as_ref().ok()).and_then(|p| p.persona_name.clone()))
                 .unwrap_or_else(|| id.to_string());
             let mut close = false;
-            egui::Window::new(if block { "Заблокировать?" } else { "Разблокировать?" })
+            egui::Window::new(if block { tr!("Заблокировать?", "Block?") } else { tr!("Разблокировать?", "Unblock?") })
                 .id(egui::Id::new("confirm_block"))
                 .collapsible(false)
                 .resizable(false)
                 .show(ctx, |ui| {
                     if block {
-                        ui.label(format!("Заблокировать «{name}»?"));
-                        ui.weak("Он не сможет писать вам, приглашать и комментировать ваш профиль. Если это друг, он будет удален из друзей.");
+                        ui.label(trf!("Заблокировать «{name}»?", "Block \"{name}\"?"));
+                        ui.weak(tr!("Он не сможет писать вам, приглашать и комментировать ваш профиль. Если это друг, он будет удален из друзей.", "They will not be able to message you, invite you or comment on your profile. If they are a friend, they are removed from friends."));
                     } else {
-                        ui.label(format!("Разблокировать «{name}»?"));
+                        ui.label(trf!("Разблокировать «{name}»?", "Unblock \"{name}\"?"));
                     }
                     ui.horizontal(|ui| {
-                        if ui.button(if block { "Да, заблокировать" } else { "Да, разблокировать" }).clicked() {
+                        if ui.button(if block { tr!("Да, заблокировать", "Yes, block") } else { tr!("Да, разблокировать", "Yes, unblock") }).clicked() {
                             let _ = self.tx.send(Cmd::Social(SocialCmd::Block(id, block)));
                             close = true;
                         }
-                        if ui.button("Отмена").clicked() {
+                        if ui.button(tr!("Отмена", "Cancel")).clicked() {
                             close = true;
                         }
                     });
@@ -826,13 +826,13 @@ fn section_bar(ui: &mut egui::Ui, title: &str, right: &str) {
 /// Comment date as in Steam: "18 мая в 18:08", for past years - "2 дек 2025 в 17:12".
 fn comment_date(unix: u64) -> String {
     use chrono::{Datelike, Local, TimeZone};
-    const M: [&str; 12] = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+    let months: [&str; 12] = [tr!("янв", "Jan"), tr!("фев", "Feb"), tr!("мар", "Mar"), tr!("апр", "Apr"), tr!("мая", "May"), tr!("июн", "Jun"), tr!("июл", "Jul"), tr!("авг", "Aug"), tr!("сен", "Sep"), tr!("окт", "Oct"), tr!("ноя", "Nov"), tr!("дек", "Dec")];
     let Some(t) = Local.timestamp_opt(unix as i64, 0).single() else { return String::new() };
-    let month = M[t.month0() as usize];
+    let month = months[t.month0() as usize];
     if t.year() == Local::now().year() {
-        format!("{} {month} в {}", t.day(), t.format("%H:%M"))
+        trf!("{} {month} в {}", "{} {month} at {}", t.day(), t.format("%H:%M"))
     } else {
-        format!("{} {month} {} в {}", t.day(), t.year(), t.format("%H:%M"))
+        trf!("{} {month} {} в {}", "{} {month} {} at {}", t.day(), t.year(), t.format("%H:%M"))
     }
 }
 
@@ -949,7 +949,7 @@ fn profile_left(
 
     // Recent activity - as on the Steam page (3 games, hours and last played on the right).
     if !page.recent.is_empty() {
-        section_bar(ui, "Недавняя активность", &page.recent_total);
+        section_bar(ui, tr!("Недавняя активность", "Recent activity"), &page.recent_total);
         for g in &page.recent {
             let row = egui::Frame::none().fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 70)).inner_margin(egui::Margin::same(8.0)).show(ui, |ui| {
                 ui.set_width(ui.available_width());
@@ -978,7 +978,7 @@ fn profile_left(
             if resp.hovered() {
                 ui.painter().rect_stroke(row.response.rect, 2.0, egui::Stroke::new(1.0, crate::theme::ACCENT));
             }
-            if g.appid != 0 && resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Страница в магазине").clicked() {
+            if g.appid != 0 && resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tr!("Страница в магазине", "Store page")).clicked() {
                 *act = Some(ProfileAct::Store(g.appid));
             }
             ui.add_space(6.0);
@@ -986,15 +986,15 @@ fn profile_left(
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let base = format!("https://steamcommunity.com/profiles/{owner}");
-                if ui.link("Обзоры").clicked() {
+                if ui.link(tr!("Обзоры", "Reviews")).clicked() {
                     *act = Some(ProfileAct::Url(format!("{base}/recommended/")));
                 }
                 ui.weak("|");
-                if ui.link("Список желаемого").clicked() {
+                if ui.link(tr!("Список желаемого", "Wishlist")).clicked() {
                     *act = Some(if is_me { ProfileAct::MyWishlist } else { ProfileAct::Wishlist });
                 }
                 ui.weak("|");
-                if ui.link("Все недавно запущенные").clicked() {
+                if ui.link(tr!("Все недавно запущенные", "All recently played")).clicked() {
                     *act = Some(if is_me { ProfileAct::Recent } else { ProfileAct::Url(format!("{base}/games/?tab=recent")) });
                 }
             });
@@ -1004,8 +1004,8 @@ fn profile_left(
 
     // Comments - paged, as in Steam.
     let pages = x.comments_total.div_ceil(10);
-    let all = format!("Все комментарии ({})", x.comments_total);
-    section_bar(ui, "Комментарии", &all);
+    let all = trf!("Все комментарии ({})", "All comments ({})", x.comments_total);
+    section_bar(ui, tr!("Комментарии", "Comments"), &all);
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.scope(|ui| pager(ui, sui.comment_page, pages, act));
@@ -1022,8 +1022,8 @@ fn profile_left(
                     ui.painter().rect_filled(ar, 2.0, crate::theme::CARD);
                 }
             }
-            ui.add(egui::TextEdit::singleline(&mut sui.comment_draft).hint_text("Оставить комментарий").desired_width(ui.available_width() - 100.0));
-            if ui.add_enabled(!sui.comment_draft.trim().is_empty() && crate::exp::on(), egui::Button::new("Отправить")).on_disabled_hover_text(crate::exp::HINT).clicked() {
+            ui.add(egui::TextEdit::singleline(&mut sui.comment_draft).hint_text(tr!("Оставить комментарий", "Leave a comment")).desired_width(ui.available_width() - 100.0));
+            if ui.add_enabled(!sui.comment_draft.trim().is_empty() && crate::exp::on(), egui::Button::new(tr!("Отправить", "Send"))).on_disabled_hover_text(crate::exp::HINT()).clicked() {
                 *act = Some(ProfileAct::Post(sui.comment_draft.trim().to_string()));
             }
         });
@@ -1066,17 +1066,17 @@ fn profile_left(
                     if c.can_delete && !c.id.is_empty() && (hovered || confirm) {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if confirm {
-                                if ui.small_button("Нет").clicked() {
+                                if ui.small_button(tr!("Нет", "No")).clicked() {
                                     sui.confirm_delete = None;
                                 }
                                 if ui
-                                    .small_button(egui::RichText::new("Удалить навсегда").color(egui::Color32::from_rgb(230, 110, 110)))
+                                    .small_button(egui::RichText::new(tr!("Удалить навсегда", "Delete forever")).color(egui::Color32::from_rgb(230, 110, 110)))
                                     .clicked()
                                 {
                                     *act = Some(ProfileAct::Delete(c.id.clone()));
                                 }
                             } else if crate::exp::on() && trash_button(ui)
-                                .on_hover_text(if is_me { "Удалить комментарий из своего профиля" } else { "Удалить свой комментарий" })
+                                .on_hover_text(if is_me { tr!("Удалить комментарий из своего профиля", "Delete the comment from your profile") } else { tr!("Удалить свой комментарий", "Delete your comment") })
                                 .clicked()
                             {
                                 sui.confirm_delete = Some(c.id.clone());
@@ -1110,14 +1110,14 @@ fn profile_right(
     act: &mut Option<ProfileAct>,
 ) {
     let (status, color) = match (p.persona_state, &p.game_name) {
-        (_, Some(g)) if !g.is_empty() => (format!("В игре\n{g}"), egui::Color32::from_rgb(140, 200, 80)),
-        (Some(0) | None, _) => ("Не в сети".to_string(), egui::Color32::GRAY),
-        _ => ("В сети".to_string(), egui::Color32::from_rgb(90, 170, 230)),
+        (_, Some(g)) if !g.is_empty() => (trf!("В игре\n{g}", "In game\n{g}"), egui::Color32::from_rgb(140, 200, 80)),
+        (Some(0) | None, _) => (tr!("Не в сети", "Offline").to_string(), egui::Color32::GRAY),
+        _ => (tr!("В сети", "Online").to_string(), egui::Color32::from_rgb(90, 170, 230)),
     };
     ui.label(egui::RichText::new(status).size(22.0).color(color));
     ui.add_space(12.0);
     let counts = extra.map(|x| x.counts.clone()).unwrap_or_default();
-    for (label, total, href) in counts.into_iter().filter(|(l, t, _)| !t.is_empty() || l.to_lowercase().starts_with("инвентарь")) {
+    for (label, total, href) in counts.into_iter().filter(|(l, t, _)| !t.is_empty() || l.to_lowercase().starts_with("инвентарь") || l.to_lowercase().starts_with("inventory")) {
         let lower = label.to_lowercase();
         let resp = ui
             // A fixed-height row: otherwise a bottom-aligned layout stretched over the whole
@@ -1137,9 +1137,9 @@ fn profile_right(
             *act = Some(ProfileAct::Count(label.clone(), href.clone()));
         }
         // Images under a counter: profile awards and badges.
-        let icons: &[String] = if lower.starts_with("награды") {
+        let icons: &[String] = if lower.starts_with("награды") || lower.contains("awards") {
             &page.awards
-        } else if lower.starts_with("значки") {
+        } else if lower.starts_with("значки") || lower.starts_with("badges") {
             &page.badges
         } else {
             &[]
@@ -1181,7 +1181,7 @@ fn profile_right(
                 }
             });
             let resp = ui.interact(row.response.rect, ui.id().with(("pfriend", f.steamid)), egui::Sense::click());
-            if f.steamid != 0 && resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Профиль").clicked() {
+            if f.steamid != 0 && resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tr!("Профиль", "Profile")).clicked() {
                 *act = Some(ProfileAct::Profile(f.steamid));
             }
             ui.add_space(4.0);
@@ -1190,10 +1190,10 @@ fn profile_right(
     if let Some(x) = extra {
         if !x.groups.is_empty() {
             ui.add_space(8.0);
-            ui.label(egui::RichText::new(format!("Группы  {}", x.groups.len())).size(15.0).color(egui::Color32::from_gray(225)));
+            ui.label(egui::RichText::new(trf!("Группы  {}", "Groups  {}", x.groups.len())).size(15.0).color(egui::Color32::from_gray(225)));
             for g in x.groups.iter().take(6) {
                 let l = ui.link(egui::RichText::new(crate::richtext::fix(ui, &g.name)).size(12.5));
-                let l = if g.members > 0 { l.on_hover_text(format!("участников: {}", crate::store::group_digits(g.members))) } else { l };
+                let l = if g.members > 0 { l.on_hover_text(trf!("участников: {}", "members: {}", crate::store::group_digits(g.members))) } else { l };
                 if l.clicked() && !g.url.is_empty() {
                     *act = Some(ProfileAct::Group(g.url.clone()));
                 }
@@ -1202,9 +1202,9 @@ fn profile_right(
     }
     ui.add_space(10.0);
     if let Some(c) = p.created {
-        ui.weak(format!("В Steam с {}", fmt_date(c)));
+        ui.weak(trf!("В Steam с {}", "On Steam since {}", fmt_date(c)));
     }
-    ui.weak(format!("Код друга: {}", id.saturating_sub(social::STEAMID64_BASE)));
+    ui.weak(trf!("Код друга: {}", "Friend code: {}", id.saturating_sub(social::STEAMID64_BASE)));
 }
 
 /// Trash icon (drawn with lines, as in Steam): the comment delete button.

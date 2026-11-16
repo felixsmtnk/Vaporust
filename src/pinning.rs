@@ -33,11 +33,11 @@ impl LauncherApp {
             return true;
         }
         let msg = if net.account.is_none() {
-            "Версия игры закреплена: войдите в аккаунт, иначе Steam может ее обновить. Запуск отменен."
+            tr!("Версия игры закреплена: войдите в аккаунт, иначе Steam может ее обновить. Запуск отменен.", "The game version is pinned: log in, otherwise Steam may update it. Launch cancelled.")
         } else if self.pin_refresh(appid, true) {
-            "Проверяю закрепленную версию игры..."
+            tr!("Проверяю закрепленную версию игры...", "Checking the pinned game version...")
         } else {
-            "Не удалось подготовить закрепленную версию."
+            tr!("Не удалось подготовить закрепленную версию.", "Could not prepare the pinned version.")
         };
         *self.launch_status.lock().unwrap() = msg.into();
         false
@@ -45,20 +45,20 @@ impl LauncherApp {
 
     /// Pin the current version of an installed game.
     pub(crate) fn pin_game(&mut self, appid: u32) -> Result<String, String> {
-        let game = self.games.iter().find(|g| g.appid == appid).ok_or("Игра не установлена.")?;
+        let game = self.games.iter().find(|g| g.appid == appid).ok_or(tr!("Игра не установлена.", "The game is not installed."))?;
         let real = local::installed_depots(&local::appmanifest_path(game));
         if real.is_empty() {
-            return Err("В файле игры нет списка хранилищ - закрепить нельзя.".into());
+            return Err(tr!("В файле игры нет списка хранилищ - закрепить нельзя.", "The game file has no depot list - it cannot be pinned.").into());
         }
         self.settings.pinned.insert(appid, real);
         self.pin_refresh(appid, false);
-        Ok("Версия закреплена: Steam не будет обновлять эту игру.".into())
+        Ok(tr!("Версия закреплена: Steam не будет обновлять эту игру.", "Version pinned: Steam will not update this game.").into())
     }
 
     /// Unpin: restore the real versions in appmanifest. If the game is behind the latest
     /// version, mark "update needed" - Steam updates it as usual.
     pub(crate) fn unpin_game(&mut self, appid: u32) -> Result<String, String> {
-        let game = self.games.iter().find(|g| g.appid == appid).ok_or("Игра не установлена.")?;
+        let game = self.games.iter().find(|g| g.appid == appid).ok_or(tr!("Игра не установлена.", "The game is not installed."))?;
         let path = local::appmanifest_path(game);
         let Some(real) = self.settings.pinned.get(&appid).cloned() else { return Ok(String::new()) };
         let outdated = local::installed_depots(&path) != real;
@@ -66,9 +66,9 @@ impl LauncherApp {
         self.settings.pinned.remove(&appid);
         self.rescan();
         Ok(if outdated {
-            "Версия откреплена. Игра отстала от последней версии - нажмите «Обновить».".into()
+            tr!("Версия откреплена. Игра отстала от последней версии - нажмите «Обновить».", "Version unpinned. The game is behind the latest version - press \"Update\".").into()
         } else {
-            "Версия откреплена.".into()
+            tr!("Версия откреплена.", "Version unpinned.").into()
         })
     }
 
@@ -87,7 +87,7 @@ impl LauncherApp {
                 Ok(()) => {}
                 Err(e) => {
                     *self.launch_status.lock().unwrap() = if d.launch {
-                        format!("{e} Запуск отменен, чтобы Steam не обновил закрепленную игру.")
+                        trf!("{e} Запуск отменен, чтобы Steam не обновил закрепленную игру.", "{e} Launch cancelled so that Steam does not update the pinned game.")
                     } else {
                         e
                     };

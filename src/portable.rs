@@ -45,5 +45,5 @@ pub fn init() -> Option<PathBuf> {
 /// Restart Vaporust (a new process; the caller closes the current window).
 pub fn restart() -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    std::process::Command::new(exe).spawn().map(|_| ()).map_err(|e| format!("Не удалось перезапустить: {e}"))
+    std::process::Command::new(exe).spawn().map(|_| ()).map_err(|e| trf!("Не удалось перезапустить: {e}", "Could not restart: {e}"))
 }

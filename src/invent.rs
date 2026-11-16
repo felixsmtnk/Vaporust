@@ -62,7 +62,7 @@ pub fn handle(client: &SteamClient, cmd: InvCmd, st: &SharedInv, ctx: &egui::Con
         let web = match crate::webapi::web_session(&c).await {
             Ok(w) => w,
             Err(e) => {
-                let e = format!("Нет доступа к сайту Steam: {}", err(e));
+                let e = trf!("Нет доступа к сайту Steam: {}", "No access to the Steam website: {}", err(e));
                 let mut s = st.lock().unwrap();
                 match cmd {
                     InvCmd::Apps => s.apps = Some(Err(e)),
@@ -87,7 +87,7 @@ pub fn handle(client: &SteamClient, cmd: InvCmd, st: &SharedInv, ctx: &egui::Con
         };
         match cmd {
             InvCmd::Apps => {
-                let url = format!("https://steamcommunity.com/profiles/{}/inventory/?l={}", web.steam_id(), crate::lang::STEAM);
+                let url = format!("https://steamcommunity.com/profiles/{}/inventory/?l={}", web.steam_id(), crate::lang::steam());
                 let res = match web.get_text(&url).await {
                     Ok(html) => parse_app_contexts(&html),
                     Err(e) => Err(err(e)),
@@ -104,7 +104,7 @@ pub fn handle(client: &SteamClient, cmd: InvCmd, st: &SharedInv, ctx: &egui::Con
                 st.lock().unwrap().apps = Some(res);
             }
             InvCmd::Items { appid, ctx: cx } => {
-                let res = sc::inventory_via_lang(&web, appid, cx, crate::lang::STEAM).await.map_err(err);
+                let res = sc::inventory_via_lang(&web, appid, cx, crate::lang::steam()).await.map_err(err);
                 let mut s = st.lock().unwrap();
                 s.loading.remove(&(appid, cx));
                 s.items.insert((appid, cx), res);
@@ -114,7 +114,7 @@ pub fn handle(client: &SteamClient, cmd: InvCmd, st: &SharedInv, ctx: &egui::Con
                 st.lock().unwrap().wallet = Some(res);
             }
             InvCmd::Listings => {
-                let url = format!("https://steamcommunity.com/market/mylistings/?norender=1&count=100&l={}", crate::lang::STEAM);
+                let url = format!("https://steamcommunity.com/market/mylistings/?norender=1&count=100&l={}", crate::lang::steam());
                 let res = match web.get_text(&url).await {
                     Ok(body) => parse_my_market(&body),
                     Err(e) => Err(err(e)),
@@ -131,7 +131,7 @@ pub fn handle(client: &SteamClient, cmd: InvCmd, st: &SharedInv, ctx: &egui::Con
                 let url = format!(
                     "https://steamcommunity.com/market/search/render/?norender=1&l={lang}&start={start}&count=10&query={}",
                     url_encode(&query),
-                    lang = crate::lang::STEAM
+                    lang = crate::lang::steam()
                 );
                 let res = match web.get_text(&url).await {
                     Ok(body) => parse_search(&body),
@@ -158,7 +158,7 @@ pub fn handle(client: &SteamClient, cmd: InvCmd, st: &SharedInv, ctx: &egui::Con
 }
 
 fn steam_app() -> InvApp {
-    InvApp { appid: STEAM_APP, name: "Steam".into(), icon: None, count: 0, contexts: vec![(6, "Сообщество".into(), 0)], pubfee: None }
+    InvApp { appid: STEAM_APP, name: "Steam".into(), icon: None, count: 0, contexts: vec![(6, tr!("Сообщество", "Community").into(), 0)], pubfee: None }
 }
 
 /// Wallet currency (for market prices); dollars while unknown.
@@ -263,9 +263,9 @@ fn econ_icon(v: Option<&Value>) -> Option<String> {
 
 /// Response of /market/mylistings/?norender=1.
 pub fn parse_my_market(body: &str) -> Result<MyMarket, String> {
-    let v: Value = serde_json::from_str(body).map_err(|_| "Steam прислал непонятный ответ".to_string())?;
+    let v: Value = serde_json::from_str(body).map_err(|_| tr!("Steam прислал непонятный ответ", "Steam sent an unclear answer").to_string())?;
     if v.get("success").and_then(Value::as_bool) == Some(false) {
-        return Err("Steam отклонил запрос (попробуйте позже)".into());
+        return Err(tr!("Steam отклонил запрос (попробуйте позже)", "Steam rejected the request (try later)").into());
     }
     let lot = |x: &Value| -> Option<Lot> {
         let a = x.get("asset")?;
@@ -309,9 +309,9 @@ pub fn parse_my_market(body: &str) -> Result<MyMarket, String> {
 
 /// Response of /market/search/render/?norender=1: (total found, page of results).
 pub fn parse_search(body: &str) -> Result<(u32, Vec<MarketHit>), String> {
-    let v: Value = serde_json::from_str(body).map_err(|_| "Steam прислал непонятный ответ".to_string())?;
+    let v: Value = serde_json::from_str(body).map_err(|_| tr!("Steam прислал непонятный ответ", "Steam sent an unclear answer").to_string())?;
     if v.get("success").and_then(Value::as_bool) == Some(false) {
-        return Err("Steam отклонил запрос (попробуйте позже)".into());
+        return Err(tr!("Steam отклонил запрос (попробуйте позже)", "Steam rejected the request (try later)").into());
     }
     let hits = v
         .get("results")
@@ -339,15 +339,15 @@ pub fn parse_search(body: &str) -> Result<(u32, Vec<MarketHit>), String> {
 /// List of games with an inventory from the profile page: `g_rgAppContextData = {...};`.
 pub fn parse_app_contexts(html: &str) -> Result<Vec<InvApp>, String> {
     let key = "g_rgAppContextData";
-    let start = html.find(key).ok_or("на странице инвентаря нет списка игр")?;
+    let start = html.find(key).ok_or(tr!("на странице инвентаря нет списка игр", "the inventory page has no game list"))?;
     let rest = &html[start + key.len()..];
-    let rest = rest.trim_start().strip_prefix('=').ok_or("неожиданный формат страницы")?;
+    let rest = rest.trim_start().strip_prefix('=').ok_or(tr!("неожиданный формат страницы", "unexpected page format"))?;
     let v: Value = serde_json::Deserializer::from_str(rest.trim_start())
         .into_iter::<Value>()
         .next()
-        .ok_or("пустой список игр")?
+        .ok_or(tr!("пустой список игр", "empty game list"))?
         .map_err(err)?;
-    let obj = v.as_object().ok_or("неожиданный формат списка игр")?;
+    let obj = v.as_object().ok_or(tr!("неожиданный формат списка игр", "unexpected game list format"))?;
     let num = |v: Option<&Value>| v.and_then(|x| x.as_u64().or_else(|| x.as_str().and_then(|s| s.parse().ok()))).unwrap_or(0);
     let mut apps: Vec<InvApp> = obj
         .values()

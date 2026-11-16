@@ -64,8 +64,8 @@ pub fn parse_one(item: &serde_json::Value) -> Option<Notif> {
         .or_else(|| body.get("appids").and_then(|a| a.get(0)).and_then(|a| a.as_u64()).map(|a| a as u32).filter(|a| *a != 0));
     let count = n(&body, "count").unwrap_or(1);
     let (title, text, link): (String, String, Link) = match kind {
-        2 => ("Вам прислали подарок".into(), String::new(), Link::Url("https://steamcommunity.com/my/inventory/#pending_gifts".into())),
-        3 => ("Новый комментарий".into(), String::new(), Link::Url(comment_url(&body))),
+        2 => (tr!("Вам прислали подарок", "You received a gift").into(), String::new(), Link::Url("https://steamcommunity.com/my/inventory/#pending_gifts".into())),
+        3 => (tr!("Новый комментарий", "New comment").into(), String::new(), Link::Url(comment_url(&body))),
         4 => {
             // Item: app_id - the inventory (753 - Steam), source_appid - the game it comes from.
             let src = n(&body, "source_appid").filter(|a| *a != 0);
@@ -74,7 +74,7 @@ pub fn parse_one(item: &serde_json::Value) -> Option<Notif> {
                 kind,
                 time: item.get("timestamp").and_then(|t| t.as_u64()).unwrap_or(0),
                 read: item.get("read").and_then(|r| r.as_bool()).unwrap_or(false),
-                title: "Новый предмет в инвентаре".into(),
+                title: tr!("Новый предмет в инвентаре", "New item in the inventory").into(),
                 appid: src.or(appid),
                 count,
                 text: String::new(),
@@ -82,37 +82,37 @@ pub fn parse_one(item: &serde_json::Value) -> Option<Notif> {
                 asset: Some((appid.unwrap_or(753), n(&body, "context_id").unwrap_or(6), s(&body, "asset_id"))).filter(|a| !a.2.is_empty()),
             });
         }
-        5 => ("Заявка в друзья".into(), String::new(), Link::Friends),
-        6 => ("Началась распродажа Steam".into(), String::new(), Link::Url("https://store.steampowered.com/".into())),
-        7 => ("Доступна предзагрузка".into(), String::new(), appid.map(Link::Store).unwrap_or(Link::None)),
+        5 => (tr!("Заявка в друзья", "Friend request").into(), String::new(), Link::Friends),
+        6 => (tr!("Началась распродажа Steam", "A Steam sale started").into(), String::new(), Link::Url("https://store.steampowered.com/".into())),
+        7 => (tr!("Доступна предзагрузка", "Preload available").into(), String::new(), appid.map(Link::Store).unwrap_or(Link::None)),
         8 => {
             let title = if count > 1 {
-                format!("Скидки на игры из списка желаемого: {count}")
+                trf!("Скидки на игры из списка желаемого: {count}", "Discounts on wishlist games: {count}")
             } else {
-                "Скидка на игру из списка желаемого".to_string()
+                tr!("Скидка на игру из списка желаемого", "A discount on a wishlist game").to_string()
             };
             (title, String::new(), if count > 1 { Link::Wishlist } else { appid.map(Link::Store).unwrap_or(Link::Wishlist) })
         }
-        9 => ("Предложение обмена".into(), String::new(), Link::Url("https://steamcommunity.com/my/tradeoffers/".into())),
+        9 => (tr!("Предложение обмена", "Trade offer").into(), String::new(), Link::Url("https://steamcommunity.com/my/tradeoffers/".into())),
         10 => {
             let t = s(&body, "title");
             let url = s(&body, "url");
             (
-                if t.is_empty() { "Сообщение Steam".into() } else { t },
+                if t.is_empty() { tr!("Сообщение Steam", "Steam message").into() } else { t },
                 crate::store::plain_text(&s(&body, "body")),
                 if url.is_empty() { Link::None } else { Link::Url(url) },
             )
         }
-        12 => ("Ваш ход в игре".into(), String::new(), appid.map(Link::Store).unwrap_or(Link::None)),
+        12 => (tr!("Ваш ход в игре", "Your turn in a game").into(), String::new(), appid.map(Link::Store).unwrap_or(Link::None)),
         13 => return None, // messages - in the Vaporust chat
-        14 => ("Сообщение модератора".into(), crate::store::plain_text(&s(&body, "body")), Link::None),
-        16 => ("Приглашение в семью Steam".into(), String::new(), Link::Url("https://store.steampowered.com/account/familymanagement".into())),
-        17 | 19 => ("Запрос покупки в семье".into(), String::new(), Link::Url("https://store.steampowered.com/account/familymanagement".into())),
-        22 => ("Запрошенная игра добавлена".into(), String::new(), appid.map(Link::Store).unwrap_or(Link::None)),
-        26 => ("Нужно подтверждение в мобильном приложении".into(), String::new(), Link::None),
-        27 => ("Событие в игре".into(), String::new(), appid.map(Link::Store).unwrap_or(Link::None)),
-        28 => ("Приглашение в плейтест".into(), String::new(), appid.map(Link::Store).unwrap_or(Link::None)),
-        _ => ("Уведомление Steam".into(), String::new(), Link::None),
+        14 => (tr!("Сообщение модератора", "Moderator message").into(), crate::store::plain_text(&s(&body, "body")), Link::None),
+        16 => (tr!("Приглашение в семью Steam", "Steam Family invitation").into(), String::new(), Link::Url("https://store.steampowered.com/account/familymanagement".into())),
+        17 | 19 => (tr!("Запрос покупки в семье", "Family purchase request").into(), String::new(), Link::Url("https://store.steampowered.com/account/familymanagement".into())),
+        22 => (tr!("Запрошенная игра добавлена", "The requested game was added").into(), String::new(), appid.map(Link::Store).unwrap_or(Link::None)),
+        26 => (tr!("Нужно подтверждение в мобильном приложении", "Confirmation needed in the mobile app").into(), String::new(), Link::None),
+        27 => (tr!("Событие в игре", "In-game event").into(), String::new(), appid.map(Link::Store).unwrap_or(Link::None)),
+        28 => (tr!("Приглашение в плейтест", "Playtest invitation").into(), String::new(), appid.map(Link::Store).unwrap_or(Link::None)),
+        _ => (tr!("Уведомление Steam", "Steam notification").into(), String::new(), Link::None),
     };
     Some(Notif {
         id: s(item, "notification_id"),
@@ -170,7 +170,7 @@ impl LauncherApp {
         if net.account.is_none() {
             return;
         }
-        let due = self.notifs_at.is_none_or(|t| t.elapsed() >= std::time::Duration::from_secs(300));
+        let due = self.notifs_at.is_none_or(|t| t.elapsed() >= crate::lite::secs(300, 1800));
         if due {
             self.notifs_at = Some(std::time::Instant::now());
             let _ = self.tx.send(Cmd::SteamNotifs);
@@ -186,7 +186,7 @@ impl LauncherApp {
                 let title = if fresh.len() == 1 {
                     self.notif_title(fresh[0], net)
                 } else {
-                    format!("Новых уведомлений Steam: {}", fresh.len())
+                    trf!("Новых уведомлений Steam: {}", "New Steam notifications: {}", fresh.len())
                 };
                 crate::popup::push(crate::popup::Kind::Info, "Steam", title);
             }
@@ -216,7 +216,7 @@ impl LauncherApp {
     /// The "Notifications (N)" button in the top bar with the list.
     pub(crate) fn steam_notifs_button(&mut self, ui: &mut egui::Ui, net: &NetState) {
         let Some(Ok(ns)) = &net.steam_notifs else { return };
-        let label = if ns.unread > 0 { format!("Уведомления ({})", ns.unread) } else { "Уведомления".into() };
+        let label = if ns.unread > 0 { trf!("Уведомления ({})", "Notifications ({})", ns.unread) } else { tr!("Уведомления", "Notifications").into() };
         let mut go: Option<Link> = None;
         let mut mark = false;
         // Names of games not in the library - ask Steam.
@@ -248,14 +248,14 @@ impl LauncherApp {
         let bell_resp = egui::menu::menu_custom_button(ui, bell, |ui| {
             ui.set_min_width(340.0);
             ui.horizontal(|ui| {
-                ui.strong("Уведомления Steam");
-                if ns.unread > 0 && ui.small_button("Прочитать все").clicked() {
+                ui.strong(tr!("Уведомления Steam", "Steam notifications"));
+                if ns.unread > 0 && ui.small_button(tr!("Прочитать все", "Mark all read")).clicked() {
                     mark = true;
                 }
             });
             ui.separator();
             if ns.list.is_empty() {
-                ui.weak("Уведомлений нет.");
+                ui.weak(tr!("Уведомлений нет.", "No notifications."));
             }
             egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
                 for n in ns.list.iter().take(40) {
@@ -290,10 +290,10 @@ impl LauncherApp {
                                 let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
                                 ui.painter().rect_filled(rect, 3.0, crate::theme::CARD);
                                 let mark = match n.kind {
-                                    2 => "подарок",
-                                    3 => "комментарий",
-                                    5 => "друг",
-                                    9 => "обмен",
+                                    2 => tr!("подарок", "gift"),
+                                    3 => tr!("комментарий", "comment"),
+                                    5 => tr!("друг", "friend"),
+                                    9 => tr!("обмен", "trade"),
                                     _ => "Steam",
                                 };
                                 ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, mark, egui::FontId::proportional(11.0), crate::theme::WEAK);

@@ -71,26 +71,26 @@ pub fn parse(html: &str) -> Option<ProfileEdit> {
 }
 
 pub async fn load(c: &SteamClient) -> Result<ProfileEdit, String> {
-    let me = c.my_steam_id().ok_or("нет входа")?;
+    let me = c.my_steam_id().ok_or(tr!("нет входа", "not logged in"))?;
     let web = crate::webapi::web_session(c).await?;
     let t = web.get_text(&format!("https://steamcommunity.com/profiles/{me}/edit/info")).await.map_err(|e| format!("{e:#}"))?;
-    parse(&t).ok_or_else(|| "Steam не отдал данные профиля.".to_string())
+    parse(&t).ok_or_else(|| tr!("Steam не отдал данные профиля.", "Steam did not return the profile data.").to_string())
 }
 
 fn check(status: u16, body: &str) -> Result<(), String> {
     if status >= 400 {
-        return Err(format!("Steam ответил {status}"));
+        return Err(trf!("Steam ответил {status}", "Steam answered {status}"));
     }
     match serde_json::from_str::<serde_json::Value>(body) {
         Ok(v) if v["success"].as_i64() == Some(1) || v["success"].as_bool() == Some(true) => Ok(()),
-        Ok(v) => Err(v["errmsg"].as_str().or(v["message"].as_str()).map(String::from).unwrap_or_else(|| format!("Steam отказал (код {})", v["success"]))),
-        Err(_) => Err("Steam ответил не так, как ожидалось".into()),
+        Ok(v) => Err(v["errmsg"].as_str().or(v["message"].as_str()).map(String::from).unwrap_or_else(|| trf!("Steam отказал (код {})", "Steam refused (code {})", v["success"]))),
+        Err(_) => Err(tr!("Steam ответил не так, как ожидалось", "Steam answered unexpectedly").into()),
     }
 }
 
 /// Save name, URL, "about me", location.
 pub async fn save(c: &SteamClient, e: &ProfileEdit) -> Result<(), String> {
-    let me = c.my_steam_id().ok_or("нет входа")?;
+    let me = c.my_steam_id().ok_or(tr!("нет входа", "not logged in"))?;
     let web = crate::webapi::web_session(c).await?;
     let fields = [
         ("sessionID", web.sessionid().to_string()),
@@ -118,7 +118,7 @@ pub async fn save(c: &SteamClient, e: &ProfileEdit) -> Result<(), String> {
 
 /// Privacy settings.
 pub async fn save_privacy(c: &SteamClient, p: &Privacy) -> Result<(), String> {
-    let me = c.my_steam_id().ok_or("нет входа")?;
+    let me = c.my_steam_id().ok_or(tr!("нет входа", "not logged in"))?;
     let web = crate::webapi::web_session(c).await?;
     let privacy = serde_json::json!({
         "PrivacyProfile": p.profile,
@@ -140,10 +140,10 @@ pub async fn save_privacy(c: &SteamClient, p: &Privacy) -> Result<(), String> {
 
 /// Upload a new avatar (jpg/png, like "Upload avatar" on the site).
 pub async fn upload_avatar(c: &SteamClient, path: &std::path::Path) -> Result<(), String> {
-    let me = c.my_steam_id().ok_or("нет входа")?;
+    let me = c.my_steam_id().ok_or(tr!("нет входа", "not logged in"))?;
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
     if bytes.len() > 1024 * 1024 {
-        return Err("Файл больше 1 МБ: Steam такой аватар не примет.".into());
+        return Err(tr!("Файл больше 1 МБ: Steam такой аватар не примет.", "The file is over 1 MB: Steam does not accept such an avatar.").into());
     }
     let web = crate::webapi::web_session(c).await?;
     let boundary = format!("----vaporust{}", chrono::Utc::now().timestamp_millis());
@@ -188,11 +188,11 @@ pub async fn set_nickname(c: &SteamClient, friend: u64, nick: &str) -> Result<()
         .await
         .map_err(|e| format!("{e:#}"))?;
     if st >= 400 {
-        return Err(format!("Steam ответил {st}"));
+        return Err(trf!("Steam ответил {st}", "Steam answered {st}"));
     }
     match serde_json::from_str::<serde_json::Value>(&body) {
         Ok(v) if v["success"].as_i64() == Some(1) || v["success"].as_bool() == Some(true) => Ok(()),
-        Ok(v) => Err(format!("Steam отказал (код {})", v["success"])),
+        Ok(v) => Err(trf!("Steam отказал (код {})", "Steam refused (code {})", v["success"])),
         Err(_) => Ok(()),
     }
 }
@@ -205,12 +205,15 @@ pub struct EditUi {
     pub tab: u8,
 }
 
-const LEVELS: [(u8, &str); 3] = [(3, "Все"), (2, "Только друзья"), (1, "Скрыто (только я)")];
+#[allow(non_snake_case)]
+fn LEVELS() -> [(u8, &'static str); 3] {
+    [(3, tr!("Все", "All")), (2, tr!("Только друзья", "Friends only")), (1, tr!("Скрыто (только я)", "Private (only me)"))]
+}
 
 fn level(ui: &mut egui::Ui, label: &str, v: &mut u8) {
     ui.label(label);
-    egui::ComboBox::from_id_salt(label).selected_text(LEVELS.iter().find(|(n, _)| n == v).map_or("?", |(_, l)| l)).show_ui(ui, |ui| {
-        for (n, l) in LEVELS {
+    egui::ComboBox::from_id_salt(label).selected_text(LEVELS().iter().find(|(n, _)| n == v).map_or("?", |(_, l)| l)).show_ui(ui, |ui| {
+        for (n, l) in LEVELS() {
             ui.selectable_value(v, n, l);
         }
     });
@@ -236,7 +239,7 @@ impl LauncherApp {
                     self.edit_ui.original = Some(e.clone());
                 }
                 Some(Err(e)) => {
-                    ui.label(format!("Не удалось загрузить профиль: {e}"));
+                    ui.label(trf!("Не удалось загрузить профиль: {e}", "Could not load the profile: {e}"));
                     return;
                 }
                 None => {
@@ -250,9 +253,9 @@ impl LauncherApp {
         let mut cmd = None;
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Редактирование профиля").size(20.0).strong());
+            ui.label(egui::RichText::new(tr!("Редактирование профиля", "Edit profile")).size(20.0).strong());
             ui.add_space(12.0);
-            for (i, t) in ["Основное", "Аватар", "Приватность"].into_iter().enumerate() {
+            for (i, t) in [tr!("Основное", "General"), tr!("Аватар", "Avatar"), tr!("Приватность", "Privacy")].into_iter().enumerate() {
                 if ui.selectable_label(self.edit_ui.tab == i as u8, t).clicked() {
                     self.edit_ui.tab = i as u8;
                 }
@@ -264,25 +267,25 @@ impl LauncherApp {
             match self.edit_ui.tab {
                 0 => {
                     egui::Grid::new("pe_main").num_columns(2).spacing([14.0, 8.0]).show(ui, |ui| {
-                        ui.label("Имя профиля");
+                        ui.label(tr!("Имя профиля", "Profile name"));
                         ui.add(egui::TextEdit::singleline(&mut d.persona).desired_width(360.0));
                         ui.end_row();
-                        ui.label("Настоящее имя");
-                        ui.add(egui::TextEdit::singleline(&mut d.real_name).desired_width(360.0).hint_text("необязательно"));
+                        ui.label(tr!("Настоящее имя", "Real name"));
+                        ui.add(egui::TextEdit::singleline(&mut d.real_name).desired_width(360.0).hint_text(tr!("необязательно", "optional")));
                         ui.end_row();
-                        ui.label("Свой адрес");
+                        ui.label(tr!("Свой адрес", "Custom URL"));
                         ui.horizontal(|ui| {
                             ui.weak("steamcommunity.com/id/");
-                            ui.add(egui::TextEdit::singleline(&mut d.custom_url).desired_width(200.0).hint_text("необязательно"));
+                            ui.add(egui::TextEdit::singleline(&mut d.custom_url).desired_width(200.0).hint_text(tr!("необязательно", "optional")));
                         });
                         ui.end_row();
-                        ui.label("Страна");
+                        ui.label(tr!("Страна", "Country"));
                         ui.horizontal(|ui| {
                             ui.add(egui::TextEdit::singleline(&mut d.country).desired_width(40.0).hint_text("RU"));
-                            ui.weak(if d.country_name.is_empty() { "код страны из двух латинских букв, пусто - не показывать".to_string() } else { d.country_name.clone() });
+                            ui.weak(if d.country_name.is_empty() { tr!("код страны из двух латинских букв, пусто - не показывать", "two-letter Latin country code, empty - do not show").to_string() } else { d.country_name.clone() });
                         });
                         ui.end_row();
-                        ui.label("О себе");
+                        ui.label(tr!("О себе", "Summary"));
                         ui.add(egui::TextEdit::multiline(&mut d.summary).desired_width(460.0).desired_rows(6));
                         ui.end_row();
                     });
@@ -293,18 +296,18 @@ impl LauncherApp {
                         || d.summary != orig.summary
                         || d.country != orig.country;
                     ui.horizontal(|ui| {
-                        if ui.add_enabled(changed && !d.persona.trim().is_empty(), egui::Button::new("Сохранить")).clicked() {
+                        if ui.add_enabled(changed && !d.persona.trim().is_empty(), egui::Button::new(tr!("Сохранить", "Save"))).clicked() {
                             if d.country != orig.country {
                                 d.state.clear();
                                 d.city.clear();
                             }
                             cmd = Some(Cmd::ProfileEditSave(d.clone()));
                         }
-                        if changed && ui.button("Вернуть как было").clicked() {
+                        if changed && ui.button(tr!("Вернуть как было", "Revert")).clicked() {
                             d = orig.clone();
                         }
                     });
-                    ui.weak("Изменения увидят все, кто открывает ваш профиль.");
+                    ui.weak(tr!("Изменения увидят все, кто открывает ваш профиль.", "Everyone who opens your profile sees the changes."));
                 }
                 1 => {
                     if !d.avatar_hash.is_empty() {
@@ -315,24 +318,24 @@ impl LauncherApp {
                         );
                     }
                     ui.add_space(6.0);
-                    ui.label("Картинка JPG или PNG до 1 МБ; Steam сам сделает ее квадратной 184 x 184.");
-                    if ui.button("Выбрать картинку и загрузить...").clicked() {
-                        if let Some(p) = rfd::FileDialog::new().add_filter("Картинка", &["jpg", "jpeg", "png"]).pick_file() {
+                    ui.label(tr!("Картинка JPG или PNG до 1 МБ; Steam сам сделает ее квадратной 184 x 184.", "A JPG or PNG image up to 1 MB; Steam makes it a 184 x 184 square itself."));
+                    if ui.button(tr!("Выбрать картинку и загрузить...", "Choose an image and upload...")).clicked() {
+                        if let Some(p) = rfd::FileDialog::new().add_filter(tr!("Картинка", "Image"), &["jpg", "jpeg", "png"]).pick_file() {
                             cmd = Some(Cmd::AvatarUpload(p));
                         }
                     }
-                    ui.weak("Анимированные аватары и рамки покупаются в магазине очков.");
+                    ui.weak(tr!("Анимированные аватары и рамки покупаются в магазине очков.", "Animated avatars and frames are bought in the Points Shop."));
                 }
                 _ => {
                     egui::Grid::new("pe_priv").num_columns(2).spacing([14.0, 8.0]).show(ui, |ui| {
-                        level(ui, "Мой профиль", &mut d.privacy.profile);
-                        level(ui, "Список игр", &mut d.privacy.games);
-                        level(ui, "Время в играх", &mut d.privacy.playtime);
-                        level(ui, "Список друзей", &mut d.privacy.friends);
-                        level(ui, "Инвентарь", &mut d.privacy.inventory);
-                        level(ui, "Подарки в инвентаре", &mut d.privacy.gifts);
-                        ui.label("Комментарии в профиле");
-                        let names = [(1u8, "Все"), (0, "Только друзья"), (2, "Никто")];
+                        level(ui, tr!("Мой профиль", "My profile"), &mut d.privacy.profile);
+                        level(ui, tr!("Список игр", "Game list"), &mut d.privacy.games);
+                        level(ui, tr!("Время в играх", "Playtime"), &mut d.privacy.playtime);
+                        level(ui, tr!("Список друзей", "Friend list"), &mut d.privacy.friends);
+                        level(ui, tr!("Инвентарь", "Inventory"), &mut d.privacy.inventory);
+                        level(ui, tr!("Подарки в инвентаре", "Gifts in the inventory"), &mut d.privacy.gifts);
+                        ui.label(tr!("Комментарии в профиле", "Profile comments"));
+                        let names = [(1u8, tr!("Все", "All")), (0, tr!("Только друзья", "Friends only")), (2, tr!("Никто", "Nobody"))];
                         egui::ComboBox::from_id_salt("pe_comments")
                             .selected_text(names.iter().find(|(n, _)| *n == d.privacy.comments).map_or("?", |(_, l)| l))
                             .show_ui(ui, |ui| {
@@ -345,14 +348,14 @@ impl LauncherApp {
                     ui.add_space(8.0);
                     let changed = d.privacy != orig.privacy;
                     ui.horizontal(|ui| {
-                        if ui.add_enabled(changed, egui::Button::new("Сохранить")).clicked() {
+                        if ui.add_enabled(changed, egui::Button::new(tr!("Сохранить", "Save"))).clicked() {
                             cmd = Some(Cmd::PrivacySave(d.privacy.clone()));
                         }
-                        if changed && ui.button("Вернуть как было").clicked() {
+                        if changed && ui.button(tr!("Вернуть как было", "Revert")).clicked() {
                             d.privacy = orig.privacy.clone();
                         }
                     });
-                    ui.weak("«Скрыто» у профиля прячет почти все: игры, друзей, комментарии.");
+                    ui.weak(tr!("«Скрыто» у профиля прячет почти все: игры, друзей, комментарии.", "\"Private\" on the profile hides almost everything: games, friends, comments."));
                 }
             }
             if let Some(m) = &net.profile_edit_msg {

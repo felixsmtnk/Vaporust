@@ -3,17 +3,17 @@
 <h1 align="center">Vaporust</h1>
 
 <p align="center">
-  Библиотека, магазин, друзья и чат в легком окне на 30-80 МБ памяти - для слабых компьютеров.<br>
-  Игры при этом запускаются через настоящий Steam - достижения и облако работают как обычно.
+  Your Steam library, store, friends and chat in a light window using 30-80 MB of RAM - made for weak PCs.<br>
+  Games still run through the real Steam, so achievements and cloud saves work as usual.
 </p>
 
 <p align="center">
-  <a href="../../releases/tag/v0.7.1-alpha"><b>Скачать для Windows</b></a> ·
-  <a href="#пароль-и-безопасность">Пароль и безопасность</a> ·
-  <a href="#что-умеет">Возможности</a> ·
-  <a href="#вопросы">Вопросы</a> ·
-  <a href="ROADMAP.md">Планы</a> ·
-  <a href="#english">English</a>
+  <a href="../../releases/tag/v0.7.1-alpha"><b>Download for Windows</b></a> ·
+  <a href="#password-and-security">Password and security</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#faq">FAQ</a> ·
+  <a href="ROADMAP.md">Roadmap</a> ·
+  <a href="README.ru.md">Русский</a>
 </p>
 
 <p align="center">
@@ -23,228 +23,234 @@
   <img src="https://img.shields.io/badge/status-alpha-red.svg" alt="alpha">
 </p>
 
-<p align="center"><img src="assets/screenshots/library.jpg" width="860" alt="Библиотека Vaporust"></p>
+<p align="center"><img src="assets/screenshots/en/library.jpg" width="860" alt="Vaporust library"></p>
 
 <table>
   <tr>
-    <td width="33%"><img src="assets/screenshots/game.jpg" alt="Страница игры"></td>
-    <td width="33%"><img src="assets/screenshots/store.jpg" alt="Магазин"></td>
-    <td width="33%"><img src="assets/screenshots/profile.jpg" alt="Профиль"></td>
+    <td width="33%"><img src="assets/screenshots/en/game.jpg" alt="Game page"></td>
+    <td width="33%"><img src="assets/screenshots/en/store.jpg" alt="Store"></td>
+    <td width="33%"><img src="assets/screenshots/en/profile.jpg" alt="Profile"></td>
   </tr>
   <tr>
-    <td align="center">Страница игры</td>
-    <td align="center">Магазин</td>
-    <td align="center">Профиль</td>
+    <td align="center">Game page</td>
+    <td align="center">Store</td>
+    <td align="center">Profile</td>
   </tr>
 </table>
 
 > [!WARNING]
-> **Неофициальный проект**, не связан с Valve и Steam. Vaporust меняет файлы Steam и работает с
-> сетью Steam не через официальный клиент; программа предоставляется «как есть», без гарантий.
-> Используйте на свой страх и риск. Подробно - в разделе [«Отказ от ответственности»](#отказ-от-ответственности).
+> **An unofficial project**, not affiliated with Valve or Steam. Vaporust changes Steam files and
+> talks to the Steam network without the official client; it is provided "as is", without any
+> warranty. Use it at your own risk. Details - in the [Disclaimer](#disclaimer).
+
+The interface is available in **English and Russian** (Settings -> Window -> Interface language;
+by default it follows the Windows language).
 
 ---
 
-## Зачем
+## Why
 
-Официальный клиент Steam построен на встроенном браузере: один только steamwebhelper легко
-занимает сотни мегабайт, и на старом ноутбуке все тормозит еще до запуска игры. Vaporust
-рисует тот же привычный интерфейс сам, без браузера, а Steam поднимает незаметно и только на
-время игры.
+The official Steam client is built on an embedded browser: steamwebhelper alone easily takes
+hundreds of megabytes, and an old laptop slows down before the game even starts. Vaporust draws
+the same familiar interface itself, without a browser, and starts Steam unnoticed and only for
+the time you play.
 
-|   | Обычный Steam | **Vaporust** |
+|   | Regular Steam | **Vaporust** |
 |---|---|---|
-| Память в покое* | сотни МБ | **30-80 МБ** |
-| Во время игры | клиент + steamwebhelper | Steam в фоне: steamwebhelper заморожен и выгружен в файл подкачки, остальное 10-20 МБ |
-| Установка и обновление игр | через клиент | **без запуска Steam** |
-| Смена языка и беты | через клиент | **без запуска Steam** |
-| Запуск игр | Steam | через скрытый Steam; игры без защиты - вообще без Steam |
-| Пароль | нужен | **не обязателен**: вход по QR-коду или режим «Без входа» |
-| Открытый код | нет | да, GPL-3.0 |
+| Memory when idle* | hundreds of MB | **30-80 MB** |
+| While playing | client + steamwebhelper | Steam in the background: steamwebhelper is frozen and paged out, the rest is 10-20 MB |
+| Installing and updating games | through the client | **without starting Steam** |
+| Changing language and beta | through the client | **without starting Steam** |
+| Launching games | Steam | through a hidden Steam; DRM-free games - without Steam at all |
+| Password | required | **optional**: QR login or "Without login" mode |
+| Open source | no | yes, GPL-3.0 |
 
-* По столбцу «Память» Диспетчера задач Windows (частный рабочий набор). Другие счетчики
-(например, «Выделенная память») показывают больше; подробнее - в вопросе «Сколько памяти занимает?».
+\* By the "Memory" column of the Windows Task Manager (private working set). Other counters
+(for example "Committed memory") show more; see "How much memory does it use?" below.
 
-Похожие легкие клиенты Steam ([Aurelia](https://github.com/Drackrath/Aurelia),
-[SteamFlow](https://github.com/weter11/SteamFlow)) сделаны для Linux; Vaporust - для Windows.
-Название - от *vapor* (пар) + *Rust*.
+Similar light Steam clients ([Aurelia](https://github.com/Drackrath/Aurelia),
+[SteamFlow](https://github.com/weter11/SteamFlow)) are made for Linux; Vaporust is for Windows.
+The name comes from *vapor* + *Rust*.
 
-## Что умеет
+## Features
 
-**Игры**
-- Купленные, установленные и **семейные** игры Steam, плиткой обложек или таблицей; коллекции,
-  поиск, жанры, полки «Недавние игры» и «Что нового».
-- «ИГРАТЬ»: Steam стартует скрыто и закрывается после игры. Игры без защиты - напрямую.
-- Свойства как в Steam: параметры запуска, язык, беты, **откат и закрепление версии**, проверка
-  файлов, перенос, DLC, облако, Мастерская. Сторонние игры, ярлыки, скрипты до и после запуска.
+**Games**
+- Owned, installed and **family-shared** Steam games, as a cover grid or a table; collections,
+  search, genres, "Recent games" and "What's new" shelves.
+- "PLAY": Steam starts hidden and closes after the game. DRM-free games can run directly.
+- Properties as in Steam: launch options, language, betas, **version rollback and pinning**, file
+  verification, moving, DLC, cloud, Workshop. Non-Steam games, shortcuts, scripts before and after launch.
 
-**Загрузки**
-- Установка и обновление без Steam: очередь с паузой, ограничение скорости, расписание
-  («качать ночью»), регион загрузки, продолжение после обрыва связи.
+**Downloads**
+- Install and update without Steam: a queue with pause, speed limit, schedule ("download at
+  night"), download region, resuming after a lost connection.
 
-**Друзья и чат**
-- Статусы и игры друзей, заявки, профили. Чат с вкладками, историей, поиском, смайликами,
-  анимированными стикерами, картинками (в том числе Ctrl+V), реакциями и эффектами комнаты.
-- Свои легкие всплывающие уведомления: сообщение, друг зашел в игру, скидка в желаемом.
+**Friends and chat**
+- Friend statuses and games, requests, profiles. Chat with tabs, history, search, emoticons,
+  animated stickers, images (including Ctrl+V), reactions and room effects.
+- Light pop-up notifications of its own: a message, a friend started a game, a wishlist discount.
 
-**Магазин и сообщество**
-- Главная с полками, скидки, чарты, список желаемого, отзывы, системные требования, корзина.
-- Профиль как в Steam, обсуждения и руководства, Мастерская с модами и коллекциями, скриншоты,
-  значки и карточки, магазин очков, семья Steam.
-- Инвентарь и торговая площадка: цены и график; быстрая и мгновенная продажа и обмены - в
-  экспериментальных функциях.
+**Store and community**
+- A home page with shelves, specials, charts, wishlist, reviews, system requirements, cart.
+- A Steam-like profile, discussions and guides, Workshop with mods and collections, screenshots,
+  badges and cards, Points Shop, Steam Family.
+- Inventory and Community Market: prices and a chart; quick and instant sale and trades are
+  among the experimental features.
 
-**Для слабых компьютеров**
-- «Настройки -> Производительность»: без анимаций и обложек, экономия памяти, отдавать память
-  системе в трее и во время игры. Проверено на ThinkPad E330 с графикой Intel: около 30 МБ.
+**For weak PCs**
+- **Light mode**: less background work - fewer repaints, rarer network polling, no optional loads.
+- "Settings -> Performance": no animations or covers, memory saving, giving memory back to the
+  system in the tray and during games. Tested on a ThinkPad E330 with Intel graphics: about 30 MB.
 
-**Удобство и безопасность**
-- **Режим без входа**: только установленные игры и запуск через Steam, пароль не нужен.
-- Несколько аккаунтов, трей, автозапуск, масштаб 75-200%, мастер первого запуска.
-- Сохраненный вход зашифрован ключом Windows (если хранилище ключей недоступно, Vaporust об этом
-  предупредит); обновления Vaporust ставятся одной кнопкой и проверяются по контрольной сумме.
-- Цены на площадке считаются по правилам вашей валюты, как на сайте Steam (минимальная цена,
-  шаг цены, комиссии).
+**Convenience and safety**
+- **Without login mode**: installed games only, launched through Steam, no password needed.
+- Several accounts, tray, autostart, 75-200% scale, first-run wizard, English and Russian interface.
+- The saved login is encrypted with a Windows key (if the key storage is unavailable, Vaporust
+  warns you); Vaporust updates install with one button and are checked by a checksum.
+- Market prices follow the rules of your currency, as on the Steam website (minimum price,
+  price step, fees).
 
-## Установка
+## Installation
 
-1. Нужен **Windows 10 или 11** и установленный **Steam**, в который хоть раз входили с галочкой
-   «Запомнить пароль».
-2. Скачайте со страницы [последнего выпуска](../../releases/tag/v0.7.1-alpha) файл
-   `Vaporust-0.7.1-alpha-windows-x64.zip` (для 32-битной Windows - `windows-x86`).
-3. Распакуйте в любую папку и запустите `vaporust.exe`. Установка не нужна.
-4. Войдите в аккаунт Steam: пароль и код Steam Guard или QR-код из приложения Steam. Или нажмите
-   «Без входа»: тогда видны только установленные игры, а запускаются они через Steam как обычно.
+1. You need **Windows 10 or 11** and an installed **Steam** that you have logged in to at least
+   once with "Remember password" checked.
+2. Download `Vaporust-0.7.1-alpha-windows-x64.zip` from the [latest release](../../releases/tag/v0.7.1-alpha)
+   page (for 32-bit Windows - `windows-x86`).
+3. Unpack it into any folder and run `vaporust.exe`. No installation needed.
+4. Log in to your Steam account: password and Steam Guard code, or a QR code from the Steam app.
+   Or press "Without login": then only installed games are shown, and they launch through Steam as usual.
 
-Дальше Vaporust обновляется сам: сверху появится «Доступна новая версия».
+After that Vaporust updates itself: "A new version is available" appears at the top.
 
-## Пароль и безопасность
+## Password and security
 
-- **Пароль не сохраняется.** Он уходит только серверам Steam при входе, как в обычном клиенте.
-  Можно не вводить его вовсе: вход по QR-коду из приложения Steam или режим «Без входа».
-- **Сохраненный вход** (ключ сеанса, не пароль) зашифрован, ключ лежит в диспетчере учетных
-  данных Windows. Состояние видно в «Настройки -> Аккаунт».
-- **Телеметрии нет.** Vaporust обращается только к серверам Steam и к GitHub (проверка обновлений,
-  выключается в настройках).
-- **Отозвать доступ:** «Выйти из аккаунта» в меню «Vaporust» удаляет сохраненный вход; все входы
-  сразу - на [странице устройств Steam](https://store.steampowered.com/account/authorizeddevices).
-- **Удаление:** сначала «Настройки -> О программе -> Убрать изменения Vaporust в Steam» (недокачанные игры
-  снова видны Steam, закрепленные версии откреплены, временные папки в Корзине), потом просто
-  удалите папку с Vaporust.
-- **Архивы** собирает GitHub Actions из этого кода, у каждого есть контрольная сумма `.sha256` и
-  подпись происхождения. Как проверить и как сообщить об уязвимости - в [SECURITY.md](SECURITY.md).
+- **The password is not stored.** It only goes to Steam servers at login, as in the normal client.
+  You may not enter it at all: log in with a QR code from the Steam app, or use "Without login".
+- **The saved login** (a session key, not the password) is encrypted, the key is kept in the
+  Windows Credential Manager. Its state is shown in "Settings -> Account".
+- **No telemetry.** Vaporust talks only to Steam servers and to GitHub (update check, can be
+  turned off in the settings).
+- **Revoking access:** "Log out" in the "Vaporust" menu deletes the saved login; all logins at
+  once - on the [Steam devices page](https://store.steampowered.com/account/authorizeddevices).
+- **Uninstalling:** first "Settings -> About -> Remove Vaporust changes in Steam" (unfinished games
+  become visible to Steam again, pinned versions are unpinned, temporary folders go to the Recycle
+  Bin), then simply delete the Vaporust folder.
+- **Archives** are built by GitHub Actions from this code, each has a `.sha256` checksum and a
+  provenance attestation. How to verify and how to report a vulnerability - in [SECURITY.md](SECURITY.md).
 
-## Что проверено
+## What is tested
 
-Vaporust в **альфе**. Все основное проверено вручную на двух компьютерах с Windows 10, включая
-старый ноутбук, но ошибки вполне вероятны.
+Vaporust is an **alpha**. Everything important was tested by hand on two Windows 10 PCs,
+including an old laptop, but bugs are quite likely.
 
-- **Проверено мало:** продажа на площадке и обмены, откат версии игры, ручная синхронизация
-  облака, работа без интернета, публичные действия в сообществе (комментарии, оценки, вступление
-  в группы, блокировка). Большая часть этого по умолчанию выключена: включается галочкой
-  «Настройки -> Аккаунт -> Экспериментальные функции». Если что-то не так - [напишите](../../issues).
-- **Пока нет:** закрытые беты с паролем (включаются в самом Steam), английский интерфейс
-  (будет в бете).
-- **Автоматические тесты** (более 100) на каждой сборке: разбор страниц Steam, испорченные файлы
-  Steam, восстановление сохранений, цены площадки. Что именно проверяется - в [TESTING.md](TESTING.md).
-- **Нашли ошибку?** «Настройки -> О программе -> Скопировать диагностику» и вставьте текст в
-  [сообщение](../../issues) (без логина и ключей входа).
+- **Little tested:** selling on the market and trades, version rollback, manual cloud sync, working
+  offline, public community actions (comments, ratings, joining groups, blocking). Most of this is
+  off by default: turn it on with "Settings -> Account -> Experimental features". If something is
+  wrong - [open an issue](../../issues).
+- **Not yet:** private betas with a password (turn them on in Steam itself).
+- **Automated tests** (over 100) on every build: parsing Steam pages, damaged Steam files,
+  restoring saves, market prices. A weekly job also downloads fresh public Steam pages and
+  checks that the parsers still understand them. Details - in [TESTING.md](TESTING.md).
+- **Found a bug?** "Settings -> About -> Copy diagnostics" and paste the text into an
+  [issue](../../issues) (no login and no login keys in it).
 
-Что дальше - в [ROADMAP.md](ROADMAP.md), что уже вышло - в [CHANGELOG.md](CHANGELOG.md).
+What is next - in [ROADMAP.md](ROADMAP.md), what has shipped - in [CHANGELOG.md](CHANGELOG.md).
 
-## Вопросы
+## FAQ
 
 <details>
-<summary><b>Нужен ли официальный Steam?</b></summary>
+<summary><b>Is the official Steam needed?</b></summary>
 
-Для большинства игр - да. Vaporust сознательно запускает игры через настоящий Steam, чтобы
-работали достижения, облако, защита от копирования и учет времени. Клиент открывается
-незаметно и только на время игры. Игры без защиты можно запускать напрямую (галочка «Запускать
-без Steam» в свойствах игры) - тогда Steam не нужен, но нет достижений и облака.
+For most games - yes. Vaporust deliberately launches games through the real Steam so that
+achievements, cloud saves, copy protection and playtime tracking work. The client opens
+unnoticed and only for the time you play. DRM-free games can be launched directly ("Launch this
+game without Steam" in the game properties) - then Steam is not needed, but there are no
+achievements or cloud saves.
 </details>
 
 <details>
-<summary><b>Сколько памяти занимает?</b></summary>
+<summary><b>How much memory does it use?</b></summary>
 
-Сам Vaporust - около 30-80 МБ по столбцу «Память» Диспетчера задач (частный рабочий набор), в
-зависимости от компьютера и открытых разделов (на ПК с NVIDIA около 34 МБ из этого - драйвер видеокарты). В трее и во время игры он
-отдает память системе. Пока идет игра, работает и Steam. Его steamwebhelper (самая тяжелая
-часть) Vaporust приостанавливает и выгружает из оперативной памяти: в Диспетчере задач он
-показывает 0 МБ. Данные при этом не исчезают, а уходят в файл подкачки на диске и возвращаются,
-когда игра закрыта. Остальные части Steam во время игры занимают около 10-20 МБ по тому же
-столбцу. Это замеры автора на двух компьютерах; другие счетчики (выделенная память, полный
-рабочий набор) дают другие числа. Точная таблица замеров появится вместе с легким режимом.
+Vaporust itself takes about 30-80 MB by the "Memory" column of the Task Manager (private working
+set), depending on the PC and the open sections (on a PC with NVIDIA about 34 MB of it is the
+graphics driver). In the tray and during games it gives memory back to the system. While a game
+runs, Steam runs too. Its steamwebhelper (the heaviest part) is suspended by Vaporust and moved
+out of RAM: the Task Manager shows 0 MB for it. The data does not disappear but goes to the page
+file on disk and comes back when the game closes. The other parts of Steam take about 10-20 MB by
+the same column during a game. These are the author's measurements on two PCs; other counters
+(committed memory, full working set) give other numbers.
 </details>
 
 <details>
-<summary><b>Могут ли заблокировать аккаунт?</b></summary>
+<summary><b>Can my account get banned?</b></summary>
 
-Vaporust неофициальный и сам меняет файлы Steam. Любые сторонние программы, работающие со
-Steam, несут такой риск. Игры при этом запускает настоящий Steam, а в процессы игр Vaporust не
-встраивается. Решение за вами - см. [отказ от ответственности](#отказ-от-ответственности).
+Vaporust is unofficial and changes Steam files itself. Any third-party program that works with
+Steam carries such a risk. Games are still launched by the real Steam, and Vaporust does not
+inject into game processes. The decision is yours - see the [disclaimer](#disclaimer).
 </details>
 
 <details>
-<summary><b>Работает ли на 32-битной Windows, Windows 7, Linux, macOS?</b></summary>
+<summary><b>Does it work on 32-bit Windows, Windows 7, Linux, macOS?</b></summary>
 
-32-битная Windows - да, есть архив `windows-x86`. Но сам Steam с 1 января 2026 года ее не
-поддерживает, поэтому там надежно работают магазин, друзья, чат, установка игр и запуск игр без
-Steam. Windows 7, Linux и macOS - нет. На Linux попробуйте [Aurelia](https://github.com/Drackrath/Aurelia).
+32-bit Windows - yes, there is a `windows-x86` archive. But Steam itself has not supported it
+since January 1, 2026, so the store, friends, chat, installing games and launching games without
+Steam work reliably there. Windows 7, Linux and macOS - no. On Linux try [Aurelia](https://github.com/Drackrath/Aurelia).
 </details>
 
 <details>
-<summary><b>Чем это лучше компактного режима Steam или Playnite?</b></summary>
+<summary><b>How is it better than Steam's compact mode or Playnite?</b></summary>
 
-| | Компактный режим Steam | Playnite | **Vaporust** |
+| | Steam compact mode | Playnite | **Vaporust** |
 |---|---|---|---|
-| Steam в фоне | целиком, со steamwebhelper | целиком, со steamwebhelper | только на время игры, steamwebhelper заморожен |
-| Установка и обновление игр Steam | через Steam | через Steam | сам, без запуска Steam |
-| Друзья и чат | окно Steam (браузер) | нет | свои, легкие |
-| Магазин, профиль, площадка | окна Steam (браузер) | нет | свои |
-| Игры других магазинов | нет | да | только как «сторонние игры» |
+| Steam in the background | entirely, with steamwebhelper | entirely, with steamwebhelper | only while playing, steamwebhelper frozen |
+| Installing and updating Steam games | through Steam | through Steam | itself, without starting Steam |
+| Friends and chat | Steam window (browser) | no | its own, light |
+| Store, profile, market | Steam windows (browser) | no | its own |
+| Games from other stores | no | yes | only as "non-Steam games" |
 
-Компактный режим и Playnite меняют только вид списка игр: сам Steam со своим встроенным
-браузером работает в фоне постоянно. Vaporust поднимает Steam только на время игры.
+Compact mode and Playnite only change how the game list looks: Steam with its embedded browser
+keeps running in the background. Vaporust starts Steam only while you play.
 </details>
 
 <details>
-<summary><b>Не сломает ли заморозка steamwebhelper оверлей или геймпад?</b></summary>
+<summary><b>Does freezing steamwebhelper break the overlay or gamepads?</b></summary>
 
-Пока steamwebhelper заморожен, оверлей Steam (Shift+Tab), настройка геймпада через Steam Input
-и окна покупок внутри игры могут не открыться: они работают через этот же браузер Steam. Если они
-нужны в игре, выключите «Настройки -> Запуск игр -> Замораживать steamwebhelper». Сами игры,
-достижения и облачные сохранения от заморозки не зависят.
+While steamwebhelper is frozen, the Steam overlay (Shift+Tab), gamepad setup through Steam Input
+and in-game purchase windows may not open: they work through the same Steam browser. If you need
+them in a game, turn off "Settings -> Launching games -> Freeze steamwebhelper". Games themselves,
+achievements and cloud saves do not depend on the freeze.
 </details>
 
 <details>
-<summary><b>Чем отличается от Aurelia?</b></summary>
+<summary><b>How is it different from Aurelia?</b></summary>
 
-[Aurelia](https://github.com/Drackrath/Aurelia) - консольный клиент Steam, в первую очередь для
-Linux. Vaporust - оконный лаунчер для Windows, построенный на ней: работа с сетью Steam - от
-Aurelia, интерфейс и все остальное - свое.
+[Aurelia](https://github.com/Drackrath/Aurelia) is a command-line Steam client, mainly for Linux.
+Vaporust is a windowed launcher for Windows built on it: the Steam networking comes from Aurelia,
+the interface and everything else are its own.
 </details>
 
-## Как это устроено
+## How it works
 
-- **Сеть Steam** (вход, загрузки, друзья, чат) - библиотека [Aurelia](https://github.com/Drackrath/Aurelia),
-  ее измененная копия лежит в `vendor/aurelia` (версия 0.2.5), изменения перечислены в
+- **Steam network** (login, downloads, friends, chat) - the [Aurelia](https://github.com/Drackrath/Aurelia)
+  library; its modified copy is in `vendor/aurelia` (version 0.2.5), the changes are listed in
   [`VAPORUST_CHANGES.md`](vendor/aurelia/VAPORUST_CHANGES.md).
-- **Интерфейс** - [egui](https://github.com/emilk/egui), без браузера.
-- **Запуск** - настоящий Steam, скрыто (`-silent`). Флаг `-no-browser` современный Steam
-  игнорирует, поэтому память экономит не он: через 20 секунд после старта игры Vaporust
-  приостанавливает процессы steamwebhelper и выгружает их из оперативной памяти, а перед
-  закрытием Steam размораживает. Vaporust следит за процессами игры и закрывает Steam после нее.
-- **Обновление, язык, бета** - файлы качает Vaporust, а в файл игры (appmanifest) вписывает
-  только новые версии, остальное остается как у Steam, поэтому Steam считает игру обновленной.
-- **Закрепление версии** - в файл игры пишутся последние версии, а настоящие хранятся у
-  Vaporust: Steam не трогает игру, открепление все возвращает.
-- **Параметры запуска** хранятся там же, где у Steam (`localconfig.vdf`), и видны в клиенте.
-- **Код** написан с помощью ИИ (Claude от Anthropic) по замыслу и под проверкой автора: каждое
-  изменение проверяется вручную в программе и автоматическими тестами.
+- **Interface** - [egui](https://github.com/emilk/egui), no browser. Both languages sit side by
+  side in the code (`tr!("Готово.", "Done.")`), see `src/lang.rs`.
+- **Launching** - the real Steam, hidden (`-silent`). Modern Steam ignores the `-no-browser`
+  flag, so it is not what saves memory: 20 seconds after a game starts Vaporust suspends the
+  steamwebhelper processes and moves them out of RAM, and unfreezes them before closing Steam.
+  Vaporust watches the game processes and closes Steam after the game.
+- **Update, language, beta** - Vaporust downloads the files and writes only the new versions into
+  the game file (appmanifest), the rest stays as Steam had it, so Steam considers the game updated.
+- **Version pinning** - the latest versions are written into the game file, and the real ones are
+  kept by Vaporust: Steam leaves the game alone, unpinning puts everything back.
+- **Launch options** are stored where Steam keeps them (`localconfig.vdf`) and are visible in the client.
+- **The code** was written with AI assistance (Claude by Anthropic) to the author's design and
+  under the author's review: every change is checked by hand in the program and by automated tests.
 
-## Сборка из исходников
+## Building from source
 
-Нужен [Rust](https://rustup.rs/) (проверено на 1.90) и Microsoft C++ Build Tools.
+You need [Rust](https://rustup.rs/) (tested with 1.90) and the Microsoft C++ Build Tools.
 
 ```bash
 git clone https://github.com/felixsmtnk/Vaporust.git
@@ -252,8 +258,8 @@ cd Vaporust
 cargo build --release
 ```
 
-Программа появится в `target\release\vaporust.exe`. Для 32-битной версии нужен еще
-[NASM](https://www.nasm.us/) в `PATH` и стандарт C11:
+The program appears in `target\release\vaporust.exe`. The 32-bit version also needs
+[NASM](https://www.nasm.us/) in `PATH` and the C11 standard:
 
 ```bash
 rustup target add i686-pc-windows-msvc
@@ -262,80 +268,46 @@ set CFLAGS_i686_pc_windows_msvc=/std:c11
 cargo build --release --target i686-pc-windows-msvc
 ```
 
-Обе версии собирает GitHub Actions ([`build.yml`](.github/workflows/build.yml)) и прикладывает
-архивы к черновику релиза для меток `v*`.
+GitHub Actions ([`build.yml`](.github/workflows/build.yml)) builds both versions and attaches the
+archives to a draft release for `v*` tags.
 
-## Благодарности
+## Credits
 
-Vaporust вдохновлен **[Aurelia](https://github.com/Drackrath/Aurelia)** и построен на ее коде:
-вход в Steam, загрузка игр, достижения, друзья и чат - работа ее автора, **Drackrath**.
-Огромное спасибо, без Aurelia этого проекта бы не было.
+Vaporust is inspired by **[Aurelia](https://github.com/Drackrath/Aurelia)** and built on its code:
+the Steam login, game downloads, achievements, friends and chat are the work of its author,
+**Drackrath**. Huge thanks - without Aurelia this project would not exist.
 
-Aurelia выросла из **[SteamFlow](https://github.com/weter11/SteamFlow)** и стоит на
-**[steam-vent](https://codeberg.org/steam-vent/steam-vent)**, где проделана огромная работа по
-разбору протокола Steam. Спасибо и **[OpenSteamClient](https://github.com/OpenSteamClient/OpenSteamClient)**
-(Rosentti и участники) - он показал, что открытый клиент Steam - реальная задача.
+Aurelia grew out of **[SteamFlow](https://github.com/weter11/SteamFlow)** and stands on
+**[steam-vent](https://codeberg.org/steam-vent/steam-vent)**, which did a huge amount of work
+analysing the Steam protocol. Thanks also to **[OpenSteamClient](https://github.com/OpenSteamClient/OpenSteamClient)**
+(Rosentti and contributors) - it showed that an open Steam client is a real task.
 
 <details>
-<summary>Все использованные проекты</summary>
+<summary>All projects used</summary>
 
-- [Aurelia](https://github.com/Drackrath/Aurelia) - консольный клиент Steam на Rust, основа Vaporust
-- [SteamFlow](https://github.com/weter11/SteamFlow) - проект, из которого выросла Aurelia
-- [steam-vent](https://codeberg.org/steam-vent/steam-vent) и [steam-vent-chat](https://codeberg.org/steam-vent/chat) (в Aurelia - форк [aurelia-steam-vent-chat](https://codeberg.org/Drackrath/aurelia-steam-vent-chat)) - протокол Steam и чата
-- [steam-cdn](https://github.com/OccamyLab/steam-cdn) (в Aurelia - форк [aurelia-steam-cdn](https://github.com/Drackrath/aurelia-steam-cdn)) - загрузка игр
-- [egui / eframe](https://github.com/emilk/egui), [ehttp](https://github.com/emilk/ehttp) - интерфейс и загрузка картинок
+- [Aurelia](https://github.com/Drackrath/Aurelia) - a command-line Steam client in Rust, the base of Vaporust
+- [SteamFlow](https://github.com/weter11/SteamFlow) - the project Aurelia grew from
+- [steam-vent](https://codeberg.org/steam-vent/steam-vent) and [steam-vent-chat](https://codeberg.org/steam-vent/chat) (Aurelia uses the fork [aurelia-steam-vent-chat](https://codeberg.org/Drackrath/aurelia-steam-vent-chat)) - the Steam and chat protocol
+- [steam-cdn](https://github.com/OccamyLab/steam-cdn) (Aurelia uses the fork [aurelia-steam-cdn](https://github.com/Drackrath/aurelia-steam-cdn)) - game downloads
+- [egui / eframe](https://github.com/emilk/egui), [ehttp](https://github.com/emilk/ehttp) - the interface and image loading
 - [tokio](https://tokio.rs/), [sysinfo](https://github.com/GuillaumeGomez/sysinfo), [winreg](https://github.com/gentoo90/winreg-rs), [windows-sys](https://github.com/microsoft/windows-rs), [image](https://github.com/image-rs/image), [arboard](https://github.com/1Password/arboard), [rfd](https://github.com/PolyMeilex/rfd), [chrono](https://github.com/chronotope/chrono), [qrcode](https://github.com/kennytm/qrcode-rust), [zip](https://github.com/zip-rs/zip2)
-- [SteamDatabase/Protobufs](https://github.com/SteamDatabase/Protobufs), [SteamKit2](https://github.com/SteamRE/SteamKit), [node-steamcommunity](https://github.com/DoctorMcKay/node-steamcommunity), [node-steam-user](https://github.com/DoctorMcKay/node-steam-user) - описания протоколов и сайта Steam
-- Похожие проекты: [OpenSteamClient](https://github.com/OpenSteamClient/OpenSteamClient), [SteamCMD](https://developer.valvesoftware.com/wiki/SteamCMD)
+- [SteamDatabase/Protobufs](https://github.com/SteamDatabase/Protobufs), [SteamKit2](https://github.com/SteamRE/SteamKit), [node-steamcommunity](https://github.com/DoctorMcKay/node-steamcommunity), [node-steam-user](https://github.com/DoctorMcKay/node-steam-user) - descriptions of the Steam protocols and website
+- Similar projects: [OpenSteamClient](https://github.com/OpenSteamClient/OpenSteamClient), [SteamCMD](https://developer.valvesoftware.com/wiki/SteamCMD)
 </details>
 
-## Отказ от ответственности
+## Disclaimer
 
-- Vaporust - **независимый неофициальный проект**. Он **не связан с Valve Corporation и Steam**,
-  не одобрен, не спонсируется и не поддерживается ими.
-- «Steam», «Valve», логотипы Steam и названия игр - товарные знаки и собственность Valve
-  Corporation и соответствующих правообладателей.
-- Программа **напрямую меняет файлы Steam** (настройки запуска, файлы игр) и работает с сетью
-  Steam не через официальный клиент. Это может повредить установку Steam или игры, а Valve
-  может ограничить аккаунт за использование неофициальных программ.
-- Программа предоставляется **«как есть», без каких-либо гарантий**. Авторы **не несут
-  ответственности** за последствия ее использования: потерю данных, повреждение установки,
-  блокировку аккаунта и т. п.
+- Vaporust is an **independent, unofficial project**. It is **not affiliated with Valve
+  Corporation or Steam**, and is not endorsed, sponsored or supported by them.
+- "Steam", "Valve", the Steam logos and game names are trademarks and property of Valve
+  Corporation and their respective owners.
+- The program **directly changes Steam files** (launch settings, game files) and talks to the
+  Steam network without the official client. This may damage the Steam or game installation, and
+  Valve may restrict an account for using unofficial programs.
+- The program is provided **"as is", without any warranty**. The authors are **not liable** for
+  any consequences of its use: data loss, damaged installations, account restrictions and so on.
 
-## Лицензия
+## License
 
-[GPL-3.0-or-later](LICENSE), как и у Aurelia. История лицензии Aurelia - в
+[GPL-3.0-or-later](LICENSE), the same as Aurelia. The history of Aurelia's license is in
 [`vendor/aurelia/LICENSE`](vendor/aurelia/LICENSE).
-
----
-
-## English
-
-**Vaporust** (*vapor* + *Rust*) is a lightweight Steam client for Windows: library, store,
-friends and chat in a native [egui](https://github.com/emilk/egui) window that uses about
-30-80 MB of RAM - no embedded browser. Games still run through the **real Steam client**,
-started hidden and closed with the game, so achievements and cloud saves work as usual
-(steamwebhelper is suspended while you play and paged out of RAM).
-
-- Install, update and switch language or beta **without starting Steam**; download queue,
-  speed limit and schedule; version rollback and pinning; DRM-free games run without Steam.
-- Family Sharing library, collections, game properties, achievements, screenshots, non-Steam games.
-- Friends and chat with emoticons, animated stickers, images, reactions and room effects.
-- Store with reviews and wishlist, Steam-like profile, discussions, Workshop, inventory and
-  Community Market with quick and instant sell.
-- Encrypted saved login, checksum-verified self-update, multiple accounts, 64- and 32-bit builds.
-- Networking by a lightly modified copy of **[Aurelia](https://github.com/Drackrath/Aurelia)**
-  by Drackrath - huge thanks.
-- No-login mode (installed games only, no password), QR login, encrypted saved session, no telemetry.
-  Risky or barely tested actions (market selling, trades, version rollback, public community
-  actions) are off until you enable "Experimental features". See [SECURITY.md](SECURITY.md).
-- The code was written with AI assistance (Claude by Anthropic), directed and tested by the author.
-- **Status: alpha (0.7.1-alpha).** The interface is in Russian for now; English is planned for the beta.
-
-**Disclaimer:** an independent, unofficial project, **not affiliated with, endorsed or sponsored
-by Valve Corporation or Steam**. Steam and Valve are trademarks of Valve Corporation. The
-software modifies Steam's files and is provided **"as is", without any warranty**; the authors
-are **not liable** for any consequences of its use, including data loss, broken installations
-or account restrictions. Use at your own risk.
-
-License: [GPL-3.0-or-later](LICENSE).

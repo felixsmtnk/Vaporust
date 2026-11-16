@@ -85,9 +85,9 @@ fn sample(net: &NetState, queue: &[settings::QueueItem]) {
     };
     // Result of a file operation (uninstall, verify, move) - also as a popup notification:
     // a downloaded game is announced by notices.rs.
-    if i.done_text != "установлена." {
+    if i.done_text != tr!("установлена.", "installed.") {
         // The operation name contains the action kind ("Удаление: игра"): only the game goes into the notification.
-        let name = ["Смена языка: ", "Обновление: ", "Проверка файлов: ", "Перенос: ", "Добавление: ", "Откат версии: ", "Удаление: "]
+        let name = [tr!("Смена языка: ", "Language change: "), tr!("Обновление: ", "Update: "), tr!("Проверка файлов: ", "Verifying files: "), tr!("Перенос: ", "Moving: "), tr!("Добавление: ", "Adding: "), tr!("Откат версии: ", "Version rollback: "), tr!("Удаление: ", "Uninstalling: ")]
             .iter()
             .find_map(|p| i.name.strip_prefix(p))
             .unwrap_or(&i.name);
@@ -104,7 +104,7 @@ fn sample(net: &NetState, queue: &[settings::QueueItem]) {
             appid: i.appid,
             name: i.name.clone(),
             result,
-            install: i.done_text == "установлена.",
+            install: i.done_text == tr!("установлена.", "installed."),
             when: chrono::Local::now().format("%H:%M").to_string(),
         },
     );
@@ -186,13 +186,13 @@ impl LauncherApp {
         if let Some(i) = net.install.as_ref().filter(|i| i.result.is_none()) {
             if i.total > 0 {
                 let pct = (i.done as f64 / i.total as f64 * 100.0).clamp(0.0, 100.0);
-                return format!("Загрузки: {} - {pct:.0}%", i.name);
+                return trf!("Загрузки: {} - {pct:.0}%", "Downloads: {} - {pct:.0}%", i.name);
             }
-            return format!("Загрузки: {}", i.name);
+            return trf!("Загрузки: {}", "Downloads: {}", i.name);
         }
         match self.settings.downloads.len() {
-            0 => "Загрузки".into(),
-            n => format!("Загрузки ({n} в очереди)"),
+            0 => tr!("Загрузки", "Downloads").into(),
+            n => trf!("Загрузки ({n} в очереди)", "Downloads ({n} queued)"),
         }
     }
 
@@ -212,7 +212,7 @@ impl LauncherApp {
             done.set_width(bar.width() * frac);
             ui.painter().rect_filled(done, 0.0, theme::ACCENT);
         }
-        if resp.on_hover_text("Текущая загрузка и очередь").clicked() {
+        if resp.on_hover_text(tr!("Текущая загрузка и очередь", "Current download and queue")).clicked() {
             self.close_extras(View::Downloads);
             self.view = View::Downloads;
         }
@@ -232,8 +232,8 @@ impl LauncherApp {
             if !schedule::may_download(&self.settings) {
                 ui.colored_label(
                     egui::Color32::from_rgb(230, 170, 60),
-                    format!(
-                        "Сейчас загрузки ждут расписания (с {}). Расписание - в «Настройки» -> «Загрузки».",
+                    trf!(
+                        "Сейчас загрузки ждут расписания (с {}). Расписание - в «Настройки» -> «Загрузки».", "Downloads are waiting for the schedule (from {}). The schedule is in \"Settings\" -> \"Downloads\".",
                         schedule::hh(self.settings.sched_from)
                     ),
                 );
@@ -257,9 +257,9 @@ impl LauncherApp {
                 let Some(inst) = active else {
                     ui.add_space(18.0);
                     ui.vertical_centered(|ui| {
-                        ui.label(egui::RichText::new("Сейчас ничего не загружается").size(16.0).color(theme::WEAK));
+                        ui.label(egui::RichText::new(tr!("Сейчас ничего не загружается", "Nothing is downloading")).size(16.0).color(theme::WEAK));
                         ui.label(
-                            egui::RichText::new("Нажмите «Установить» на странице игры - загрузка появится здесь.")
+                            egui::RichText::new(tr!("Нажмите «Установить» на странице игры - загрузка появится здесь.", "Press \"Install\" on a game page - the download appears here."))
                                 .size(12.0)
                                 .color(theme::WEAK),
                         );
@@ -267,7 +267,7 @@ impl LauncherApp {
                     ui.add_space(18.0);
                     return;
                 };
-                let is_install = inst.done_text == "установлена.";
+                let is_install = inst.done_text == tr!("установлена.", "installed.");
                 let frac = if inst.total > 0 { (inst.done as f32 / inst.total as f32).clamp(0.0, 1.0) } else { 0.0 };
                 ui.horizontal(|ui| {
                     if !crate::custom::is_custom(inst.appid) {
@@ -276,29 +276,29 @@ impl LauncherApp {
                     ui.add_space(6.0);
                     ui.vertical(|ui| {
                         ui.label(egui::RichText::new(&inst.name).size(19.0).strong());
-                        let what = if is_install { "ЗАГРУЗКА" } else { "РАБОТА С ФАЙЛАМИ" };
+                        let what = if is_install { tr!("ЗАГРУЗКА", "DOWNLOADING") } else { tr!("РАБОТА С ФАЙЛАМИ", "WORKING WITH FILES") };
                         let head = if inst.total > 0 { format!("{what} - {:.0}%", frac * 100.0) } else { what.to_string() };
                         ui.label(egui::RichText::new(head).size(12.0).strong().color(theme::ACCENT));
                         ui.label(egui::RichText::new(&inst.stage).size(12.0).color(theme::WEAK));
                         ui.add_space(4.0);
                         thin_bar(ui, frac, (ui.available_width() - 190.0).max(160.0));
                         if inst.total > 0 {
-                            let mut t = format!("{} из {}", net::fmt_bytes(inst.done), net::fmt_bytes(inst.total));
+                            let mut t = trf!("{} из {}", "{} of {}", net::fmt_bytes(inst.done), net::fmt_bytes(inst.total));
                             if inst.speed > 1.0 {
                                 let left = inst.total.saturating_sub(inst.done) as f64 / inst.speed;
-                                t += &format!("  ·  осталось ~{}", crate::fmt_eta(left as u64));
+                                t += &trf!("  ·  осталось ~{}", "  ·  ~{} left", crate::fmt_eta(left as u64));
                             }
                             ui.label(egui::RichText::new(t).size(12.0).color(theme::TEXT));
                         }
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Отмена").on_hover_text("Остановить загрузку. Скачанное сохранится, ее можно продолжить.").clicked() {
+                        if ui.button(tr!("Отмена", "Cancel")).on_hover_text(tr!("Остановить загрузку. Скачанное сохранится, ее можно продолжить.", "Stop the download. What was downloaded is kept, it can be resumed.")).clicked() {
                             acts.push(Act::Stop(false));
                         }
                         if is_install
                             && ui
-                                .button("Пауза")
-                                .on_hover_text("Поставить на паузу только эту игру: скачанное сохранится. Следующие игры из очереди начнут качаться.")
+                                .button(tr!("Пауза", "Pause"))
+                                .on_hover_text(tr!("Поставить на паузу только эту игру: скачанное сохранится. Следующие игры из очереди начнут качаться.", "Pause only this game: what was downloaded is kept. The next games in the queue start downloading."))
                                 .clicked()
                         {
                             acts.push(Act::Stop(true));
@@ -316,13 +316,13 @@ impl LauncherApp {
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 5.0;
                         let peak = GRAPH.lock().unwrap().peak;
-                        stat(ui, "ТЕКУЩАЯ СКОРОСТЬ", format!("{}/с", net::fmt_bytes(inst.speed.max(0.0) as u64)));
-                        stat(ui, "ПИКОВАЯ", format!("{}/с", net::fmt_bytes(peak as u64)));
+                        stat(ui, tr!("ТЕКУЩАЯ СКОРОСТЬ", "CURRENT SPEED"), trf!("{}/с", "{}/s", net::fmt_bytes(inst.speed.max(0.0) as u64)));
+                        stat(ui, tr!("ПИКОВАЯ", "PEAK"), trf!("{}/с", "{}/s", net::fmt_bytes(peak as u64)));
                         if inst.total > 0 {
-                            stat(ui, "ОСТАЛОСЬ СКАЧАТЬ", net::fmt_bytes(inst.total.saturating_sub(inst.done)));
+                            stat(ui, tr!("ОСТАЛОСЬ СКАЧАТЬ", "LEFT TO DOWNLOAD"), net::fmt_bytes(inst.total.saturating_sub(inst.done)));
                         }
                         if let Some(free) = library.as_deref().and_then(local::free_space) {
-                            stat(ui, "СВОБОДНО НА ДИСКЕ", net::fmt_bytes(free));
+                            stat(ui, tr!("СВОБОДНО НА ДИСКЕ", "FREE ON DISK"), net::fmt_bytes(free));
                         }
                     });
                 });
@@ -333,11 +333,11 @@ impl LauncherApp {
                 bg.context_menu(|ui| {
                     menu_common(ui, id, &name, true, &mut acts);
                     ui.separator();
-                    if ui.button("Пауза").clicked() {
+                    if ui.button(tr!("Пауза", "Pause")).clicked() {
                         acts.push(Act::Stop(true));
                         ui.close_menu();
                     }
-                    if ui.button("Отмена").clicked() {
+                    if ui.button(tr!("Отмена", "Cancel")).clicked() {
                         acts.push(Act::Stop(false));
                         ui.close_menu();
                     }
@@ -347,12 +347,12 @@ impl LauncherApp {
             // Up next: the queue.
             let n = self.settings.downloads.len();
             let queue_paused = self.settings.queue_paused;
-            section(ui, &format!("ДАЛЕЕ ({n})"), |ui| {
+            section(ui, &trf!("ДАЛЕЕ ({n})", "UP NEXT ({n})"), |ui| {
                 if n > 0 {
                     let (label, hint) = if queue_paused {
-                        ("Продолжить очередь", "Снова качать игры из очереди по порядку.")
+                        (tr!("Продолжить очередь", "Resume queue"), tr!("Снова качать игры из очереди по порядку.", "Download the queued games in order again."))
                     } else {
-                        ("Пауза очереди", "Не начинать следующие игры из очереди (текущая загрузка продолжится).")
+                        (tr!("Пауза очереди", "Pause queue"), tr!("Не начинать следующие игры из очереди (текущая загрузка продолжится).", "Do not start the next queued games (the current download continues)."))
                     };
                     if ui.small_button(label).on_hover_text(hint).clicked() {
                         acts.push(Act::ToggleQueue);
@@ -360,19 +360,19 @@ impl LauncherApp {
                 }
             });
             if n == 0 {
-                ui.weak("Очередь пуста. Игры встают сюда, если нажать «Установить», пока качается другая.");
+                ui.weak(tr!("Очередь пуста. Игры встают сюда, если нажать «Установить», пока качается другая.", "The queue is empty. Games go here if you press \"Install\" while another one is downloading."));
             }
             for (i, q) in self.settings.downloads.iter().enumerate() {
                 let partial = self.games.iter().find(|g| g.appid == q.appid && !g.ready);
                 let mut state = if q.paused {
-                    "На паузе".to_string()
+                    tr!("На паузе", "Paused").to_string()
                 } else if steam_open && (!self.settings.download_with_steam || (partial.is_some() && !self.settings.staged.contains_key(&q.appid) && self.movable_partial(q.appid).is_none())) {
-                    "Ждет закрытия Steam".to_string()
+                    tr!("Ждет закрытия Steam", "Waiting for Steam to close").to_string()
                 } else {
-                    "В очереди".to_string()
+                    tr!("В очереди", "Queued").to_string()
                 };
                 if let Some(g) = partial {
-                    state += &format!(" · скачано {}", net::fmt_bytes(partial_size(g)));
+                    state += &trf!(" · скачано {}", " · {} downloaded", net::fmt_bytes(partial_size(g)));
                 }
                 let paused = q.paused;
                 row(
@@ -384,40 +384,40 @@ impl LauncherApp {
                     theme::WEAK,
                     &mut acts,
                     |ui, acts| {
-                        if ui.small_button("Убрать").on_hover_text("Убрать из очереди (скачанное останется на диске)").clicked() {
+                        if ui.small_button(tr!("Убрать", "Remove")).on_hover_text(tr!("Убрать из очереди (скачанное останется на диске)", "Remove from the queue (the downloaded files stay on disk)")).clicked() {
                             acts.push(Act::Unqueue(i));
                         }
                         if paused {
-                            if ui.small_button("Продолжить").clicked() {
+                            if ui.small_button(tr!("Продолжить", "Resume")).clicked() {
                                 acts.push(Act::SetPaused(i, false));
                             }
-                        } else if ui.small_button("Пауза").on_hover_text("Пропускать эту игру, пока не продолжите").clicked() {
+                        } else if ui.small_button(tr!("Пауза", "Pause")).on_hover_text(tr!("Пропускать эту игру, пока не продолжите", "Skip this game until you resume it")).clicked() {
                             acts.push(Act::SetPaused(i, true));
                         }
-                        if i > 0 && n > 1 && ui.small_button("Выше").on_hover_text("Скачать раньше").clicked() {
+                        if i > 0 && n > 1 && ui.small_button(tr!("Выше", "Up")).on_hover_text(tr!("Скачать раньше", "Download earlier")).clicked() {
                             acts.push(Act::Move(i, i - 1));
                         }
                     },
                     |ui, acts| {
                         menu_common(ui, q.appid, &q.name, partial.is_some(), acts);
                         ui.separator();
-                        if i > 0 && ui.button("Скачать первой").clicked() {
+                        if i > 0 && ui.button(tr!("Скачать первой", "Download first")).clicked() {
                             acts.push(Act::Move(i, 0));
                             ui.close_menu();
                         }
-                        if i + 1 < n && ui.button("Ниже").clicked() {
+                        if i + 1 < n && ui.button(tr!("Ниже", "Down")).clicked() {
                             acts.push(Act::Move(i, i + 1));
                             ui.close_menu();
                         }
-                        if ui.button(if paused { "Продолжить" } else { "Пауза" }).clicked() {
+                        if ui.button(if paused { tr!("Продолжить", "Resume") } else { tr!("Пауза", "Pause") }).clicked() {
                             acts.push(Act::SetPaused(i, !paused));
                             ui.close_menu();
                         }
-                        if ui.button("Убрать из очереди").clicked() {
+                        if ui.button(tr!("Убрать из очереди", "Remove from queue")).clicked() {
                             acts.push(Act::Unqueue(i));
                             ui.close_menu();
                         }
-                        if partial.is_some() && ui.button("Удалить скачанное...").clicked() {
+                        if partial.is_some() && ui.button(tr!("Удалить скачанное...", "Delete downloaded files...")).clicked() {
                             acts.push(Act::Uninstall(q.appid, q.name.clone()));
                             ui.close_menu();
                         }
@@ -433,9 +433,9 @@ impl LauncherApp {
                 .filter(|g| !g.ready && !queued.contains(&g.appid) && Some(g.appid) != active_id)
                 .collect();
             if !partials.is_empty() {
-                section(ui, &format!("НЕ ДОКАЧАНЫ ({})", partials.len()), |_| {});
+                section(ui, &trf!("НЕ ДОКАЧАНЫ ({})", "NOT FINISHED ({})", partials.len()), |_| {});
                 for g in partials {
-                    let state = format!("Скачано {} · файлы лежат на диске", net::fmt_bytes(partial_size(g)));
+                    let state = trf!("Скачано {} · файлы лежат на диске", "Downloaded {} · the files are on disk", net::fmt_bytes(partial_size(g)));
                     row(
                         ui,
                         ("p", g.appid),
@@ -445,21 +445,21 @@ impl LauncherApp {
                         theme::WEAK,
                         &mut acts,
                         |ui, acts| {
-                            if ui.small_button("Удалить").on_hover_text("Удалить скачанные файлы").clicked() {
+                            if ui.small_button(tr!("Удалить", "Delete")).on_hover_text(tr!("Удалить скачанные файлы", "Delete the downloaded files")).clicked() {
                                 acts.push(Act::Uninstall(g.appid, g.name.clone()));
                             }
-                            if ui.small_button("Продолжить").on_hover_text("Докачать с того места, где остановилась").clicked() {
+                            if ui.small_button(tr!("Продолжить", "Resume")).on_hover_text(tr!("Докачать с того места, где остановилась", "Continue from where it stopped")).clicked() {
                                 acts.push(Act::Resume(g.appid, g.name.clone()));
                             }
                         },
                         |ui, acts| {
                             menu_common(ui, g.appid, &g.name, true, acts);
                             ui.separator();
-                            if ui.button("Продолжить загрузку").clicked() {
+                            if ui.button(tr!("Продолжить загрузку", "Resume download")).clicked() {
                                 acts.push(Act::Resume(g.appid, g.name.clone()));
                                 ui.close_menu();
                             }
-                            if ui.button("Удалить скачанное...").clicked() {
+                            if ui.button(tr!("Удалить скачанное...", "Delete downloaded files...")).clicked() {
                                 acts.push(Act::Uninstall(g.appid, g.name.clone()));
                                 ui.close_menu();
                             }
@@ -471,8 +471,8 @@ impl LauncherApp {
             // Completed during this session.
             let done = DONE.lock().unwrap().1.clone();
             if !done.is_empty() {
-                section(ui, &format!("ЗАВЕРШЕНО ({})", done.len()), |ui| {
-                    if ui.small_button("Очистить").clicked() {
+                section(ui, &trf!("ЗАВЕРШЕНО ({})", "COMPLETED ({})", done.len()), |ui| {
+                    if ui.small_button(tr!("Очистить", "Clear")).clicked() {
                         acts.push(Act::ClearDone);
                     }
                 });
@@ -481,10 +481,10 @@ impl LauncherApp {
                 for d in &done {
                     let (text, color) = match &d.result {
                         Ok(t) => (
-                            format!("{} в {}: {}", if d.install { "Загрузка завершена" } else { "Готово" }, d.when, t),
+                            trf!("{} в {}: {}", "{} at {}: {}", if d.install { tr!("Загрузка завершена", "Download complete") } else { tr!("Готово", "Done") }, d.when, t),
                             egui::Color32::from_rgb(110, 200, 110),
                         ),
-                        Err(e) => (format!("Ошибка в {}: {e}", d.when), egui::Color32::from_rgb(230, 110, 110)),
+                        Err(e) => (trf!("Ошибка в {}: {e}", "Error at {}: {e}", d.when), egui::Color32::from_rgb(230, 110, 110)),
                     };
                     let can_play = d.result.is_ok() && d.install && installed.contains(&d.appid);
                     let on_disk = installed.contains(&d.appid);
@@ -497,25 +497,25 @@ impl LauncherApp {
                         color,
                         &mut acts,
                         |ui, acts| {
-                            if ui.small_button("Убрать").on_hover_text("Убрать из этого списка").clicked() {
+                            if ui.small_button(tr!("Убрать", "Remove")).on_hover_text(tr!("Убрать из этого списка", "Remove from this list")).clicked() {
                                 acts.push(Act::Forget(d.appid));
                             }
                             if can_play
                                 && ui
-                                    .add(egui::Button::new(egui::RichText::new("Играть").color(egui::Color32::WHITE)).fill(theme::PLAY))
+                                    .add(egui::Button::new(egui::RichText::new(tr!("Играть", "Play")).color(egui::Color32::WHITE)).fill(theme::PLAY))
                                     .clicked()
                             {
                                 acts.push(Act::Play(d.appid));
                             }
                         },
                         |ui, acts| {
-                            if can_play && ui.button("Играть").clicked() {
+                            if can_play && ui.button(tr!("Играть", "Play")).clicked() {
                                 acts.push(Act::Play(d.appid));
                                 ui.close_menu();
                             }
                             menu_common(ui, d.appid, &d.name, on_disk, acts);
                             ui.separator();
-                            if ui.button("Убрать из списка").clicked() {
+                            if ui.button(tr!("Убрать из списка", "Remove from list")).clicked() {
                                 acts.push(Act::Forget(d.appid));
                                 ui.close_menu();
                             }
@@ -600,11 +600,11 @@ fn menu_common(ui: &mut egui::Ui, appid: u32, name: &str, on_disk: bool, acts: &
     ui.set_min_width(200.0);
     ui.label(egui::RichText::new(name).strong());
     ui.separator();
-    if ui.button("Страница игры").clicked() {
+    if ui.button(tr!("Страница игры", "Game page")).clicked() {
         acts.push(Act::Page(appid));
         ui.close_menu();
     }
-    if on_disk && ui.button("Открыть папку игры").clicked() {
+    if on_disk && ui.button(tr!("Открыть папку игры", "Open game folder")).clicked() {
         acts.push(Act::Folder(appid));
         ui.close_menu();
     }

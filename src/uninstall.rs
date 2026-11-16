@@ -39,37 +39,37 @@ impl LauncherApp {
         let neighbours = self.neighbours(appid);
         let mut close = false;
         let mut go = false;
-        egui::Window::new(if custom { "Сторонняя игра" } else { "Удаление игры" })
+        egui::Window::new(if custom { tr!("Сторонняя игра", "Non-Steam game") } else { tr!("Удаление игры", "Uninstall game") })
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
             .show(ctx, |ui| {
                 ui.set_max_width(420.0);
-                let title = if custom { format!("Убрать «{name}» из библиотеки?") } else { format!("Удалить «{name}»?") };
+                let title = if custom { trf!("Убрать «{name}» из библиотеки?", "Remove \"{name}\" from the library?") } else { trf!("Удалить «{name}»?", "Uninstall \"{name}\"?") };
                 ui.label(egui::RichText::new(title).size(16.0).strong());
                 ui.add_space(4.0);
                 if custom {
-                    ui.label("Игра пропадет из библиотеки Vaporust. Файлы игры на диске не удаляются.");
+                    ui.label(tr!("Игра пропадет из библиотеки Vaporust. Файлы игры на диске не удаляются.", "The game disappears from the Vaporust library. The game files on disk are not deleted."));
                 } else if !neighbours.is_empty() {
                     let names: Vec<&str> = neighbours.iter().map(|(_, n)| n.as_str()).collect();
-                    ui.label(format!(
-                        "Эта игра лежит в одной папке с другими: {}. Удалятся только файлы самой «{name}»{}, \n                         остальные игры не пострадают. Нужна связь со Steam: он подскажет, какие файлы ее.",
+                    ui.label(trf!(
+                        "Эта игра лежит в одной папке с другими: {}. Удалятся только файлы самой «{name}»{}, \n                         остальные игры не пострадают. Нужна связь со Steam: он подскажет, какие файлы ее.", "This game shares a folder with others: {}. Only the files of \"{name}\" itself{} are deleted, the other games are not affected. A connection to Steam is needed: it tells which files are its.",
                         names.join(", "),
                         if size > 0 { format!(" ({})", crate::net::fmt_bytes(size)) } else { String::new() }
                     ));
                 } else {
-                    ui.label(format!(
+                    ui.label(trf!(
                     "С диска будет удалена папка игры ({}). Игра останется на аккаунте, ее можно \
-                     установить снова. Сохранения в облаке Steam не пострадают.",
+                     установить снова. Сохранения в облаке Steam не пострадают.", "The game folder ({}) will be deleted from the disk. The game stays on the account, it can be installed again. Saves in the Steam cloud are not affected.",
                     crate::net::fmt_bytes(size)
                 ));
                 }
                 let blocked = if steam_running && !ready {
-                    Some("Игра не докачана, и открытый Steam может качать ее сам: сначала закройте Steam.")
+                    Some(tr!("Игра не докачана, и открытый Steam может качать ее сам: сначала закройте Steam.", "The game is not finished, and an open Steam may download it itself: close Steam first."))
                 } else if busy {
-                    Some("Сначала дождитесь закрытия игры.")
+                    Some(tr!("Сначала дождитесь закрытия игры.", "Wait until the game closes first."))
                 } else if downloading {
-                    Some("Игра сейчас качается: сначала нажмите «Пауза» или «Отмена» в «Загрузках».")
+                    Some(tr!("Игра сейчас качается: сначала нажмите «Пауза» или «Отмена» в «Загрузках».", "The game is downloading now: press \"Pause\" or \"Cancel\" in \"Downloads\" first."))
                 } else {
                     None
                 };
@@ -78,16 +78,16 @@ impl LauncherApp {
                     ui.colored_label(egui::Color32::from_rgb(230, 170, 90), b);
                 }
                 if steam_running && ready && blocked.is_none() {
-                    ui.weak("Steam открыт: он заметит удаление после перезапуска.");
+                    ui.weak(tr!("Steam открыт: он заметит удаление после перезапуска.", "Steam is open: it notices the removal after a restart."));
                 }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    let red = egui::Button::new(egui::RichText::new(if custom { "Убрать" } else { "Удалить" }).color(egui::Color32::WHITE))
+                    let red = egui::Button::new(egui::RichText::new(if custom { tr!("Убрать", "Remove") } else { tr!("Удалить", "Delete") }).color(egui::Color32::WHITE))
                         .fill(egui::Color32::from_rgb(170, 50, 50));
                     if ui.add_enabled(blocked.is_none(), red).clicked() {
                         go = true;
                     }
-                    if ui.button("Отмена").clicked() {
+                    if ui.button(tr!("Отмена", "Cancel")).clicked() {
                         close = true;
                     }
                 });
@@ -127,14 +127,14 @@ impl LauncherApp {
             let _ = self.tx.send(Cmd::Uninstall { appid, name });
             return;
         }
-        *self.launch_status.lock().unwrap() = format!("Удаляю «{name}»...");
+        *self.launch_status.lock().unwrap() = trf!("Удаляю «{name}»...", "Uninstalling \"{name}\"...");
         let (status, rescan) = (self.launch_status.clone(), self.rescan_needed.clone());
         std::thread::spawn(move || {
             let text = match local::uninstall_files(&game) {
-                Ok(()) => format!("«{name}» удалена."),
+                Ok(()) => trf!("«{name}» удалена.", "\"{name}\" uninstalled."),
                 Err(e) => {
-                    crate::errlog::write("удаление", &format!("{name}: {e}"));
-                    format!("Не удалось удалить «{name}»: {e}")
+                    crate::errlog::write(tr!("удаление", "uninstall"), &format!("{name}: {e}"));
+                    trf!("Не удалось удалить «{name}»: {e}", "Could not uninstall \"{name}\": {e}")
                 }
             };
             *status.lock().unwrap() = text;
@@ -161,27 +161,27 @@ impl LauncherApp {
         let mut close = false;
         let mut go = false;
         let lib = self.libraries.get(self.lib_idx).cloned();
-        egui::Window::new("Установка игры")
+        egui::Window::new(tr!("Установка игры", "Install game"))
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
             .show(ctx, |ui| {
                 ui.set_max_width(400.0);
-                ui.label(egui::RichText::new(format!("Установить «{name}»?")).size(16.0).strong());
-                ui.label("Игра не установлена. Vaporust скачает ее в библиотеку:");
+                ui.label(egui::RichText::new(trf!("Установить «{name}»?", "Install \"{name}\"?")).size(16.0).strong());
+                ui.label(tr!("Игра не установлена. Vaporust скачает ее в библиотеку:", "The game is not installed. Vaporust downloads it to the library:"));
                 if let Some(l) = &lib {
                     let free = local::free_space(l).map(crate::net::fmt_bytes).unwrap_or_default();
-                    ui.weak(format!("{}{}", l.display(), if free.is_empty() { String::new() } else { format!(" (свободно {free})") }));
+                    ui.weak(format!("{}{}", l.display(), if free.is_empty() { String::new() } else { trf!(" (свободно {free})", " ({free} free)") }));
                 }
                 if net.install.as_ref().is_some_and(|i| i.active()) {
-                    ui.weak("Сейчас качается другая игра - эта встанет в очередь.");
+                    ui.weak(tr!("Сейчас качается другая игра - эта встанет в очередь.", "Another game is downloading now - this one will be queued."));
                 }
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.add(egui::Button::new(egui::RichText::new("Установить").color(egui::Color32::WHITE)).fill(crate::theme::ACCENT)).clicked() {
+                    if ui.add(egui::Button::new(egui::RichText::new(tr!("Установить", "Install")).color(egui::Color32::WHITE)).fill(crate::theme::ACCENT)).clicked() {
                         go = true;
                     }
-                    if ui.button("Отмена").clicked() {
+                    if ui.button(tr!("Отмена", "Cancel")).clicked() {
                         close = true;
                     }
                 });

@@ -59,8 +59,8 @@ pub fn legacy() -> Option<History> {
 /// is renamed only after a successful write.
 /// Returns the history and a warning (if the move succeeded but the old file could not be removed).
 pub fn take_legacy(owner: u64, current: &History) -> Result<(History, Option<String>), String> {
-    let old_path = legacy_path().ok_or("нет папки данных")?;
-    let old = read(&old_path).ok_or("старой истории больше нет")?;
+    let old_path = legacy_path().ok_or(tr!("нет папки данных", "no data folder"))?;
+    let old = read(&old_path).ok_or(tr!("старой истории больше нет", "the old history is gone"))?;
     if current.legacy_imported {
         // Already moved (for example the old file could not be removed last time) - do not add it twice.
         let _ = std::fs::rename(&old_path, old_path.with_extension("json.migrated"));
@@ -86,7 +86,7 @@ pub fn take_legacy(owner: u64, current: &History) -> Result<(History, Option<Str
     save(&h)?;
     let warn = std::fs::rename(&old_path, old_path.with_extension("json.migrated"))
         .err()
-        .map(|e| format!("История перенесена, но старый файл убрать не удалось ({e}). Повторно часы не сложатся."));
+        .map(|e| trf!("История перенесена, но старый файл убрать не удалось ({e}). Повторно часы не сложатся.", "The history was moved, but the old file could not be removed ({e}). The hours will not be added twice."));
     Ok((h, warn))
 }
 
@@ -104,7 +104,7 @@ pub fn adopt_legacy(h: &History, totals: &[(u32, u32)]) -> bool {
 }
 
 fn save(h: &History) -> Result<(), String> {
-    let p = file_for(h.owner).filter(|_| h.owner != 0).ok_or("нет папки данных")?;
+    let p = file_for(h.owner).filter(|_| h.owner != 0).ok_or(tr!("нет папки данных", "no data folder"))?;
     if let Some(d) = p.parent() {
         std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
     }
@@ -170,9 +170,9 @@ pub struct StatsUi {
 
 fn hours(min: u32) -> String {
     if min < 60 {
-        format!("{min} мин")
+        trf!("{min} мин", "{min} min")
     } else {
-        format!("{:.1} ч", min as f32 / 60.0)
+        trf!("{:.1} ч", "{:.1} h", min as f32 / 60.0)
     }
 }
 
@@ -234,7 +234,7 @@ impl LauncherApp {
             let totals: Vec<(u32, u32)> = net.owned.iter().map(|g| (g.app_id, g.playtime_forever_minutes)).collect();
             if record(h, &today, &totals) {
                 if let Err(e) = save(h) {
-                    crate::errlog::write("статистика", &format!("не записана: {e}"));
+                    crate::errlog::write(tr!("статистика", "statistics"), &trf!("не записана: {e}", "not written: {e}"));
                 }
             }
         }
@@ -266,30 +266,30 @@ impl LauncherApp {
         let totals: Vec<(u32, u32)> = net.owned.iter().map(|g| (g.app_id, g.playtime_forever_minutes)).collect();
         let likely = adopt_legacy(&old, &totals);
         egui::Frame::none().fill(crate::theme::CARD).rounding(4.0).inner_margin(10.0).show(ui, |ui| {
-            ui.label(egui::RichText::new("Найдена история времени из прошлых версий Vaporust").strong());
-            ui.label(format!(
-                "Ведется с {}, дней с записями: {}. Раньше она была общей для всех аккаунтов на этом ПК, поэтому Vaporust не знает, чья она.",
+            ui.label(egui::RichText::new(tr!("Найдена история времени из прошлых версий Vaporust", "Playtime history from earlier Vaporust versions found")).strong());
+            ui.label(trf!(
+                "Ведется с {}, дней с записями: {}. Раньше она была общей для всех аккаунтов на этом ПК, поэтому Vaporust не знает, чья она.", "Kept since {}, days with records: {}. It used to be shared by all accounts on this PC, so Vaporust does not know whose it is.",
                 if old.since.is_empty() { "?" } else { &old.since },
                 old.days.len()
             ));
             if !likely {
-                ui.colored_label(egui::Color32::from_rgb(230, 170, 60), "Похоже, это история другого аккаунта: игры или время в ней не совпадают с этим аккаунтом.");
+                ui.colored_label(egui::Color32::from_rgb(230, 170, 60), tr!("Похоже, это история другого аккаунта: игры или время в ней не совпадают с этим аккаунтом.", "This looks like another account's history: its games or times do not match this account."));
             }
             ui.horizontal(|ui| {
-                if ui.button("Это моя история - перенести").clicked() {
+                if ui.button(tr!("Это моя история - перенести", "This is my history - move it")).clicked() {
                     let cur = self.stats_ui.history.clone().unwrap_or(History { owner: me, ..Default::default() });
                     match take_legacy(me, &cur) {
                         Ok((h, warn)) => {
                             self.stats_ui.history = Some(h);
                             self.stats_ui.legacy_present = false;
                             if let Some(w) = warn {
-                                crate::popup::push(crate::popup::Kind::Info, "Статистика", w);
+                                crate::popup::push(crate::popup::Kind::Info, tr!("Статистика", "Statistics"), w);
                             }
                         }
-                        Err(e) => crate::popup::push(crate::popup::Kind::Info, "Статистика", format!("Не перенесено: {e}")),
+                        Err(e) => crate::popup::push(crate::popup::Kind::Info, tr!("Статистика", "Statistics"), trf!("Не перенесено: {e}", "Not moved: {e}")),
                     }
                 }
-                if ui.button("Это не моя").clicked() {
+                if ui.button(tr!("Это не моя", "It is not mine")).clicked() {
                     // Only for this account: the file stays, other accounts will see the offer.
                     self.settings.legacy_declined.push(me);
                 }
@@ -308,13 +308,13 @@ impl LauncherApp {
             (Some(me), _) => self.stats_ui.history.insert(load_for(me)).clone(),
             _ => History::default(),
         };
-        ui.heading("Статистика");
+        ui.heading(tr!("Статистика", "Statistics"));
         self.legacy_offer(ui, net);
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             let total: u32 = net.owned.iter().map(|g| g.playtime_forever_minutes).sum();
             let played = net.owned.iter().filter(|g| g.playtime_forever_minutes > 0).count();
-            ui.label(format!(
-                "Всего в играх: {} · игр на аккаунте: {} · запускали: {} · ни разу: {}",
+            ui.label(trf!(
+                "Всего в играх: {} · игр на аккаунте: {} · запускали: {} · ни разу: {}", "Total playtime: {} · games on the account: {} · launched: {} · never: {}",
                 hours(total),
                 net.owned.len(),
                 played,
@@ -323,7 +323,7 @@ impl LauncherApp {
             ui.add_space(8.0);
 
             // By day - our own record.
-            ui.strong("По дням (последние 30)");
+            ui.strong(tr!("По дням (последние 30)", "By day (last 30)"));
             let today = chrono::Local::now().date_naive();
             let days = per_day(&h, today, 30);
             let max = days.iter().map(|d| d.1).max().unwrap_or(0).max(60);
@@ -345,7 +345,7 @@ impl LauncherApp {
                 p.text(
                     rect.center(),
                     egui::Align2::CENTER_CENTER,
-                    "Пока пусто: график наполнится, когда вы поиграете",
+                    tr!("Пока пусто: график наполнится, когда вы поиграете", "Empty for now: the chart fills up as you play"),
                     egui::FontId::proportional(13.0),
                     ui.visuals().weak_text_color(),
                 );
@@ -354,27 +354,27 @@ impl LauncherApp {
                 resp.on_hover_text(format!("{}: {}", d.format("%d.%m.%Y"), hours(m)));
             }
             if h.since.is_empty() {
-                ui.weak("История начнет записываться после входа в аккаунт.");
+                ui.weak(tr!("История начнет записываться после входа в аккаунт.", "The history starts recording after you log in."));
             } else {
-                ui.weak(format!(
+                ui.weak(trf!(
                     "Vaporust записывает историю с {} (Steam хранит только общее время). Учитывается время, которое \
-                     Steam засчитал, в том числе при игре на других ПК.",
+                     Steam засчитал, в том числе при игре на других ПК.", "Vaporust records the history since {} (Steam keeps only the total time). The time Steam counted is included, also when playing on other PCs.",
                     h.since
                 ));
             }
             ui.add_space(10.0);
 
             // The last two weeks - from Steam.
-            ui.strong("Последние две недели (по данным Steam)");
+            ui.strong(tr!("Последние две недели (по данным Steam)", "Last two weeks (Steam data)"));
             match &net.my_recent {
                 None => {
                     crate::spin::spinner(ui);
                 }
                 Some(Err(e)) => {
-                    ui.weak(format!("Не удалось узнать: {e}"));
+                    ui.weak(trf!("Не удалось узнать: {e}", "Could not find out: {e}"));
                 }
                 Some(Ok(v)) if v.is_empty() => {
-                    ui.weak("За две недели игр не было.");
+                    ui.weak(tr!("За две недели игр не было.", "No games in the last two weeks."));
                 }
                 Some(Ok(v)) => {
                     let max = v.iter().map(|g| g.two_weeks).max().unwrap_or(1).max(1);
@@ -386,7 +386,7 @@ impl LauncherApp {
             ui.add_space(10.0);
 
             // The most hours of all time.
-            ui.strong("Больше всего часов");
+            ui.strong(tr!("Больше всего часов", "Most hours"));
             let mut top: Vec<_> = net.owned.iter().filter(|g| g.playtime_forever_minutes > 0).collect();
             top.sort_by_key(|g| std::cmp::Reverse(g.playtime_forever_minutes));
             let max = top.first().map(|g| g.playtime_forever_minutes).unwrap_or(1).max(1);

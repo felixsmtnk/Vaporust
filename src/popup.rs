@@ -148,7 +148,7 @@ impl LauncherApp {
         let ppp = ctx.pixels_per_point();
         let size = egui::vec2(W, n as f32 * (H + GAP) - GAP);
         let mut builder = egui::ViewportBuilder::default()
-            .with_title("Vaporust: уведомления")
+            .with_title(tr!("Vaporust: уведомления", "Vaporust: notifications"))
             .with_decorations(false)
             .with_resizable(false)
             .with_always_on_top()
@@ -294,12 +294,12 @@ fn text(ui: &egui::Ui, s: &str, size: f32, color: egui::Color32, width: f32, row
 /// Caption of the notification kind (small, above the title).
 fn kind_label(k: Kind) -> &'static str {
     match k {
-        Kind::Message(_) => "НОВОЕ СООБЩЕНИЕ",
-        Kind::FriendGame(_) => "ДРУГ ИГРАЕТ",
-        Kind::FriendOnline(_) => "ДРУГ В СЕТИ",
-        Kind::Sale(_) => "СКИДКА В СПИСКЕ ЖЕЛАЕМОГО",
-        Kind::Download(_) => "ЗАГРУЗКА ЗАВЕРШЕНА",
-        Kind::Game(_) => "БИБЛИОТЕКА",
+        Kind::Message(_) => tr!("НОВОЕ СООБЩЕНИЕ", "NEW MESSAGE"),
+        Kind::FriendGame(_) => tr!("ДРУГ ИГРАЕТ", "FRIEND IS PLAYING"),
+        Kind::FriendOnline(_) => tr!("ДРУГ В СЕТИ", "FRIEND ONLINE"),
+        Kind::Sale(_) => tr!("СКИДКА В СПИСКЕ ЖЕЛАЕМОГО", "WISHLIST DISCOUNT"),
+        Kind::Download(_) => tr!("ЗАГРУЗКА ЗАВЕРШЕНА", "DOWNLOAD COMPLETE"),
+        Kind::Game(_) => tr!("БИБЛИОТЕКА", "LIBRARY"),
         Kind::Info => "VAPORUST",
     }
 }
@@ -477,7 +477,7 @@ pub fn test_from_env() {
     // One per second - the way real messages arrive.
     std::thread::spawn(move || {
         for i in 0..n {
-            push(Kind::Info, "Vaporust", format!("Пробное уведомление {}", i + 1));
+            push(Kind::Info, "Vaporust", trf!("Пробное уведомление {}", "Test notification {}", i + 1));
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
     });

@@ -89,11 +89,11 @@ pub fn list(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, sort: &mu
     // Header: clicking a sortable column sorts by it.
     let (head, _) = ui.allocate_exact_size(egui::vec2(w, 22.0), egui::Sense::hover());
     let heads: [(&str, Option<Sort>); 5] = [
-        ("НАЗВАНИЕ", Some(Sort::Name)),
-        ("СОСТОЯНИЕ", None),
-        ("В ИГРЕ", Some(Sort::Playtime)),
-        ("ПОСЛЕДНИЙ ЗАПУСК", Some(Sort::LastPlayed)),
-        ("НА ДИСКЕ", Some(Sort::Size)),
+        (tr!("НАЗВАНИЕ", "NAME"), Some(Sort::Name)),
+        (tr!("СОСТОЯНИЕ", "STATUS"), None),
+        (tr!("В ИГРЕ", "PLAYED"), Some(Sort::Playtime)),
+        (tr!("ПОСЛЕДНИЙ ЗАПУСК", "LAST PLAYED"), Some(Sort::LastPlayed)),
+        (tr!("НА ДИСКЕ", "ON DISK"), Some(Sort::Size)),
     ];
     for (i, (label, s)) in heads.iter().enumerate() {
         let x0 = head.left() + xs[i] + if i == 0 && icons { 30.0 } else { 6.0 };
@@ -149,23 +149,23 @@ pub fn list(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, sort: &mu
             let name_color = if r.installed { theme::TEXT } else { theme::WEAK };
             let mut name = r.name.clone();
             if r.family {
-                name.push_str("  (семья)");
+                name.push_str(tr!("  (семья)", "  (family)"));
             }
             cell(&p, x, rect.left() + xs[1] - x - 8.0, name, egui::FontId::proportional(13.5), name_color);
             let (state, color) = if c.running == Some(r.appid) {
-                ("в игре", theme::PLAY_TEXT)
+                (tr!("в игре", "playing"), theme::PLAY_TEXT)
             } else if c.installing_now(r.appid) {
-                ("загружается", theme::ACCENT)
+                (tr!("загружается", "downloading"), theme::ACCENT)
             } else if c.queued.contains(&r.appid) {
-                ("в очереди", theme::ACCENT)
+                (tr!("в очереди", "queued"), theme::ACCENT)
             } else if r.ready && c.needs_update(r) {
-                ("есть обновление", egui::Color32::from_rgb(230, 170, 60))
+                (tr!("есть обновление", "update available"), egui::Color32::from_rgb(230, 170, 60))
             } else if r.ready {
-                ("установлена", egui::Color32::from_rgb(120, 190, 80))
+                (tr!("установлена", "installed"), egui::Color32::from_rgb(120, 190, 80))
             } else if r.installed {
-                ("недокачана", theme::WEAK)
+                (tr!("недокачана", "not finished"), theme::WEAK)
             } else {
-                ("не установлена", theme::WEAK)
+                (tr!("не установлена", "not installed"), theme::WEAK)
             };
             cell(&p, rect.left() + xs[1] + 6.0, state_w - 10.0, state.into(), small.clone(), color);
             let hours = r.playtime_min.filter(|m| *m > 0).map(fmt_hours).unwrap_or_default();
@@ -212,7 +212,11 @@ pub fn grid(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, recent: &
     // a large number - to the very bottom, egui clamps scrolling to the end of the list).
     let tour_row = TOUR_GRID_ROW.swap(0, std::sync::atomic::Ordering::Relaxed);
     let mut area = egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt("lib_grid");
-    if tour_row > 0 {
+    if tour_row >= 2000 {
+        // 2000 + N: the bottom of row N at the bottom of the visible area.
+        let bottom = shelf_h + (tour_row - 2000 + 1) as f32 * row_h;
+        area = area.vertical_scroll_offset((bottom - ui.available_height()).max(0.0));
+    } else if tour_row > 0 {
         area = area.vertical_scroll_offset(shelf_h + (tour_row - 1) as f32 * row_h);
     }
     area.show_viewport(ui, |ui, vp| {
@@ -226,7 +230,7 @@ pub fn grid(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, recent: &
         };
         if shelf_h > 0.0 && vp.min.y < shelf_h {
             let mut lab = row_ui(ui, 0.0, label_h);
-            lab.label(egui::RichText::new("НЕДАВНИЕ ИГРЫ").size(12.0).strong().color(theme::WEAK));
+            lab.label(egui::RichText::new(tr!("НЕДАВНИЕ ИГРЫ", "RECENT GAMES")).size(12.0).strong().color(theme::WEAK));
             let mut child = row_ui(ui, label_h, row_h);
             child.spacing_mut().item_spacing.x = gap;
             for r in recent.iter().take(cols) {
@@ -280,7 +284,7 @@ fn tile_ui(ui: &mut egui::Ui, r: &Row, c: &Ctx, covers: &Covers, tile: egui::Vec
     }
     if c.installing_now(r.appid) {
         painter.rect_filled(rect, 0.0, egui::Color32::from_black_alpha(120));
-        painter.text(rect.center(), egui::Align2::CENTER_CENTER, "загрузка…", egui::FontId::proportional(14.0), egui::Color32::WHITE);
+        painter.text(rect.center(), egui::Align2::CENTER_CENTER, tr!("загрузка…", "loading…"), egui::FontId::proportional(14.0), egui::Color32::WHITE);
     }
     collections_menu(&resp, r, c, out);
     // As in Steam: nothing under the cover; on hover a button in the corner: green "Play" for
@@ -349,27 +353,27 @@ fn collections_menu(resp: &egui::Response, r: &Row, c: &Ctx, out: &mut Option<Ac
         };
         let custom = crate::custom::is_custom(r.appid);
         if r.installed {
-            item(ui, r.ready && !c.launching, "Играть", Action::Play(r.appid));
+            item(ui, r.ready && !c.launching, tr!("Играть", "Play"), Action::Play(r.appid));
         } else if c.logged_in && !custom {
-            item(ui, !c.installing_now(r.appid), "Установить", Action::Install(r.appid, r.name.clone()));
+            item(ui, !c.installing_now(r.appid), tr!("Установить", "Install"), Action::Install(r.appid, r.name.clone()));
         }
-        item(ui, true, "Страница игры", Action::Page(r.appid));
+        item(ui, true, tr!("Страница игры", "Game page"), Action::Page(r.appid));
         if !custom {
             ui.separator();
-            item(ui, c.logged_in, "Достижения", Action::Achievements(r.appid, r.name.clone()));
-            item(ui, true, "Скриншоты", Action::Shots(r.appid));
-            item(ui, c.logged_in, "Сообщество", Action::Community(r.appid, r.name.clone()));
-            item(ui, true, "Страница в магазине", Action::Store(r.appid));
+            item(ui, c.logged_in, tr!("Достижения", "Achievements"), Action::Achievements(r.appid, r.name.clone()));
+            item(ui, true, tr!("Скриншоты", "Screenshots"), Action::Shots(r.appid));
+            item(ui, c.logged_in, tr!("Сообщество", "Community"), Action::Community(r.appid, r.name.clone()));
+            item(ui, true, tr!("Страница в магазине", "Store page"), Action::Store(r.appid));
             ui.separator();
-            ui.menu_button("Коллекции", |ui| {
+            ui.menu_button(tr!("Коллекции", "Collections"), |ui| {
                 if c.collections.is_empty() {
-                    ui.weak("Коллекции еще загружаются...");
+                    ui.weak(tr!("Коллекции еще загружаются...", "Collections are still loading..."));
                 }
                 for coll in c.collections {
                     let mut inside = coll.apps.contains(&r.appid);
                     let resp = ui.add_enabled(!coll.dynamic, egui::Checkbox::new(&mut inside, &coll.name));
                     if coll.dynamic {
-                        resp.on_disabled_hover_text("Динамическая коллекция (по фильтру) - меняется только в Steam");
+                        resp.on_disabled_hover_text(tr!("Динамическая коллекция (по фильтру) - меняется только в Steam", "Dynamic collection (by filter) - changes only in Steam"));
                     } else if resp.changed() {
                         *pick.borrow_mut() = Some(Action::Collection { id: coll.id.clone(), appid: r.appid, add: inside });
                         ui.close_menu();
@@ -380,8 +384,8 @@ fn collections_menu(resp: &egui::Response, r: &Row, c: &Ctx, out: &mut Option<Ac
                 let id = egui::Id::new("new_collection_name");
                 let mut name = ui.data_mut(|d| d.get_temp::<String>(id)).unwrap_or_default();
                 ui.horizontal(|ui| {
-                    ui.add(egui::TextEdit::singleline(&mut name).hint_text("Новая коллекция").desired_width(140.0));
-                    if ui.add_enabled(!name.trim().is_empty(), egui::Button::new("Создать")).clicked() {
+                    ui.add(egui::TextEdit::singleline(&mut name).hint_text(tr!("Новая коллекция", "New collection")).desired_width(140.0));
+                    if ui.add_enabled(!name.trim().is_empty(), egui::Button::new(tr!("Создать", "Create"))).clicked() {
                         *pick.borrow_mut() = Some(Action::NewCollection { name: name.trim().to_string(), appid: r.appid });
                         name.clear();
                         ui.close_menu();
@@ -392,23 +396,23 @@ fn collections_menu(resp: &egui::Response, r: &Row, c: &Ctx, out: &mut Option<Ac
         }
         if r.installed || custom {
             ui.separator();
-            ui.menu_button("Управление", |ui| {
+            ui.menu_button(tr!("Управление", "Manage"), |ui| {
                 ui.set_min_width(180.0);
-                if r.installed && ui.button("Открыть папку игры").clicked() {
+                if r.installed && ui.button(tr!("Открыть папку игры", "Open game folder")).clicked() {
                     *pick.borrow_mut() = Some(Action::Folder(r.appid));
                     ui.close_menu();
                 }
                 let (text, enabled) = if custom {
-                    ("Убрать из библиотеки...", c.running != Some(r.appid))
+                    (tr!("Убрать из библиотеки...", "Remove from library..."), c.running != Some(r.appid))
                 } else {
-                    ("Удалить...", !c.installing_now(r.appid) && c.running != Some(r.appid))
+                    (tr!("Удалить...", "Uninstall..."), !c.installing_now(r.appid) && c.running != Some(r.appid))
                 };
                 if ui.add_enabled(enabled, egui::Button::new(text)).clicked() {
                     *pick.borrow_mut() = Some(Action::Uninstall(r.appid, r.name.clone()));
                     ui.close_menu();
                 }
             });
-            item(ui, true, "Свойства...", Action::Props(r.appid, r.name.clone()));
+            item(ui, true, tr!("Свойства...", "Properties..."), Action::Props(r.appid, r.name.clone()));
         }
     });
     if let Some(a) = pick.into_inner() {
@@ -450,13 +454,13 @@ pub fn sidebar(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, select
                 x = ir.right() + 7.0;
             }
             let (suffix, color) = if c.running == Some(r.appid) {
-                (" - в игре", theme::PLAY_TEXT)
+                (tr!(" - в игре", " - playing"), theme::PLAY_TEXT)
             } else if c.installing_now(r.appid) {
-                (" - загрузка", theme::ACCENT)
+                (tr!(" - загрузка", " - downloading"), theme::ACCENT)
             } else if r.ready && c.needs_update(r) {
-                (" - обновление", theme::ACCENT)
+                (tr!(" - обновление", " - update"), theme::ACCENT)
             } else if r.installed && !r.ready {
-                (" - недокачана", theme::WEAK)
+                (tr!(" - недокачана", " - not finished"), theme::WEAK)
             } else if sel {
                 ("", egui::Color32::WHITE)
             } else if r.installed {
@@ -490,26 +494,26 @@ pub fn sidebar(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, select
 fn big_main_button(ui: &mut egui::Ui, r: &Row, c: &Ctx, out: &mut Option<Action>) {
     if c.running == Some(r.appid) {
         // As in Steam: while the game runs, "STOP" instead of "PLAY".
-        let b = theme::big_button(ui, "ОСТАНОВИТЬ", theme::ACCENT, true)
-            .on_hover_text("Просит игру закрыться, как крестик окна или Alt+F4. Игра может спросить о сохранении.");
+        let b = theme::big_button(ui, tr!("ОСТАНОВИТЬ", "STOP"), theme::ACCENT, true)
+            .on_hover_text(tr!("Просит игру закрыться, как крестик окна или Alt+F4. Игра может спросить о сохранении.", "Asks the game to close, like the window's close button or Alt+F4. The game may ask about saving."));
         if b.clicked() {
             *out = Some(Action::Stop(r.appid));
         }
     } else if r.ready && c.launching && c.status_app == Some(r.appid) {
         // The game is launching: Steam is starting, the game has not appeared yet.
-        theme::big_button(ui, "ЗАПУСК...", theme::PLAY, false);
+        theme::big_button(ui, tr!("ЗАПУСК...", "STARTING..."), theme::PLAY, false);
     } else if r.ready {
         let ok = !c.launching && !c.installing;
-        let b = theme::big_button(ui, "ИГРАТЬ", theme::PLAY, ok).on_disabled_hover_text("Недоступно, пока идет запуск или установка");
+        let b = theme::big_button(ui, tr!("ИГРАТЬ", "PLAY"), theme::PLAY, ok).on_disabled_hover_text(tr!("Недоступно, пока идет запуск или установка", "Unavailable while a launch or installation is in progress"));
         if b.clicked() {
             *out = Some(Action::Play(r.appid));
         }
         if c.needs_update(r)
-            && theme::big_button(ui, "ОБНОВИТЬ", egui::Color32::from_rgb(196, 130, 30), ok)
+            && theme::big_button(ui, tr!("ОБНОВИТЬ", "UPDATE"), egui::Color32::from_rgb(196, 130, 30), ok)
                 .on_hover_text(if c.update_via_steam {
-                    "Есть обновление. Steam откроется незаметно, скачает его и закроется."
+                    tr!("Есть обновление. Steam откроется незаметно, скачает его и закроется.", "An update is available. Steam opens unnoticed, downloads it and closes.")
                 } else {
-                    "Есть обновление. Vaporust скачает его сам, Steam не запускается."
+                    tr!("Есть обновление. Vaporust скачает его сам, Steam не запускается.", "An update is available. Vaporust downloads it itself, Steam is not started.")
                 })
                 .clicked()
         {
@@ -517,25 +521,25 @@ fn big_main_button(ui: &mut egui::Ui, r: &Row, c: &Ctx, out: &mut Option<Action>
         }
     } else if c.installing_now(r.appid) {
         // The game is downloading - as in Steam, the button pauses it.
-        let b = theme::big_button(ui, "ПАУЗА", theme::ACCENT, true)
-            .on_hover_text("Поставить загрузку на паузу: скачанное сохранится, продолжить - кнопкой «ДОКАЧАТЬ»");
+        let b = theme::big_button(ui, tr!("ПАУЗА", "PAUSE"), theme::ACCENT, true)
+            .on_hover_text(tr!("Поставить загрузку на паузу: скачанное сохранится, продолжить - кнопкой «ДОКАЧАТЬ»", "Pause the download: what was downloaded is kept, continue with the \"RESUME\" button"));
         if b.clicked() {
             *out = Some(Action::Pause(r.appid));
         }
     } else {
         let queued = c.queued.contains(&r.appid);
         let text = if queued {
-            "В ОЧЕРЕДИ"
+            tr!("В ОЧЕРЕДИ", "QUEUED")
         } else if c.paused.contains(&r.appid) {
-            "ПРОДОЛЖИТЬ"
+            tr!("ПРОДОЛЖИТЬ", "RESUME")
         } else if r.installed {
-            "ДОКАЧАТЬ"
+            tr!("ДОКАЧАТЬ", "RESUME")
         } else {
-            "УСТАНОВИТЬ"
+            tr!("УСТАНОВИТЬ", "INSTALL")
         };
         let b = theme::big_button(ui, text, theme::ACCENT, c.logged_in && !c.launching && !queued)
-            .on_hover_text(if c.installing { "Сейчас идет другая загрузка - игра встанет в очередь" } else { "Скачать игру" })
-            .on_disabled_hover_text("Нужен вход в аккаунт; игра уже в очереди или качается");
+            .on_hover_text(if c.installing { tr!("Сейчас идет другая загрузка - игра встанет в очередь", "Another download is running - the game will be queued") } else { tr!("Скачать игру", "Download the game") })
+            .on_disabled_hover_text(tr!("Нужен вход в аккаунт; игра уже в очереди или качается", "An account login is needed; the game is already queued or downloading"));
         if b.clicked() {
             *out = Some(Action::Install(r.appid, r.name.clone()));
         }
@@ -621,14 +625,14 @@ pub fn page(
             // Stats: in a narrow window - on a second line so they are not cut off.
             let stats = |ui: &mut egui::Ui| {
                 if r.last_played > 0 {
-                    stat(ui, "ПОСЛЕДНИЙ ЗАПУСК", fmt_day(r.last_played));
+                    stat(ui, tr!("ПОСЛЕДНИЙ ЗАПУСК", "LAST PLAYED"), fmt_day(r.last_played));
                 }
                 if let Some(m) = r.playtime_min.filter(|m| *m > 0) {
-                    stat(ui, "ВЫ ИГРАЛИ", fmt_hours(m));
+                    stat(ui, tr!("ВЫ ИГРАЛИ", "YOU PLAYED"), fmt_hours(m));
                 }
                 if let Some(Ok(list)) = d.achievements.filter(|a| a.as_ref().is_ok_and(|l| !l.is_empty())) {
                     let done = list.iter().filter(|a| a.unlocked).count();
-                    stat(ui, "ДОСТИЖЕНИЯ", format!("{done} из {}", list.len()));
+                    stat(ui, tr!("ДОСТИЖЕНИЯ", "ACHIEVEMENTS"), trf!("{done} из {}", "{done} of {}", list.len()));
                 }
             };
             let two_buttons = r.ready && c.needs_update(r);
@@ -644,7 +648,7 @@ pub fn page(
                     if r.installed
                         && ui
                             .add(egui::Button::new(egui::RichText::new("⚙").size(18.0)).min_size(egui::vec2(36.0, 36.0)))
-                            .on_hover_text("Свойства: параметры запуска, язык, беты, файлы, DLC, облако")
+                            .on_hover_text(tr!("Свойства: параметры запуска, язык, беты, файлы, DLC, облако", "Properties: launch options, language, betas, files, DLC, cloud"))
                             .clicked()
                     {
                         out = Some(Action::Props(r.appid, r.name.clone()));
@@ -685,36 +689,36 @@ pub fn page(
             };
             let steam_game = !crate::custom::is_custom(r.appid);
             if steam_game {
-                link(ui, "Страница в магазине", "", Action::Store(r.appid));
-                link(ui, "Достижения", "Все достижения игры, сравнение с другом", Action::Achievements(r.appid, r.name.clone()));
-                link(ui, "Сообщество", "Обсуждения и руководства игры", Action::Community(r.appid, r.name.clone()));
-                link(ui, "Мастерская", "Моды и предметы игры", Action::Workshop(r.appid, r.name.clone()));
-                link(ui, "Скриншоты", "Ваши скриншоты этой игры: на ПК и в облаке Steam", Action::Shots(r.appid));
+                link(ui, tr!("Страница в магазине", "Store page"), "", Action::Store(r.appid));
+                link(ui, tr!("Достижения", "Achievements"), tr!("Все достижения игры, сравнение с другом", "All achievements of the game, comparison with a friend"), Action::Achievements(r.appid, r.name.clone()));
+                link(ui, tr!("Сообщество", "Community"), tr!("Обсуждения и руководства игры", "Discussions and guides of the game"), Action::Community(r.appid, r.name.clone()));
+                link(ui, tr!("Мастерская", "Workshop"), tr!("Моды и предметы игры", "Mods and items of the game"), Action::Workshop(r.appid, r.name.clone()));
+                link(ui, tr!("Скриншоты", "Screenshots"), tr!("Ваши скриншоты этой игры: на ПК и в облаке Steam", "Your screenshots of this game: on the PC and in the Steam cloud"), Action::Shots(r.appid));
             } else {
-                link(ui, "Изменить или убрать...", "Файл, название, параметры запуска", Action::Props(r.appid, r.name.clone()));
+                link(ui, tr!("Изменить или убрать...", "Edit or remove..."), tr!("Файл, название, параметры запуска", "File, name, launch options"), Action::Props(r.appid, r.name.clone()));
             }
             if r.installed {
-                link(ui, "Папка игры", "Открыть папку игры в Проводнике", Action::Folder(r.appid));
-                link(ui, "Ярлык", "Ярлык на рабочем столе: запуск игры через Vaporust", Action::Shortcut(r.appid, r.name.clone()));
+                link(ui, tr!("Папка игры", "Game folder"), tr!("Открыть папку игры в Проводнике", "Open the game folder in Explorer"), Action::Folder(r.appid));
+                link(ui, tr!("Ярлык", "Shortcut"), tr!("Ярлык на рабочем столе: запуск игры через Vaporust", "Desktop shortcut: launch the game through Vaporust"), Action::Shortcut(r.appid, r.name.clone()));
             }
-            link(ui, "Заметка", "Своя заметка к игре (видна только вам)", Action::Note(r.appid, r.name.clone()));
+            link(ui, tr!("Заметка", "Note"), tr!("Своя заметка к игре (видна только вам)", "Your own note for the game (only you see it)"), Action::Note(r.appid, r.name.clone()));
             if steam_game {
                 let support = d.support.map(str::to_string).unwrap_or_else(|| {
                     format!("https://help.steampowered.com/wizard/HelpWithGame/?appid={}", r.appid)
                 });
                 if ui
-                    .add(egui::Button::new(egui::RichText::new("Поддержка").size(13.5)).frame(false))
+                    .add(egui::Button::new(egui::RichText::new(tr!("Поддержка", "Support")).size(13.5)).frame(false))
                     .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    .on_hover_text("Поддержка игры: сайт разработчика или помощь Steam")
+                    .on_hover_text(tr!("Поддержка игры: сайт разработчика или помощь Steam", "Game support: the developer's website or Steam Support"))
                     .clicked()
                 {
                     ui.ctx().open_url(egui::OpenUrl::new_tab(support));
                 }
                 if let Some(t) = d.trailer {
                     if ui
-                        .add(egui::Button::new(egui::RichText::new("Трейлер").size(13.5)).frame(false))
+                        .add(egui::Button::new(egui::RichText::new(tr!("Трейлер", "Trailer")).size(13.5)).frame(false))
                         .on_hover_cursor(egui::CursorIcon::PointingHand)
-                        .on_hover_text("Открыть трейлер игры в браузере")
+                        .on_hover_text(tr!("Открыть трейлер игры в браузере", "Open the game trailer in the browser"))
                         .clicked()
                     {
                         ui.ctx().open_url(egui::OpenUrl::new_tab(t));
@@ -724,8 +728,8 @@ pub fn page(
             if !r.installed && c.logged_in && steam_game {
                 link(
                     ui,
-                    "Уже скачана...",
-                    "Указать папку с уже скачанными файлами игры (например, скопированной с другого ПК)",
+                    tr!("Уже скачана...", "Already downloaded..."),
+                    tr!("Указать папку с уже скачанными файлами игры (например, скопированной с другого ПК)", "Point to a folder with already downloaded game files (for example copied from another PC)"),
                     Action::Import(r.appid, r.name.clone()),
                 );
             }
@@ -734,49 +738,49 @@ pub fn page(
         ui.add_space(8.0);
         egui::Grid::new("game_info").num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
             if r.size > 0 {
-                ui.weak("На диске");
+                ui.weak(tr!("На диске", "On disk"));
                 ui.label(net::fmt_bytes(r.size));
                 ui.end_row();
             }
             if let Some(p) = d.players {
-                ui.weak("Сейчас играют");
+                ui.weak(tr!("Сейчас играют", "Playing now"));
                 ui.label(p.to_string());
                 ui.end_row();
             }
             if let Some(i) = d.info {
                 if !i.developers.is_empty() {
-                    ui.weak("Разработчик");
+                    ui.weak(tr!("Разработчик", "Developer"));
                     ui.label(i.developers.join(", "));
                     ui.end_row();
                 }
                 if !i.publishers.is_empty() && i.publishers != i.developers {
-                    ui.weak("Издатель");
+                    ui.weak(tr!("Издатель", "Publisher"));
                     ui.label(i.publishers.join(", "));
                     ui.end_row();
                 }
                 if let Some(date) = i.release_date.as_deref().filter(|s| !s.is_empty()) {
-                    ui.weak("Дата выхода");
+                    ui.weak(tr!("Дата выхода", "Release date"));
                     ui.label(crate::storewin::ru_date(date));
                     ui.end_row();
                 }
             }
             if !d.genres.is_empty() {
-                ui.weak("Жанры");
+                ui.weak(tr!("Жанры", "Genres"));
                 ui.label(d.genres.join(", "));
                 ui.end_row();
             }
             if r.family {
-                ui.weak("Доступ");
+                ui.weak(tr!("Доступ", "Access"));
                 ui.label(family_text(r, c));
                 ui.end_row();
             }
-            ui.weak("Состояние");
+            ui.weak(tr!("Состояние", "Status"));
             ui.label(if r.ready {
-                if c.needs_update(r) { "установлена, есть обновление" } else { "установлена" }
+                if c.needs_update(r) { tr!("установлена, есть обновление", "installed, update available") } else { tr!("установлена", "installed") }
             } else if r.installed {
-                "недокачана"
+                tr!("недокачана", "not finished")
             } else {
-                "не установлена"
+                tr!("не установлена", "not installed")
             });
             ui.end_row();
         });
@@ -784,7 +788,7 @@ pub fn page(
         if !d.note.trim().is_empty() {
             ui.add_space(6.0);
             ui.horizontal_wrapped(|ui| {
-                ui.label(egui::RichText::new("Заметка:").color(theme::WEAK));
+                ui.label(egui::RichText::new(tr!("Заметка:", "Note:")).color(theme::WEAK));
                 ui.label(d.note);
             });
         }
@@ -795,12 +799,12 @@ pub fn page(
                 let owned = dlc.iter().filter(|d| d.owned).count();
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    ui.strong(format!("Дополнения (DLC): куплено {owned} из {}", dlc.len()));
+                    ui.strong(trf!("Дополнения (DLC): куплено {owned} из {}", "DLC: {owned} of {} owned", dlc.len()));
                     if r.installed
                         && ui
-                            .add(egui::Button::new(egui::RichText::new("Управление").size(12.5)).frame(false))
+                            .add(egui::Button::new(egui::RichText::new(tr!("Управление", "Manage")).size(12.5)).frame(false))
                             .on_hover_cursor(egui::CursorIcon::PointingHand)
-                            .on_hover_text("Включить, выключить или установить DLC - в «Свойствах»")
+                            .on_hover_text(tr!("Включить, выключить или установить DLC - в «Свойствах»", "Enable, disable or install DLC in \"Properties\""))
                             .clicked()
                     {
                         out = Some(Action::Props(r.appid, r.name.clone()));
@@ -814,9 +818,9 @@ pub fn page(
                 for (d, name) in sorted.iter().take(8) {
                     ui.horizontal(|ui| {
                         let (state, color) = match (d.owned, d.installed) {
-                            (true, true) => ("установлено", egui::Color32::from_rgb(120, 190, 80)),
-                            (true, false) => ("куплено", theme::TEXT),
-                            _ => ("не куплено", theme::WEAK),
+                            (true, true) => (tr!("установлено", "installed"), egui::Color32::from_rgb(120, 190, 80)),
+                            (true, false) => (tr!("куплено", "owned"), theme::TEXT),
+                            _ => (tr!("не куплено", "not owned"), theme::WEAK),
                         };
                         ui.label(egui::RichText::new(name).size(13.0));
                         ui.label(egui::RichText::new(state).size(12.0).color(color));
@@ -826,13 +830,13 @@ pub fn page(
                 match (more, unnamed) {
                     (0, 0) => {}
                     (m, 0) => {
-                        ui.weak(format!("и еще {m}"));
+                        ui.weak(trf!("и еще {m}", "and {m} more"));
                     }
                     (0, u) => {
-                        ui.weak(format!("и еще {u} без названия (скрыты в магазине или еще загружаются)"));
+                        ui.weak(trf!("и еще {u} без названия (скрыты в магазине или еще загружаются)", "and {u} more without a name (hidden in the store or still loading)"));
                     }
                     (m, u) => {
-                        ui.weak(format!("и еще {} (из них {u} без названия)", m + u));
+                        ui.weak(trf!("и еще {} (из них {u} без названия)", "and {} more ({u} of them without a name)", m + u));
                     }
                 }
             }
@@ -842,17 +846,17 @@ pub fn page(
         if let Some(lic) = c.net.licenses.as_ref().and_then(|l| crate::refund::find(&r.name, l)) {
             let when = chrono::DateTime::from_timestamp(lic.date, 0).map(|t| t.format("%d.%m.%Y").to_string()).unwrap_or_default();
             let how = match lic.method.as_str() {
-                "Steam Store" => "в магазине Steam",
-                "Complimentary" => "бесплатно",
-                "Gift/Guest Pass" => "подарок",
-                "Retail" => "ключом",
+                "Steam Store" => tr!("в магазине Steam", "in the Steam store"),
+                "Complimentary" => tr!("бесплатно", "free"),
+                "Gift/Guest Pass" => tr!("подарок", "gift"),
+                "Retail" => tr!("ключом", "with a key"),
                 other => other,
             };
-            ui.weak(format!("Получена {when} ({how})"));
+            ui.weak(trf!("Получена {when} ({how})", "Acquired {when} ({how})"));
             if let Some(h) = crate::refund::hint(lic, r.playtime_min.unwrap_or(0), chrono::Utc::now().timestamp()) {
                 ui.horizontal_wrapped(|ui| {
                     ui.colored_label(egui::Color32::from_rgb(230, 170, 60), h);
-                    if ui.small_button("Оформить возврат").on_hover_text("Страница поддержки Steam для этой игры").clicked() {
+                    if ui.small_button(tr!("Оформить возврат", "Request a refund")).on_hover_text(tr!("Страница поддержки Steam для этой игры", "Steam Support page for this game")).clicked() {
                         ui.ctx().open_url(egui::OpenUrl::new_tab(format!(
                             "https://help.steampowered.com/wizard/HelpWithGame/?appid={}",
                             r.appid
@@ -874,7 +878,7 @@ pub fn page(
             .collect();
         if !playing.is_empty() {
             ui.add_space(6.0);
-            ui.colored_label(egui::Color32::from_rgb(140, 200, 80), format!("Сейчас играют друзья: {}", playing.join(", ")));
+            ui.colored_label(egui::Color32::from_rgb(140, 200, 80), trf!("Сейчас играют друзья: {}", "Friends playing now: {}", playing.join(", ")));
         }
         if let Some(Ok(list)) = &c.net.activity {
             let recent: Vec<String> = list
@@ -884,7 +888,7 @@ pub fn page(
                 .map(|f| f.name.clone())
                 .collect();
             if !recent.is_empty() {
-                ui.weak(format!("Играли за две недели: {}", recent.join(", ")));
+                ui.weak(trf!("Играли за две недели: {}", "Played in the last two weeks: {}", recent.join(", ")));
             }
         }
 
@@ -892,7 +896,7 @@ pub fn page(
         if !c.collections.is_empty() {
             ui.add_space(8.0);
             ui.horizontal_wrapped(|ui| {
-                ui.strong("Коллекции");
+                ui.strong(tr!("Коллекции", "Collections"));
                 for coll in c.collections {
                     let mut inside = coll.apps.contains(&r.appid);
                     if ui.add_enabled(!coll.dynamic, egui::Checkbox::new(&mut inside, &coll.name)).changed() {
@@ -904,16 +908,16 @@ pub fn page(
 
         // News.
         ui.add_space(8.0);
-        ui.strong("Новости");
+        ui.strong(tr!("Новости", "News"));
         match d.news {
             None => {
                 crate::spin::spinner(ui);
             }
             Some(Err(e)) => {
-                ui.weak(format!("Не удалось загрузить: {e}"));
+                ui.weak(trf!("Не удалось загрузить: {e}", "Could not load: {e}"));
             }
             Some(Ok(items)) if items.is_empty() => {
-                ui.weak("Новостей нет.");
+                ui.weak(tr!("Новостей нет.", "No news."));
             }
             Some(Ok(items)) => {
                 for n in items {
@@ -940,8 +944,8 @@ fn family_text(r: &Row, c: &Ctx) -> String {
         roster.get(&id).and_then(|f| f.persona_name.clone())
     });
     match name {
-        Some(n) => format!("Семейная библиотека (владелец: {n})"),
-        None => "Семейная библиотека Steam".to_string(),
+        Some(n) => trf!("Семейная библиотека (владелец: {n})", "Family library (owner: {n})"),
+        None => tr!("Семейная библиотека Steam", "Steam Family library").to_string(),
     }
 }
 

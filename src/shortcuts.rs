@@ -21,7 +21,7 @@ fn read_cstr(b: &[u8], i: &mut usize) -> Result<String, String> {
         *i += 1;
     }
     if *i >= b.len() {
-        return Err("обрыв строки".into());
+        return Err(tr!("обрыв строки", "string cut off").into());
     }
     let s = String::from_utf8_lossy(&b[start..*i]).into_owned();
     *i += 1;
@@ -31,7 +31,7 @@ fn read_cstr(b: &[u8], i: &mut usize) -> Result<String, String> {
 fn parse_map(b: &[u8], i: &mut usize) -> Result<Vec<(String, Node)>, String> {
     let mut out = Vec::new();
     loop {
-        let Some(&t) = b.get(*i) else { return Err("обрыв файла".into()) };
+        let Some(&t) = b.get(*i) else { return Err(tr!("обрыв файла", "file cut off").into()) };
         *i += 1;
         if t == 0x08 {
             return Ok(out);
@@ -41,21 +41,21 @@ fn parse_map(b: &[u8], i: &mut usize) -> Result<Vec<(String, Node)>, String> {
             0x00 => Node::Map(parse_map(b, i)?),
             0x01 => Node::Str(read_cstr(b, i)?),
             0x02 => {
-                let v = b.get(*i..*i + 4).ok_or("обрыв числа")?;
+                let v = b.get(*i..*i + 4).ok_or(tr!("обрыв числа", "number cut off"))?;
                 *i += 4;
                 Node::Int(u32::from_le_bytes([v[0], v[1], v[2], v[3]]))
             }
             0x03 | 0x04 | 0x06 => {
-                let v = b.get(*i..*i + 4).ok_or("обрыв числа")?.to_vec();
+                let v = b.get(*i..*i + 4).ok_or(tr!("обрыв числа", "number cut off"))?.to_vec();
                 *i += 4;
                 Node::Raw(t, v)
             }
             0x07 | 0x0A => {
-                let v = b.get(*i..*i + 8).ok_or("обрыв числа")?.to_vec();
+                let v = b.get(*i..*i + 8).ok_or(tr!("обрыв числа", "number cut off"))?.to_vec();
                 *i += 8;
                 Node::Raw(t, v)
             }
-            other => return Err(format!("неизвестный тип {other}")),
+            other => return Err(trf!("неизвестный тип {other}", "unknown type {other}")),
         };
         out.push((key, node));
     }
@@ -178,7 +178,7 @@ pub fn add(path: &Path, name: &str, exe: &str, args: &str) -> Result<bool, Strin
         .iter_mut()
         .find(|(k, _)| k.eq_ignore_ascii_case("shortcuts"))
         .and_then(|(_, n)| if let Node::Map(m) = n { Some(m) } else { None })
-        .ok_or("в файле нет списка ярлыков")?;
+        .ok_or(tr!("в файле нет списка ярлыков", "the file has no shortcut list"))?;
     let exists = list.iter().any(|(_, n)| matches!(n, Node::Map(m) if same_exe(&unquote(&get_str(m, "Exe")), exe)));
     if exists {
         return Ok(false);
@@ -213,7 +213,7 @@ pub fn add(path: &Path, name: &str, exe: &str, args: &str) -> Result<bool, Strin
     parse(&bytes)?;
     let bak = path.with_file_name("shortcuts.vdf.vaporust.bak");
     if path.exists() && !bak.exists() {
-        std::fs::copy(path, &bak).map_err(|e| format!("копия: {e}"))?;
+        std::fs::copy(path, &bak).map_err(|e| trf!("копия: {e}", "backup: {e}"))?;
     }
     let tmp = path.with_file_name("shortcuts.vdf.vaporust.tmp");
     std::fs::write(&tmp, &bytes).map_err(|e| e.to_string())?;

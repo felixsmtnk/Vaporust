@@ -186,7 +186,7 @@ pub fn parse_showcases(html: &str) -> Vec<Showcase> {
             let body = body.split_once('>').map_or(body, |x| x.1);
             let (stats, text) = stats_and_lines(body);
             let text = if text.chars().count() > 400 { format!("{}...", text.chars().take(400).collect::<String>()) } else { text };
-            (!images.is_empty() || !text.is_empty() || !stats.is_empty()).then(|| Showcase { title: if title.is_empty() { "Витрина".into() } else { title }, images, stats, text })
+            (!images.is_empty() || !text.is_empty() || !stats.is_empty()).then(|| Showcase { title: if title.is_empty() { tr!("Витрина", "Showcase").into() } else { title }, images, stats, text })
         })
         .collect()
 }
@@ -358,7 +358,7 @@ pub async fn load(client: &SteamClient, id: u64) -> Result<ProfileExtra, String>
     if let Ok(xml) = web.get_text(&format!("https://steamcommunity.com/profiles/{id}/?xml=1")).await {
         x.groups = parse_groups(&xml);
     }
-    if let Ok(html) = web.get_text(&format!("https://steamcommunity.com/profiles/{id}/?l={lang}", lang = crate::lang::STEAM)).await {
+    if let Ok(html) = web.get_text(&format!("https://steamcommunity.com/profiles/{id}/?l={lang}", lang = crate::lang::steam())).await {
         x.showcases = parse_showcases(&html);
         x.counts = parse_counts(&html);
         x.page = parse_page(&html);
@@ -393,8 +393,8 @@ pub async fn post_comment(client: &SteamClient, id: u64, text: &str) -> Result<(
     if status == 200 && v.get("success").and_then(|s| s.as_bool()) == Some(true) {
         Ok(())
     } else {
-        let why = v.get("error").and_then(|e| e.as_str()).map(crate::store::plain_text).unwrap_or_else(|| format!("код {status}"));
-        Err(format!("Комментарий не отправлен: {why}"))
+        let why = v.get("error").and_then(|e| e.as_str()).map(crate::store::plain_text).unwrap_or_else(|| trf!("код {status}", "code {status}"));
+        Err(trf!("Комментарий не отправлен: {why}", "Comment not sent: {why}"))
     }
 }
 
@@ -566,8 +566,8 @@ pub async fn delete_comment(client: &SteamClient, owner: u64, gid: &str) -> Resu
     if status == 200 && v.get("success").and_then(|s| s.as_bool()) == Some(true) {
         Ok(())
     } else {
-        let why = v.get("error").and_then(|e| e.as_str()).map(crate::store::plain_text).unwrap_or_else(|| format!("код {status}"));
-        Err(format!("Комментарий не удален: {why}"))
+        let why = v.get("error").and_then(|e| e.as_str()).map(crate::store::plain_text).unwrap_or_else(|| trf!("код {status}", "code {status}"));
+        Err(trf!("Комментарий не удален: {why}", "Comment not deleted: {why}"))
     }
 }
 

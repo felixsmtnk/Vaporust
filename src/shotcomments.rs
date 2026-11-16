@@ -14,7 +14,7 @@ pub async fn load(client: &SteamClient, owner: u64, id: u64) -> Result<(u32, Vec
         .get_text(&format!("https://steamcommunity.com/comment/PublishedFile_Public/render/{owner}/{id}/?start=0&count=30"))
         .await
         .map_err(|e| format!("{e:#}"))?;
-    let j: serde_json::Value = serde_json::from_str(&t).map_err(|_| "Steam ответил непонятно.".to_string())?;
+    let j: serde_json::Value = serde_json::from_str(&t).map_err(|_| tr!("Steam ответил непонятно.", "Steam gave an unclear answer.").to_string())?;
     Ok((j["total_count"].as_u64().unwrap_or(0) as u32, parse_comments(j["comments_html"].as_str().unwrap_or(""))))
 }
 
@@ -34,7 +34,7 @@ pub async fn post(client: &SteamClient, owner: u64, id: u64, text: &str) -> Resu
     if status == 200 && v.get("success").and_then(|s| s.as_bool()) == Some(true) {
         Ok(())
     } else {
-        Err(format!("Комментарий не отправлен (код {status})."))
+        Err(trf!("Комментарий не отправлен (код {status}).", "Comment not sent (code {status})."))
     }
 }
 
@@ -51,7 +51,7 @@ pub async fn vote(client: &SteamClient, id: u64, up: bool) -> Result<(), String>
     if status == 200 && v.get("success").and_then(|s| s.as_i64()) == Some(1) {
         Ok(())
     } else {
-        Err(format!("Оценка не поставлена (код {status})."))
+        Err(trf!("Оценка не поставлена (код {status}).", "Vote not sent (code {status})."))
     }
 }
 
@@ -80,7 +80,7 @@ impl LauncherApp {
         let mut url: Option<String> = None;
         ctx.show_viewport_immediate(
             egui::ViewportId::from_hash_of("vaporust_shot_comments"),
-            crate::socialwin::viewport("Скриншот - Vaporust", [520.0, 600.0], [380.0, 320.0]),
+            crate::socialwin::viewport(tr!("Скриншот - Vaporust", "Screenshot - Vaporust"), [520.0, 600.0], [380.0, 320.0]),
             |ctx, _| {
                 crate::winframe::title_bar_auto(ctx);
                 egui::CentralPanel::default().show(ctx, |ui| {
@@ -92,10 +92,10 @@ impl LauncherApp {
                             ui.strong(&w.title);
                         }
                         ui.horizontal(|ui| {
-                            if crate::exp::button(ui, "Нравится").on_hover_text("Поставить оценку, как кнопка «палец вверх» в Steam").clicked() {
+                            if crate::exp::button(ui, tr!("Нравится", "Like")).on_hover_text(tr!("Поставить оценку, как кнопка «палец вверх» в Steam", "Rate it, like the \"thumbs up\" button in Steam")).clicked() {
                                 send = Some(Cmd::ShotVote { id: w.id, up: true });
                             }
-                            if ui.button("Страница в Steam").clicked() {
+                            if ui.button(tr!("Страница в Steam", "Page on Steam")).clicked() {
                                 url = Some(format!("https://steamcommunity.com/sharedfiles/filedetails/?id={}", w.id));
                             }
                         });
@@ -108,23 +108,23 @@ impl LauncherApp {
                                 crate::spin::spinner(ui);
                             }
                             Some(Err(e)) => {
-                                ui.label(format!("Комментарии не загрузились: {e}"));
+                                ui.label(trf!("Комментарии не загрузились: {e}", "Comments did not load: {e}"));
                             }
                             Some(Ok((total, list))) => {
-                                ui.strong(format!("Комментарии ({total})"));
+                                ui.strong(trf!("Комментарии ({total})", "Comments ({total})"));
                                 ui.horizontal(|ui| {
                                     ui.add(
                                         egui::TextEdit::singleline(&mut w.draft)
-                                            .hint_text("Ваш комментарий")
+                                            .hint_text(tr!("Ваш комментарий", "Your comment"))
                                             .desired_width(ui.available_width() - 100.0),
                                     );
-                                    if ui.add_enabled(!w.draft.trim().is_empty() && crate::exp::on(), egui::Button::new("Отправить")).on_disabled_hover_text(crate::exp::HINT).clicked() {
+                                    if ui.add_enabled(!w.draft.trim().is_empty() && crate::exp::on(), egui::Button::new(tr!("Отправить", "Send"))).on_disabled_hover_text(crate::exp::HINT()).clicked() {
                                         send = Some(Cmd::ShotComment { owner: w.owner, id: w.id, text: w.draft.trim().to_string() });
                                         w.draft.clear();
                                     }
                                 });
                                 if list.is_empty() {
-                                    ui.weak("Комментариев нет.");
+                                    ui.weak(tr!("Комментариев нет.", "No comments."));
                                 }
                                 for c in list {
                                     ui.horizontal_top(|ui| {

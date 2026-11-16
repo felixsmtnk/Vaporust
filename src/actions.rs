@@ -8,9 +8,9 @@ use aurelia::steam_client::SteamClient;
 
 fn ok_json(status: u16, body: &str) -> Result<serde_json::Value, String> {
     if status >= 400 {
-        return Err(format!("Steam ответил {status}"));
+        return Err(trf!("Steam ответил {status}", "Steam answered {status}"));
     }
-    serde_json::from_str(body).map_err(|_| "Steam ответил не так, как ожидалось".to_string())
+    serde_json::from_str(body).map_err(|_| tr!("Steam ответил не так, как ожидалось", "Steam answered unexpectedly").to_string())
 }
 
 fn success(v: &serde_json::Value) -> bool {
@@ -32,7 +32,7 @@ pub struct MyReview {
 
 /// Own review of a game (None - not written yet): page /profiles/<me>/recommended/<appid>/.
 pub async fn review_load(c: &SteamClient, appid: u32) -> Result<Option<MyReview>, String> {
-    let me = c.my_steam_id().ok_or("нет входа")?;
+    let me = c.my_steam_id().ok_or(tr!("нет входа", "not logged in"))?;
     let web = webapi::web_session(c).await?;
     let t = web
         .get_text(&format!("https://steamcommunity.com/profiles/{me}/recommended/{appid}/?l=english"))
@@ -56,7 +56,7 @@ pub async fn review_save(c: &SteamClient, appid: u32, r: &MyReview) -> Result<()
         ("comment", r.text.clone()),
         ("rated_up", r.up.to_string()),
         ("is_public", r.public.to_string()),
-        ("language", crate::lang::STEAM.into()),
+        ("language", crate::lang::steam().into()),
         ("received_compensation", "0".into()),
         ("disable_comments", "0".into()),
         ("sessionid", web.sessionid().to_string()),
@@ -70,7 +70,7 @@ pub async fn review_save(c: &SteamClient, appid: u32, r: &MyReview) -> Result<()
     if success(&v) {
         Ok(())
     } else {
-        Err(v["strError"].as_str().map(String::from).unwrap_or_else(|| format!("Steam отказал (код {})", v["success"])))
+        Err(v["strError"].as_str().map(String::from).unwrap_or_else(|| trf!("Steam отказал (код {})", "Steam refused (code {})", v["success"])))
     }
 }
 
@@ -82,18 +82,18 @@ pub async fn create_topic(c: &SteamClient, appid: u32, title: &str, text: &str) 
     let page = format!("https://steamcommunity.com/app/{appid}/discussions/0/");
     let html = web.get_text(&page).await.map_err(|e| format!("{e:#}"))?;
     // InitializeForum( "General_<owner>", {... "feature":"0" ...}, 'https://steamcommunity.com/forum/<owner>/General/' );
-    let i = html.find("InitializeForum(").ok_or("на странице обсуждений нет формы новой темы")?;
+    let i = html.find("InitializeForum(").ok_or(tr!("на странице обсуждений нет формы новой темы", "the discussions page has no new topic form"))?;
     let tail = &html[i..];
     let url = tail
         .split("'https://steamcommunity.com/forum/")
         .nth(1)
         .and_then(|s| s.split('\'').next())
         .map(|s| format!("https://steamcommunity.com/forum/{s}"))
-        .ok_or("не найден адрес форума")?;
+        .ok_or(tr!("не найден адрес форума", "forum address not found"))?;
     let feature = tail.split("\"feature\":\"").nth(1).and_then(|s| s.split('"').next()).unwrap_or("");
     let can_post = tail.contains("\"can_post\":1");
     if !can_post {
-        return Err("Steam не разрешает создавать темы в этом обсуждении (нужна игра на аккаунте или форум закрыт).".into());
+        return Err(tr!("Steam не разрешает создавать темы в этом обсуждении (нужна игра на аккаунте или форум закрыт).", "Steam does not allow creating topics in this discussion (you need the game on your account, or the forum is closed).").into());
     }
     let mut action = format!("{url}createtopic/");
     if !feature.is_empty() {
@@ -110,7 +110,7 @@ pub async fn create_topic(c: &SteamClient, appid: u32, title: &str, text: &str) 
     let (st, body) = web.post_form(&action, &fields, &page).await.map_err(|e| format!("{e:#}"))?;
     let v = ok_json(st, &body)?;
     v["topic_url"].as_str().map(String::from).ok_or_else(|| {
-        v["error"].as_str().map(String::from).unwrap_or_else(|| format!("Steam отказал (код {})", v["success"]))
+        v["error"].as_str().map(String::from).unwrap_or_else(|| trf!("Steam отказал (код {})", "Steam refused (code {})", v["success"]))
     })
 }
 
@@ -162,7 +162,7 @@ pub async fn wishlist_reorder(c: &SteamClient, items: &[(u32, u32)]) -> Result<(
     if v["data"]["result"].as_i64() == Some(1) || v["result"].as_i64() == Some(1) {
         Ok(())
     } else {
-        Err(format!("Steam не принял новый порядок ({})", text.chars().take(120).collect::<String>()))
+        Err(trf!("Steam не принял новый порядок ({})", "Steam did not accept the new order ({})", text.chars().take(120).collect::<String>()))
     }
 }
 
@@ -215,7 +215,7 @@ pub async fn cart_add(c: &SteamClient, packageid: u32, country: &str) -> Result<
     if added {
         Ok(())
     } else {
-        Err(format!("Steam не добавил товар ({})", v.to_string().chars().take(120).collect::<String>()))
+        Err(trf!("Steam не добавил товар ({})", "Steam did not add the item ({})", v.to_string().chars().take(120).collect::<String>()))
     }
 }
 
@@ -229,7 +229,7 @@ pub async fn cart_remove(c: &SteamClient, line_id: u64, country: &str) -> Result
 /// Game packages for the cart: (packageid, option name, price) from appdetails.
 pub async fn app_packages(appid: u32, cc: &str) -> Result<Vec<(u32, String, String)>, String> {
     let http = aurelia::core::net::steam_web_client().map_err(|e| format!("{e:#}"))?;
-    let url = format!("https://store.steampowered.com/api/appdetails?appids={appid}&cc={cc}&l={lang}", lang = crate::lang::STEAM);
+    let url = format!("https://store.steampowered.com/api/appdetails?appids={appid}&cc={cc}&l={lang}", lang = crate::lang::steam());
     let v: serde_json::Value = http.get(url).send().await.map_err(|e| format!("{e:#}"))?.json().await.map_err(|e| format!("{e:#}"))?;
     let groups = &v[appid.to_string()]["data"]["package_groups"];
     Ok(groups
@@ -264,7 +264,7 @@ pub async fn curators_for_app(appid: u32) -> Result<Vec<Curator>, String> {
     let http = aurelia::core::net::steam_web_client().map_err(|e| format!("{e:#}"))?;
     let url = format!(
         "https://store.steampowered.com/curators/ajaxgetcurators/render/?query=&start=0&count=10&filter=top_curators_reviewing&appid={appid}&l={lang}",
-        lang = crate::lang::STEAM
+        lang = crate::lang::steam()
     );
     let v: serde_json::Value = http.get(url).send().await.map_err(|e| format!("{e:#}"))?.json().await.map_err(|e| format!("{e:#}"))?;
     Ok(parse_curators(v["results_html"].as_str().unwrap_or(""), appid))
@@ -349,7 +349,7 @@ pub async fn create_chat_group(c: &SteamClient, name: &str, invitees: &[u64]) ->
     let v = webapi::post(c, "IChatRoomService/CreateChatRoomGroup/v1", &refs).await?;
     let id = num(&v["chat_group_id"]);
     if id == 0 {
-        return Err("Steam не создал группу".into());
+        return Err(tr!("Steam не создал группу", "Steam did not create the group").into());
     }
     Ok(id)
 }
@@ -436,7 +436,7 @@ pub async fn ws_vote(c: &SteamClient, id: u64, up: bool) -> Result<(), String> {
         .await
         .map_err(|e| format!("{e:#}"))?;
     let v = ok_json(st, &body)?;
-    if success(&v) { Ok(()) } else { Err(format!("Steam отказал (код {})", v["success"])) }
+    if success(&v) { Ok(()) } else { Err(trf!("Steam отказал (код {})", "Steam refused (code {})", v["success"])) }
 }
 
 /// Add a mod to favorites (or remove it).
@@ -449,7 +449,7 @@ pub async fn ws_favorite(c: &SteamClient, id: u64, appid: u32, add: bool) -> Res
         .post_form(&format!("https://steamcommunity.com/sharedfiles/{action}"), &fields, &page)
         .await
         .map_err(|e| format!("{e:#}"))?;
-    if st >= 400 { Err(format!("Steam ответил {st}")) } else { Ok(()) }
+    if st >= 400 { Err(trf!("Steam ответил {st}", "Steam answered {st}")) } else { Ok(()) }
 }
 
 #[cfg(test)]
@@ -592,47 +592,47 @@ mod cart_live {
 fn region_name(code: &str) -> String {
     let c: String = code.chars().take_while(|ch| ch.is_ascii_alphabetic()).collect();
     let name = match c.as_str() {
-        "vie" => "Австрия - Вена",
-        "waw" => "Польша - Варшава",
-        "fra" => "Германия - Франкфурт",
-        "sto" => "Швеция - Стокгольм",
-        "ams" => "Нидерланды - Амстердам",
-        "par" => "Франция - Париж",
-        "lhr" | "lon" => "Великобритания - Лондон",
-        "mad" => "Испания - Мадрид",
-        "mil" | "mxp" => "Италия - Милан",
-        "hel" => "Финляндия - Хельсинки",
-        "prg" => "Чехия - Прага",
-        "bud" => "Венгрия - Будапешт",
-        "buh" | "otp" => "Румыния - Бухарест",
-        "ist" => "Турция - Стамбул",
-        "mow" | "svo" | "dme" => "Россия - Москва",
-        "kbp" | "iev" => "Украина - Киев",
-        "iad" | "was" => "США - Вашингтон",
-        "atl" => "США - Атланта",
-        "ord" | "chi" => "США - Чикаго",
-        "dfw" => "США - Даллас",
-        "lax" => "США - Лос-Анджелес",
-        "sea" => "США - Сиэтл",
-        "mia" => "США - Майами",
-        "nyc" | "jfk" => "США - Нью-Йорк",
-        "yyz" | "tor" => "Канада - Торонто",
-        "gru" | "sao" => "Бразилия - Сан-Паулу",
-        "eze" | "bue" => "Аргентина - Буэнос-Айрес",
-        "scl" => "Чили - Сантьяго",
-        "lim" => "Перу - Лима",
-        "bog" => "Колумбия - Богота",
-        "jnb" => "ЮАР - Йоханнесбург",
-        "dxb" => "ОАЭ - Дубай",
-        "bom" => "Индия - Мумбаи",
-        "maa" => "Индия - Ченнаи",
-        "sgp" => "Сингапур",
-        "hkg" => "Гонконг",
-        "tyo" | "nrt" | "hnd" => "Япония - Токио",
-        "sel" | "icn" => "Корея - Сеул",
-        "syd" => "Австралия - Сидней",
-        "mel" => "Австралия - Мельбурн",
-        "akl" => "Новая Зеландия - Окленд",
+        "vie" => tr!("Австрия - Вена", "Austria - Vienna"),
+        "waw" => tr!("Польша - Варшава", "Poland - Warsaw"),
+        "fra" => tr!("Германия - Франкфурт", "Germany - Frankfurt"),
+        "sto" => tr!("Швеция - Стокгольм", "Sweden - Stockholm"),
+        "ams" => tr!("Нидерланды - Амстердам", "Netherlands - Amsterdam"),
+        "par" => tr!("Франция - Париж", "France - Paris"),
+        "lhr" | "lon" => tr!("Великобритания - Лондон", "United Kingdom - London"),
+        "mad" => tr!("Испания - Мадрид", "Spain - Madrid"),
+        "mil" | "mxp" => tr!("Италия - Милан", "Italy - Milan"),
+        "hel" => tr!("Финляндия - Хельсинки", "Finland - Helsinki"),
+        "prg" => tr!("Чехия - Прага", "Czechia - Prague"),
+        "bud" => tr!("Венгрия - Будапешт", "Hungary - Budapest"),
+        "buh" | "otp" => tr!("Румыния - Бухарест", "Romania - Bucharest"),
+        "ist" => tr!("Турция - Стамбул", "Turkey - Istanbul"),
+        "mow" | "svo" | "dme" => tr!("Россия - Москва", "Russia - Moscow"),
+        "kbp" | "iev" => tr!("Украина - Киев", "Ukraine - Kyiv"),
+        "iad" | "was" => tr!("США - Вашингтон", "USA - Washington"),
+        "atl" => tr!("США - Атланта", "USA - Atlanta"),
+        "ord" | "chi" => tr!("США - Чикаго", "USA - Chicago"),
+        "dfw" => tr!("США - Даллас", "USA - Dallas"),
+        "lax" => tr!("США - Лос-Анджелес", "USA - Los Angeles"),
+        "sea" => tr!("США - Сиэтл", "USA - Seattle"),
+        "mia" => tr!("США - Майами", "USA - Miami"),
+        "nyc" | "jfk" => tr!("США - Нью-Йорк", "USA - New York"),
+        "yyz" | "tor" => tr!("Канада - Торонто", "Canada - Toronto"),
+        "gru" | "sao" => tr!("Бразилия - Сан-Паулу", "Brazil - Sao Paulo"),
+        "eze" | "bue" => tr!("Аргентина - Буэнос-Айрес", "Argentina - Buenos Aires"),
+        "scl" => tr!("Чили - Сантьяго", "Chile - Santiago"),
+        "lim" => tr!("Перу - Лима", "Peru - Lima"),
+        "bog" => tr!("Колумбия - Богота", "Colombia - Bogota"),
+        "jnb" => tr!("ЮАР - Йоханнесбург", "South Africa - Johannesburg"),
+        "dxb" => tr!("ОАЭ - Дубай", "UAE - Dubai"),
+        "bom" => tr!("Индия - Мумбаи", "India - Mumbai"),
+        "maa" => tr!("Индия - Ченнаи", "India - Chennai"),
+        "sgp" => tr!("Сингапур", "Singapore"),
+        "hkg" => tr!("Гонконг", "Hong Kong"),
+        "tyo" | "nrt" | "hnd" => tr!("Япония - Токио", "Japan - Tokyo"),
+        "sel" | "icn" => tr!("Корея - Сеул", "Korea - Seoul"),
+        "syd" => tr!("Австралия - Сидней", "Australia - Sydney"),
+        "mel" => tr!("Австралия - Мельбурн", "Australia - Melbourne"),
+        "akl" => tr!("Новая Зеландия - Окленд", "New Zealand - Auckland"),
         _ => "",
     };
     if name.is_empty() { c.to_uppercase() } else { name.to_string() }
@@ -668,7 +668,7 @@ pub async fn download_regions() -> Result<Vec<(u32, String)>, String> {
         }
     }
     if found.is_empty() {
-        return Err("Steam не ответил".into());
+        return Err(tr!("Steam не ответил", "Steam did not answer").into());
     }
     let mut v: Vec<(u32, String)> = found.into_iter().collect();
     v.sort_by(|a, b| a.1.cmp(&b.1));

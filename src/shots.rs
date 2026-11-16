@@ -198,7 +198,7 @@ impl LauncherApp {
                 return f.name.clone();
             }
         }
-        format!("Игра {appid}")
+        trf!("Игра {appid}", "Game {appid}")
     }
 
     pub(crate) fn shots_contents(&mut self, ui: &mut egui::Ui, net: &NetState) {
@@ -243,17 +243,17 @@ impl LauncherApp {
 
         ui.horizontal(|ui| {
             if let Some((_, name)) = &w.user {
-                ui.heading(format!("Скриншоты: {name}"));
+                ui.heading(trf!("Скриншоты: {name}", "Screenshots: {name}"));
                 if let Some((total, _)) = &cloud_all {
                     ui.weak(format!("({total})"));
                 }
             } else {
-                ui.heading("Скриншоты");
+                ui.heading(tr!("Скриншоты", "Screenshots"));
                 ui.separator();
-                ui.selectable_value(&mut w.tab, 0, format!("На этом ПК ({})", local.len()));
+                ui.selectable_value(&mut w.tab, 0, trf!("На этом ПК ({})", "On this PC ({})", local.len()));
                 let cloud_label = match &cloud_all {
-                    Some((total, _)) => format!("В облаке Steam ({total})"),
-                    None => "В облаке Steam".to_string(),
+                    Some((total, _)) => trf!("В облаке Steam ({total})", "In the Steam cloud ({total})"),
+                    None => tr!("В облаке Steam", "In the Steam cloud").to_string(),
                 };
                 ui.selectable_value(&mut w.tab, 1, cloud_label);
             }
@@ -276,14 +276,14 @@ impl LauncherApp {
             let current = w
                 .filter
                 .map(|f| w.cloud_games.get(&f).cloned().unwrap_or_else(|| self.game_name(f as u64, net)))
-                .unwrap_or_else(|| "Все игры".into());
-            egui::ComboBox::from_id_salt("shots_game").selected_text(format!("Игра: {current}")).show_ui(ui, |ui| {
-                ui.selectable_value(&mut w.filter, None, "Все игры");
+                .unwrap_or_else(|| tr!("Все игры", "All games").into());
+            egui::ComboBox::from_id_salt("shots_game").selected_text(trf!("Игра: {current}", "Game: {current}")).show_ui(ui, |ui| {
+                ui.selectable_value(&mut w.filter, None, tr!("Все игры", "All games"));
                 for (a, n) in &games {
                     ui.selectable_value(&mut w.filter, Some(*a), n);
                 }
             });
-            if w.tab == 0 && ui.button("Обновить").on_hover_text("Перечитать папку скриншотов").clicked() {
+            if w.tab == 0 && ui.button(tr!("Обновить", "Refresh")).on_hover_text(tr!("Перечитать папку скриншотов", "Reread the screenshot folder")).clicked() {
                 w.local = None;
             }
         });
@@ -296,8 +296,8 @@ impl LauncherApp {
         if w.tab == 0 {
             if local.is_empty() {
                 ui.weak(
-                    "Скриншотов на этом ПК нет. Steam сохраняет их по клавише F12 в игре (папка Steam\\userdata\\…\\760). \
-                     Загруженные в облако - на вкладке «В облаке Steam»; скачанные оттуда появятся и здесь.",
+                    tr!("Скриншотов на этом ПК нет. Steam сохраняет их по клавише F12 в игре (папка Steam\\userdata\\…\\760). \
+                     Загруженные в облако - на вкладке «В облаке Steam»; скачанные оттуда появятся и здесь.", "There are no screenshots on this PC. Steam saves them with the F12 key in a game (folder Steam\\userdata\\…\\760). Uploaded ones are on the \"In the Steam cloud\" tab; downloaded from there, they appear here too."),
                 );
             } else {
                 self.shots_grid(ui, local.len(), |app, ui, i| {
@@ -306,22 +306,22 @@ impl LauncherApp {
                     let resp = ui.add(
                         egui::Image::new(uri).fit_to_exact_size(TILE).sense(egui::Sense::click()),
                     );
-                    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Открыть в полном размере");
+                    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tr!("Открыть в полном размере", "Open full size"));
                     if resp.clicked() {
                         open_file(&s.path);
                     }
                     resp.context_menu(|ui| {
-                        if ui.button("Открыть").clicked() {
+                        if ui.button(tr!("Открыть", "Open")).clicked() {
                             open_file(&s.path);
                             ui.close_menu();
                         }
-                        if ui.button("Показать в папке").clicked() {
+                        if ui.button(tr!("Показать в папке", "Show in folder")).clicked() {
                             show_in_folder(&s.path);
                             ui.close_menu();
                         }
                     });
                     let name = s.game.clone().unwrap_or_else(|| app.game_name(s.appid, net));
-                    let from = if s.game.is_some() { " · скачан" } else { "" };
+                    let from = if s.game.is_some() { tr!(" · скачан", " · downloaded") } else { "" };
                     ui.add(egui::Label::new(egui::RichText::new(format!("{name} · {}{from}", crate::fmt_day(s.time))).small()).truncate());
                 });
             }
@@ -330,9 +330,9 @@ impl LauncherApp {
                 (_, Some((total, list))) => {
                     if list.is_empty() {
                         ui.weak(if uid != 0 {
-                            "У друга нет скриншотов, которые он показывает вам."
+                            tr!("У друга нет скриншотов, которые он показывает вам.", "The friend has no screenshots shown to you.")
                         } else {
-                            "В облаке Steam нет загруженных скриншотов. Загрузить можно в самом Steam (менеджер скриншотов)."
+                            tr!("В облаке Steam нет загруженных скриншотов. Загрузить можно в самом Steam (менеджер скриншотов).", "The Steam cloud has no uploaded screenshots. You can upload them in Steam itself (the screenshot manager).")
                         });
                     } else {
                         let list = list.clone();
@@ -345,25 +345,25 @@ impl LauncherApp {
                             );
                             let resp = resp
                                 .on_hover_cursor(egui::CursorIcon::PointingHand)
-                                .on_hover_text(if s.caption.is_empty() { "Открыть в полном размере".to_string() } else { s.caption.clone() });
+                                .on_hover_text(if s.caption.is_empty() { tr!("Открыть в полном размере", "Open full size").to_string() } else { s.caption.clone() });
                             if resp.clicked() {
                                 ui.ctx().open_url(egui::OpenUrl::new_tab(&s.file_url));
                             }
                             resp.context_menu(|ui| {
-                                if ui.button("Открыть в браузере").clicked() {
+                                if ui.button(tr!("Открыть в браузере", "Open in browser")).clicked() {
                                     ui.ctx().open_url(egui::OpenUrl::new_tab(&s.file_url));
                                     ui.close_menu();
                                 }
-                                if ui.button("Страница в Steam").clicked() {
+                                if ui.button(tr!("Страница в Steam", "Page on Steam")).clicked() {
                                     let url = format!("https://steamcommunity.com/sharedfiles/filedetails/?id={}", s.id);
                                     ui.ctx().open_url(egui::OpenUrl::new_tab(url));
                                     ui.close_menu();
                                 }
-                                if ui.button("Скачать на компьютер").clicked() {
+                                if ui.button(tr!("Скачать на компьютер", "Download to the computer")).clicked() {
                                     download(s.clone(), status.clone(), rescan.clone(), ui.ctx().clone());
                                     ui.close_menu();
                                 }
-                                if ui.button("Комментарии и оценка").clicked() {
+                                if ui.button(tr!("Комментарии и оценка", "Comments and rating")).clicked() {
                                     let owner = if uid != 0 { uid } else { net.my_id.unwrap_or(0) };
                                     app.open_shot_comments(owner, s.id, s.caption.clone(), s.preview_url.clone());
                                     ui.close_menu();
@@ -371,16 +371,16 @@ impl LauncherApp {
                             });
                             let name = if s.app_name.is_empty() { app.game_name(s.appid as u64, net) } else { s.app_name.clone() };
                             let vis = match s.visibility {
-                                1 => " · для друзей",
-                                2 => " · только я",
-                                3 => " · скрыт",
+                                1 => tr!(" · для друзей", " · friends"),
+                                2 => tr!(" · только я", " · only me"),
+                                3 => tr!(" · скрыт", " · hidden"),
                                 _ => "",
                             };
                             let social = match (s.votes_up, s.comments) {
                                 (0, 0) => String::new(),
-                                (v, 0) => format!(" · оценок {v}"),
-                                (0, c) => format!(" · комм. {c}"),
-                                (v, c) => format!(" · оценок {v}, комм. {c}"),
+                                (v, 0) => trf!(" · оценок {v}", " · {v} votes"),
+                                (0, c) => trf!(" · комм. {c}", " · {c} comm."),
+                                (v, c) => trf!(" · оценок {v}, комм. {c}", " · {v} votes, {c} comm."),
                             };
                             ui.add(
                                 egui::Label::new(egui::RichText::new(format!("{name} · {}{vis}{social}", crate::fmt_day(s.time as u64))).small())
@@ -389,7 +389,7 @@ impl LauncherApp {
                         });
                         if (list.len() as u32) < *total {
                             ui.horizontal(|ui| {
-                                if ui.add_enabled(!net.cloud_shots_busy, egui::Button::new("Показать еще")).clicked() {
+                                if ui.add_enabled(!net.cloud_shots_busy, egui::Button::new(tr!("Показать еще", "Show more"))).clicked() {
                                     let page = list.len() as u32 / 50 + 1;
                                     let _ = self.tx.send(Cmd::CloudShots { user: uid, appid: w.filter.unwrap_or(0), page });
                                 }
@@ -398,10 +398,10 @@ impl LauncherApp {
                     }
                 }
                 (Some(Err(e)), _) => {
-                    ui.colored_label(egui::Color32::from_rgb(230, 110, 110), format!("Не удалось получить список: {e}"));
+                    ui.colored_label(egui::Color32::from_rgb(230, 110, 110), trf!("Не удалось получить список: {e}", "Could not get the list: {e}"));
                 }
                 _ if net.account.is_none() => {
-                    ui.weak("Нужен вход в аккаунт.");
+                    ui.weak(tr!("Нужен вход в аккаунт.", "An account login is needed."));
                 }
                 _ => {
                     crate::spin::spinner(ui);
@@ -440,7 +440,7 @@ fn download(
     rescan: Arc<std::sync::atomic::AtomicBool>,
     ctx: egui::Context,
 ) {
-    *status.lock().unwrap() = "Скачиваю...".into();
+    *status.lock().unwrap() = tr!("Скачиваю...", "Downloading...").into();
     std::thread::spawn(move || {
         let dir = download_dir(if s.app_name.is_empty() { "Steam" } else { &s.app_name });
         // <appid>_<id>.jpg - so the "On this PC" tab knows the game.
@@ -457,12 +457,12 @@ fn download(
             Ok(r) if r.ok => match std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&file, &r.bytes)) {
                 Ok(()) => {
                     show_in_folder(&file);
-                    format!("Сохранено: {}", file.display())
+                    trf!("Сохранено: {}", "Saved: {}", file.display())
                 }
-                Err(e) => format!("Не удалось сохранить: {e}"),
+                Err(e) => trf!("Не удалось сохранить: {e}", "Could not save: {e}"),
             },
-            Ok(r) => format!("Не удалось скачать: {} {}", r.status, r.status_text),
-            Err(e) => format!("Не удалось скачать: {e}"),
+            Ok(r) => trf!("Не удалось скачать: {} {}", "Could not download: {} {}", r.status, r.status_text),
+            Err(e) => trf!("Не удалось скачать: {e}", "Could not download: {e}"),
         };
         *status.lock().unwrap() = msg;
         rescan.store(true, std::sync::atomic::Ordering::Relaxed);

@@ -162,7 +162,9 @@ impl LauncherApp {
         match name {
             "library_grid" | "library_list" | "library_games" => {
                 if name == "library_games" {
-                    crate::libview::TOUR_GRID_ROW.store(1000, std::sync::atomic::Ordering::Relaxed);
+                    // VAPORUST_TOUR_ROW=N: row N at the bottom of the window; otherwise - the very bottom.
+                    let row = std::env::var("VAPORUST_TOUR_ROW").ok().and_then(|v| v.parse::<usize>().ok()).map_or(1000, |r| 2000 + r);
+                    crate::libview::TOUR_GRID_ROW.store(row, std::sync::atomic::Ordering::Relaxed);
                 }
                 self.close_extras(View::Library);
                 self.view = View::Library;

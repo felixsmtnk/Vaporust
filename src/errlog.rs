@@ -23,8 +23,8 @@ fn hide_keys(s: &str) -> String {
         while let Some(p) = out[from..].find(key) {
             let start = from + p + key.len();
             let end = out[start..].find(|c: char| c == '&' || c == '"' || c == ';' || c.is_whitespace()).map(|e| start + e).unwrap_or(out.len());
-            out.replace_range(start..end, "<скрыт>");
-            from = start + "<скрыт>".len();
+            out.replace_range(start..end, tr!("<скрыт>", "<hidden>"));
+            from = start + tr!("<скрыт>", "<hidden>").len();
         }
     }
     // JWT: "eyJ" + a long string of letters, digits, "-", "_", ".".
@@ -35,7 +35,7 @@ fn hide_keys(s: &str) -> String {
         let tail = &rest[p..];
         let len = tail.find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')).unwrap_or(tail.len());
         if len >= 30 {
-            res.push_str("<ключ>");
+            res.push_str(tr!("<ключ>", "<key>"));
         } else {
             res.push_str(&tail[..len]);
         }
@@ -86,7 +86,7 @@ pub fn write(place: &str, msg: &str) {
 pub fn install_panic_hook() {
     let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        write("сбой", &format!("{} v{}", info, env!("CARGO_PKG_VERSION")));
+        write(tr!("сбой", "crash"), &format!("{} v{}", info, env!("CARGO_PKG_VERSION")));
         prev(info);
     }));
 }
@@ -106,10 +106,10 @@ fn windows_version() -> String {
         use winreg::enums::HKEY_LOCAL_MACHINE;
         if let Ok(k) = winreg::RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion") {
             let get = |n: &str| k.get_value::<String, _>(n).unwrap_or_default();
-            return format!("{} {}, сборка {}", get("ProductName"), get("DisplayVersion"), get("CurrentBuild"));
+            return trf!("{} {}, сборка {}", "{} {}, build {}", get("ProductName"), get("DisplayVersion"), get("CurrentBuild"));
         }
     }
-    "неизвестно".into()
+    tr!("неизвестно", "unknown").into()
 }
 
 /// "Diagnostics" text for a bug report: version, Windows, window and scale, memory and
@@ -120,19 +120,19 @@ pub fn diagnostics(extra: &[(&str, String)]) -> String {
     s.push_str(&format!(
         "Vaporust {} ({})\n",
         env!("CARGO_PKG_VERSION"),
-        if cfg!(target_pointer_width = "64") { "64 бит" } else { "32 бит" }
+        if cfg!(target_pointer_width = "64") { tr!("64 бит", "64-bit") } else { tr!("32 бит", "32-bit") }
     ));
     s.push_str(&format!("Windows: {}\n", windows_version()));
     for (k, v) in extra {
         s.push_str(&format!("{k}: {v}\n"));
     }
-    s.push_str("\nПоследние записи журнала:\n");
+    s.push_str(tr!("\nПоследние записи журнала:\n", "\nLast log entries:\n"));
     let lines: Vec<String> = path()
         .and_then(|p| std::fs::read_to_string(p).ok())
         .map(|t| t.lines().map(scrub).collect())
         .unwrap_or_default();
     if lines.is_empty() {
-        s.push_str("(пусто)\n");
+        s.push_str(tr!("(пусто)\n", "(empty)\n"));
     }
     for l in lines.iter().rev().take(30).rev() {
         s.push_str(l);

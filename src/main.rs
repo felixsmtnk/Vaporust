@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[macro_use]
+mod lang;
 mod activity;
 mod anim;
 mod autostart;
@@ -42,8 +44,8 @@ mod winframe;
 mod winpos;
 mod invent;
 mod invwin;
-mod lang;
 mod exp;
+mod lite;
 mod restore;
 mod logo;
 mod launchopts;
@@ -348,7 +350,7 @@ struct LauncherApp {
     licenses_asked: bool,
     /// The "Where you are logged in" list is expanded.
     sessions_open: bool,
-    /// Open settings section (settingsui::SECTIONS).
+    /// Open settings section (settingsui::SECTIONS()).
     settings_section: u8,
     /// egui context (for background threads that need to wake the window).
     egui_ctx: egui::Context,
@@ -399,6 +401,7 @@ impl LauncherApp {
                 s
             })
             .unwrap_or_default();
+        crate::lang::set_en(crate::lang::resolve(&saved.language));
         // Intel GPUs: with the frame drawn by the program, on some laptops Windows draws its own
         // title bar on top (a black bar, the mouse misses). There the normal Windows frame is the
         // default; checked once, then it is the user's choice in "Settings -> Window".
@@ -411,7 +414,7 @@ impl LauncherApp {
                 let (vendor, renderer) = unsafe { (gl.get_parameter_string(eframe::glow::VENDOR), gl.get_parameter_string(eframe::glow::RENDERER)) };
                 if crate::winframe::needs_system_frame(&vendor, &renderer) {
                     saved.system_frame = true;
-                    crate::errlog::write("окно", &format!("видеокарта {vendor} / {renderer}: обычная рамка Windows"));
+                    crate::errlog::write(tr!("окно", "window"), &trf!("видеокарта {vendor} / {renderer}: обычная рамка Windows", "graphics {vendor} / {renderer}: normal Windows frame"));
                 }
             }
         }
@@ -602,7 +605,7 @@ impl LauncherApp {
         let focused = ctx.input(|i| i.focused);
         let regained = focused && !self.was_focused;
         self.was_focused = focused;
-        let due = focused && self.last_rescan.elapsed() >= std::time::Duration::from_secs(30);
+        let due = focused && self.last_rescan.elapsed() >= crate::lite::secs(30, 120);
         if !(regained || due) || self.launching.load(Ordering::Relaxed) {
             return;
         }
@@ -648,7 +651,7 @@ impl LauncherApp {
         if !self.launching.load(Ordering::Relaxed) {
             *self.launch_status.lock().unwrap() = match &self.steam {
                 Some(_) => String::new(),
-                None => "Steam не найден в реестре".to_string(),
+                None => tr!("Steam не найден в реестре", "Steam not found in the registry").to_string(),
             };
         }
     }
@@ -691,14 +694,14 @@ impl LauncherApp {
                         return self.install(appid, name);
                     }
                     Err(e) => {
-                        self.install_note = format!("Не удалось продолжить при открытом Steam: {e}. Закройте Steam.");
+                        self.install_note = trf!("Не удалось продолжить при открытом Steam: {e}. Закройте Steam.", "Could not continue with Steam open: {e}. Close Steam.");
                         return;
                     }
                 }
             }
         }
         if steam_open && (!self.settings.download_with_steam || partial_real) {
-            self.install_note = "Сначала закройте Steam (и игру, если она запущена), потом нажмите «Установить» еще раз.".into();
+            self.install_note = tr!("Сначала закройте Steam (и игру, если она запущена), потом нажмите «Установить» еще раз.", "Close Steam first (and the game if it is running), then press \"Install\" again.").into();
             return;
         }
         // An unfinished game is resumed in the same library where it lies.
@@ -709,7 +712,7 @@ impl LauncherApp {
             .and_then(|g| g.dir.parent()?.parent()?.parent().map(|p| p.to_path_buf()))
             .or_else(|| self.libraries.get(self.lib_idx).cloned());
         let Some(library) = library else {
-            self.install_note = "Не найдена папка библиотеки Steam.".into();
+            self.install_note = tr!("Не найдена папка библиотеки Steam.", "Steam library folder not found.").into();
             return;
         };
         // While the game is unfinished it is "ours": when paused, its appmanifest is hidden from Steam.
@@ -781,8 +784,8 @@ impl LauncherApp {
             self.settings.downloads.push(settings::QueueItem { appid, name: name.clone(), paused: false });
             popup::push(
                 popup::Kind::Game(appid),
-                "Загрузка ждет закрытия Steam",
-                format!("«{name}» в очереди: начнется сама, когда вы закроете Steam (меню «Vaporust» - «Закрыть Steam»)."),
+                tr!("Загрузка ждет закрытия Steam", "The download waits for Steam to close"),
+                trf!("«{name}» в очереди: начнется сама, когда вы закроете Steam (меню «Vaporust» - «Закрыть Steam»).", "\"{name}\" is queued: it starts by itself when you close Steam (\"Vaporust\" menu - \"Close Steam\")."),
             );
             return;
         }
@@ -790,8 +793,8 @@ impl LauncherApp {
         let waiting = self.settings.downloads.iter().any(|q| !q.paused);
         let allowed = schedule::may_download(&self.settings);
         if !allowed {
-            self.install_note = format!(
-                "«{name}» в очереди: по расписанию загрузки идут с {} до {}.",
+            self.install_note = trf!(
+                "«{name}» в очереди: по расписанию загрузки идут с {} до {}.", "\"{name}\" is queued: by schedule, downloads run from {} to {}.",
                 schedule::hh(self.settings.sched_from),
                 schedule::hh(self.settings.sched_to)
             );
@@ -813,7 +816,7 @@ impl LauncherApp {
         self.settings.current_download = None;
         let user_stop = inst.abort.load(Ordering::Relaxed);
         if let (Err(e), false) = (res, user_stop) {
-            crate::errlog::write("загрузка", &format!("{}: {e}", cur.name));
+            crate::errlog::write(tr!("загрузка", "download"), &format!("{}: {e}", cur.name));
         }
         match res {
             Err(e) if should_resume(e, user_stop, self.resume_tries) => {
@@ -821,8 +824,8 @@ impl LauncherApp {
                 if !self.settings.downloads.iter().any(|q| q.appid == cur.appid) {
                     self.settings.downloads.insert(0, cur.clone());
                 }
-                self.install_note = format!(
-                    "Загрузка «{}» прервалась из-за связи: продолжится сама, когда Steam снова будет доступен.",
+                self.install_note = trf!(
+                    "Загрузка «{}» прервалась из-за связи: продолжится сама, когда Steam снова будет доступен.", "The download of \"{}\" was interrupted by the connection: it continues by itself when Steam is available again.",
                     cur.name
                 );
                 // Not right away: give the network time to come back.
@@ -836,8 +839,8 @@ impl LauncherApp {
                             self.rescan();
                         }
                         Err(e) => {
-                            crate::errlog::write("загрузка", &format!("перенос из временной папки: {e}"));
-                            popup::push(popup::Kind::Info, "Загрузка", format!("«{}» скачана, но не перенесена в библиотеку: {e}", cur.name));
+                            crate::errlog::write(tr!("загрузка", "download"), &trf!("перенос из временной папки: {e}", "moving from the temporary folder: {e}"));
+                            popup::push(popup::Kind::Info, tr!("Загрузка", "Download"), trf!("«{}» скачана, но не перенесена в библиотеку: {e}", "\"{}\" is downloaded but not moved to the library: {e}", cur.name));
                         }
                     }
                 }
@@ -885,7 +888,7 @@ impl LauncherApp {
         let busy = self.launching.load(Ordering::Relaxed) || self.closing.load(Ordering::Relaxed);
         // "Удаляю...", "Прошу закрыться..." are progress, not a result: not shown.
         let in_progress = st.ends_with("...") || st.ends_with('…');
-        if !busy && !in_progress && !st.is_empty() && st != "Готово." {
+        if !busy && !in_progress && !st.is_empty() && st != tr!("Готово.", "Done.") {
             // The game in quotes - its image on the left, a click opens its page.
             let game = st
                 .split_once('«')
@@ -914,9 +917,9 @@ impl LauncherApp {
             self.stop_asked = Some((appid, std::time::Instant::now()));
         }
         *self.launch_status.lock().unwrap() = match (force, n > 0) {
-            (true, _) => format!("«{name}» закрыта принудительно."),
-            (false, true) => format!("Прошу «{name}» закрыться..."),
-            (false, false) => "Процессы игры не найдены.".into(),
+            (true, _) => trf!("«{name}» закрыта принудительно.", "\"{name}\" was force-closed."),
+            (false, true) => trf!("Прошу «{name}» закрыться...", "Asking \"{name}\" to close..."),
+            (false, false) => tr!("Процессы игры не найдены.", "Game processes not found.").into(),
         };
     }
 
@@ -968,7 +971,7 @@ impl LauncherApp {
                 ctx.request_repaint();
             };
             local::close_steam(&steam, &set);
-            set("Steam закрыт.");
+            set(tr!("Steam закрыт.", "Steam closed."));
             closing.store(false, Ordering::Relaxed);
         });
         self.steam_check = None;
@@ -1006,11 +1009,11 @@ impl LauncherApp {
             return;
         }
         if self.steam_running() {
-            self.install_note = "Сначала закройте Steam (кнопка «Закрыть Steam» внизу), потом нажмите «Обновить» еще раз.".into();
+            self.install_note = tr!("Сначала закройте Steam (кнопка «Закрыть Steam» внизу), потом нажмите «Обновить» еще раз.", "Close Steam first (the \"Close Steam\" button at the bottom), then press \"Update\" again.").into();
             return;
         }
         if self.net.lock().unwrap().install.as_ref().is_some_and(|i| i.active()) {
-            self.install_note = "Сейчас идет другая загрузка - обновите игру, когда она закончится.".into();
+            self.install_note = tr!("Сейчас идет другая загрузка - обновите игру, когда она закончится.", "Another download is running - update the game when it finishes.").into();
             return;
         }
         self.install_note.clear();
@@ -1042,7 +1045,7 @@ impl LauncherApp {
         // A pinned version cannot be updated, and it must be prepared before launch.
         if self.settings.pinned.contains_key(&appid) {
             if update {
-                *self.launch_status.lock().unwrap() = "Версия игры закреплена - открепите ее в «Свойствах», чтобы обновить.".into();
+                *self.launch_status.lock().unwrap() = tr!("Версия игры закреплена - открепите ее в «Свойствах», чтобы обновить.", "The game version is pinned - unpin it in \"Properties\" to update.").into();
                 return;
             }
             let net = self.net.lock().unwrap().clone();
@@ -1061,7 +1064,7 @@ impl LauncherApp {
         if self.net.lock().unwrap().offline && !self.steam_running() {
             match local::set_steam_offline(&steam.dir, true) {
                 Ok(_) => self.settings.steam_offline_set = true,
-                Err(e) => *self.launch_status.lock().unwrap() = format!("Автономный режим Steam не включен: {e}"),
+                Err(e) => *self.launch_status.lock().unwrap() = trf!("Автономный режим Steam не включен: {e}", "Steam offline mode was not turned on: {e}"),
             }
         }
         let opts = local::LaunchOptions {
@@ -1086,7 +1089,7 @@ impl LauncherApp {
             } else {
                 // Launch scripts: a command before launch (we wait for it), after exit (we do not wait).
                 if !script.before.trim().is_empty() {
-                    set("Выполняю команду перед запуском...");
+                    set(tr!("Выполняю команду перед запуском...", "Running the pre-launch command..."));
                 }
                 let warn = scripts::run_before(&script, game.appid, &game.name, &game.dir);
                 let res = local::run_chain(&steam, &game, opts, &cancel, &set);
@@ -1103,7 +1106,7 @@ impl LauncherApp {
             match res {
                 Ok(msg) => set(&msg),
                 Err(e) => {
-                    crate::errlog::write(if update { "обновление" } else { "запуск" }, &format!("{}: {e}", game.name));
+                    crate::errlog::write(if update { tr!("обновление", "update") } else { tr!("запуск", "launch") }, &format!("{}: {e}", game.name));
                     set(&e)
                 }
             }
@@ -1255,12 +1258,12 @@ impl LauncherApp {
                             .or_else(|| net.owned.iter().find(|g| g.app_id == a).map(|g| g.name.clone()));
                         Some(known.unwrap_or_else(|| {
                             unknown_apps.push(a);
-                            format!("игра {a}")
+                            trf!("игра {a}", "game {a}")
                         }))
                     });
                     // Own nickname for the friend (set in Steam) comes first, the Steam name in parentheses, as in Steam.
                     // The name has not arrived yet (Steam sends it a bit later for offline friends) - do not show the id.
-                    let persona = f.persona_name.clone().filter(|n| !n.is_empty()).unwrap_or_else(|| "загружается...".into());
+                    let persona = f.persona_name.clone().filter(|n| !n.is_empty()).unwrap_or_else(|| tr!("загружается...", "loading...").into());
                     let shown = match &f.nickname {
                         Some(n) => format!("{n} ({persona})"),
                         None => persona,
@@ -1320,15 +1323,15 @@ impl LauncherApp {
         if list.is_empty() {
             ui.horizontal(|ui| {
                 crate::spin::spinner(ui);
-                ui.weak("Загружаю список...");
+                ui.weak(tr!("Загружаю список...", "Loading the list..."));
             });
             return;
         }
         ui.add_space(4.0);
-        ui.label(egui::RichText::new(format!("ДРУЗЬЯ В СЕТИ  {online} / {}", list.len())).size(11.0).color(theme::WEAK));
+        ui.label(egui::RichText::new(trf!("ДРУЗЬЯ В СЕТИ  {online} / {}", "FRIENDS ONLINE  {online} / {}", list.len())).size(11.0).color(theme::WEAK));
         ui.add(
             egui::TextEdit::singleline(&mut self.friend_filter)
-                .hint_text("поиск")
+                .hint_text(tr!("поиск", "search"))
                 .desired_width(f32::INFINITY),
         );
         ui.separator();
@@ -1349,7 +1352,7 @@ impl LauncherApp {
         };
         let mut toggle_group: Option<u8> = None;
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            for (gid, gname) in [(3u8, "ИЗБРАННЫЕ"), (0, "В ИГРЕ"), (1, "В СЕТИ"), (2, "НЕ В СЕТИ")] {
+            for (gid, gname) in [(3u8, tr!("ИЗБРАННЫЕ", "FAVORITES")), (0, tr!("В ИГРЕ", "PLAYED")), (1, tr!("В СЕТИ", "ONLINE")), (2, tr!("НЕ В СЕТИ", "OFFLINE"))] {
             let members: Vec<&(u64, String, u32, Option<String>, u32)> = list
                 .iter()
                 .filter(|f| group_of(f) == gid)
@@ -1389,11 +1392,11 @@ impl LauncherApp {
                 let note = notes.get(id).cloned().unwrap_or_default();
                 let (color, status) = match (state, game) {
                     (_, Some(g)) => (egui::Color32::from_rgb(140, 200, 80), g.clone()),
-                    (0, _) => (egui::Color32::GRAY, "не в сети".into()),
-                    (1, _) => (egui::Color32::from_rgb(90, 170, 230), "в сети".into()),
-                    (2, _) => (egui::Color32::from_rgb(220, 120, 110), "не беспокоить".into()),
-                    (3 | 4, _) => (egui::Color32::from_rgb(110, 140, 170), "отошел".into()),
-                    _ => (egui::Color32::from_rgb(90, 170, 230), "в сети".into()),
+                    (0, _) => (egui::Color32::GRAY, tr!("не в сети", "offline").into()),
+                    (1, _) => (egui::Color32::from_rgb(90, 170, 230), tr!("в сети", "online").into()),
+                    (2, _) => (egui::Color32::from_rgb(220, 120, 110), tr!("не беспокоить", "do not disturb").into()),
+                    (3 | 4, _) => (egui::Color32::from_rgb(110, 140, 170), tr!("отошел", "away").into()),
+                    _ => (egui::Color32::from_rgb(90, 170, 230), tr!("в сети", "online").into()),
                 };
                 let mut title = egui::RichText::new(crate::richtext::fix(ui, name)).color(if *state == 0 { egui::Color32::GRAY } else { color });
                 if *unread > 0 {
@@ -1417,7 +1420,7 @@ impl LauncherApp {
                         ui.horizontal(|ui| {
                             ui.add(egui::Label::new(title).truncate());
                             if favs.contains(id) {
-                                ui.label(egui::RichText::new("избранный").small().color(egui::Color32::from_rgb(230, 190, 80)));
+                                ui.label(egui::RichText::new(tr!("избранный", "favorite")).small().color(egui::Color32::from_rgb(230, 190, 80)));
                             }
                             if *unread > 0 {
                                 ui.colored_label(egui::Color32::from_rgb(240, 200, 80), format!("● {unread}"));
@@ -1456,7 +1459,7 @@ impl LauncherApp {
                                 if !note.is_empty() {
                                     ui.label(egui::RichText::new(&note).italics().weak());
                                 }
-                                ui.weak("Щелчок - чат, правый щелчок - меню");
+                                ui.weak(tr!("Щелчок - чат, правый щелчок - меню", "Click - chat, right click - menu"));
                             });
                         });
                     });
@@ -1513,11 +1516,11 @@ impl LauncherApp {
     /// "Already downloaded...": pick the game folder in steamapps\common and add it to Steam.
     fn import_game(&mut self, appid: u32, name: String) {
         if self.steam_running() {
-            *self.launch_status.lock().unwrap() = "Закройте Steam, чтобы добавить игру (кнопка «Закрыть Steam» внизу).".into();
+            *self.launch_status.lock().unwrap() = tr!("Закройте Steam, чтобы добавить игру (кнопка «Закрыть Steam» внизу).", "Close Steam to add the game (the \"Close Steam\" button at the bottom).").into();
             return;
         }
         let Some(dir) = rfd::FileDialog::new()
-            .set_title(format!("Папка с файлами «{name}» (внутри steamapps\\common)"))
+            .set_title(trf!("Папка с файлами «{name}» (внутри steamapps\\common)", "Folder with the files of \"{name}\" (inside steamapps\\common)"))
             .pick_folder()
         else {
             return;
@@ -1535,8 +1538,8 @@ impl LauncherApp {
                 let _ = self.tx.send(Cmd::Import { appid, name, library });
             }
             None => {
-                *self.launch_status.lock().unwrap() = "Папка игры должна лежать в библиотеке Steam: …\\steamapps\\common\\<папка игры>. \
-                     Перенесите ее туда и попробуйте снова."
+                *self.launch_status.lock().unwrap() = tr!("Папка игры должна лежать в библиотеке Steam: …\\steamapps\\common\\<папка игры>. \
+                     Перенесите ее туда и попробуйте снова.", "The game folder must be in a Steam library: …\\steamapps\\common\\<game folder>. Move it there and try again.")
                     .into();
             }
         }
@@ -1546,16 +1549,16 @@ impl LauncherApp {
     fn section_view(&mut self, ui: &mut egui::Ui, net: &NetState) {
         // The section is open in a separate window - only a hint here.
         let detached = match self.view {
-            View::Store => self.store_detached.then_some("Магазин"),
-            View::Inventory => self.inv_detached.then_some("Инвентарь"),
-            View::Workshop => self.ws_detached.then_some("Мастерская"),
+            View::Store => self.store_detached.then_some(tr!("Магазин", "Store")),
+            View::Inventory => self.inv_detached.then_some(tr!("Инвентарь", "Inventory")),
+            View::Workshop => self.ws_detached.then_some(tr!("Мастерская", "Workshop")),
             _ => None,
         };
         if let Some(what) = detached {
             ui.add_space(20.0);
             ui.vertical_centered(|ui| {
-                ui.label(format!("{what} открыт в отдельном окне."));
-                if ui.button("Показать здесь").clicked() {
+                ui.label(trf!("{what} открыт в отдельном окне.", "{what} is open in a separate window."));
+                if ui.button(tr!("Показать здесь", "Show here")).clicked() {
                     match self.view {
                         View::Store => self.store_detached = false,
                         View::Inventory => self.inv_detached = false,
@@ -1608,7 +1611,7 @@ impl LauncherApp {
     fn library_filters(&mut self, ui: &mut egui::Ui, net: &NetState, toolbar: bool) {
         // No count: the search covers all library games (own, family, non-Steam), and the count
         // of "own" ones (228) next to the "All games (345)" title was confusing.
-        let hint = "Поиск по названию";
+        let hint = tr!("Поиск по названию", "Search by name");
         ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text(hint).desired_width(if toolbar { 220.0 } else { f32::INFINITY }));
                     // Steam collections (right click on a game - add to a collection).
                     if let Some(colls) = net.collections.as_ref() {
@@ -1617,11 +1620,11 @@ impl LauncherApp {
                             .as_ref()
                             .and_then(|id| colls.iter().find(|c| &c.id == id))
                             .map(|c| c.name.clone())
-                            .or_else(|| (self.collection.as_deref() == Some(FAMILY)).then(|| "Семейная библиотека".to_string()))
-                            .or_else(|| (self.collection.as_deref() == Some(UNPLAYED)).then(|| "Ни разу не запускались".to_string()))
-                            .or_else(|| (self.collection.as_deref() == Some(READY)).then(|| "Готово к игре".to_string()))
-                            .or_else(|| (self.collection.as_deref() == Some(UPDATES)).then(|| "Есть обновление".to_string()))
-                            .unwrap_or_else(|| "Все игры".into());
+                            .or_else(|| (self.collection.as_deref() == Some(FAMILY)).then(|| tr!("Семейная библиотека", "Family library").to_string()))
+                            .or_else(|| (self.collection.as_deref() == Some(UNPLAYED)).then(|| tr!("Ни разу не запускались", "Never launched").to_string()))
+                            .or_else(|| (self.collection.as_deref() == Some(READY)).then(|| tr!("Готово к игре", "Ready to play").to_string()))
+                            .or_else(|| (self.collection.as_deref() == Some(UPDATES)).then(|| tr!("Есть обновление", "Update available").to_string()))
+                            .unwrap_or_else(|| tr!("Все игры", "All games").into());
                         let family_n = self.row_map(&net).values().filter(|r| r.family).count();
                         // Own collection (not built-in and not filter-based): rename, delete.
                         let own = self
@@ -1636,28 +1639,28 @@ impl LauncherApp {
                             .truncate()
                             .selected_text(current)
                             .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.collection, None, "Все игры");
+                                ui.selectable_value(&mut self.collection, None, tr!("Все игры", "All games"));
                                 if family_n > 0 {
                                     ui.selectable_value(
                                         &mut self.collection,
                                         Some(FAMILY.to_string()),
-                                        format!("Семейная библиотека ({family_n})"),
+                                        trf!("Семейная библиотека ({family_n})", "Family library ({family_n})"),
                                     )
-                                    .on_hover_text("Игры, которыми с вами делятся члены семьи Steam");
+                                    .on_hover_text(tr!("Игры, которыми с вами делятся члены семьи Steam", "Games shared with you by Steam Family members"));
                                 }
                                 let unplayed_n = net.owned.iter().filter(|g| g.playtime_forever_minutes == 0).count();
                                 if unplayed_n > 0 {
                                     ui.selectable_value(
                                         &mut self.collection,
                                         Some(UNPLAYED.to_string()),
-                                        format!("Ни разу не запускались ({unplayed_n})"),
+                                        trf!("Ни разу не запускались ({unplayed_n})", "Never launched ({unplayed_n})"),
                                     )
-                                    .on_hover_text("Купленные игры, в которых 0 минут");
+                                    .on_hover_text(tr!("Купленные игры, в которых 0 минут", "Owned games with 0 minutes played"));
                                 }
-                                ui.selectable_value(&mut self.collection, Some(READY.to_string()), "Готово к игре")
-                                    .on_hover_text("Установленные игры, которым не нужно обновление");
-                                ui.selectable_value(&mut self.collection, Some(UPDATES.to_string()), "Есть обновление")
-                                    .on_hover_text("Установленные игры, для которых вышло обновление");
+                                ui.selectable_value(&mut self.collection, Some(READY.to_string()), tr!("Готово к игре", "Ready to play"))
+                                    .on_hover_text(tr!("Установленные игры, которым не нужно обновление", "Installed games that need no update"));
+                                ui.selectable_value(&mut self.collection, Some(UPDATES.to_string()), tr!("Есть обновление", "Update available"))
+                                    .on_hover_text(tr!("Установленные игры, для которых вышло обновление", "Installed games with an update available"));
                                 ui.separator();
                                 for c in colls {
                                     ui.selectable_value(
@@ -1668,7 +1671,7 @@ impl LauncherApp {
                                 }
                             })
                             .response
-                            .on_hover_text("Коллекции из Steam. Добавить игру - правый щелчок по ней. «Скрытые» в «Все игры» не показываются.");
+                            .on_hover_text(tr!("Коллекции из Steam. Добавить игру - правый щелчок по ней. «Скрытые» в «Все игры» не показываются.", "Collections from Steam. To add a game, right-click it. \"Hidden\" are not shown in \"All games\"."));
                         if let Some(c) = own {
                             ui.menu_button("...", |ui| {
                                 let key = egui::Id::new("coll_rename");
@@ -1677,7 +1680,7 @@ impl LauncherApp {
                                 ui.horizontal(|ui| {
                                     ui.add(egui::TextEdit::singleline(&mut name).desired_width(150.0));
                                     let ok = !name.trim().is_empty() && name.trim() != c.name;
-                                    if ui.add_enabled(ok, egui::Button::new("Переименовать")).clicked() {
+                                    if ui.add_enabled(ok, egui::Button::new(tr!("Переименовать", "Rename"))).clicked() {
                                         let _ = self.tx.send(Cmd::Coll(colls::CollCmd::Rename {
                                             id: c.id.clone(),
                                             name: name.trim().to_string(),
@@ -1691,26 +1694,26 @@ impl LauncherApp {
                                 let confirm = egui::Id::new("coll_delete_confirm");
                                 let asked = ui.data(|d| d.get_temp::<String>(confirm)) == Some(c.id.clone());
                                 if !asked {
-                                    if ui.button("Удалить коллекцию...").clicked() {
+                                    if ui.button(tr!("Удалить коллекцию...", "Delete collection...")).clicked() {
                                         ui.data_mut(|d| d.insert_temp(confirm, c.id.clone()));
                                     }
                                 } else {
-                                    ui.label(format!("Удалить «{}»? Игры останутся в библиотеке.", c.name));
+                                    ui.label(trf!("Удалить «{}»? Игры останутся в библиотеке.", "Delete \"{}\"? The games stay in the library.", c.name));
                                     ui.horizontal(|ui| {
-                                        if ui.button("Удалить").clicked() {
+                                        if ui.button(tr!("Удалить", "Delete")).clicked() {
                                             let _ = self.tx.send(Cmd::Coll(colls::CollCmd::Delete { id: c.id.clone() }));
                                             self.collection = None;
                                             ui.data_mut(|d| d.remove::<String>(confirm));
                                             ui.close_menu();
                                         }
-                                        if ui.button("Нет").clicked() {
+                                        if ui.button(tr!("Нет", "No")).clicked() {
                                             ui.data_mut(|d| d.remove::<String>(confirm));
                                         }
                                     });
                                 }
                             })
                             .response
-                            .on_hover_text("Переименовать или удалить эту коллекцию (изменится и в Steam)");
+                            .on_hover_text(tr!("Переименовать или удалить эту коллекцию (изменится и в Steam)", "Rename or delete this collection (it changes in Steam too)"));
                         }
                         });
                     }
@@ -1718,7 +1721,7 @@ impl LauncherApp {
         egui::ComboBox::from_id_salt("sort")
             .width(ui.available_width() - 4.0)
             .truncate()
-            .selected_text(format!("Сортировка: {}", self.settings.sort.label()))
+            .selected_text(trf!("Сортировка: {}", "Sort: {}", self.settings.sort.label()))
             .show_ui(ui, |ui| {
                 for s in settings::Sort::ALL {
                     ui.selectable_value(&mut self.settings.sort, s, s.label());
@@ -1726,7 +1729,7 @@ impl LauncherApp {
             });
         }
         self.genre_combo(ui, net, toolbar);
-        ui.checkbox(&mut self.only_installed, "Только установленные");
+        ui.checkbox(&mut self.only_installed, tr!("Только установленные", "Installed only"));
         if let Some(e) = &net.collections_error {
             ui.colored_label(egui::Color32::from_rgb(230, 110, 110), e);
         }
@@ -1756,19 +1759,19 @@ impl LauncherApp {
             (v, loaded)
         };
         let text = match &self.genre {
-            Some(g) => format!("Жанр: {g}"),
-            None => "Жанр: любой".to_string(),
+            Some(g) => trf!("Жанр: {g}", "Genre: {g}"),
+            None => tr!("Жанр: любой", "Genre: any").to_string(),
         };
         let resp = egui::ComboBox::from_id_salt("genre")
             .width(if toolbar { 170.0 } else { ui.available_width() - 4.0 })
             .truncate()
             .selected_text(text)
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut self.genre, None, "Любой");
+                ui.selectable_value(&mut self.genre, None, tr!("Любой", "Any"));
                 if loaded < ids.len() {
                     ui.horizontal(|ui| {
                         crate::spin::spinner(ui);
-                        ui.weak(format!("загружаю метки: {loaded} из {}", ids.len()));
+                        ui.weak(trf!("загружаю метки: {loaded} из {}", "loading tags: {loaded} of {}", ids.len()));
                     });
                 }
                 for (g, n) in &genres {
@@ -1779,13 +1782,13 @@ impl LauncherApp {
             self.genre_asked = true;
             let _ = self.tx.send(Cmd::Store(store::StoreCmd::Details(ids)));
         }
-        resp.response.on_hover_text("Метки игр из магазина Steam");
+        resp.response.on_hover_text(tr!("Метки игр из магазина Steam", "Game tags from the Steam store"));
     }
 
     fn library_sidebar(&mut self, ui: &mut egui::Ui, net: &NetState, rows: &[Row], vc: &libview::Ctx) -> Option<libview::Action> {
         let mut out = None;
         let home = self.lib_page.is_none();
-        let text = egui::RichText::new("Главная").size(14.0).strong().color(if home { egui::Color32::WHITE } else { theme::TEXT });
+        let text = egui::RichText::new(tr!("Главная", "Home")).size(14.0).strong().color(if home { egui::Color32::WHITE } else { theme::TEXT });
         let fill = if home { theme::CARD } else { egui::Color32::TRANSPARENT };
         if ui.add_sized([ui.available_width(), 28.0], egui::Button::new(text).fill(fill)).clicked() {
             self.lib_page = None;
@@ -1832,18 +1835,18 @@ impl LauncherApp {
         } else if self.settings.local_mode {
             // No-login mode: only installed games and launching via Steam.
             ui.horizontal_wrapped(|ui| {
-                ui.label(egui::RichText::new("Режим без входа в аккаунт").strong());
-                ui.weak("Установленные игры из файлов Steam, запуск через Steam. Пароль Steam в Vaporust не вводится.");
+                ui.label(egui::RichText::new(tr!("Режим без входа в аккаунт", "No-login mode")).strong());
+                ui.weak(tr!("Установленные игры из файлов Steam, запуск через Steam. Пароль Steam в Vaporust не вводится.", "Installed games from Steam files, launched through Steam. The Steam password is not entered in Vaporust."));
                 // There is no top menu without login: library and settings are here.
-                if ui.selectable_label(self.view == View::Library, "Библиотека").clicked() {
+                if ui.selectable_label(self.view == View::Library, tr!("Библиотека", "Library")).clicked() {
                     self.view = View::Library;
                 }
-                if ui.selectable_label(self.view == View::Settings, "Настройки").clicked() {
+                if ui.selectable_label(self.view == View::Settings, tr!("Настройки", "Settings")).clicked() {
                     self.view = View::Settings;
                 }
                 if ui
-                    .button("Войти в аккаунт")
-                    .on_hover_text("Включит магазин, друзей и чат, загрузку и обновление игр без Steam")
+                    .button(tr!("Войти в аккаунт", "Log in"))
+                    .on_hover_text(tr!("Включит магазин, друзей и чат, загрузку и обновление игр без Steam", "Turns on the store, friends and chat, game downloads and updates without Steam"))
                     .clicked()
                 {
                     self.settings.local_mode = false;
@@ -1852,16 +1855,16 @@ impl LauncherApp {
             });
         } else if net.offline {
             ui.horizontal_wrapped(|ui| {
-                ui.colored_label(egui::Color32::from_rgb(230, 170, 60), "Нет связи со Steam.")
+                ui.colored_label(egui::Color32::from_rgb(230, 170, 60), tr!("Нет связи со Steam.", "No connection to Steam."))
                     .on_hover_text(&net.offline_reason);
-                ui.label("Автономный режим: игры из сохраненного списка, запуск через Steam без сети.");
-                if ui.add_enabled(!net.busy, egui::Button::new("Переподключиться")).clicked() {
+                ui.label(tr!("Автономный режим: игры из сохраненного списка, запуск через Steam без сети.", "Offline mode: games from the saved list, launched through Steam without network."));
+                if ui.add_enabled(!net.busy, egui::Button::new(tr!("Переподключиться", "Reconnect"))).clicked() {
                     self.offline_retry = Some(std::time::Instant::now());
                     let _ = self.tx.send(Cmd::Restore);
                 }
                 if ui
-                    .add_enabled(!net.busy, egui::Button::new("Войти заново"))
-                    .on_hover_text("Если дело не в сети: войти в аккаунт логином и паролем или QR-кодом")
+                    .add_enabled(!net.busy, egui::Button::new(tr!("Войти заново", "Log in again")))
+                    .on_hover_text(tr!("Если дело не в сети: войти в аккаунт логином и паролем или QR-кодом", "If it is not the network: log in with login and password or a QR code"))
                     .clicked()
                 {
                     let mut s = self.net.lock().unwrap();
@@ -1873,18 +1876,18 @@ impl LauncherApp {
                 }
             });
         } else if net.need_login {
-            ui.label("Вход в Steam (нужен для списка всех игр, времени в игре и достижений)");
+            ui.label(tr!("Вход в Steam (нужен для списка всех игр, времени в игре и достижений)", "Steam login (needed for the list of all games, playtime and achievements)"));
             egui::Grid::new("login").num_columns(2).show(ui, |ui| {
-                ui.label("Логин:");
+                ui.label(tr!("Логин:", "Login:"));
                 ui.text_edit_singleline(&mut self.login_user);
                 ui.end_row();
-                ui.label("Пароль:");
+                ui.label(tr!("Пароль:", "Password:"));
                 ui.add(egui::TextEdit::singleline(&mut self.login_pass).password(true));
                 ui.end_row();
-                ui.label("Код Steam Guard:");
+                ui.label(tr!("Код Steam Guard:", "Steam Guard code:"));
                 ui.add(
                     egui::TextEdit::singleline(&mut self.login_code)
-                        .hint_text("если пришел на почту или в приложение"),
+                        .hint_text(tr!("если пришел на почту или в приложение", "if it came by email or in the app")),
                 );
                 ui.end_row();
             });
@@ -1892,7 +1895,7 @@ impl LauncherApp {
                 // While waiting for the QR code, the user can change their mind and log in with a password (the QR wait is interrupted).
                 let waiting_qr = net.qr_url.is_some();
                 let can = (!net.busy || waiting_qr) && !self.login_user.is_empty() && !self.login_pass.is_empty();
-                if ui.add_enabled(can, egui::Button::new("Войти")).clicked() {
+                if ui.add_enabled(can, egui::Button::new(tr!("Войти", "Log in"))).clicked() {
                     let code = self.login_code.trim().to_string();
                     let _ = self.tx.send(Cmd::Login {
                         user: self.login_user.trim().to_string(),
@@ -1902,14 +1905,14 @@ impl LauncherApp {
                     self.login_code.clear();
                 }
                 if ui
-                    .add_enabled(!net.busy, egui::Button::new("Войти по QR-коду"))
+                    .add_enabled(!net.busy, egui::Button::new(tr!("Войти по QR-коду", "Log in with a QR code")))
                     .clicked()
                 {
                     let _ = self.tx.send(Cmd::LoginQr);
                 }
                 if ui
-                    .button("Без входа")
-                    .on_hover_text("Только установленные игры и запуск через Steam: пароль Steam вводить не нужно. Войти можно позже.")
+                    .button(tr!("Без входа", "Without login"))
+                    .on_hover_text(tr!("Только установленные игры и запуск через Steam: пароль Steam вводить не нужно. Войти можно позже.", "Installed games only, launched through Steam: no Steam password needed. You can log in later."))
                     .clicked()
                 {
                     self.settings.local_mode = true;
@@ -1921,12 +1924,12 @@ impl LauncherApp {
             });
             if let Some(url) = &net.qr_url {
                 if net.qr_scanned {
-                    ui.label("Код отсканирован, подтвердите вход в приложении Steam.");
+                    ui.label(tr!("Код отсканирован, подтвердите вход в приложении Steam.", "The code is scanned, confirm the login in the Steam app."));
                 } else {
-                    ui.label("Отсканируйте код в мобильном приложении Steam:");
+                    ui.label(tr!("Отсканируйте код в мобильном приложении Steam:", "Scan the code in the Steam mobile app:"));
                 }
                 draw_qr(ui, url);
-                if ui.button("Отменить вход по QR").clicked() {
+                if ui.button(tr!("Отменить вход по QR", "Cancel QR login")).clicked() {
                     let _ = self.tx.send(Cmd::CancelQr);
                 }
             }
@@ -1945,10 +1948,10 @@ impl LauncherApp {
         let mut ask_friend: Option<u64> = None;
         ui.add_space(6.0);
         ui.horizontal(|ui| {
-            if ui.button("< К игре").clicked() {
+            if ui.button(tr!("< К игре", "< Back to game")).clicked() {
                 open = false;
             }
-            ui.label(egui::RichText::new(format!("Достижения: {name}")).size(19.0).strong());
+            ui.label(egui::RichText::new(trf!("Достижения: {name}", "Achievements: {name}")).size(19.0).strong());
         });
         ui.separator();
         let st = &mut self.ach_state;
@@ -1958,15 +1961,15 @@ impl LauncherApp {
                     crate::spin::spinner(ui);
                 }
                 Some(Err(e)) => {
-                    ui.label(format!("Ошибка: {e}"));
+                    ui.label(trf!("Ошибка: {e}", "Error: {e}"));
                 }
                 Some(Ok(list)) if list.is_empty() => {
-                    ui.label("У этой игры нет достижений.");
+                    ui.label(tr!("У этой игры нет достижений.", "This game has no achievements."));
                 }
                 Some(Ok(list)) => {
                     let done = list.iter().filter(|a| a.unlocked).count();
                     ui.horizontal(|ui| {
-                        ui.label(format!("Получено {done} из {}", list.len()));
+                        ui.label(trf!("Получено {done} из {}", "Unlocked {done} of {}", list.len()));
                         ui.add(
                             egui::ProgressBar::new(done as f32 / list.len().max(1) as f32)
                                 .desired_width(160.0)
@@ -1976,16 +1979,16 @@ impl LauncherApp {
                     // Order, filter, comparison with a friend.
                     ui.horizontal_wrapped(|ui| {
                         egui::ComboBox::from_id_salt("ach_sort")
-                            .selected_text(ACH_SORTS[st.sort as usize])
+                            .selected_text(ACH_SORTS()[st.sort as usize])
                             .show_ui(ui, |ui| {
-                                for (i, s) in ACH_SORTS.iter().enumerate() {
+                                for (i, s) in ACH_SORTS().iter().enumerate() {
                                     ui.selectable_value(&mut st.sort, i as u8, *s);
                                 }
                             });
                         egui::ComboBox::from_id_salt("ach_filter")
-                            .selected_text(ACH_FILTERS[st.filter as usize])
+                            .selected_text(ACH_FILTERS()[st.filter as usize])
                             .show_ui(ui, |ui| {
-                                for (i, s) in ACH_FILTERS.iter().enumerate() {
+                                for (i, s) in ACH_FILTERS().iter().enumerate() {
                                     ui.selectable_value(&mut st.filter, i as u8, *s);
                                 }
                             });
@@ -2000,10 +2003,10 @@ impl LauncherApp {
                         let current = st
                             .friend
                             .and_then(|id| friends.iter().find(|f| f.0 == id))
-                            .map(|f| format!("Сравнить с: {}", f.1))
-                            .unwrap_or_else(|| "Сравнить с другом".into());
+                            .map(|f| trf!("Сравнить с: {}", "Compare with: {}", f.1))
+                            .unwrap_or_else(|| tr!("Сравнить с другом", "Compare with a friend").into());
                         egui::ComboBox::from_id_salt("ach_friend").selected_text(current).height(320.0).show_ui(ui, |ui| {
-                            if ui.selectable_label(st.friend.is_none(), "Без сравнения").clicked() {
+                            if ui.selectable_label(st.friend.is_none(), tr!("Без сравнения", "No comparison")).clicked() {
                                 st.friend = None;
                             }
                             for (id, n) in &friends {
@@ -2019,14 +2022,14 @@ impl LauncherApp {
                         Some(Some(Ok(v))) => {
                             let got = v.iter().filter(|a| a.unlocked).count();
                             if got == 0 {
-                                ui.weak("У друга нет полученных достижений (не играл или скрыл данные об играх).");
+                                ui.weak(tr!("У друга нет полученных достижений (не играл или скрыл данные об играх).", "The friend has no unlocked achievements (did not play or hides game details)."));
                             } else {
-                                ui.label(format!("У друга {got} из {}", v.len()));
+                                ui.label(trf!("У друга {got} из {}", "The friend has {got} of {}", v.len()));
                             }
                             Some(v.iter().map(|a| (a.api_name.as_str(), a.unlocked)).collect())
                         }
                         Some(Some(Err(e))) => {
-                            ui.weak(format!("Достижения друга не получены: {e}"));
+                            ui.weak(trf!("Достижения друга не получены: {e}", "Could not get the friend's achievements: {e}"));
                             None
                         }
                         Some(None) => {
@@ -2067,22 +2070,22 @@ impl LauncherApp {
                                             ui.label(&a.name);
                                         }
                                         if a.global_percent > 0.0 && a.global_percent < 10.0 {
-                                            ui.colored_label(egui::Color32::from_rgb(230, 170, 60), "редкое");
+                                            ui.colored_label(egui::Color32::from_rgb(230, 170, 60), tr!("редкое", "rare"));
                                         }
                                     });
                                     if a.hidden && !a.unlocked && a.description.is_empty() {
-                                        ui.weak("Скрытое достижение");
+                                        ui.weak(tr!("Скрытое достижение", "Hidden achievement"));
                                     } else if !a.description.is_empty() {
                                         ui.weak(&a.description);
                                     }
-                                    let mut line = format!("Есть у {:.1}% игроков", a.global_percent);
+                                    let mut line = trf!("Есть у {:.1}% игроков", "{:.1}% of players have it", a.global_percent);
                                     if let Some(t) = a.unlock_time.filter(|_| a.unlocked) {
-                                        line.push_str(&format!(" · получено {}", crate::socialwin::fmt_date(t as u64)));
+                                        line.push_str(&trf!(" · получено {}", " · unlocked {}", crate::socialwin::fmt_date(t as u64)));
                                     }
                                     if let Some(m) = &friend_map {
                                         match m.get(a.api_name.as_str()) {
-                                            Some(true) => line.push_str(" · у друга есть"),
-                                            Some(false) => line.push_str(" · у друга нет"),
+                                            Some(true) => line.push_str(tr!(" · у друга есть", " · the friend has it")),
+                                            Some(false) => line.push_str(tr!(" · у друга нет", " · the friend does not have it")),
                                             None => {}
                                         }
                                     }
@@ -2137,9 +2140,9 @@ fn draw_qr(ui: &mut egui::Ui, url: &str) {
 
 fn fmt_hours(min: u32) -> String {
     if min < 60 {
-        format!("{min} мин")
+        trf!("{min} мин", "{min} min")
     } else {
-        format!("{:.1} ч", min as f32 / 60.0)
+        trf!("{:.1} ч", "{:.1} h", min as f32 / 60.0)
     }
 }
 
@@ -2172,10 +2175,10 @@ fn key_v_down() -> bool {
 /// (screenshot, "Copy image" in a browser) and for an image file copied in Explorer.
 /// Ok(None) - no image in the clipboard.
 fn clipboard_image_file() -> Result<Option<std::path::PathBuf>, String> {
-    let mut cb = arboard::Clipboard::new().map_err(|e| format!("Буфер обмена недоступен: {e}"))?;
+    let mut cb = arboard::Clipboard::new().map_err(|e| trf!("Буфер обмена недоступен: {e}", "Clipboard unavailable: {e}"))?;
     if let Ok(img) = cb.get_image() {
         let rgba = image::RgbaImage::from_raw(img.width as u32, img.height as u32, img.bytes.into_owned())
-            .ok_or("Не удалось прочитать картинку из буфера обмена.")?;
+            .ok_or(tr!("Не удалось прочитать картинку из буфера обмена.", "Could not read the image from the clipboard."))?;
         let path = std::env::temp_dir().join(format!(
             "vaporust_paste_{}.png",
             std::time::SystemTime::now()
@@ -2184,7 +2187,7 @@ fn clipboard_image_file() -> Result<Option<std::path::PathBuf>, String> {
                 .unwrap_or(0)
         ));
         rgba.save_with_format(&path, image::ImageFormat::Png)
-            .map_err(|e| format!("Не удалось сохранить картинку из буфера: {e}"))?;
+            .map_err(|e| trf!("Не удалось сохранить картинку из буфера: {e}", "Could not save the image from the clipboard: {e}"))?;
         return Ok(Some(path));
     }
     if let Ok(files) = cb.get().file_list() {
@@ -2213,7 +2216,7 @@ fn draw_seg(ui: &mut egui::Ui, seg: chatfmt::Seg, anims: &mut anim::Cache, who: 
                 });
             } else {
                 let r = ui
-                    .add(egui::Button::new(egui::RichText::new("спойлер - нажмите, чтобы показать").size(12.0).color(egui::Color32::from_gray(150))).fill(egui::Color32::from_rgb(20, 22, 28)))
+                    .add(egui::Button::new(egui::RichText::new(tr!("спойлер - нажмите, чтобы показать", "spoiler - click to show")).size(12.0).color(egui::Color32::from_gray(150))).fill(egui::Color32::from_rgb(20, 22, 28)))
                     .on_hover_cursor(egui::CursorIcon::PointingHand);
                 if r.clicked() {
                     ui.data_mut(|d| d.insert_temp(id, true));
@@ -2230,7 +2233,7 @@ fn draw_seg(ui: &mut egui::Ui, seg: chatfmt::Seg, anims: &mut anim::Cache, who: 
             let resp = egui::Frame::none().inner_margin(egui::Margin { left: 10.0, right: 4.0, top: 2.0, bottom: 2.0 }).show(ui, |ui| {
                 ui.vertical(|ui| {
                     if let Some(a) = author {
-                        ui.label(egui::RichText::new(format!("{a} пишет:")).size(12.0).color(egui::Color32::from_gray(150)));
+                        ui.label(egui::RichText::new(trf!("{a} пишет:", "{a} wrote:")).size(12.0).color(egui::Color32::from_gray(150)));
                     }
                     ui.label(egui::RichText::new(text).italics());
                 });
@@ -2256,7 +2259,7 @@ fn draw_seg(ui: &mut egui::Ui, seg: chatfmt::Seg, anims: &mut anim::Cache, who: 
             ui.add(egui::Image::new(effects::icon_url(&kind)).fit_to_exact_size(egui::vec2(28.0, 28.0)));
             ui.label(egui::RichText::new(effects::label(&kind, who)).italics());
             let known = effects::KNOWN.iter().any(|(n, _)| n.eq_ignore_ascii_case(&kind));
-            if known && ui.small_button("Повторить эффект").clicked() {
+            if known && ui.small_button(tr!("Повторить эффект", "Replay effect")).clicked() {
                 effects::request_replay(&kind);
             }
         }
@@ -2264,7 +2267,7 @@ fn draw_seg(ui: &mut egui::Ui, seg: chatfmt::Seg, anims: &mut anim::Cache, who: 
             // Exact size (with max_size egui shrinks it to the line height); APNG is animated by us.
             anims
                 .show(ui, &chatfmt::sticker_url(&name), egui::vec2(128.0, 128.0))
-                .on_hover_text(format!("Стикер: {name}"));
+                .on_hover_text(trf!("Стикер: {name}", "Sticker: {name}"));
         }
         Seg::Image { url, size } => {
             // Size known - reserve the space right away so the conversation does not jump while loading.
@@ -2282,7 +2285,7 @@ fn draw_seg(ui: &mut egui::Ui, seg: chatfmt::Seg, anims: &mut anim::Cache, who: 
             let resp = ui
                 .add(img)
                 .on_hover_cursor(egui::CursorIcon::PointingHand)
-                .on_hover_text("Открыть в браузере в полном размере");
+                .on_hover_text(tr!("Открыть в браузере в полном размере", "Open full size in the browser"));
             if resp.clicked() {
                 ui.ctx().open_url(egui::OpenUrl::new_tab(&url));
             }
@@ -2298,8 +2301,8 @@ fn fmt_day(unix: u64) -> String {
     };
     let days = (Local::now().date_naive() - t.date_naive()).num_days();
     match days {
-        0 => "сегодня".into(),
-        1 => "вчера".into(),
+        0 => tr!("сегодня", "today").into(),
+        1 => tr!("вчера", "yesterday").into(),
         _ => t.format("%d.%m.%Y").to_string(),
     }
 }
@@ -2316,11 +2319,11 @@ fn fmt_time(unix: u64) -> String {
 
 fn fmt_eta(secs: u64) -> String {
     if secs >= 3600 {
-        format!("{} ч {} мин", secs / 3600, secs % 3600 / 60)
+        trf!("{} ч {} мин", "{} h {} min", secs / 3600, secs % 3600 / 60)
     } else if secs >= 60 {
-        format!("{} мин", secs / 60)
+        trf!("{} мин", "{} min", secs / 60)
     } else {
-        format!("{secs} с")
+        trf!("{secs} с", "{secs} s")
     }
 }
 
@@ -2366,6 +2369,8 @@ impl eframe::App for LauncherApp {
             self.mem_place = Some(place);
         }
         crate::exp::set(self.settings.experimental);
+        crate::lite::set(self.settings.light_mode);
+        crate::lang::set_en(crate::lang::resolve(&self.settings.language));
         imgload::ANIMATIONS.store(self.settings.animations, Ordering::Relaxed);
         imgload::ECONOMY.store(self.settings.economy, Ordering::Relaxed);
         imgload::budget_tick(ctx);
@@ -2470,7 +2475,7 @@ impl eframe::App for LauncherApp {
         // While a game runs and the Vaporust window is not active - less often (nobody looks at the status).
         let game_bg = local::RUNNING.lock().unwrap().is_some() && !ctx.input(|i| i.focused);
         let busy = installing || (!game_bg && (self.launching.load(Ordering::Relaxed) || self.closing.load(Ordering::Relaxed)));
-        ctx.request_repaint_after(std::time::Duration::from_secs(if busy { 1 } else { 5 }));
+        ctx.request_repaint_after(if busy { crate::lite::secs(1, 2) } else { crate::lite::secs(5, 15) });
 
         // Window frame: own or the normal Windows one (switches right away).
         winframe::set_system(self.settings.system_frame);
@@ -2483,7 +2488,7 @@ impl eframe::App for LauncherApp {
         // Windows insists on drawing its title bar over our frame - switch to the normal Windows frame.
         if let Some(m) = winframe::caption_forced() {
             self.settings.system_frame = true;
-            errlog::write("окно", &format!("Windows рисует свой заголовок ({m}): включена обычная рамка Windows"));
+            errlog::write(tr!("окно", "window"), &trf!("Windows рисует свой заголовок ({m}): включена обычная рамка Windows", "Windows draws its own title bar ({m}): normal Windows frame turned on"));
             ctx.request_repaint();
         }
         // Frame check - during the first 10 s after start (then repaint as usual, without extra frames).
@@ -2535,21 +2540,21 @@ impl eframe::App for LauncherApp {
                 let full = ui.max_rect();
                 let row = ui.horizontal(|ui| {
                     // On the left, as in Steam - "Add a game".
-                    ui.menu_button(egui::RichText::new("+ Добавить игру").size(13.0), |ui| {
+                    ui.menu_button(egui::RichText::new(tr!("+ Добавить игру", "+ Add a game")).size(13.0), |ui| {
                         ui.set_min_width(220.0);
-                        if ui.button("Добавить стороннюю игру...").on_hover_text("Игра или программа не из Steam").clicked() {
+                        if ui.button(tr!("Добавить стороннюю игру...", "Add a non-Steam game...")).on_hover_text(tr!("Игра или программа не из Steam", "A game or program not from Steam")).clicked() {
                             self.custom_edit = Some(custom::Edit { to_steam: self.settings.custom_to_steam, ..Default::default() });
                             ui.close_menu();
                         }
                         if ui
-                            .button("Взять сторонние игры из Steam")
-                            .on_hover_text("Игры, добавленные в настоящий Steam как сторонние, появятся и в Vaporust")
+                            .button(tr!("Взять сторонние игры из Steam", "Import non-Steam games from Steam"))
+                            .on_hover_text(tr!("Игры, добавленные в настоящий Steam как сторонние, появятся и в Vaporust", "Games added to the real Steam as non-Steam games also appear in Vaporust"))
                             .clicked()
                         {
                             self.import_steam_shortcuts();
                             ui.close_menu();
                         }
-                        if ui.button("Активировать в Steam...").on_hover_text("Ключ продукта Steam: игра, дополнение, набор").clicked() {
+                        if ui.button(tr!("Активировать в Steam...", "Activate on Steam...")).on_hover_text(tr!("Ключ продукта Steam: игра, дополнение, набор", "Steam product key: a game, DLC, bundle")).clicked() {
                             self.key_input = Some(String::new());
                             self.key_refreshed = false;
                             self.net.lock().unwrap().key_result = None;
@@ -2559,7 +2564,7 @@ impl eframe::App for LauncherApp {
                     // On the right, as in Steam - "Friends and chat".
                     if net.account.is_some() {
                         let unread: u32 = net.chats.values().map(|c| c.unread).sum();
-                        let label = if unread > 0 { format!("Друзья и чат ({unread})") } else { "Друзья и чат".to_string() };
+                        let label = if unread > 0 { trf!("Друзья и чат ({unread})", "Friends and chat ({unread})") } else { tr!("Друзья и чат", "Friends and chat").to_string() };
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.toggle_value(&mut self.show_friends, label);
                         });
@@ -2628,7 +2633,7 @@ impl eframe::App for LauncherApp {
                 }
                 let page_row = self.lib_page.and_then(|id| self.row_map(&net).remove(&id));
                 // For the "played in two weeks" line on the game page - load friends activity once.
-                if page_row.is_some() && !self.activity_ui.asked && net.account.is_some() && !net.roster.read().unwrap().is_empty() {
+                if page_row.is_some() && !crate::lite::on() && !self.activity_ui.asked && net.account.is_some() && !net.roster.read().unwrap().is_empty() {
                     self.activity_ui.asked = true;
                     self.ask_activity(&net);
                 }
@@ -2637,7 +2642,7 @@ impl eframe::App for LauncherApp {
                     let _ = self.tx.send(Cmd::Licenses);
                 }
                 // The table view has no left column - go back to the table with a button.
-                if page_row.is_some() && table_mode && ui.button("< Все игры").clicked() {
+                if page_row.is_some() && table_mode && ui.button(tr!("< Все игры", "< All games")).clicked() {
                     self.lib_page = None;
                 }
                 let action = if let Some(r) = &page_row {
@@ -2661,17 +2666,17 @@ impl eframe::App for LauncherApp {
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
                         let title = match &self.collection {
-                            None => "Все игры".to_string(),
-                            Some(id) if id == FAMILY => "Семейная библиотека".to_string(),
-                            Some(id) if id == UNPLAYED => "Ни разу не запускались".to_string(),
-                            Some(id) if id == READY => "Готово к игре".to_string(),
-                            Some(id) if id == UPDATES => "Есть обновление".to_string(),
+                            None => tr!("Все игры", "All games").to_string(),
+                            Some(id) if id == FAMILY => tr!("Семейная библиотека", "Family library").to_string(),
+                            Some(id) if id == UNPLAYED => tr!("Ни разу не запускались", "Never launched").to_string(),
+                            Some(id) if id == READY => tr!("Готово к игре", "Ready to play").to_string(),
+                            Some(id) if id == UPDATES => tr!("Есть обновление", "Update available").to_string(),
                             Some(id) => net
                                 .collections
                                 .as_ref()
                                 .and_then(|c| c.iter().find(|c| &c.id == id))
                                 .map(|c| c.name.clone())
-                                .unwrap_or_else(|| "Коллекция".into()),
+                                .unwrap_or_else(|| tr!("Коллекция", "Collection").into()),
                         };
                         let title = match &self.genre {
                             Some(g) => format!("{title} · {g}"),
@@ -2680,15 +2685,15 @@ impl eframe::App for LauncherApp {
                         ui.label(egui::RichText::new(format!("{title} ({})", rows.len())).size(17.0).strong());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if self.settings.covers {
-                                ui.selectable_value(&mut self.settings.view, settings::View::List, "Таблица")
-                                    .on_hover_text("Компактный вид: игры таблицей, без обложек");
-                                ui.selectable_value(&mut self.settings.view, settings::View::Grid, "Плитка");
+                                ui.selectable_value(&mut self.settings.view, settings::View::List, tr!("Таблица", "Table"))
+                                    .on_hover_text(tr!("Компактный вид: игры таблицей, без обложек", "Compact view: games in a table, no covers"));
+                                ui.selectable_value(&mut self.settings.view, settings::View::Grid, tr!("Плитка", "Grid"));
                             }
                             if self.settings.random_button
                                 && !rows.is_empty()
                                 && ui
-                                    .button("Во что поиграть?")
-                                    .on_hover_text("Случайная игра из показанных (с учетом поиска, коллекции и фильтров)")
+                                    .button(tr!("Во что поиграть?", "What to play?"))
+                                    .on_hover_text(tr!("Случайная игра из показанных (с учетом поиска, коллекции и фильтров)", "A random game from the shown ones (search, collection and filters apply)"))
                                     .clicked()
                             {
                                 let seed = std::time::SystemTime::now()
@@ -2818,7 +2823,7 @@ impl eframe::App for LauncherApp {
         tray::set_download(
             net.install
                 .as_ref()
-                .filter(|i| i.result.is_none() && i.total > 0 && i.done_text == "установлена.")
+                .filter(|i| i.result.is_none() && i.total > 0 && i.done_text == tr!("установлена.", "installed."))
                 .map(|i| (i.name.clone(), i.done as f32 / i.total as f32)),
         );
         self.zoom_tick(ctx);
@@ -2910,8 +2915,14 @@ struct AchState {
     friend: Option<u64>,
 }
 
-const ACH_SORTS: [&str; 4] = ["Как в игре", "Сначала редкие", "Сначала частые", "Недавно полученные"];
-const ACH_FILTERS: [&str; 3] = ["Все", "Полученные", "Не полученные"];
+#[allow(non_snake_case)]
+fn ACH_SORTS() -> [&'static str; 4] {
+    [tr!("Как в игре", "As in the game"), tr!("Сначала редкие", "Rarest first"), tr!("Сначала частые", "Most common first"), tr!("Недавно полученные", "Recently unlocked")]
+}
+#[allow(non_snake_case)]
+fn ACH_FILTERS() -> [&'static str; 3] {
+    [tr!("Все", "All"), tr!("Полученные", "Unlocked"), tr!("Не полученные", "Locked")]
+}
 
 impl LauncherApp {
     /// Extra sections (screenshots, storage, badges...) open one at a time: opening

@@ -119,7 +119,7 @@ impl LauncherApp {
         }
         match crate::portable::restart() {
             Ok(()) => crate::tray::request_exit(),
-            Err(e) => crate::popup::push(crate::popup::Kind::Info, "Аккаунты", e),
+            Err(e) => crate::popup::push(crate::popup::Kind::Info, tr!("Аккаунты", "Accounts"), e),
         }
     }
 
@@ -141,12 +141,12 @@ impl LauncherApp {
         let mut open = true;
         let mut switch = None;
         let mut remove = None;
-        egui::Window::new("Аккаунты")
+        egui::Window::new(tr!("Аккаунты", "Accounts"))
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
             .show(ctx, |ui| {
-                ui.weak("Vaporust помнит вход в каждый аккаунт отдельно. Переключение перезапускает программу.");
+                ui.weak(tr!("Vaporust помнит вход в каждый аккаунт отдельно. Переключение перезапускает программу.", "Vaporust remembers the login of each account separately. Switching restarts the program."));
                 ui.add_space(4.0);
                 for e in &a.list {
                     let current = e.dir == a.active;
@@ -154,34 +154,34 @@ impl LauncherApp {
                         let title = match (e.name.is_empty(), e.login.is_empty()) {
                             (false, false) => format!("{} ({})", e.name, e.login),
                             (true, false) => e.login.clone(),
-                            _ if e.dir.is_empty() => "Основной аккаунт".to_string(),
-                            _ => "Новый аккаунт (вход еще не выполнен)".to_string(),
+                            _ if e.dir.is_empty() => tr!("Основной аккаунт", "Main account").to_string(),
+                            _ => tr!("Новый аккаунт (вход еще не выполнен)", "New account (not logged in yet)").to_string(),
                         };
                         let text = egui::RichText::new(crate::richtext::fix(ui, &title));
                         ui.label(if current { text.strong().color(crate::theme::PLAY_TEXT) } else { text });
                         if current {
-                            ui.weak("сейчас");
+                            ui.weak(tr!("сейчас", "current"));
                         } else {
-                            if ui.button("Переключиться").clicked() {
+                            if ui.button(tr!("Переключиться", "Switch")).clicked() {
                                 switch = Some(e.dir.clone());
                             }
-                            if !e.dir.is_empty() && ui.small_button("Убрать").on_hover_text("Убрать из списка (вход в этот аккаунт забудется)").clicked() {
+                            if !e.dir.is_empty() && ui.small_button(tr!("Убрать", "Remove")).on_hover_text(tr!("Убрать из списка (вход в этот аккаунт забудется)", "Remove from the list (the login to this account will be forgotten)")).clicked() {
                                 remove = Some(e.dir.clone());
                             }
                         }
                     });
                 }
                 ui.separator();
-                if ui.button("Добавить аккаунт...").on_hover_text("Vaporust перезапустится с окном входа").clicked() {
+                if ui.button(tr!("Добавить аккаунт...", "Add account...")).on_hover_text(tr!("Vaporust перезапустится с окном входа", "Vaporust will restart with the login window")).clicked() {
                     let dir = format!("{}", chrono::Utc::now().timestamp());
                     let mut a2 = load();
                     a2.list.push(Entry { dir: dir.clone(), ..Default::default() });
                     save(&a2);
                     switch = Some(dir);
                 }
-                ui.weak("Если Steam закрыт и в нем сохранен вход того же аккаунта, Steam тоже переключится на него.");
+                ui.weak(tr!("Если Steam закрыт и в нем сохранен вход того же аккаунта, Steam тоже переключится на него.", "If Steam is closed and remembers the login of the same account, Steam switches to it too."));
                 ui.add_space(4.0);
-                if ui.button("Закрыть").clicked() {
+                if ui.button(tr!("Закрыть", "Close")).clicked() {
                     open = false;
                 }
             });

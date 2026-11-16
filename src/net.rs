@@ -515,7 +515,7 @@ pub fn spawn_worker(st: Shared, ctx: egui::Context) -> UnboundedSender<Cmd> {
         {
             Ok(rt) => rt,
             Err(e) => {
-                upd(&st, &ctx, |s| s.message = format!("Не удалось запустить сеть: {e}"));
+                upd(&st, &ctx, |s| s.message = trf!("Не удалось запустить сеть: {e}", "Could not start the network: {e}"));
                 return;
             }
         };
@@ -523,7 +523,7 @@ pub fn spawn_worker(st: Shared, ctx: egui::Context) -> UnboundedSender<Cmd> {
             let mut client = match SteamClient::new() {
                 Ok(c) => c,
                 Err(e) => {
-                    upd(&st, &ctx, |s| s.message = format!("Ошибка Aurelia: {e:#}"));
+                    upd(&st, &ctx, |s| s.message = trf!("Ошибка Aurelia: {e:#}", "Aurelia error: {e:#}"));
                     return;
                 }
             };
@@ -579,14 +579,14 @@ pub fn spawn_worker(st: Shared, ctx: egui::Context) -> UnboundedSender<Cmd> {
 async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Context) {
     // Safety net: experimental actions are not run without the switch.
     if crate::exp::guarded(&cmd) && !crate::exp::on() {
-        upd(st, ctx, |s| s.message = "Это экспериментальная функция: включите ее в «Настройки -> Аккаунт».".into());
+        upd(st, ctx, |s| s.message = tr!("Это экспериментальная функция: включите ее в «Настройки -> Аккаунт».", "This is an experimental feature: turn it on in \"Settings -> Account\".").into());
         return;
     }
     match cmd {
         Cmd::Restore => {
             upd(st, ctx, |s| {
                 s.busy = true;
-                s.message = "Вход в Steam...".into();
+                s.message = tr!("Вход в Steam...", "Logging in to Steam...").into();
             });
             match client.restore_session().await {
                 Ok(session) => logged_in(client, session, st, ctx).await,
@@ -597,7 +597,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                     let me = aurelia::core::config::load_session().await.ok().and_then(|s| s.steam_id);
                     let cached = load_library_cache(me);
                     let why = format!("{e:#}");
-                crate::errlog::write("сеть", &format!("нет связи со Steam: {why}"));
+                crate::errlog::write(tr!("сеть", "network"), &trf!("нет связи со Steam: {why}", "no connection to Steam: {why}"));
                     upd(st, ctx, |s| {
                         s.busy = false;
                         s.offline = true;
@@ -620,7 +620,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::Login { user, pass, code } => {
             upd(st, ctx, |s| {
                 s.busy = true;
-                s.message = "Вход... Если включен мобильный аутентификатор, подтвердите вход в приложении Steam.".into();
+                s.message = tr!("Вход... Если включен мобильный аутентификатор, подтвердите вход в приложении Steam.", "Logging in... If the mobile authenticator is on, confirm the login in the Steam app.").into();
             });
             match client.login(user, Secret::new(pass), code, None).await {
                 Ok(session) => logged_in(client, session, st, ctx).await,
@@ -629,11 +629,11 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                     upd(st, ctx, |s| {
                         s.busy = false;
                         s.message = if needs_code {
-                            "Steam просит код подтверждения. Введите код из письма или приложения \
-                             и снова нажмите «Войти» (пароль тоже нужно ввести заново)."
+                            tr!("Steam просит код подтверждения. Введите код из письма или приложения \
+                             и снова нажмите «Войти» (пароль тоже нужно ввести заново).", "Steam asks for a confirmation code. Enter the code from the email or the app and press \"Log in\" again (the password has to be entered again too).")
                                 .into()
                         } else {
-                            format!("Не удалось войти: {e:#}")
+                            trf!("Не удалось войти: {e:#}", "Could not log in: {e:#}")
                         };
                     });
                 }
@@ -642,7 +642,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::LoginQr => {
             upd(st, ctx, |s| {
                 s.busy = true;
-                s.message = "Получаю QR-код...".into();
+                s.message = tr!("Получаю QR-код...", "Getting a QR code...").into();
             });
             let (st2, ctx2) = (st.clone(), ctx.clone());
             let result = client
@@ -663,7 +663,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 Ok(session) => logged_in(client, session, st, ctx).await,
                 Err(e) => upd(st, ctx, |s| {
                     s.busy = false;
-                    s.message = format!("Вход по QR не удался: {e:#}");
+                    s.message = trf!("Вход по QR не удался: {e:#}", "QR login failed: {e:#}");
                 }),
             }
         }
@@ -676,7 +676,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::FriendAchievements(appid, who) => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             spawn_session(async move {
-                let res = client.fetch_achievements_for(appid, crate::lang::STEAM, who).await.map_err(|e| format!("{e:#}"));
+                let res = client.fetch_achievements_for(appid, crate::lang::steam(), who).await.map_err(|e| format!("{e:#}"));
                 upd(&st, &ctx, |s| {
                     Arc::make_mut(&mut s.friend_achievements).insert((appid, who), res);
                 });
@@ -687,7 +687,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             spawn_session(async move {
                 let res = client
-                    .fetch_achievements(appid, crate::lang::STEAM)
+                    .fetch_achievements(appid, crate::lang::steam())
                     .await
                 .or_else(|e| {
                     let msg = format!("{e:#}");
@@ -712,13 +712,13 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 s.install = Some(Install {
                     appid,
                     name,
-                    stage: "Подготовка...".into(),
+                    stage: tr!("Подготовка...", "Preparing...").into(),
                     done: 0,
                     total: 0,
                     speed: 0.0,
                     result: None,
                     abort: abort.clone(),
-                    done_text: "установлена.".into(),
+                    done_text: tr!("установлена.", "installed.").into(),
                 });
             });
             // The install runs in a separate task so other commands do not wait.
@@ -763,7 +763,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                         conv.history_loaded = true;
                         conv.error = None;
                     }
-                    Err(e) => conv.error = Some(format!("Не удалось загрузить историю: {e:#}")),
+                    Err(e) => conv.error = Some(trf!("Не удалось загрузить историю: {e:#}", "Could not load the history: {e:#}")),
                 }
             });
             });
@@ -823,10 +823,10 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                         });
                         conv.error = None;
                         if special {
-                            conv.status = Some("Отправлено, обновляю...".into());
+                            conv.status = Some(tr!("Отправлено, обновляю...", "Sent, refreshing...").into());
                         }
                     }
-                    Err(e) => conv.error = Some(format!("Не отправлено: {e:#}")),
+                    Err(e) => conv.error = Some(trf!("Не отправлено: {e:#}", "Not sent: {e:#}")),
                 }
             });
             let refresh = st.lock().unwrap().chats.get(&to).is_some_and(|c| c.status.is_some());
@@ -838,9 +838,9 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                     // The account does not have the effect (or sticker) - the server turns the command into an empty message.
                     let empty = conv.lines.iter().rev().find(|l| l.from_self).is_some_and(|l| l.text.trim().is_empty());
                     if empty && orig.starts_with("/roomeffect ") {
-                        conv.error = Some("Эффект не отправлен: его нет в вашем аккаунте Steam (у друга могло появиться пустое сообщение).".into());
+                        conv.error = Some(tr!("Эффект не отправлен: его нет в вашем аккаунте Steam (у друга могло появиться пустое сообщение).", "The effect was not sent: your Steam account does not have it (your friend may see an empty message).").into());
                     } else if empty && orig.starts_with("/sticker ") {
-                        conv.error = Some("Стикер не отправлен: его нет в вашем аккаунте Steam.".into());
+                        conv.error = Some(tr!("Стикер не отправлен: его нет в вашем аккаунте Steam.", "The sticker was not sent: your Steam account does not have it.").into());
                     }
                 });
             }
@@ -885,14 +885,14 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 upd(&st, &ctx, |s| {
                     let p = s.props.entry(base).or_default();
                     p.dlc = Some(list);
-                    p.error = res.err().map(|e| format!("DLC не переключено: {e}"));
+                    p.error = res.err().map(|e| trf!("DLC не переключено: {e}", "DLC not switched: {e}"));
                 });
             });
         }
         Cmd::SetLanguage { appid, name, acf, lang } => {
             let c = client.clone();
             let (st2, ctx2) = (st.clone(), ctx.clone());
-            start_op(appid, format!("Смена языка: {name}"), "язык изменен.", st, ctx, move |abort| async move {
+            start_op(appid, trf!("Смена языка: {name}", "Language change: {name}"), tr!("язык изменен.", "language changed."), st, ctx, move |abort| async move {
                 switch_language(&c, appid, &acf, &lang, &abort, &st2, &ctx2).await?;
                 // Files are in place - remove the yellow "Update" from the card.
                 upd(&st2, &ctx2, |s| {
@@ -909,8 +909,8 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             // afterwards we restore the original file and write only the new versions and build into it.
             let c = client.clone();
             let (st2, ctx2) = (st.clone(), ctx.clone());
-            start_op(appid, format!("Обновление: {name}"), "обновлена.", st, ctx, move |abort| async move {
-                let original = std::fs::read_to_string(&acf).map_err(|e| format!("Не удалось прочитать файл игры: {e}"))?;
+            start_op(appid, trf!("Обновление: {name}", "Update: {name}"), tr!("обновлена.", "updated."), st, ctx, move |abort| async move {
+                let original = std::fs::read_to_string(&acf).map_err(|e| trf!("Не удалось прочитать файл игры: {e}", "Could not read the game file: {e}"))?;
                 let state = Arc::new(RwLock::new(DownloadState::default()));
                 if let Ok(mut s) = state.write() {
                     s.abort_signal = abort.clone();
@@ -918,8 +918,8 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 let rx = c
                     .update_game(appid, state)
                     .await
-                    .map_err(|e| format!("Не удалось начать обновление: {e:#}"))?;
-                let res = drain_progress(rx, &abort, "Обновление отменено.", &st2, &ctx2).await;
+                    .map_err(|e| trf!("Не удалось начать обновление: {e:#}", "Could not start the update: {e:#}"))?;
+                let res = drain_progress(rx, &abort, tr!("Обновление отменено.", "Update cancelled."), &st2, &ctx2).await;
                 merge_after_update(&acf, &original, res.is_ok())?;
                 res?;
                 if let Some(b) = &beta {
@@ -936,7 +936,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::Verify { appid, name } => {
             let c = client.clone();
             let (st2, ctx2) = (st.clone(), ctx.clone());
-            start_op(appid, format!("Проверка файлов: {name}"), "файлы в порядке.", st, ctx, move |abort| async move {
+            start_op(appid, trf!("Проверка файлов: {name}", "Verifying files: {name}"), tr!("файлы в порядке.", "the files are fine."), st, ctx, move |abort| async move {
                 let state = Arc::new(RwLock::new(DownloadState::default()));
                 if let Ok(mut s) = state.write() {
                     s.abort_signal = abort.clone();
@@ -944,19 +944,19 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 let rx = c
                     .verify_game(appid, state)
                     .await
-                    .map_err(|e| format!("Не удалось начать проверку: {e:#}"))?;
-                drain_progress(rx, &abort, "Проверка отменена.", &st2, &ctx2).await
+                    .map_err(|e| trf!("Не удалось начать проверку: {e:#}", "Could not start the verification: {e:#}"))?;
+                drain_progress(rx, &abort, tr!("Проверка отменена.", "Verification cancelled."), &st2, &ctx2).await
             });
         }
         Cmd::Move { appid, name, dest } => {
             let c = client.clone();
             let (st2, ctx2) = (st.clone(), ctx.clone());
-            start_op(appid, format!("Перенос: {name}"), "перенесена.", st, ctx, move |abort| async move {
+            start_op(appid, trf!("Перенос: {name}", "Moving: {name}"), tr!("перенесена.", "moved."), st, ctx, move |abort| async move {
                 let rx = c
                     .move_install(appid, dest)
                     .await
-                    .map_err(|e| format!("Не удалось начать перенос: {e:#}"))?;
-                drain_progress(rx, &abort, "Перенос отменен (исходные файлы на месте).", &st2, &ctx2).await
+                    .map_err(|e| trf!("Не удалось начать перенос: {e:#}", "Could not start moving: {e:#}"))?;
+                drain_progress(rx, &abort, tr!("Перенос отменен (исходные файлы на месте).", "Moving cancelled (the original files are in place)."), &st2, &ctx2).await
             });
         }
         Cmd::PinRefresh { appid, path, branch, launch } => {
@@ -966,7 +966,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                     let (latest, buildid) = c
                         .latest_depot_versions(appid, &branch)
                         .await
-                        .map_err(|e| format!("Не удалось узнать последнюю версию игры: {e:#}"))?;
+                        .map_err(|e| trf!("Не удалось узнать последнюю версию игры: {e:#}", "Could not get the latest game version: {e:#}"))?;
                     // Only depots the game actually has installed.
                     let installed = crate::local::installed_depots(&path);
                     let target: std::collections::BTreeMap<u32, u64> = installed
@@ -974,7 +974,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                         .filter_map(|d| latest.get(d).map(|m| (*d, *m)))
                         .collect();
                     if target.is_empty() {
-                        return Err("Steam не сообщил версии хранилищ этой игры.".to_string());
+                        return Err(tr!("Steam не сообщил версии хранилищ этой игры.", "Steam did not report the depot versions of this game.").to_string());
                     }
                     crate::local::write_depot_versions(&path, &target, buildid.as_deref(), 4)
                 }
@@ -985,10 +985,10 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::Import { appid, name, library } => {
             let c = client.clone();
             let (st2, ctx2) = (st.clone(), ctx.clone());
-            start_op(appid, format!("Добавление: {name}"), "добавлена и проверена.", st, ctx, move |abort| async move {
+            start_op(appid, trf!("Добавление: {name}", "Adding: {name}"), tr!("добавлена и проверена.", "added and verified."), st, ctx, move |abort| async move {
                 c.import_install(appid, library, DepotPlatform::Windows)
                     .await
-                    .map_err(|e| format!("Не удалось добавить игру: {e:#}"))?;
+                    .map_err(|e| trf!("Не удалось добавить игру: {e:#}", "Could not add the game: {e:#}"))?;
                 // Files may be of an old version - verification downloads the differences.
                 let state = Arc::new(RwLock::new(DownloadState::default()));
                 if let Ok(mut s) = state.write() {
@@ -997,8 +997,8 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 let rx = c
                     .verify_game(appid, state)
                     .await
-                    .map_err(|e| format!("Игра добавлена, но проверка не началась: {e:#}"))?;
-                drain_progress(rx, &abort, "Проверка отменена (игра добавлена).", &st2, &ctx2).await
+                    .map_err(|e| trf!("Игра добавлена, но проверка не началась: {e:#}", "The game is added, but the verification did not start: {e:#}"))?;
+                drain_progress(rx, &abort, tr!("Проверка отменена (игра добавлена).", "Verification cancelled (the game is added)."), &st2, &ctx2).await
             });
         }
         Cmd::AureliaConfig { limit_kbit, proxy } => {
@@ -1081,7 +1081,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::Downgrade { appid, name, library, overrides } => {
             let c = client.clone();
             let (st2, ctx2) = (st.clone(), ctx.clone());
-            start_op(appid, format!("Откат версии: {name}"), "откачена и закреплена.", st, ctx, move |abort| async move {
+            start_op(appid, trf!("Откат версии: {name}", "Version rollback: {name}"), tr!("откачена и закреплена.", "rolled back and pinned."), st, ctx, move |abort| async move {
                 let state = Arc::new(RwLock::new(DownloadState::default()));
                 if let Ok(mut s) = state.write() {
                     s.abort_signal = abort.clone();
@@ -1094,31 +1094,31 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 let rx = c
                     .install_game(appid, DepotPlatform::Windows, opts, state)
                     .await
-                    .map_err(|e| format!("Не удалось начать откат: {e:#}"))?;
-                drain_progress(rx, &abort, "Откат отменен.", &st2, &ctx2).await?;
+                    .map_err(|e| trf!("Не удалось начать откат: {e:#}", "Could not start the rollback: {e:#}"))?;
+                drain_progress(rx, &abort, tr!("Откат отменен.", "Rollback cancelled."), &st2, &ctx2).await?;
                 upd(&st2, &ctx2, |s| s.pin_after = Some(appid));
                 Ok(())
             });
         }
         Cmd::Uninstall { appid, name } => {
             let c = client.clone();
-            start_op(appid, format!("Удаление: {name}"), "удалена.", st, ctx, move |_| async move {
-                c.uninstall_game(appid, false).await.map_err(|e| format!("Не удалось удалить: {e:#}"))
+            start_op(appid, trf!("Удаление: {name}", "Uninstalling: {name}"), tr!("удалена.", "uninstalled."), st, ctx, move |_| async move {
+                c.uninstall_game(appid, false).await.map_err(|e| trf!("Не удалось удалить: {e:#}", "Could not uninstall: {e:#}"))
             });
         }
         Cmd::UninstallShared { appid, name, dir, others } => {
             let c = client.clone();
             start_op(
                 appid,
-                format!("Удаление: {name}"),
-                "удалена (файлы других игр из общей папки не тронуты).",
+                trf!("Удаление: {name}", "Uninstalling: {name}"),
+                tr!("удалена (файлы других игр из общей папки не тронуты).", "uninstalled (files of other games in the shared folder are untouched)."),
                 st,
                 ctx,
                 move |_| async move {
                     uninstall_shared(&c, appid, &dir, &others)
                         .await
                         .map(|_| ())
-                        .map_err(|e| format!("Не удалось удалить (ничего не удалено): {e}"))
+                        .map_err(|e| trf!("Не удалось удалить (ничего не удалено): {e}", "Could not uninstall (nothing deleted): {e}"))
                 },
             );
         }
@@ -1178,7 +1178,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             spawn_session(async move {
                 if mark {
                     if let Err(e) = crate::steamnotif::mark_all_read(&client).await {
-                        upd(&st, &ctx, |s| s.steam_notifs = Some(Err(format!("Не отмечены: {e}"))));
+                        upd(&st, &ctx, |s| s.steam_notifs = Some(Err(trf!("Не отмечены: {e}", "Not marked: {e}"))));
                     }
                 }
                 let r = crate::steamnotif::load(&client).await;
@@ -1204,7 +1204,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 let Some(me) = client.my_steam_id() else { return };
                 let r = crate::badges::craft(&client, me, appid, foil).await;
                 let msg = match r {
-                    Ok(()) => "Значок создан.".to_string(),
+                    Ok(()) => tr!("Значок создан.", "Badge crafted.").to_string(),
                     Err(e) => e,
                 };
                 let fresh = crate::badges::load(&client, me).await;
@@ -1269,7 +1269,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 let ok = r.is_ok();
                 upd(&st, &ctx, |s| {
                     s.points_msg = Some(match r {
-                        Ok(()) => format!("Куплено: {}.", item.title),
+                        Ok(()) => trf!("Куплено: {}.", "Purchased: {}.", item.title),
                         Err(e) => e,
                     });
                     if bal.is_some() {
@@ -1357,9 +1357,9 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 let g = crate::grouppage::load(&url).await;
                 upd(&st, &ctx, |s| {
                     s.group_msg = Some(match r {
-                        Ok(()) if join => "Запрос отправлен. Если группа закрытая, нужно дождаться одобрения.".into(),
-                        Ok(()) => "Вы вышли из группы.".into(),
-                        Err(e) => format!("Не удалось: {e}"),
+                        Ok(()) if join => tr!("Запрос отправлен. Если группа закрытая, нужно дождаться одобрения.", "Request sent. If the group is private, wait for approval.").into(),
+                        Ok(()) => tr!("Вы вышли из группы.", "You left the group.").into(),
+                        Err(e) => trf!("Не удалось: {e}", "Failed: {e}"),
                     });
                     if let Some((me, x)) = fresh {
                         s.profile_extra.insert(me, x);
@@ -1379,13 +1379,13 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::DeleteComment { id, gid } => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            upd(&st, &ctx, |s| s.comment_msg = Some("Удаляю...".into()));
+            upd(&st, &ctx, |s| s.comment_msg = Some(tr!("Удаляю...", "Deleting...").into()));
             spawn_session(async move {
                 let r = crate::profile_extra::delete_comment(&client, id, &gid).await;
                 let fresh = crate::profile_extra::load(&client, id).await;
                 upd(&st, &ctx, |s| {
                     s.comment_msg = Some(match r {
-                        Ok(()) => "Комментарий удален.".into(),
+                        Ok(()) => tr!("Комментарий удален.", "Comment deleted.").into(),
                         Err(e) => e,
                     });
                     s.profile_extra.insert(id, fresh);
@@ -1408,13 +1408,13 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::PostComment { id, text } => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            upd(&st, &ctx, |s| s.comment_msg = Some("Отправляю...".into()));
+            upd(&st, &ctx, |s| s.comment_msg = Some(tr!("Отправляю...", "Sending...").into()));
             spawn_session(async move {
                 let r = crate::profile_extra::post_comment(&client, id, &text).await;
                 let fresh = crate::profile_extra::load(&client, id).await;
                 upd(&st, &ctx, |s| {
                     s.comment_msg = Some(match r {
-                        Ok(()) => "Комментарий опубликован.".into(),
+                        Ok(()) => tr!("Комментарий опубликован.", "Comment posted.").into(),
                         Err(e) => e,
                     });
                     s.profile_extra.insert(id, fresh);
@@ -1432,13 +1432,13 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::ShotComment { owner, id, text } => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            upd(&st, &ctx, |s| s.shot_msg = Some("Отправляю...".into()));
+            upd(&st, &ctx, |s| s.shot_msg = Some(tr!("Отправляю...", "Sending...").into()));
             spawn_session(async move {
                 let r = crate::shotcomments::post(&client, owner, id, &text).await;
                 let fresh = crate::shotcomments::load(&client, owner, id).await;
                 upd(&st, &ctx, |s| {
                     s.shot_msg = Some(match r {
-                        Ok(()) => "Комментарий опубликован.".into(),
+                        Ok(()) => tr!("Комментарий опубликован.", "Comment posted.").into(),
                         Err(e) => e,
                     });
                     s.shot_comments.insert(id, fresh);
@@ -1451,7 +1451,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 let r = crate::shotcomments::vote(&client, id, up).await;
                 upd(&st, &ctx, |s| {
                     s.shot_msg = Some(match r {
-                        Ok(()) => "Оценка поставлена.".into(),
+                        Ok(()) => tr!("Оценка поставлена.", "Vote sent.").into(),
                         Err(e) => e,
                     });
                 });
@@ -1467,7 +1467,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::CommTopic(url) => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            upd(&st, &ctx, |s| s.comm_msg = Some("Открываю тему...".into()));
+            upd(&st, &ctx, |s| s.comm_msg = Some(tr!("Открываю тему...", "Opening the topic...").into()));
             spawn_session(async move {
                 let r = crate::community::load_topic(&client, &url).await;
                 upd(&st, &ctx, |s| {
@@ -1478,13 +1478,13 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::CommReply { topic, text } => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            upd(&st, &ctx, |s| s.comm_msg = Some("Отправляю ответ...".into()));
+            upd(&st, &ctx, |s| s.comm_msg = Some(tr!("Отправляю ответ...", "Sending the reply...").into()));
             spawn_session(async move {
                 let r = crate::community::reply(&client, &topic, &text).await;
                 let fresh = crate::community::load_topic(&client, &topic.url).await;
                 upd(&st, &ctx, |s| {
                     s.comm_msg = Some(match r {
-                        Ok(()) => "Ответ опубликован.".into(),
+                        Ok(()) => tr!("Ответ опубликован.", "Reply posted.").into(),
                         Err(e) => e,
                     });
                     s.comm_topic = Some(fresh);
@@ -1493,7 +1493,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::CommGuide(id) => {
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            upd(&st, &ctx, |s| s.comm_msg = Some("Открываю руководство...".into()));
+            upd(&st, &ctx, |s| s.comm_msg = Some(tr!("Открываю руководство...", "Opening the guide...").into()));
             spawn_session(async move {
                 let r = crate::community::load_guide(&client, id).await;
                 upd(&st, &ctx, |s| {
@@ -1554,7 +1554,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                                 .collect();
                             conv.lines.splice(0..0, older);
                         }
-                        Err(e) => conv.error = Some(format!("Не удалось загрузить: {e:#}")),
+                        Err(e) => conv.error = Some(trf!("Не удалось загрузить: {e:#}", "Could not load: {e:#}")),
                     }
                 });
             });
@@ -1614,7 +1614,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             spawn_session(async move {
                 let r = match client.my_steam_id() {
                     Some(me) => crate::coplay::load(&client, me).await,
-                    None => Err("нет входа".into()),
+                    None => Err(tr!("нет входа", "not logged in").into()),
                 };
                 upd(&st, &ctx, |s| s.coplay = Some(r));
             });
@@ -1655,7 +1655,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 let r = client.send_group_message(group, chat, &text).await;
                 let fresh = client.group_messages(group, chat, 60).await.map_err(|e| format!("{e:#}"));
                 upd(&st, &ctx, |s| {
-                    s.group_error = r.err().map(|e| format!("Не отправлено: {e:#}"));
+                    s.group_error = r.err().map(|e| trf!("Не отправлено: {e:#}", "Not sent: {e:#}"));
                     if fresh.is_ok() {
                         s.group_messages.insert((group, chat), fresh);
                     }
@@ -1681,7 +1681,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 .map_err(|e| {
                     let t = es(e);
                     // A private Steam profile answers InvalidParam.
-                    if user != 0 && t.contains("InvalidParam") { "профиль или скриншоты скрыты настройками приватности".to_string() } else { t }
+                    if user != 0 && t.contains("InvalidParam") { tr!("профиль или скриншоты скрыты настройками приватности", "the profile or screenshots are hidden by privacy settings").to_string() } else { t }
                 });
                 upd(&st, &ctx, |s| {
                     s.cloud_shots_busy = false;
@@ -1740,7 +1740,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                         }
                     })
                 };
-                set_status(Some("Отправляю картинку...".into()), None);
+                set_status(Some(tr!("Отправляю картинку...", "Sending the image...").into()), None);
                 let prepared = tokio::task::spawn_blocking(move || prepare_image(&path))
                     .await
                     .unwrap_or_else(|e| Err(e.to_string()));
@@ -1750,7 +1750,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 };
                 let url = match client.upload_chat_image(to, bytes, ext, w, h).await {
                     Ok(u) => u,
-                    Err(e) => return set_status(None, Some(format!("Картинка не отправлена: {e:#}"))),
+                    Err(e) => return set_status(None, Some(trf!("Картинка не отправлена: {e:#}", "Image not sent: {e:#}"))),
                 };
                 // It seems that on upload confirmation Steam posts the image to the chat itself.
                 // Check: if it is not in the history, send the message ourselves.
@@ -1763,7 +1763,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 if !posted {
                     let bb = format!("[img src={url} width={w} height={h}][url={url}]{url}[/url][/img]");
                     if let Err(e) = client.send_chat_message(to, bb).await {
-                        return set_status(None, Some(format!("Картинка загружена, но не отправлена: {e:#}")));
+                        return set_status(None, Some(trf!("Картинка загружена, но не отправлена: {e:#}", "Image uploaded but not sent: {e:#}")));
                     }
                 }
                 reload_history(&client, to, &st, &ctx).await;
@@ -1778,7 +1778,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             upd(st, ctx, |s| {
                 *s = NetState {
                     need_login: true,
-                    message: "Вы вышли из аккаунта.".into(),
+                    message: tr!("Вы вышли из аккаунта.", "You logged out.").into(),
                     ..Default::default()
                 };
             });
@@ -1808,7 +1808,7 @@ async fn logged_in(client: &mut SteamClient, session: SessionState, st: &Shared,
     let secure = match secure_session().await {
         Ok(v) => v,
         Err(e) => {
-            crate::errlog::write("вход", &format!("не удалось зашифровать сохраненный вход: {e:#}"));
+            crate::errlog::write(tr!("вход", "login"), &trf!("не удалось зашифровать сохраненный вход: {e:#}", "could not encrypt the saved login: {e:#}"));
             false
         }
     };
@@ -1817,8 +1817,8 @@ async fn logged_in(client: &mut SteamClient, session: SessionState, st: &Shared,
         // A rare case (the Windows key store is unavailable) - but it must be known right away.
         crate::popup::push(
             crate::popup::Kind::Info,
-            "Вход не зашифрован",
-            "Хранилище ключей Windows недоступно: сохраненный вход лежит открытым. Подробнее - Настройки -> Аккаунт.",
+            tr!("Вход не зашифрован", "Login not encrypted"),
+            tr!("Хранилище ключей Windows недоступно: сохраненный вход лежит открытым. Подробнее - Настройки -> Аккаунт.", "The Windows key storage is unavailable: the saved login is stored unencrypted. Details - Settings -> Account."),
         );
     }
     start_social(client, roster, st, ctx);
@@ -1930,7 +1930,7 @@ fn start_link_probe(st: &Shared, ctx: &egui::Context) {
     tokio::spawn(async move {
         let mut fails = 0;
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+            tokio::time::sleep(crate::lite::secs(20, 60)).await;
             if PROBE_GEN.load(Ordering::Relaxed) != gen {
                 return;
             }
@@ -1952,13 +1952,13 @@ fn start_link_probe(st: &Shared, ctx: &egui::Context) {
             upd(&st, &ctx, |s| {
                 if s.account.is_some() {
                     s.offline = true;
-                    s.offline_reason = "Нет подключения к интернету".into();
+                    s.offline_reason = tr!("Нет подключения к интернету", "No internet connection").into();
                     s.account = None;
                     went = true;
                 }
             });
             if went {
-                crate::errlog::write("сеть", "связь со Steam пропала (проверка соединения)");
+                crate::errlog::write(tr!("сеть", "network"), tr!("связь со Steam пропала (проверка соединения)", "connection to Steam lost (connection check)"));
             }
             return;
         }
@@ -1971,7 +1971,7 @@ async fn second_plan(client: &SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Co
     use crate::actions as a;
     let msg = |r: Result<(), String>, ok: &str| match r {
         Ok(()) => ok.to_string(),
-        Err(e) => format!("Не получилось: {e}"),
+        Err(e) => trf!("Не получилось: {e}", "Failed: {e}"),
     };
     let country = {
         let s = st.lock().unwrap().store.clone();
@@ -1987,7 +1987,7 @@ async fn second_plan(client: &SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Co
             let r = crate::profileedit::save(client, &e).await;
             let fresh = crate::profileedit::load(client).await;
             upd(st, ctx, |s| {
-                s.profile_edit_msg = Some(msg(r, "Профиль сохранен."));
+                s.profile_edit_msg = Some(msg(r, tr!("Профиль сохранен.", "Profile saved.")));
                 s.profile_edit = Some(fresh);
             });
         }
@@ -1995,16 +1995,16 @@ async fn second_plan(client: &SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Co
             let r = crate::profileedit::save_privacy(client, &p).await;
             let fresh = crate::profileedit::load(client).await;
             upd(st, ctx, |s| {
-                s.profile_edit_msg = Some(msg(r, "Настройки приватности сохранены."));
+                s.profile_edit_msg = Some(msg(r, tr!("Настройки приватности сохранены.", "Privacy settings saved.")));
                 s.profile_edit = Some(fresh);
             });
         }
         Cmd::AvatarUpload(p) => {
-            upd(st, ctx, |s| s.profile_edit_msg = Some("Загружаю аватар...".into()));
+            upd(st, ctx, |s| s.profile_edit_msg = Some(tr!("Загружаю аватар...", "Uploading the avatar...").into()));
             let r = crate::profileedit::upload_avatar(client, &p).await;
             let fresh = crate::profileedit::load(client).await;
             upd(st, ctx, |s| {
-                s.profile_edit_msg = Some(msg(r, "Аватар обновлен (в списках друзей появится не сразу)."));
+                s.profile_edit_msg = Some(msg(r, tr!("Аватар обновлен (в списках друзей появится не сразу).", "Avatar updated (friend lists show it with a delay).")));
                 s.profile_edit = Some(fresh);
             });
         }
@@ -2016,13 +2016,13 @@ async fn second_plan(client: &SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Co
                         f.nickname = if nick.trim().is_empty() { None } else { Some(nick.trim().to_string()) };
                     }
                 }
-                s.friend_msg = Some(msg(r, if nick.trim().is_empty() { "Ник убран." } else { "Ник сохранен." }));
+                s.friend_msg = Some(msg(r, if nick.trim().is_empty() { tr!("Ник убран.", "Nickname removed.") } else { tr!("Ник сохранен.", "Nickname saved.") }));
             });
         }
         Cmd::ChatReaction { friend, time, ordinal, kind, name, add } => {
             let r = a::chat_reaction(client, friend, time, ordinal, kind, &name, add).await;
             if let Err(e) = r {
-                upd(st, ctx, |s| Arc::make_mut(&mut s.chats).entry(friend).or_default().error = Some(format!("Реакция не поставлена: {e}")));
+                upd(st, ctx, |s| Arc::make_mut(&mut s.chats).entry(friend).or_default().error = Some(trf!("Реакция не поставлена: {e}", "Reaction not added: {e}")));
             }
             reload_history(client, friend, st, ctx).await;
         }
@@ -2031,8 +2031,8 @@ async fn second_plan(client: &SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Co
             let groups = client.my_chat_groups().await;
             upd(st, ctx, |s| {
                 s.action_msg = Some(match r {
-                    Ok(_) => format!("Групповой чат «{name}» создан, приглашения отправлены."),
-                    Err(e) => format!("Не получилось: {e}"),
+                    Ok(_) => trf!("Групповой чат «{name}» создан, приглашения отправлены.", "Group chat \"{name}\" created, invitations sent."),
+                    Err(e) => trf!("Не получилось: {e}", "Failed: {e}"),
                 });
                 if let Ok(g) = groups {
                     s.chat_groups = Some(Ok(g));
@@ -2041,7 +2041,7 @@ async fn second_plan(client: &SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Co
         }
         Cmd::InviteToChatGroup { group, friend } => {
             let r = a::invite_to_chat_group(client, group, friend).await;
-            upd(st, ctx, |s| s.action_msg = Some(msg(r, "Приглашение отправлено.")));
+            upd(st, ctx, |s| s.action_msg = Some(msg(r, tr!("Приглашение отправлено.", "Invitation sent."))));
         }
         Cmd::ReviewLoad(appid) => {
             let r = a::review_load(client, appid).await;
@@ -2053,7 +2053,7 @@ async fn second_plan(client: &SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Co
             let r = a::review_save(client, appid, &review).await;
             let fresh = a::review_load(client, appid).await;
             upd(st, ctx, |s| {
-                s.action_msg = Some(msg(r, "Обзор опубликован."));
+                s.action_msg = Some(msg(r, tr!("Обзор опубликован.", "Review published.")));
                 s.my_reviews.insert(appid, fresh);
             });
         }
@@ -2061,8 +2061,8 @@ async fn second_plan(client: &SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Co
             let r = a::create_topic(client, appid, &title, &text).await;
             upd(st, ctx, |s| {
                 s.action_msg = Some(match r {
-                    Ok(url) => format!("Тема создана: {url}"),
-                    Err(e) => format!("Не получилось: {e}"),
+                    Ok(url) => trf!("Тема создана: {url}", "Topic created: {url}"),
+                    Err(e) => trf!("Не получилось: {e}", "Failed: {e}"),
                 });
             });
         }
@@ -2072,11 +2072,11 @@ async fn second_plan(client: &SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Co
         }
         Cmd::Award { target_type, target, reaction } => {
             let r = a::award(client, target_type, &target, reaction).await;
-            upd(st, ctx, |s| s.action_msg = Some(msg(r, "Награда отправлена.")));
+            upd(st, ctx, |s| s.action_msg = Some(msg(r, tr!("Награда отправлена.", "Award sent."))));
         }
         Cmd::WishlistReorder(items) => {
             let r = a::wishlist_reorder(client, &items).await;
-            upd(st, ctx, |s| s.action_msg = Some(msg(r, "Порядок желаемого сохранен.")));
+            upd(st, ctx, |s| s.action_msg = Some(msg(r, tr!("Порядок желаемого сохранен.", "Wishlist order saved."))));
         }
         Cmd::CartLoad => {
             let r = a::cart_get(client, &country).await;
@@ -2086,7 +2086,7 @@ async fn second_plan(client: &SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Co
             let r = a::cart_add(client, packageid, &country).await;
             let cart = a::cart_get(client, &country).await;
             upd(st, ctx, |s| {
-                s.action_msg = Some(msg(r, "Добавлено в корзину."));
+                s.action_msg = Some(msg(r, tr!("Добавлено в корзину.", "Added to the cart.")));
                 s.cart = Some(cart);
             });
         }
@@ -2094,7 +2094,7 @@ async fn second_plan(client: &SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Co
             let r = a::cart_remove(client, line, &country).await;
             let cart = a::cart_get(client, &country).await;
             upd(st, ctx, |s| {
-                s.action_msg = Some(msg(r, "Убрано из корзины."));
+                s.action_msg = Some(msg(r, tr!("Убрано из корзины.", "Removed from the cart.")));
                 s.cart = Some(cart);
             });
         }
@@ -2115,7 +2115,7 @@ async fn second_plan(client: &SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Co
             let me = client.my_steam_id().unwrap_or(0);
             let fresh = crate::family::load(client, me).await;
             upd(st, ctx, |s| {
-                s.action_msg = Some(msg(r, "Приглашение в семью отправлено (Steam попросит подтвердить по почте)."));
+                s.action_msg = Some(msg(r, tr!("Приглашение в семью отправлено (Steam попросит подтвердить по почте).", "Family invitation sent (Steam asks to confirm by email).")));
                 s.family_group = Some(fresh);
             });
         }
@@ -2124,7 +2124,7 @@ async fn second_plan(client: &SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Co
             let me = client.my_steam_id().unwrap_or(0);
             let fresh = crate::family::load(client, me).await;
             upd(st, ctx, |s| {
-                s.action_msg = Some(msg(r, "Приглашение отменено."));
+                s.action_msg = Some(msg(r, tr!("Приглашение отменено.", "Invitation cancelled.")));
                 s.family_group = Some(fresh);
             });
         }
@@ -2142,11 +2142,11 @@ async fn second_plan(client: &SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Co
         }
         Cmd::WsVote { id, up } => {
             let r = a::ws_vote(client, id, up).await;
-            upd(st, ctx, |s| s.action_msg = Some(msg(r, if up { "Вы оценили мод: нравится." } else { "Вы оценили мод: не нравится." })));
+            upd(st, ctx, |s| s.action_msg = Some(msg(r, if up { tr!("Вы оценили мод: нравится.", "You rated the mod: like.") } else { tr!("Вы оценили мод: не нравится.", "You rated the mod: dislike.") })));
         }
         Cmd::WsFavorite { id, appid, add } => {
             let r = a::ws_favorite(client, id, appid, add).await;
-            upd(st, ctx, |s| s.action_msg = Some(msg(r, if add { "Добавлено в избранное." } else { "Убрано из избранного." })));
+            upd(st, ctx, |s| s.action_msg = Some(msg(r, if add { tr!("Добавлено в избранное.", "Added to favorites.") } else { tr!("Убрано из избранного.", "Removed from favorites.") })));
         }
         _ => {}
     }
@@ -2176,25 +2176,25 @@ async fn reload_history(client: &SteamClient, friend: u64, st: &Shared, ctx: &eg
 /// PNG/JPEG/GIF/WebP are sent as is, others (BMP and the like) are re-encoded to PNG.
 fn prepare_image(path: &std::path::Path) -> Result<(Vec<u8>, &'static str, u32, u32), String> {
     use image::ImageFormat;
-    let bytes = std::fs::read(path).map_err(|e| format!("Не удалось прочитать файл: {e}"))?;
+    let bytes = std::fs::read(path).map_err(|e| trf!("Не удалось прочитать файл: {e}", "Could not read the file: {e}"))?;
     if bytes.len() > 20 * 1024 * 1024 {
-        return Err("Файл больше 20 МБ - Steam такой не примет.".into());
+        return Err(tr!("Файл больше 20 МБ - Steam такой не примет.", "The file is over 20 MB - Steam does not accept it.").into());
     }
-    let format = image::guess_format(&bytes).map_err(|_| "Это не картинка (или формат не поддерживается).".to_string())?;
+    let format = image::guess_format(&bytes).map_err(|_| tr!("Это не картинка (или формат не поддерживается).", "This is not an image (or the format is not supported).").to_string())?;
     let reader = image::ImageReader::with_format(std::io::Cursor::new(&bytes), format);
     let (w, h) = reader
         .into_dimensions()
-        .map_err(|e| format!("Не удалось прочитать картинку: {e}"))?;
+        .map_err(|e| trf!("Не удалось прочитать картинку: {e}", "Could not read the image: {e}"))?;
     let ext = match format {
         ImageFormat::Png => "png",
         ImageFormat::Jpeg => "jpeg",
         ImageFormat::Gif => "gif",
         ImageFormat::WebP => "webp",
         _ => {
-            let img = image::load_from_memory(&bytes).map_err(|e| format!("Не удалось прочитать картинку: {e}"))?;
+            let img = image::load_from_memory(&bytes).map_err(|e| trf!("Не удалось прочитать картинку: {e}", "Could not read the image: {e}"))?;
             let mut out = std::io::Cursor::new(Vec::new());
             img.write_to(&mut out, ImageFormat::Png)
-                .map_err(|e| format!("Не удалось перекодировать картинку: {e}"))?;
+                .map_err(|e| trf!("Не удалось перекодировать картинку: {e}", "Could not re-encode the image: {e}"))?;
             return Ok((out.into_inner(), "png", w, h));
         }
     };
@@ -2221,7 +2221,7 @@ fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st: &Shared, 
             let ctx2 = ctx.clone();
             let ticker = tokio::spawn(async move {
                 loop {
-                    tokio::time::sleep(Duration::from_secs(4)).await;
+                    tokio::time::sleep(crate::lite::secs(4, 15)).await;
                     ctx2.request_repaint();
                 }
             });
@@ -2249,7 +2249,7 @@ fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st: &Shared, 
                 // Own message sent from another device (for example from Steam on a phone).
                 ChatEvent::EchoMessage(m) => (true, m),
                 ChatEvent::GameInvite(mut m) => {
-                    m.message = "[приглашение в игру]".into();
+                    m.message = tr!("[приглашение в игру]", "[game invite]").into();
                     m.message_no_bbcode = None;
                     (false, m)
                 }
@@ -2329,7 +2329,7 @@ fn load_library_cache(steam_id: Option<u64>) -> Vec<aurelia::core::models::Owned
 }
 
 async fn load_owned(client: &mut SteamClient, st: &Shared, ctx: &egui::Context) {
-    upd(st, ctx, |s| s.message = "Загружаю библиотеку...".into());
+    upd(st, ctx, |s| s.message = tr!("Загружаю библиотеку...", "Loading the library...").into());
     match client.fetch_owned_games().await {
         Ok(games) => {
             save_library_cache(st, client.my_steam_id(), &games);
@@ -2340,7 +2340,7 @@ async fn load_owned(client: &mut SteamClient, st: &Shared, ctx: &egui::Context) 
             })
         }
         Err(e) => upd(st, ctx, |s| {
-            s.message = format!("Не удалось получить список игр: {e:#}");
+            s.message = trf!("Не удалось получить список игр: {e:#}", "Could not get the game list: {e:#}");
             s.busy = false;
         }),
     }
@@ -2362,11 +2362,11 @@ pub fn fmt_bytes(b: u64) -> String {
     let b = b as f64;
     const MB: f64 = 1024.0 * 1024.0;
     if b >= 1024.0 * MB {
-        format!("{:.2} ГБ", b / 1024.0 / MB)
+        trf!("{:.2} ГБ", "{:.2} GB", b / 1024.0 / MB)
     } else if b >= MB {
-        format!("{:.1} МБ", b / MB)
+        trf!("{:.1} МБ", "{:.1} MB", b / MB)
     } else {
-        format!("{:.0} КБ", b / 1024.0)
+        trf!("{:.0} КБ", "{:.0} KB", b / 1024.0)
     }
 }
 
@@ -2375,10 +2375,13 @@ pub fn fmt_bytes(b: u64) -> String {
 pub(crate) fn space_error(disk_size: u64, already: u64, free: Option<u64>) -> Option<String> {
     let free = free?;
     let need = disk_size.saturating_sub(already);
-    (need > free).then(|| format!("Не хватает места на диске: нужно {}, свободно {}.", fmt_bytes(need), fmt_bytes(free)))
+    (need > free).then(|| trf!("Не хватает места на диске: нужно {}, свободно {}.", "Not enough disk space: {} needed, {} free.", fmt_bytes(need), fmt_bytes(free)))
 }
 
-const CANCELLED: &str = "Установка отменена. Скачанное сохранено, ее можно продолжить.";
+#[allow(non_snake_case)]
+fn CANCELLED() -> &'static str {
+    tr!("Установка отменена. Скачанное сохранено, ее можно продолжить.", "Installation cancelled. What was downloaded is kept, it can be resumed.")
+}
 
 async fn run_install(
     client: SteamClient,
@@ -2390,11 +2393,11 @@ async fn run_install(
 ) -> Result<(), String> {
     // If the download was hidden from Steam (pause/cancel) - put the appmanifest back.
     crate::local::unstash_manifest(&library, appid);
-    set_install(st, ctx, |i| i.stage = "Узнаю размер игры...".into());
+    set_install(st, ctx, |i| i.stage = tr!("Узнаю размер игры...", "Checking the game size...").into());
     let est = client
         .estimate_install_size(appid, DepotPlatform::Windows)
         .await
-        .map_err(|e| format!("Не удалось узнать размер игры: {e:#}"))?;
+        .map_err(|e| trf!("Не удалось узнать размер игры: {e:#}", "Could not get the game size: {e:#}"))?;
     // What is already downloaded (resuming an install) needs no space.
     let game_files = crate::local::installed_size(&library, appid);
     if let Some(e) = space_error(est.disk_size, game_files, crate::local::free_space(&library)) {
@@ -2402,7 +2405,7 @@ async fn run_install(
     }
     set_install(st, ctx, |i| i.total = est.disk_size);
     if abort.load(Ordering::Relaxed) {
-        return Err(CANCELLED.into());
+        return Err(CANCELLED().into());
     }
 
     let state = Arc::new(RwLock::new(DownloadState::default()));
@@ -2417,8 +2420,8 @@ async fn run_install(
     let rx = client
         .install_game(appid, DepotPlatform::Windows, opts, state)
         .await
-        .map_err(|e| format!("Не удалось начать установку: {e:#}"))?;
-    drain_progress(rx, &abort, CANCELLED, st, ctx).await
+        .map_err(|e| trf!("Не удалось начать установку: {e:#}", "Could not start the installation: {e:#}"))?;
+    drain_progress(rx, &abort, CANCELLED(), st, ctx).await
 }
 
 /// Common Aurelia progress loop (install, file verification, move): updates the progress
@@ -2436,7 +2439,7 @@ async fn drain_progress(
     while let Some(p) = rx.recv().await {
         match p.state {
             DownloadProgressState::Queued => {
-                set_install(st, ctx, |i| i.stage = "Подготовка загрузки...".into());
+                set_install(st, ctx, |i| i.stage = tr!("Подготовка загрузки...", "Preparing the download...").into());
             }
             DownloadProgressState::Downloading
             | DownloadProgressState::Verifying
@@ -2454,9 +2457,9 @@ async fn drain_progress(
                     _ => {}
                 }
                 let stage = match p.state {
-                    DownloadProgressState::Verifying => "Проверка файлов",
-                    DownloadProgressState::Moving => "Перенос файлов",
-                    _ => "Загрузка",
+                    DownloadProgressState::Verifying => tr!("Проверка файлов", "Verifying files"),
+                    DownloadProgressState::Moving => tr!("Перенос файлов", "Moving files"),
+                    _ => tr!("Загрузка", "Download"),
                 };
                 set_install(st, ctx, |i| {
                     i.stage = stage.into();
@@ -2472,7 +2475,7 @@ async fn drain_progress(
                 return Err(if abort.load(Ordering::Relaxed) {
                     cancelled.into()
                 } else {
-                    format!("Ошибка: {}", p.current_file)
+                    trf!("Ошибка: {}", "Error: {}", p.current_file)
                 });
             }
         }
@@ -2480,7 +2483,7 @@ async fn drain_progress(
     Err(if abort.load(Ordering::Relaxed) {
         cancelled.into()
     } else {
-        "Операция прервалась без результата.".into()
+        tr!("Операция прервалась без результата.", "The operation stopped without a result.").into()
     })
 }
 
@@ -2499,7 +2502,7 @@ where
         s.install = Some(Install {
             appid,
             name,
-            stage: "Подготовка...".into(),
+            stage: tr!("Подготовка...", "Preparing...").into(),
             done: 0,
             total: 0,
             speed: 0.0,
@@ -2938,7 +2941,7 @@ pub fn merge_after_update(acf: &std::path::Path, original: &str, ok: bool) -> Re
     let tmp = acf.with_extension("acf.tmp");
     std::fs::write(&tmp, original)
         .and_then(|_| std::fs::rename(&tmp, acf))
-        .map_err(|e| format!("Не удалось вернуть файл игры: {e}"))?;
+        .map_err(|e| trf!("Не удалось вернуть файл игры: {e}", "Could not restore the game file: {e}"))?;
     if ok {
         crate::local::write_depot_versions(acf, &updated, build.as_deref(), 4)?;
     }
@@ -3120,8 +3123,8 @@ pub async fn switch_language(
     let depots = c
         .language_depots(appid, &branch)
         .await
-        .map_err(|e| format!("Не удалось узнать языковые файлы игры: {e:#}"))?;
-    let library = acf.parent().and_then(|p| p.parent()).ok_or("Не найдена папка библиотеки")?.to_path_buf();
+        .map_err(|e| trf!("Не удалось узнать языковые файлы игры: {e:#}", "Could not get the game's language files: {e:#}"))?;
+    let library = acf.parent().and_then(|p| p.parent()).ok_or(tr!("Не найдена папка библиотеки", "Library folder not found"))?.to_path_buf();
     let installed = local::installed_depots(acf);
     let shared = local::shared_depots(acf);
     let lang_of = |d: u32| depots.iter().find(|x| x.0 == d).map(|x| x.1.clone());
@@ -3139,7 +3142,7 @@ pub async fn switch_language(
         }
         match from {
             None => {
-                let m = manifest.ok_or(format!("Нет версии языкового хранилища {d} на ветке {branch}"))?;
+                let m = manifest.ok_or(trf!("Нет версии языкового хранилища {d} на ветке {branch}", "No version of language depot {d} on branch {branch}"))?;
                 new_own.push((*d, m));
             }
             Some(owner) => {
@@ -3148,19 +3151,19 @@ pub async fn switch_language(
                 if local::installed_depots(&owner_acf).contains_key(d) {
                     edit.add_shared.push((*d, *owner));
                 } else {
-                    return Err(format!(
+                    return Err(trf!(
                         "Этот язык ставится вместе с другой игрой (appid {owner}), которой нет в этой библиотеке \
-                         или в ней нет этого языка. Смените язык через Steam: «Свойства» -> «Обновить через Steam»."
+                         или в ней нет этого языка. Смените язык через Steam: «Свойства» -> «Обновить через Steam».", "This language is installed with another game (appid {owner}) that is not in this library or lacks this language. Change the language through Steam: \"Properties\" -> \"Update via Steam\"."
                     ));
                 }
             }
         }
     }
 
-    let mut text = std::fs::read_to_string(acf).map_err(|e| format!("Не удалось прочитать файл игры: {e}"))?;
+    let mut text = std::fs::read_to_string(acf).map_err(|e| trf!("Не удалось прочитать файл игры: {e}", "Could not read the game file: {e}"))?;
     let restore = |t: &str| -> Result<(), String> {
         let tmp = acf.with_extension("acf.tmp");
-        std::fs::write(&tmp, t).and_then(|_| std::fs::rename(&tmp, acf)).map_err(|e| format!("Не удалось вернуть файл игры: {e}"))
+        std::fs::write(&tmp, t).and_then(|_| std::fs::rename(&tmp, acf)).map_err(|e| trf!("Не удалось вернуть файл игры: {e}", "Could not restore the game file: {e}"))
     };
 
     // 1. Remove the old language and verify files.
@@ -3171,10 +3174,10 @@ pub async fn switch_language(
             eprintln!("файлы старого языка не удалены: {e}");
         }
         local::edit_depot_lists(acf, &local::DepotEdit { remove_installed: edit.remove_installed.clone(), ..Default::default() })?;
-        text = std::fs::read_to_string(acf).map_err(|e| format!("Не удалось прочитать файл игры: {e}"))?;
-        set_install(st, ctx, |i| i.stage = "Проверка файлов (после смены языка)".into());
-        let rx = c.verify_game(appid, new_state()).await.map_err(|e| format!("Не удалось начать проверку: {e:#}"))?;
-        let res = drain_progress(rx, abort, "Смена языка отменена.", st, ctx).await;
+        text = std::fs::read_to_string(acf).map_err(|e| trf!("Не удалось прочитать файл игры: {e}", "Could not read the game file: {e}"))?;
+        set_install(st, ctx, |i| i.stage = tr!("Проверка файлов (после смены языка)", "Verifying files (after the language change)").into());
+        let rx = c.verify_game(appid, new_state()).await.map_err(|e| trf!("Не удалось начать проверку: {e:#}", "Could not start the verification: {e:#}"))?;
+        let res = drain_progress(rx, abort, tr!("Смена языка отменена.", "Language change cancelled."), st, ctx).await;
         restore(&text)?;
         res?;
     }
@@ -3191,14 +3194,14 @@ pub async fn switch_language(
         let rx = c
             .install_game(appid, DepotPlatform::Windows, opts, new_state())
             .await
-            .map_err(|e| format!("Не удалось начать загрузку языка: {e:#}"))?;
-        let res = drain_progress(rx, abort, "Смена языка отменена.", st, ctx).await;
+            .map_err(|e| trf!("Не удалось начать загрузку языка: {e:#}", "Could not start downloading the language: {e:#}"))?;
+        let res = drain_progress(rx, abort, tr!("Смена языка отменена.", "Language change cancelled."), st, ctx).await;
         let sizes = local::installed_depot_sizes(acf);
         let got = local::installed_depots(acf);
         restore(&text)?;
         res?;
         for (d, _) in &new_own {
-            let m = *got.get(d).ok_or(format!("Языковое хранилище {d} не скачалось"))?;
+            let m = *got.get(d).ok_or(trf!("Языковое хранилище {d} не скачалось", "Language depot {d} was not downloaded"))?;
             edit.add_installed.push((*d, m, sizes.get(d).copied().unwrap_or(0)));
         }
     }
@@ -3318,12 +3321,12 @@ async fn remove_language_files(
             t.to_lowercase().starts_with("\"installdir\"").then(|| t.rsplit('"').nth(1).unwrap_or("").to_string())
         })
         .filter(|d| !d.is_empty())
-        .ok_or("нет installdir")?;
+        .ok_or(tr!("нет installdir", "no installdir"))?;
     let game_dir = library.join("steamapps").join("common").join(installdir);
     let files = |app: u32, depot: u32, manifest: u64| async move {
         c.depot_file_names(app, depot, manifest)
             .await
-            .map_err(|e| format!("список файлов хранилища {depot}: {e:#}"))
+            .map_err(|e| trf!("список файлов хранилища {depot}: {e:#}", "file list of depot {depot}: {e:#}"))
     };
     let mut keep = std::collections::HashSet::new();
     for (d, m) in installed.iter().filter(|(d, _)| !removed.contains(d)) {
@@ -3333,7 +3336,7 @@ async fn remove_language_files(
         let owner_acf = library.join("steamapps").join(format!("appmanifest_{owner}.acf"));
         let m = *crate::local::installed_depots(&owner_acf)
             .get(d)
-            .ok_or(format!("неизвестна версия общего хранилища {d}"))?;
+            .ok_or(trf!("неизвестна версия общего хранилища {d}", "unknown version of shared depot {d}"))?;
         keep.extend(files(*owner, *d, m).await?);
     }
     let mut n = 0;
@@ -3491,7 +3494,7 @@ async fn uninstall_shared(
     let steamapps = game_dir
         .parent()
         .and_then(std::path::Path::parent)
-        .ok_or("неверная папка игры")?
+        .ok_or(tr!("неверная папка игры", "wrong game folder"))?
         .to_path_buf();
     let remove = shared_remove_list(c, appid, &steamapps, others).await?;
     remove_listed(appid, game_dir, &steamapps, &remove)
@@ -3511,7 +3514,7 @@ async fn shared_remove_list(
     let files = |app: u32, depot: u32, manifest: u64| async move {
         c.depot_file_names(app, depot, manifest)
             .await
-            .map_err(|e| format!("список файлов хранилища {depot}: {e:#}"))
+            .map_err(|e| trf!("список файлов хранилища {depot}: {e:#}", "file list of depot {depot}: {e:#}"))
     };
     // Neighbors' files (their own and shared depots) - not touched.
     let mut keep = std::collections::HashSet::new();
@@ -3580,7 +3583,7 @@ fn remove_listed(
         steamapps.join(format!("appmanifest_{appid}{}", crate::local::STASH_EXT)),
     ] {
         if f.exists() {
-            std::fs::remove_file(&f).map_err(|e| format!("не удалось удалить {}: {e}", f.display()))?;
+            std::fs::remove_file(&f).map_err(|e| trf!("не удалось удалить {}: {e}", "could not delete {}: {e}", f.display()))?;
         }
     }
     Ok(n)

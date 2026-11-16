@@ -30,7 +30,7 @@ pub fn set(on: bool) -> Result<(), String> {
     use winreg::{enums::HKEY_CURRENT_USER, RegKey};
     let (key, _) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(RUN).map_err(|e| e.to_string())?;
     if on {
-        let exe = current_exe_quoted().ok_or("не найден путь к программе")?;
+        let exe = current_exe_quoted().ok_or(tr!("не найден путь к программе", "program path not found"))?;
         key.set_value(NAME, &format!("{exe} {TRAY_ARG}")).map_err(|e| e.to_string())
     } else {
         match key.delete_value(NAME) {
@@ -48,5 +48,5 @@ pub fn enabled() -> bool {
 
 #[cfg(not(windows))]
 pub fn set(_on: bool) -> Result<(), String> {
-    Err("Только для Windows".into())
+    Err(tr!("Только для Windows", "Windows only").into())
 }

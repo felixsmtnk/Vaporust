@@ -97,7 +97,7 @@ fn mci(cmd: &str) -> Result<String, String> {
     let mut buf = [0u16; 256];
     let r = unsafe { mciSendStringW(w.as_ptr(), buf.as_mut_ptr(), buf.len() as u32, std::ptr::null_mut()) };
     if r != 0 {
-        return Err(format!("ошибка MCI {r}"));
+        return Err(trf!("ошибка MCI {r}", "MCI error {r}"));
     }
     let len = buf.iter().position(|c| *c == 0).unwrap_or(0);
     Ok(String::from_utf16_lossy(&buf[..len]))
@@ -105,7 +105,7 @@ fn mci(cmd: &str) -> Result<String, String> {
 
 #[cfg(not(windows))]
 fn mci(_cmd: &str) -> Result<String, String> {
-    Err("только Windows".into())
+    Err(tr!("только Windows", "Windows only").into())
 }
 
 fn stop_all() {
@@ -151,17 +151,17 @@ impl LauncherApp {
         let albums = m.albums.clone().unwrap_or_default();
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Саундтреки").size(20.0).strong());
+            ui.label(egui::RichText::new(tr!("Саундтреки", "Soundtracks")).size(20.0).strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Найти заново").clicked() {
+                if ui.button(tr!("Найти заново", "Search again")).clicked() {
                     m.albums = None;
                 }
             });
         });
         ui.separator();
         if albums.is_empty() {
-            ui.weak("Саундтреков не найдено. Steam ставит купленные саундтреки в папку steamapps\\music библиотеки; \
-                     у некоторых игр музыка лежит в папке «Soundtrack» внутри игры.");
+            ui.weak(tr!("Саундтреков не найдено. Steam ставит купленные саундтреки в папку steamapps\\music библиотеки; \
+                     у некоторых игр музыка лежит в папке «Soundtrack» внутри игры.", "No soundtracks found. Steam puts purchased soundtracks into the library's steamapps\\music folder; some games keep their music in a \"Soundtrack\" folder inside the game."));
             if m.albums.is_none() {
                 m.albums = Some(self.steam.as_ref().map(|s| scan(&s.dir)).unwrap_or_default());
             }
@@ -173,15 +173,15 @@ impl LauncherApp {
             let pos = position();
             egui::Frame::none().fill(crate::theme::CARD).rounding(4.0).inner_margin(egui::Margin::same(8.0)).show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    if ui.button(if m.paused { "Играть" } else { "Пауза" }).clicked() {
+                    if ui.button(if m.paused { tr!("Играть", "Play") } else { tr!("Пауза", "Pause") }).clicked() {
                         let _ = mci(if m.paused { "resume vaporust_music" } else { "pause vaporust_music" });
                         m.paused = !m.paused;
                     }
-                    if ui.button("Стоп").clicked() {
+                    if ui.button(tr!("Стоп", "Stop")).clicked() {
                         stop_all();
                         m.playing = None;
                     }
-                    if ui.button("Следующий").clicked() {
+                    if ui.button(tr!("Следующий", "Next")).clicked() {
                         let next = t + 1;
                         if let Some(p) = albums.get(a).and_then(|al| al.tracks.get(next)) {
                             if play_file(p, m.volume).is_ok() {
@@ -209,7 +209,7 @@ impl LauncherApp {
                         if ui.add(egui::Slider::new(&mut m.volume, 0.0..=1.0).show_value(false)).changed() {
                             let _ = mci(&format!("setaudio vaporust_music volume to {}", (m.volume * 1000.0) as u32));
                         }
-                        ui.weak("Громкость");
+                        ui.weak(tr!("Громкость", "Volume"));
                     });
                 });
             });
@@ -230,7 +230,7 @@ impl LauncherApp {
             let al = &albums[album];
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(crate::richtext::fix(ui, &al.name)).size(16.0).strong());
-                if ui.small_button("Папка").clicked() {
+                if ui.small_button(tr!("Папка", "Folder")).clicked() {
                     crate::local::open_folder(&al.dir);
                 }
             });
@@ -241,8 +241,8 @@ impl LauncherApp {
                     let on = m.playing == Some((album, i));
                     ui.horizontal(|ui| {
                         let playable = PLAYABLE.contains(&e.as_str());
-                        let label = if playable { "играть" } else { "открыть" };
-                        if ui.small_button(label).on_hover_text(if playable { "Играть в Vaporust" } else { "Этот формат играет проигрыватель Windows" }).clicked() {
+                        let label = if playable { tr!("играть", "play") } else { tr!("открыть", "open") };
+                        if ui.small_button(label).on_hover_text(if playable { tr!("Играть в Vaporust", "Play in Vaporust") } else { tr!("Этот формат играет проигрыватель Windows", "This format is played by Windows Media Player") }).clicked() {
                             if playable {
                                 if play_file(p, m.volume).is_ok() {
                                     m.playing = Some((album, i));

@@ -1,0 +1,79 @@
+# Weekly check that Steam pages still look the way Vaporust's parsers expect.
+# Downloads fresh public pages (no login), runs the parsing tests on them, and on failure
+# opens an issue (one at a time) so a Valve markup change is noticed before users notice it.
+name: steam-pages
+
+on:
+  schedule:
+    - cron: "17 6 * * 1" # every Monday, 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      issues: write # open an issue when a parser breaks
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: "1.90.0"
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: steam-pages
+
+      - name: Download fresh Steam pages
+        id: capture
+        shell: pwsh
+        run: |
+          $env:CARGO_TERM_COLOR = "never"
+          # Steam sometimes rate-limits cloud machines: up to 3 attempts.
+          for ($i = 1; $i -le 3; $i++) {
+            cargo test --release --locked capture_live -- --ignored --nocapture 2>&1 | Tee-Object -Variable log
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            Start-Sleep -Seconds 120
+          }
+          $lines = $log | ForEach-Object { "$_" } | Where-Object { $_ -match 'panicked|status|error' } | Select-Object -First 30
+          ($lines -join "`n") | Out-File -FilePath capture_error.txt -Encoding utf8
+          exit 1
+
+      - name: Parse the fresh pages
+        id: parse
+        shell: pwsh
+        run: |
+          $env:CARGO_TERM_COLOR = "never"
+          cargo test --release --locked fixtures:: 2>&1 | Tee-Object -Variable log
+          if ($LASTEXITCODE -ne 0) {
+            $lines = $log | ForEach-Object { "$_" } |
+              Where-Object { $_ -match 'FAILED|panicked|assertion|left:|right:' } | Select-Object -First 40
+            ($lines -join "`n") | Out-File -FilePath parse_error.txt -Encoding utf8
+            exit 1
+          }
+
+      - name: Open an issue
+        if: failure()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $title = "Steam pages changed: a parser needs attention"
+          $open = gh issue list --repo $env:GITHUB_REPOSITORY --state open --search "in:title `"$title`"" --json number --jq length
+          if ([int]$open -gt 0) { "An issue is already open"; exit 0 }
+          $details = ""
+          foreach ($f in "capture_error.txt", "parse_error.txt") {
+            if (Test-Path $f) { $details += "``````n" + (Get-Content $f -Raw) + "``````n" }
+          }
+          $run = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+          $body = "The weekly check of public Steam pages failed ($run).`n`n" +
+            "If the download step failed, Steam may have been unavailable or rate-limited the build machine " +
+            "(run the check again). If parsing failed, Valve changed the page markup: capture the pages locally " +
+            "with ``cargo test capture_live -- --ignored``, fix the parser and commit the new testdata.`n`n$details"
+          gh issue create --repo $env:GITHUB_REPOSITORY --title $title --body $body

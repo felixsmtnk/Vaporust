@@ -100,16 +100,16 @@ fn get(url: &str) -> Result<Vec<u8>, String> {
         ("User-Agent", "Vaporust-updater"),
         ("Accept", "application/vnd.github+json"),
     ]);
-    let resp = ehttp::fetch_blocking(&req).map_err(|e| format!("нет связи с GitHub: {e}"))?;
+    let resp = ehttp::fetch_blocking(&req).map_err(|e| trf!("нет связи с GitHub: {e}", "no connection to GitHub: {e}"))?;
     if !resp.ok {
-        return Err(format!("GitHub ответил {} {}", resp.status, resp.status_text));
+        return Err(trf!("GitHub ответил {} {}", "GitHub answered {} {}", resp.status, resp.status_text));
     }
     Ok(resp.bytes)
 }
 
 /// The newest release newer than the current version (drafts are skipped).
 pub fn parse_latest(json: &[u8], current: &str) -> Result<Option<Release>, String> {
-    let v: Value = serde_json::from_slice(json).map_err(|_| "непонятный ответ GitHub".to_string())?;
+    let v: Value = serde_json::from_slice(json).map_err(|_| tr!("непонятный ответ GitHub", "unclear answer from GitHub").to_string())?;
     let mut best: Option<Release> = None;
     for r in v.as_array().into_iter().flatten() {
         if r.get("draft").and_then(Value::as_bool) == Some(true) {
@@ -159,7 +159,7 @@ pub fn check(state: &Shared, ctx: &eframe::egui::Context) {
         *state.lock().unwrap() = match res {
             Ok(Some(r)) => State::Available(r),
             Ok(None) => State::UpToDate,
-            Err(e) => State::Failed(format!("Не удалось проверить обновления: {e}")),
+            Err(e) => State::Failed(trf!("Не удалось проверить обновления: {e}", "Could not check for updates: {e}")),
         };
         ctx.request_repaint();
     });
@@ -173,23 +173,23 @@ pub fn install(release: Release, state: &Shared, ctx: &eframe::egui::Context) {
             *state.lock().unwrap() = s;
             ctx.request_repaint();
         };
-        set(State::Downloading(format!("Скачиваю Vaporust {}...", release.version)));
+        set(State::Downloading(trf!("Скачиваю Vaporust {}...", "Downloading Vaporust {}...", release.version)));
         let res = (|| -> Result<(), String> {
-            let url = release.asset_url.clone().ok_or("в релизе нет архива для этой Windows")?;
+            let url = release.asset_url.clone().ok_or(tr!("в релизе нет архива для этой Windows", "the release has no archive for this Windows"))?;
             let sha_url = release
                 .sha_url
                 .clone()
-                .ok_or("в релизе нет контрольной суммы архива (.sha256) - скачайте новую версию со страницы релиза вручную")?;
+                .ok_or(tr!("в релизе нет контрольной суммы архива (.sha256) - скачайте новую версию со страницы релиза вручную", "the release has no archive checksum (.sha256) - download the new version from the release page manually"))?;
             let expected = parse_sha(&get(&sha_url)?)?;
             let bytes = get(&url)?;
             verify_sha(&bytes, &expected)?;
-            set(State::Downloading("Устанавливаю...".into()));
+            set(State::Downloading(tr!("Устанавливаю...", "Installing...").into()));
             let exe = std::env::current_exe().map_err(|e| e.to_string())?;
             replace_exe(&exe, &bytes)
         })();
         set(match res {
             Ok(()) => State::Ready,
-            Err(e) => State::Failed(format!("Обновление не удалось: {e}")),
+            Err(e) => State::Failed(trf!("Обновление не удалось: {e}", "Update failed: {e}")),
         });
     });
 }
@@ -202,7 +202,7 @@ fn parse_sha(text: &[u8]) -> Result<String, String> {
     if first.len() == 64 && first.chars().all(|c| c.is_ascii_hexdigit()) {
         Ok(first.to_ascii_lowercase())
     } else {
-        Err("непонятный файл контрольной суммы".into())
+        Err(tr!("непонятный файл контрольной суммы", "unclear checksum file").into())
     }
 }
 
@@ -214,7 +214,7 @@ fn verify_sha(data: &[u8], expected: &str) -> Result<(), String> {
     if got.eq_ignore_ascii_case(expected) {
         Ok(())
     } else {
-        Err("контрольная сумма архива не совпала (архив поврежден при скачивании или подменен), обновление не установлено".into())
+        Err(tr!("контрольная сумма архива не совпала (архив поврежден при скачивании или подменен), обновление не установлено", "the archive checksum did not match (the archive was damaged while downloading or replaced), the update was not installed").into())
     }
 }
 
@@ -239,19 +239,19 @@ pub fn replace_exe(exe: &Path, zip: &[u8]) -> Result<(), String> {
     use std::io::Read;
     // We unpack ourselves (zip crate): the system tar.exe does not understand non-Latin letters in
     // paths (for example "C:\Users\Иван\...") on Windows with a different language.
-    let mut z = zip::ZipArchive::new(std::io::Cursor::new(zip)).map_err(|e| format!("не удалось открыть архив: {e}"))?;
+    let mut z = zip::ZipArchive::new(std::io::Cursor::new(zip)).map_err(|e| trf!("не удалось открыть архив: {e}", "could not open the archive: {e}"))?;
     let idx = (0..z.len())
         .find(|&i| z.by_index(i).map(|f| f.name().to_ascii_lowercase().ends_with("vaporust.exe")).unwrap_or(false))
-        .ok_or("в архиве нет vaporust.exe")?;
+        .ok_or(tr!("в архиве нет vaporust.exe", "the archive has no vaporust.exe"))?;
     let mut data = Vec::new();
     z.by_index(idx)
-        .map_err(|e| format!("не удалось распаковать архив: {e}"))?
+        .map_err(|e| trf!("не удалось распаковать архив: {e}", "could not unpack the archive: {e}"))?
         .read_to_end(&mut data)
-        .map_err(|e| format!("не удалось распаковать архив: {e}"))?;
+        .map_err(|e| trf!("не удалось распаковать архив: {e}", "could not unpack the archive: {e}"))?;
     match pe_is_64(&data) {
         Some(is64) if is64 == cfg!(target_pointer_width = "64") => {}
-        Some(_) => return Err("в архиве программа другой разрядности (x64/x86), обновление не установлено".into()),
-        None => return Err("в архиве не программа Windows, обновление не установлено".into()),
+        Some(_) => return Err(tr!("в архиве программа другой разрядности (x64/x86), обновление не установлено", "the archive has a program of a different bitness (x64/x86), the update was not installed").into()),
+        None => return Err(tr!("в архиве не программа Windows, обновление не установлено", "the archive has no Windows program, the update was not installed").into()),
     }
     let tmp =std::env::temp_dir().join(format!("vaporust-update-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
@@ -260,11 +260,11 @@ pub fn replace_exe(exe: &Path, zip: &[u8]) -> Result<(), String> {
     std::fs::write(&new_exe, data).map_err(|e| e.to_string())?;
     let old = exe.with_extension("exe.old");
     let _ = std::fs::remove_file(&old);
-    std::fs::rename(exe, &old).map_err(|e| format!("не удалось заменить программу (папка доступна для записи?): {e}"))?;
+    std::fs::rename(exe, &old).map_err(|e| trf!("не удалось заменить программу (папка доступна для записи?): {e}", "could not replace the program (is the folder writable?): {e}"))?;
     if let Err(e) = std::fs::copy(&new_exe, exe) {
         // Restore as it was.
         let _ = std::fs::rename(&old, exe);
-        return Err(format!("не удалось записать новую версию: {e}"));
+        return Err(trf!("не удалось записать новую версию: {e}", "could not write the new version: {e}"));
     }
     let _ = std::fs::remove_dir_all(&tmp);
     Ok(())
@@ -295,22 +295,22 @@ impl crate::LauncherApp {
             ui.add_space(3.0);
             ui.horizontal(|ui| match &state {
                 State::Available(r) => {
-                    ui.colored_label(egui::Color32::from_rgb(240, 200, 80), format!("Доступна новая версия Vaporust {}", r.version));
+                    ui.colored_label(egui::Color32::from_rgb(240, 200, 80), trf!("Доступна новая версия Vaporust {}", "A new Vaporust version is available: {}", r.version));
                     if r.asset_size > 0 {
                         ui.weak(format!("({})", crate::net::fmt_bytes(r.asset_size)));
                     }
                     let notes: String = r.notes.lines().take(25).collect::<Vec<_>>().join("\n");
-                    if !r.page.is_empty() && ui.button("Что нового").on_hover_text(notes).clicked() {
+                    if !r.page.is_empty() && ui.button(tr!("Что нового", "What's new")).on_hover_text(notes).clicked() {
                         ui.ctx().open_url(egui::OpenUrl::new_tab(&r.page));
                     }
                     if r.asset_url.is_some() {
-                        if ui.button("Обновить").on_hover_text("Скачать и установить, затем перезапустить Vaporust").clicked() {
+                        if ui.button(tr!("Обновить", "Refresh")).on_hover_text(tr!("Скачать и установить, затем перезапустить Vaporust", "Download and install, then restart Vaporust")).clicked() {
                             install(r.clone(), &self.upd, ui.ctx());
                         }
                     } else {
-                        ui.weak("(архива для этой Windows в релизе нет - скачайте со страницы)");
+                        ui.weak(tr!("(архива для этой Windows в релизе нет - скачайте со страницы)", "(the release has no archive for this Windows - download it from the page)"));
                     }
-                    if ui.button("Позже").clicked() {
+                    if ui.button(tr!("Позже", "Later")).clicked() {
                         self.upd_hidden = true;
                     }
                 }
@@ -319,8 +319,8 @@ impl crate::LauncherApp {
                     ui.label(t);
                 }
                 State::Ready => {
-                    ui.colored_label(egui::Color32::from_rgb(110, 200, 110), "Новая версия установлена.");
-                    if ui.button("Перезапустить Vaporust").clicked() {
+                    ui.colored_label(egui::Color32::from_rgb(110, 200, 110), tr!("Новая версия установлена.", "The new version is installed."));
+                    if ui.button(tr!("Перезапустить Vaporust", "Restart Vaporust")).clicked() {
                         if crate::portable::restart().is_ok() {
                             crate::tray::request_exit();
                             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
@@ -328,7 +328,7 @@ impl crate::LauncherApp {
                     }
                 }
                 State::UpToDate => {
-                    ui.label(format!("У вас последняя версия Vaporust ({CURRENT})."));
+                    ui.label(trf!("У вас последняя версия Vaporust ({CURRENT}).", "You have the latest Vaporust version ({CURRENT})."));
                     if ui.small_button("OK").clicked() {
                         self.upd_hidden = true;
                     }

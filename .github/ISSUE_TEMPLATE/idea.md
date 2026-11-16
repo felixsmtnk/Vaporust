@@ -1,11 +1,10 @@
 ---
-name: Идея
-about: Предложить новую функцию или изменение
+name: Idea / Идея
+about: Suggest a new feature or a change / Предложить новую функцию или изменение
 labels: enhancement
 ---
 
-**Что хочется**
+**What you want / Что хочется**
 
 
-**Зачем это нужно**
-
+**Why it is needed / Зачем это нужно**

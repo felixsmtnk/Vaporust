@@ -53,7 +53,7 @@ fn sub_item(ui: &mut egui::Ui, on: bool, text: &str) -> egui::Response {
 impl LauncherApp {
     /// Profile name for the top bar: the Steam name (if already known), otherwise "ПРОФИЛЬ".
     fn profile_label(&mut self, ui: &egui::Ui, net: &NetState) -> String {
-        let Some(me) = net.my_id else { return "ПРОФИЛЬ".into() };
+        let Some(me) = net.my_id else { return tr!("ПРОФИЛЬ", "PROFILE").into() };
         match net.profiles.get(&me) {
             Some(Ok(p)) => p.persona_name.clone().filter(|n| !n.trim().is_empty()).map(|n| crate::richtext::fix(ui, &n).to_uppercase()),
             Some(Err(_)) => None,
@@ -65,7 +65,7 @@ impl LauncherApp {
                 None
             }
         }
-        .unwrap_or_else(|| "ПРОФИЛЬ".into())
+        .unwrap_or_else(|| tr!("ПРОФИЛЬ", "PROFILE").into())
     }
 
     /// Top bar: Vaporust menu, four sections, Steam notifications on the right.
@@ -85,15 +85,15 @@ impl LauncherApp {
             // Program menu - plain text, like "Steam" in the client.
             egui::menu::menu_custom_button(ui, egui::Button::new(egui::RichText::new("Vaporust").size(14.0)).frame(false), |ui| {
                 ui.set_min_width(190.0);
-                if ui.button("Настройки").clicked() {
+                if ui.button(tr!("Настройки", "Settings")).clicked() {
                     self.view = View::Settings;
                     ui.close_menu();
                 }
                 if let Some((appid, name, _)) = &running {
                     ui.separator();
                     if ui
-                        .button(format!("Закрыть «{name}»"))
-                        .on_hover_text("Просит игру закрыться, как крестик окна или Alt+F4")
+                        .button(trf!("Закрыть «{name}»", "Close \"{name}\""))
+                        .on_hover_text(tr!("Просит игру закрыться, как крестик окна или Alt+F4", "Asks the game to close, like the window's close button or Alt+F4"))
                         .clicked()
                     {
                         self.stop_running(*appid, false);
@@ -101,8 +101,8 @@ impl LauncherApp {
                     }
                     if force_ok
                         && ui
-                            .button("Закрыть игру принудительно")
-                            .on_hover_text("Сразу завершает процессы игры, если она зависла. Несохраненное пропадет.")
+                            .button(tr!("Закрыть игру принудительно", "Force-close the game"))
+                            .on_hover_text(tr!("Сразу завершает процессы игры, если она зависла. Несохраненное пропадет.", "Ends the game processes at once if it hangs. Unsaved progress is lost."))
                             .clicked()
                     {
                         self.stop_running(*appid, true);
@@ -114,9 +114,9 @@ impl LauncherApp {
                         ui.separator();
                     }
                     if ui
-                        .button("Перестать следить за игрой")
-                        .on_hover_text("Запасной выход, если Vaporust не заметил закрытия игры.
-Steam остается открытым.")
+                        .button(tr!("Перестать следить за игрой", "Stop following the game"))
+                        .on_hover_text(tr!("Запасной выход, если Vaporust не заметил закрытия игры.
+Steam остается открытым.", "A fallback if Vaporust did not notice the game closing.\nSteam stays open."))
                         .clicked()
                     {
                         self.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -127,43 +127,43 @@ Steam остается открытым.")
                     if !launching {
                         ui.separator();
                     }
-                    if ui.button("Закрыть Steam").on_hover_text("Закрывает Steam (если он завис - принудительно)").clicked() {
+                    if ui.button(tr!("Закрыть Steam", "Close Steam")).on_hover_text(tr!("Закрывает Steam (если он завис - принудительно)", "Closes Steam (forcibly if it hangs)")).clicked() {
                         self.close_steam(ui.ctx());
                         ui.close_menu();
                     }
                 }
                 ui.separator();
-                if ui.button("Аккаунты...").on_hover_text("Несколько аккаунтов Steam и быстрое переключение").clicked() {
+                if ui.button(tr!("Аккаунты...", "Accounts...")).on_hover_text(tr!("Несколько аккаунтов Steam и быстрое переключение", "Several Steam accounts and quick switching")).clicked() {
                     self.accounts_open = true;
                     ui.close_menu();
                 }
-                if crate::exp::button(ui, "Редактировать профиль").clicked() {
+                if crate::exp::button(ui, tr!("Редактировать профиль", "Edit profile")).clicked() {
                     self.open_profile_edit();
                     ui.close_menu();
                 }
                 ui.separator();
-                if ui.add_enabled(!net.busy, egui::Button::new("Выйти из аккаунта")).clicked() {
+                if ui.add_enabled(!net.busy, egui::Button::new(tr!("Выйти из аккаунта", "Log out"))).clicked() {
                     let _ = self.tx.send(crate::net::Cmd::Logout);
                     ui.close_menu();
                 }
-                if ui.button("Закрыть Vaporust").clicked() {
+                if ui.button(tr!("Закрыть Vaporust", "Quit Vaporust")).clicked() {
                     crate::tray::request_exit();
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                     ui.close_menu();
                 }
             });
-            if top_item(ui, section == Some(Section::Store), "МАГАЗИН")
-                .on_hover_text("Ctrl+щелчок - открыть магазин в отдельном окне")
+            if top_item(ui, section == Some(Section::Store), tr!("МАГАЗИН", "STORE"))
+                .on_hover_text(tr!("Ctrl+щелчок - открыть магазин в отдельном окне", "Ctrl+click - open the store in a separate window"))
                 .clicked()
             {
                 self.open_store(None, ctrl);
             }
-            if top_item(ui, section == Some(Section::Library), "БИБЛИОТЕКА").clicked() {
+            if top_item(ui, section == Some(Section::Library), tr!("БИБЛИОТЕКА", "LIBRARY")).clicked() {
                 self.close_extras(View::Library);
                 self.view = View::Library;
                 self.lib_page = None;
             }
-            if top_item(ui, section == Some(Section::Community), "СООБЩЕСТВО").clicked() {
+            if top_item(ui, section == Some(Section::Community), tr!("СООБЩЕСТВО", "COMMUNITY")).clicked() {
                 if self.community_ui.appid.is_some() {
                     self.view = View::Community;
                 } else {
@@ -171,7 +171,7 @@ Steam остается открытым.")
                 }
             }
             let name = self.profile_label(ui, net);
-            if top_item(ui, section == Some(Section::Profile), &name).on_hover_text("Ваш профиль, инвентарь, значки, семья Steam").clicked() {
+            if top_item(ui, section == Some(Section::Profile), &name).on_hover_text(tr!("Ваш профиль, инвентарь, значки, семья Steam", "Your profile, inventory, badges, Steam Family")).clicked() {
                 if let Some(me) = net.my_id {
                     self.open_profile(me, net);
                 }
@@ -182,7 +182,7 @@ Steam остается открытым.")
     /// Subsections of the selected section (the row under the top bar).
     pub(crate) fn sub_nav(&mut self, ui: &mut egui::Ui, net: &NetState) {
         let Some(section) = section_of(self.view) else {
-            ui.label(egui::RichText::new("Настройки").size(13.5).color(egui::Color32::WHITE));
+            ui.label(egui::RichText::new(tr!("Настройки", "Settings")).size(13.5).color(egui::Color32::WHITE));
             return;
         };
         let ctrl = ui.input(|i| i.modifiers.ctrl);
@@ -193,11 +193,11 @@ Steam остается открытым.")
                     let (tab, page) = self.store_win.as_ref().map_or((Tab::Search, false), |w| (w.tab(), w.on_page()));
                     let in_store = self.view == View::Store && !self.store_detached;
                     for (t, label) in [
-                        (Tab::Home, "Главная"),
-                        (Tab::Deals, "Скидки"),
-                        (Tab::Charts, "Чарты"),
-                        (Tab::Discovery, "Рекомендации"),
-                        (Tab::Wishlist, "Желаемое"),
+                        (Tab::Home, tr!("Главная", "Home")),
+                        (Tab::Deals, tr!("Скидки", "Specials")),
+                        (Tab::Charts, tr!("Чарты", "Charts")),
+                        (Tab::Discovery, tr!("Рекомендации", "Recommendations")),
+                        (Tab::Wishlist, tr!("Желаемое", "Wishlist")),
                     ] {
                         let on = in_store && !page && (tab == t || (t == Tab::Deals && tab == Tab::Events) || (t == Tab::Home && tab == Tab::Search));
                         if sub_item(ui, on, label).clicked() {
@@ -212,56 +212,56 @@ Steam остается открытым.")
                         }
                     }
                     ui.separator();
-                    if sub_item(ui, self.view == View::News, "Новости").on_hover_text("Новости ваших игр одной лентой").clicked() {
+                    if sub_item(ui, self.view == View::News, tr!("Новости", "News")).on_hover_text(tr!("Новости ваших игр одной лентой", "News of your games in one feed")).clicked() {
                         self.close_extras(View::News);
                         self.view = View::News;
                     }
-                    if sub_item(ui, self.view == View::Points, "Магазин очков")
-                        .on_hover_text("Очки Steam: эффекты чата, стикеры, рамки")
+                    if sub_item(ui, self.view == View::Points, tr!("Магазин очков", "Points Shop"))
+                        .on_hover_text(tr!("Очки Steam: эффекты чата, стикеры, рамки", "Steam Points: chat effects, stickers, frames"))
                         .clicked()
                     {
                         self.open_points();
                     }
-                    if sub_item(ui, self.view == View::Cart, "Корзина").on_hover_text("Корзина магазина Steam").clicked() {
+                    if sub_item(ui, self.view == View::Cart, tr!("Корзина", "Cart")).on_hover_text(tr!("Корзина магазина Steam", "Steam store cart")).clicked() {
                         self.open_cart();
                     }
                 }
                 Section::Library => {
-                    if sub_item(ui, self.view == View::Screenshots, "Скриншоты").clicked() {
+                    if sub_item(ui, self.view == View::Screenshots, tr!("Скриншоты", "Screenshots")).clicked() {
                         self.open_shots(None);
                     }
-                    if sub_item(ui, self.view == View::Stats, "Статистика")
-                        .on_hover_text("Время в играх: по дням, за две недели, больше всего часов")
+                    if sub_item(ui, self.view == View::Stats, tr!("Статистика", "Statistics"))
+                        .on_hover_text(tr!("Время в играх: по дням, за две недели, больше всего часов", "Playtime: by day, in two weeks, most hours"))
                         .clicked()
                     {
                         self.open_stats();
                     }
-                    if sub_item(ui, self.view == View::Storage, "Хранилище")
-                        .on_hover_text("Сколько места занимают игры, остатки удаленных игр")
+                    if sub_item(ui, self.view == View::Storage, tr!("Хранилище", "Storage"))
+                        .on_hover_text(tr!("Сколько места занимают игры, остатки удаленных игр", "How much space the games take, leftovers of removed games"))
                         .clicked()
                     {
                         self.open_storage();
                     }
-                    if sub_item(ui, self.view == View::Music, "Саундтреки").on_hover_text("Музыка из ваших игр и купленные саундтреки").clicked() {
+                    if sub_item(ui, self.view == View::Music, tr!("Саундтреки", "Soundtracks")).on_hover_text(tr!("Музыка из ваших игр и купленные саундтреки", "Music from your games and purchased soundtracks")).clicked() {
                         self.open_music();
                     }
                 }
                 Section::Community => {
-                    if sub_item(ui, self.view == View::Activity, "Активность друзей").clicked() {
+                    if sub_item(ui, self.view == View::Activity, tr!("Активность друзей", "Friends activity")).clicked() {
                         self.open_activity();
                     }
-                    if sub_item(ui, self.view == View::Groups, "Групповые чаты").clicked() {
+                    if sub_item(ui, self.view == View::Groups, tr!("Групповые чаты", "Group chats")).clicked() {
                         self.open_groups();
                     }
                     if let Some((_, name)) = self.community_ui.appid.clone() {
                         ui.separator();
-                        let label = format!("Обсуждения: {}", crate::richtext::fix(ui, &name));
+                        let label = trf!("Обсуждения: {}", "Discussions: {}", crate::richtext::fix(ui, &name));
                         if sub_item(ui, self.view == View::Community, &label).clicked() {
                             self.view = View::Community;
                         }
                     }
                     if let Some((_, name)) = self.ws_open.clone().filter(|_| !self.ws_detached) {
-                        let label = format!("Мастерская: {}", crate::richtext::fix(ui, &name));
+                        let label = trf!("Мастерская: {}", "Workshop: {}", crate::richtext::fix(ui, &name));
                         if sub_item(ui, self.view == View::Workshop, &label).clicked() {
                             self.view = View::Workshop;
                         }
@@ -269,24 +269,24 @@ Steam остается открытым.")
                 }
                 Section::Profile => {
                     let mine = self.view == View::Profile && self.social_ui.profile == net.my_id;
-                    if sub_item(ui, mine, "Мой профиль").clicked() {
+                    if sub_item(ui, mine, tr!("Мой профиль", "My profile")).clicked() {
                         if let Some(me) = net.my_id {
                             self.open_profile(me, net);
                         }
                     }
-                    if sub_item(ui, self.view == View::Friends, "Друзья").on_hover_text("Друзья, заявки в друзья, отправленные заявки").clicked() {
+                    if sub_item(ui, self.view == View::Friends, tr!("Друзья", "Friends")).on_hover_text(tr!("Друзья, заявки в друзья, отправленные заявки", "Friends, friend requests, sent requests")).clicked() {
                         self.open_friends_page(0);
                     }
-                    if sub_item(ui, self.view == View::Inventory && !self.inv_detached, "Инвентарь")
-                        .on_hover_text("Инвентарь, кошелек и торговая площадка. Ctrl+щелчок - отдельным окном")
+                    if sub_item(ui, self.view == View::Inventory && !self.inv_detached, tr!("Инвентарь", "Inventory"))
+                        .on_hover_text(tr!("Инвентарь, кошелек и торговая площадка. Ctrl+щелчок - отдельным окном", "Inventory, wallet and Community Market. Ctrl+click - separate window"))
                         .clicked()
                     {
                         self.open_inventory(ctrl);
                     }
-                    if sub_item(ui, self.view == View::Badges, "Значки и карточки").clicked() {
+                    if sub_item(ui, self.view == View::Badges, tr!("Значки и карточки", "Badges and cards")).clicked() {
                         self.open_badges();
                     }
-                    if sub_item(ui, self.view == View::Family, "Семья Steam").clicked() {
+                    if sub_item(ui, self.view == View::Family, tr!("Семья Steam", "Steam Family")).clicked() {
                         self.open_family();
                     }
                     // A friend's profile is open - a temporary item with their name.
@@ -296,9 +296,9 @@ Steam остается открытым.")
                             .get(&id)
                             .and_then(|p| p.as_ref().ok())
                             .and_then(|p| p.persona_name.clone())
-                            .unwrap_or_else(|| "друг".into());
+                            .unwrap_or_else(|| tr!("друг", "friend").into());
                         ui.separator();
-                        let _ = sub_item(ui, true, &format!("Профиль: {}", crate::richtext::fix(ui, &name)));
+                        let _ = sub_item(ui, true, &trf!("Профиль: {}", "Profile: {}", crate::richtext::fix(ui, &name)));
                     }
                 }
             }

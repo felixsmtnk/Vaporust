@@ -62,10 +62,10 @@ impl LauncherApp {
                     .or_else(|| prof.and_then(|p| p.avatar_url.clone()));
                 let state = f.persona_state.unwrap_or(0);
                 let (status, color) = match (state, &f.game_name) {
-                    (_, Some(g)) if !g.is_empty() => (format!("В игре: {g}"), egui::Color32::from_rgb(140, 200, 80)),
-                    (0, _) => ("не в сети".into(), egui::Color32::GRAY),
-                    (3 | 4, _) => ("отошел".into(), egui::Color32::from_rgb(110, 140, 170)),
-                    _ => ("в сети".into(), egui::Color32::from_rgb(90, 170, 230)),
+                    (_, Some(g)) if !g.is_empty() => (trf!("В игре: {g}", "In game: {g}"), egui::Color32::from_rgb(140, 200, 80)),
+                    (0, _) => (tr!("не в сети", "offline").into(), egui::Color32::GRAY),
+                    (3 | 4, _) => (tr!("отошел", "away").into(), egui::Color32::from_rgb(110, 140, 170)),
+                    _ => (tr!("в сети", "online").into(), egui::Color32::from_rgb(90, 170, 230)),
                 };
                 let status = if slot == 0 { status } else { String::new() };
                 lists[slot].push(Person { id: f.steam_id, name, avatar, status, color });
@@ -78,19 +78,19 @@ impl LauncherApp {
         }
         // Friends: in game, online, offline; within each - by name.
         lists[0].sort_by(|a, b| {
-            let rank = |p: &Person| if p.status.starts_with("В игре") { 0 } else if p.status == "не в сети" { 2 } else { 1 };
+            let rank = |p: &Person| if p.status.starts_with(tr!("В игре", "In game")) { 0 } else if p.status == tr!("не в сети", "offline") { 2 } else { 1 };
             rank(a).cmp(&rank(b)).then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
         });
 
         ui.add_space(6.0);
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Друзья").size(20.0).strong());
+            ui.label(egui::RichText::new(tr!("Друзья", "Friends")).size(20.0).strong());
             ui.add_space(12.0);
             for (i, label) in [
-                format!("Мои друзья ({})", lists[0].len()),
-                format!("Заявки в друзья ({})", lists[1].len()),
-                format!("Отправленные ({})", lists[2].len()),
-                "Недавние игроки".to_string(),
+                trf!("Мои друзья ({})", "My friends ({})", lists[0].len()),
+                trf!("Заявки в друзья ({})", "Friend requests ({})", lists[1].len()),
+                trf!("Отправленные ({})", "Sent ({})", lists[2].len()),
+                tr!("Недавние игроки", "Recent players").to_string(),
             ]
             .into_iter()
             .enumerate()
@@ -104,11 +104,11 @@ impl LauncherApp {
                 }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Добавить друга...").clicked() {
+                if ui.button(tr!("Добавить друга...", "Add friend...")).clicked() {
                     self.social_ui.add_open = true;
                 }
                 if self.friends_page.tab == 0 {
-                    ui.add(egui::TextEdit::singleline(&mut self.friends_page.filter).hint_text("Поиск друзей").desired_width(180.0));
+                    ui.add(egui::TextEdit::singleline(&mut self.friends_page.filter).hint_text(tr!("Поиск друзей", "Search friends")).desired_width(180.0));
                 }
             });
         });
@@ -123,9 +123,9 @@ impl LauncherApp {
         let people: Vec<&Person> = lists[tab].iter().filter(|p| tab != 0 || filter.is_empty() || p.name.to_lowercase().contains(&filter)).collect();
         if people.is_empty() {
             ui.weak(match tab {
-                0 => "Никого не найдено.",
-                1 => "Новых заявок нет.",
-                _ => "Отправленных заявок нет.",
+                0 => tr!("Никого не найдено.", "Nobody found."),
+                1 => tr!("Новых заявок нет.", "No new requests."),
+                _ => tr!("Отправленных заявок нет.", "No sent requests."),
             });
             return;
         }
@@ -158,28 +158,28 @@ impl LauncherApp {
                                 }
                                 ui.vertical(|ui| {
                                     let name = crate::richtext::fix(ui, &p.name);
-                                    if ui.add(egui::Label::new(egui::RichText::new(name).strong()).truncate().sense(egui::Sense::click())).on_hover_text("Профиль").clicked() {
+                                    if ui.add(egui::Label::new(egui::RichText::new(name).strong()).truncate().sense(egui::Sense::click())).on_hover_text(tr!("Профиль", "Profile")).clicked() {
                                         profile = Some(p.id);
                                     }
                                     match tab {
                                         0 => {
                                             ui.add(egui::Label::new(egui::RichText::new(&p.status).small().color(p.color)).truncate());
-                                            if ui.small_button("Написать").clicked() {
+                                            if ui.small_button(tr!("Написать", "Message")).clicked() {
                                                 chat = Some((p.id, p.name.clone()));
                                             }
                                         }
                                         1 => {
                                             ui.horizontal(|ui| {
-                                                if ui.small_button("Принять").clicked() {
+                                                if ui.small_button(tr!("Принять", "Accept")).clicked() {
                                                     let _ = self.tx.send(Cmd::Social(SocialCmd::AddFriend(p.id)));
                                                 }
-                                                if ui.small_button("Отклонить").clicked() {
+                                                if ui.small_button(tr!("Отклонить", "Decline")).clicked() {
                                                     let _ = self.tx.send(Cmd::Social(SocialCmd::RemoveFriend(p.id)));
                                                 }
                                             });
                                         }
                                         _ => {
-                                            if ui.small_button("Отменить заявку").clicked() {
+                                            if ui.small_button(tr!("Отменить заявку", "Cancel request")).clicked() {
                                                 let _ = self.tx.send(Cmd::Social(SocialCmd::RemoveFriend(p.id)));
                                             }
                                         }

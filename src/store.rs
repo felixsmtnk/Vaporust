@@ -12,21 +12,26 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 /// Store text language.
-pub const LANG: &str = crate::lang::STEAM;
+fn lang() -> &'static str {
+    crate::lang::steam()
+}
 
 /// Selectable price regions (country code, name).
-pub const COUNTRIES: [(&str, &str); 10] = [
-    ("UA", "Украина (₴)"),
-    ("RU", "Россия (₽)"),
-    ("KZ", "Казахстан (₸)"),
-    ("BY", "Беларусь"),
-    ("GE", "Грузия ($)"),
-    ("PL", "Польша (zł)"),
-    ("DE", "Германия (€)"),
-    ("TR", "Турция ($)"),
-    ("US", "США ($)"),
-    ("GB", "Великобритания (£)"),
-];
+#[allow(non_snake_case)]
+pub fn COUNTRIES() -> [(&'static str, &'static str); 10] {
+    [
+    ("UA", tr!("Украина (₴)", "Ukraine (₴)")),
+    ("RU", tr!("Россия (₽)", "Russia (₽)")),
+    ("KZ", tr!("Казахстан (₸)", "Kazakhstan (₸)")),
+    ("BY", tr!("Беларусь", "Belarus")),
+    ("GE", tr!("Грузия ($)", "Georgia ($)")),
+    ("PL", tr!("Польша (zł)", "Poland (zł)")),
+    ("DE", tr!("Германия (€)", "Germany (€)")),
+    ("TR", tr!("Турция ($)", "Turkey ($)")),
+    ("US", tr!("США ($)", "USA ($)")),
+    ("GB", tr!("Великобритания (£)", "United Kingdom (£)")),
+]
+}
 
 #[derive(Default)]
 pub struct Extras {
@@ -46,7 +51,7 @@ pub struct Extras {
 /// Game reviews: the chosen order and language, loaded pages.
 #[derive(Default, Clone)]
 pub struct Reviews {
-    /// Order (index in REVIEW_SORTS).
+    /// Order (index in REVIEW_SORTS()).
     pub sort: u8,
     /// false - in Russian, true - in all languages.
     pub lang: u8,
@@ -146,7 +151,7 @@ pub enum StoreCmd {
     WishlistSales,
     /// A friend's wishlist (if their privacy settings allow it).
     FriendWishlist(u64),
-    /// Game reviews: order (REVIEW_SORTS), all languages?, page (from 1).
+    /// Game reviews: order (REVIEW_SORTS()), all languages?, page (from 1).
     Reviews { appid: u32, sort: u8, lang: u8, page: u32 },
     /// Full review text (by its URL) and a review vote (0 helpful, 1 not helpful, 2 funny).
     ReviewFull(String),
@@ -161,7 +166,7 @@ pub enum StoreCmd {
     WishlistSet(u32, bool),
     /// Change the price region (resets details).
     Country(String),
-    /// A Steam chart (index in CHARTS).
+    /// A Steam chart (index in CHARTS()).
     Charts(u8),
     /// Discovery queue: mark `skip` as viewed, `rebuild` - build a new one.
     Discovery { rebuild: bool, skip: Vec<u32> },
@@ -174,16 +179,16 @@ pub enum StoreCmd {
 /// Russian name of a Steam event kind (MarketingMessage).
 pub fn event_kind(kind: &str) -> String {
     match kind {
-        "MidweekDeal" => "скидка середины недели",
-        "WeekendDeal" => "скидка на выходные",
-        "DailyDeal" => "скидка дня",
-        "NowAvailable" => "уже вышла",
-        "Update" => "обновление",
-        "FreeWeekend" => "бесплатные выходные",
-        "FreeToPlay" => "бесплатно",
-        "Sale" | "PublisherSale" | "FranchiseSale" => "распродажа",
-        "DLCNowAvailable" => "новое дополнение",
-        "PreOrder" | "Preorder" => "предзаказ",
+        "MidweekDeal" => tr!("скидка середины недели", "midweek deal"),
+        "WeekendDeal" => tr!("скидка на выходные", "weekend deal"),
+        "DailyDeal" => tr!("скидка дня", "daily deal"),
+        "NowAvailable" => tr!("уже вышла", "already released"),
+        "Update" => tr!("обновление", "update"),
+        "FreeWeekend" => tr!("бесплатные выходные", "free weekend"),
+        "FreeToPlay" => tr!("бесплатно", "free"),
+        "Sale" | "PublisherSale" | "FranchiseSale" => tr!("распродажа", "sale"),
+        "DLCNowAvailable" => tr!("новое дополнение", "new DLC"),
+        "PreOrder" | "Preorder" => tr!("предзаказ", "pre-order"),
         other => return other.to_string(),
     }
     .to_string()
@@ -230,7 +235,7 @@ async fn load_details(client: &SteamClient, ids: Vec<u32>, st: &SharedStore, ctx
         need
     };
     for chunk in need.chunks(50) {
-        if let Ok(apps) = client.fetch_store_apps(chunk, LANG, &cc).await {
+        if let Ok(apps) = client.fetch_store_apps(chunk, lang(), &cc).await {
             let mut s = st.lock().unwrap();
             for a in apps {
                 s.apps.insert(a.app_id, a);
@@ -252,7 +257,7 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                 }
                 ctx.request_repaint();
                 let cc = country(&c, &st).await;
-                let res = c.search_store(&term, 30, LANG, &cc).await.map(|p| p.app_ids).map_err(err);
+                let res = c.search_store(&term, 30, lang(), &cc).await.map(|p| p.app_ids).map_err(err);
                 if let Ok(ids) = &res {
                     load_details(&c, ids.clone(), &st, &ctx).await;
                 }
@@ -266,7 +271,7 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
             StoreCmd::Deals => {
                 let cc = country(&c, &st).await;
                 let res = c
-                    .query_deals(DealsScope::DiscountedTopSellers, 1, 0, 50, LANG, &cc)
+                    .query_deals(DealsScope::DiscountedTopSellers, 1, 0, 50, lang(), &cc)
                     .await
                     .map(|p| p.app_ids)
                     .map_err(err);
@@ -316,7 +321,7 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                         Ok(v) => Ok(v),
                         Err(_) => c.wishlist(me).await.map(|w| w.into_iter().map(|e| e.app_id).collect()).map_err(err),
                     },
-                    None => Err("нет входа в Steam".into()),
+                    None => Err(tr!("нет входа в Steam", "not logged in to Steam").into()),
                 };
                 st.lock().unwrap().wishlist = Some(res);
             }
@@ -329,7 +334,7 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                 let mut status = Vec::new();
                 // Fresh prices (without the store page cache): discounts change.
                 for chunk in ids.chunks(50) {
-                    if let Ok(apps) = c.fetch_store_apps(chunk, LANG, &cc).await {
+                    if let Ok(apps) = c.fetch_store_apps(chunk, lang(), &cc).await {
                         for a in apps {
                             status.push((a.app_id, a.name.clone(), a.coming_soon));
                             if a.discount_pct > 0 {
@@ -356,7 +361,7 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                     .wishlist(id)
                     .await
                     .map(|w| w.into_iter().map(|e| e.app_id).collect::<Vec<u32>>())
-                    .map_err(|e| format!("список закрыт настройками приватности или недоступен ({})", err(e)));
+                    .map_err(|e| trf!("список закрыт настройками приватности или недоступен ({})", "the list is closed by privacy settings or unavailable ({})", err(e)));
                 if let Ok(ids) = &res {
                     load_details(&c, ids.iter().take(30).copied().collect(), &st, &ctx).await;
                 }
@@ -380,7 +385,7 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                 load_details(&c, vec![appid], &st, &ctx).await;
                 let cc = country(&c, &st).await;
                 let players = c.current_players(appid).await.ok();
-                let similar = c.similar_apps(appid, 8, LANG, &cc).await.map(|p| p.app_ids).ok();
+                let similar = c.similar_apps(appid, 8, lang(), &cc).await.map(|p| p.app_ids).ok();
                 {
                     let mut s = st.lock().unwrap();
                     let e = s.extras.entry(appid).or_default();
@@ -435,7 +440,7 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                 r.loading = false;
                 match res {
                     Ok((v, next)) => {
-                        r.more = v.len() >= 10 && next.is_some() && REVIEW_SORTS[sort as usize].0 != "toprated";
+                        r.more = v.len() >= 10 && next.is_some() && REVIEW_SORTS()[sort as usize].0 != "toprated";
                         r.cursor = next;
                         r.pages = page;
                         r.list.extend(v);
@@ -482,7 +487,7 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                             }
                         }
                     }
-                    Err(e) => s.error = Some(format!("Список желаемого не изменен: {}", err(e))),
+                    Err(e) => s.error = Some(trf!("Список желаемого не изменен: {}", "Wishlist not changed: {}", err(e))),
                 }
             }
             StoreCmd::Ignore(appid, on) => {
@@ -498,7 +503,7 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                             set.remove(&appid);
                         }
                     }
-                    Err(e) => s.error = Some(format!("Не удалось: {e}")),
+                    Err(e) => s.error = Some(trf!("Не удалось: {e}", "Failed: {e}")),
                 }
             }
             StoreCmd::IgnoredList => {
@@ -723,7 +728,7 @@ pub(crate) struct AppDetails {
 
 async fn fetch_appdetails(appid: u32) -> Option<AppDetails> {
     let http = aurelia::core::net::steam_web_client().ok()?;
-    let url = format!("https://store.steampowered.com/api/appdetails?appids={appid}&l=russian");
+    let url = format!("https://store.steampowered.com/api/appdetails?appids={appid}&l={}", crate::lang::steam());
     let text = http.get(url).send().await.ok()?.text().await.ok()?;
     let v: serde_json::Value = serde_json::from_str(&text).ok()?;
     Some(parse_appdetails(&v, appid))
@@ -755,33 +760,39 @@ pub(crate) fn parse_appdetails(v: &serde_json::Value, appid: u32) -> AppDetails 
 }
 
 /// Review order, as on the Steam site: (browsefilter, caption).
-pub const REVIEW_SORTS: [(&str, &str); 8] = [
-    ("toprated", "Полезные за все время"),
-    ("trendyear", "Полезные за год"),
-    ("trendsixmonths", "Полезные за полгода"),
-    ("trendthreemonths", "Полезные за 3 месяца"),
-    ("trendmonth", "Полезные за месяц"),
-    ("trendweek", "Полезные за неделю"),
-    ("mostrecent", "Новые"),
-    ("funny", "Забавные"),
-];
+#[allow(non_snake_case)]
+pub fn REVIEW_SORTS() -> [(&'static str, &'static str); 8] {
+    [
+    ("toprated", tr!("Полезные за все время", "Most helpful of all time")),
+    ("trendyear", tr!("Полезные за год", "Most helpful this year")),
+    ("trendsixmonths", tr!("Полезные за полгода", "Most helpful in 6 months")),
+    ("trendthreemonths", tr!("Полезные за 3 месяца", "Most helpful in 3 months")),
+    ("trendmonth", tr!("Полезные за месяц", "Most helpful this month")),
+    ("trendweek", tr!("Полезные за неделю", "Most helpful this week")),
+    ("mostrecent", tr!("Новые", "Newest")),
+    ("funny", tr!("Забавные", "Funny")),
+]
+}
 
 /// Review languages: (Steam code, name).
-pub const REVIEW_LANGS: [(&str, &str); 13] = [
-    ("russian", "На русском"),
-    ("all", "На всех языках"),
-    ("english", "Английский"),
-    ("ukrainian", "Украинский"),
-    ("german", "Немецкий"),
-    ("french", "Французский"),
-    ("spanish", "Испанский"),
-    ("polish", "Польский"),
-    ("brazilian", "Португальский (Бразилия)"),
-    ("turkish", "Турецкий"),
-    ("schinese", "Китайский"),
-    ("japanese", "Японский"),
-    ("koreana", "Корейский"),
-];
+#[allow(non_snake_case)]
+pub fn REVIEW_LANGS() -> [(&'static str, &'static str); 13] {
+    [
+    ("russian", tr!("На русском", "In Russian")),
+    ("all", tr!("На всех языках", "All languages")),
+    ("english", tr!("Английский", "English")),
+    ("ukrainian", tr!("Украинский", "Ukrainian")),
+    ("german", tr!("Немецкий", "German")),
+    ("french", tr!("Французский", "French")),
+    ("spanish", tr!("Испанский", "Spanish")),
+    ("polish", tr!("Польский", "Polish")),
+    ("brazilian", tr!("Португальский (Бразилия)", "Portuguese (Brazil)")),
+    ("turkish", tr!("Турецкий", "Turkish")),
+    ("schinese", tr!("Китайский", "Chinese")),
+    ("japanese", tr!("Японский", "Japanese")),
+    ("koreana", tr!("Корейский", "Korean")),
+]
+}
 
 /// Reviews page from the Steam community (the way the site loads it on scroll): 10 reviews each.
 /// Next pages - by the cursor from the MoreContentForm of the previous response.
@@ -794,8 +805,8 @@ async fn fetch_reviews(
     cursor: Option<String>,
 ) -> Result<(Vec<Review>, Option<String>), String> {
     let http = aurelia::core::net::steam_web_client().map_err(err)?;
-    let filter = REVIEW_SORTS.get(sort as usize).map_or("toprated", |s| s.0);
-    let lang = REVIEW_LANGS.get(lang as usize).map_or("russian", |l| l.0);
+    let filter = REVIEW_SORTS().get(sort as usize).map_or("toprated", |s| s.0);
+    let lang = REVIEW_LANGS().get(lang as usize).map_or("russian", |l| l.0);
     let p = page.max(1);
     let cursor = match (p, cursor) {
         (1, _) => String::new(),
@@ -810,7 +821,7 @@ async fn fetch_reviews(
     );
     let resp = http.get(url).send().await.map_err(err)?;
     if !resp.status().is_success() {
-        return Err(format!("Steam ответил {}", resp.status()));
+        return Err(trf!("Steam ответил {}", "Steam answered {}", resp.status()));
     }
     let html = resp.text().await.map_err(err)?;
     let next = between(&html, "name=\"userreviewscursor\" value=\"", "\"").map(str::to_string);
@@ -829,7 +840,7 @@ pub fn parse_review_page(html: &str) -> Result<(String, u64, String), String> {
     let text = between(html, "id=\"ReviewText\">", "</div>").map(strip_html).unwrap_or_default();
     let id = between(html, "RecommendationVoteUpBtn", "\"")
         .and_then(|n| n.parse().ok())
-        .ok_or("Steam не дал номер отзыва")?;
+        .ok_or(tr!("Steam не дал номер отзыва", "Steam did not give the review number"))?;
     Ok((text, id, hours_at_review(html)))
 }
 
@@ -839,7 +850,7 @@ pub fn hours_at_review(html: &str) -> String {
     let before = &html[..pos];
     let start = before.rfind('(').map(|i| i + 1).unwrap_or(pos);
     let h = before[start..].trim();
-    if h.is_empty() || h.len() > 40 { String::new() } else { format!("{h} на момент отзыва") }
+    if h.is_empty() || h.len() > 40 { String::new() } else { trf!("{h} на момент отзыва", "{h} at review time") }
 }
 
 /// Vote on a review: 0 - helpful, 1 - not helpful, 2 - funny.
@@ -857,7 +868,7 @@ pub async fn vote_review(client: &SteamClient, id: u64, kind: u8) -> Result<(), 
     if ok {
         Ok(())
     } else {
-        Err(format!("Steam не принял оценку (код {status})"))
+        Err(trf!("Steam не принял оценку (код {status})", "Steam did not accept the vote (code {status})"))
     }
 }
 
@@ -978,11 +989,14 @@ mod reviews_live {
 }
 
 /// Steam charts: (name, explanation).
-pub const CHARTS: [(&str, &str); 3] = [
-    ("Лидеры продаж", "Самые продаваемые сейчас в вашем регионе (по выручке, как на странице Steam)."),
-    ("Больше всего игроков", "Игры, в которые прямо сейчас играет больше всего людей."),
-    ("Популярные новинки", "Лидеры продаж, вышедшие за последние 3 месяца."),
-];
+#[allow(non_snake_case)]
+pub fn CHARTS() -> [(&'static str, &'static str); 3] {
+    [
+    (tr!("Лидеры продаж", "Top sellers"), tr!("Самые продаваемые сейчас в вашем регионе (по выручке, как на странице Steam).", "The best sellers right now in your region (by revenue, as on the Steam page).")),
+    (tr!("Больше всего игроков", "Most played"), tr!("Игры, в которые прямо сейчас играет больше всего людей.", "Games that the most people are playing right now.")),
+    (tr!("Популярные новинки", "Popular new releases"), tr!("Лидеры продаж, вышедшие за последние 3 месяца.", "Top sellers released in the last 3 months.")),
+]
+}
 
 /// appid from a store image URL (.../steam/apps/<appid>/...); None for bundles and packages.
 fn appid_from_logo(url: &str) -> Option<u32> {
@@ -996,13 +1010,13 @@ pub async fn fetch_chart(kind: u8, cc: &str) -> Result<Vec<(u32, String)>, Strin
     if kind == 1 {
         let url = "https://api.steampowered.com/ISteamChartsService/GetGamesByConcurrentPlayers/v1/";
         let v: serde_json::Value = http.get(url).send().await.map_err(err)?.json().await.map_err(err)?;
-        let ranks = v.pointer("/response/ranks").and_then(|r| r.as_array()).ok_or("Steam не прислал чарт")?;
+        let ranks = v.pointer("/response/ranks").and_then(|r| r.as_array()).ok_or(tr!("Steam не прислал чарт", "Steam did not send the chart"))?;
         return Ok(ranks
             .iter()
             .filter_map(|r| {
                 let id = r.get("appid")?.as_u64()? as u32;
                 let now = r.get("concurrent_in_game").and_then(|x| x.as_u64()).unwrap_or(0);
-                Some((id, format!("сейчас играют {}", group_digits(now))))
+                Some((id, trf!("сейчас играют {}", "{} playing now", group_digits(now))))
             })
             .collect());
     }
@@ -1015,16 +1029,16 @@ pub async fn fetch_chart(kind: u8, cc: &str) -> Result<Vec<(u32, String)>, Strin
                 if date.is_some_and(|d| d >= since) && !out.iter().any(|(a, _)| *a == id) {
                     use chrono::TimeZone;
                     let when = chrono::Utc.timestamp_opt(date.unwrap(), 0).single().map(|t| t.format("%d.%m.%Y").to_string());
-                    out.push((id, format!("вышла {}", when.unwrap_or_default())));
+                    out.push((id, trf!("вышла {}", "released {}", when.unwrap_or_default())));
                 }
             }
         }
         return Ok(out);
     }
     let filter = "topsellers";
-    let url = format!("https://store.steampowered.com/search/results/?filter={filter}&json=1&cc={cc}&l=russian&count=100");
+    let url = format!("https://store.steampowered.com/search/results/?filter={filter}&json=1&cc={cc}&l={}&count=100", crate::lang::steam());
     let v: serde_json::Value = http.get(url).send().await.map_err(err)?.json().await.map_err(err)?;
-    let items = v.get("items").and_then(|i| i.as_array()).ok_or("Steam не прислал чарт")?;
+    let items = v.get("items").and_then(|i| i.as_array()).ok_or(tr!("Steam не прислал чарт", "Steam did not send the chart"))?;
     let mut seen = HashSet::new();
     Ok(items
         .iter()
@@ -1057,7 +1071,7 @@ async fn topsellers_with_dates(cc: &str, start: u32) -> Result<Vec<(u32, Option<
         "https://store.steampowered.com/search/results/?filter=topsellers&infinite=1&cc={cc}&l=english&count=100&start={start}"
     );
     let v: serde_json::Value = http.get(url).send().await.map_err(err)?.json().await.map_err(err)?;
-    let html = v.get("results_html").and_then(|h| h.as_str()).ok_or("Steam не прислал список")?;
+    let html = v.get("results_html").and_then(|h| h.as_str()).ok_or(tr!("Steam не прислал список", "Steam did not send the list"))?;
     Ok(html
         .split("data-ds-appid=\"")
         .skip(1)
@@ -1106,7 +1120,7 @@ mod chart_tests {
         rt.block_on(async {
             for k in 0..3u8 {
                 let v = fetch_chart(k, "GE").await.unwrap();
-                println!("{} : {} игр, первая {:?}", CHARTS[k as usize].0, v.len(), v.first());
+                println!("{} : {} игр, первая {:?}", CHARTS()[k as usize].0, v.len(), v.first());
                 assert!(v.len() >= 5, "{}", v.len());
             }
             let mut c = aurelia::steam_client::SteamClient::new().unwrap();
@@ -1205,8 +1219,8 @@ async fn ignore(c: &SteamClient, appid: u32, on: bool) -> Result<(), String> {
         .await
     {
         Ok((200, _)) => Ok(()),
-        Ok((status, _)) => Err(format!("Steam ответил кодом {status}")),
-        Err(e) => Err(format!("нет связи со Steam: {e:#}")),
+        Ok((status, _)) => Err(trf!("Steam ответил кодом {status}", "Steam answered with code {status}")),
+        Err(e) => Err(trf!("нет связи со Steam: {e:#}", "no connection to Steam: {e:#}")),
     }
 }
 
@@ -1259,9 +1273,9 @@ mod ignored_tests {
 /// Store package name (packagedetails, no login).
 async fn package_name(id: u32) -> Result<String, String> {
     let http = aurelia::core::net::steam_web_client().map_err(|e| format!("{e:#}"))?;
-    let url = format!("https://store.steampowered.com/api/packagedetails?packageids={id}&l=russian");
+    let url = format!("https://store.steampowered.com/api/packagedetails?packageids={id}&l={}", crate::lang::steam());
     let v: serde_json::Value = http.get(url).send().await.map_err(|e| format!("{e:#}"))?.json().await.map_err(|e| format!("{e:#}"))?;
-    v[id.to_string()]["data"]["name"].as_str().map(String::from).ok_or_else(|| "нет данных".into())
+    v[id.to_string()]["data"]["name"].as_str().map(String::from).ok_or_else(|| tr!("нет данных", "no data").into())
 }
 
 /// Wishlist in Steam's order: (priority > 0 ascending), then by date added.
@@ -1270,7 +1284,7 @@ pub async fn wishlist_ranked(c: &SteamClient, me: u64) -> Result<Vec<u32>, Strin
     let num = |x: &serde_json::Value| x.as_u64().or_else(|| x.as_str()?.parse().ok()).unwrap_or(0);
     let mut items: Vec<(u64, u64, u32)> = v["items"]
         .as_array()
-        .ok_or("нет списка")?
+        .ok_or(tr!("нет списка", "no list"))?
         .iter()
         .map(|i| (num(&i["priority"]), num(&i["date_added"]), num(&i["appid"]) as u32))
         .collect();

@@ -139,12 +139,12 @@ pub fn parse(html: &str) -> Vec<Entry> {
 /// Feed page: `start` - time (0 - from today).
 pub async fn load(client: &SteamClient, me: u64, start: u64) -> Result<FeedPage, String> {
     let web = webapi::web_session(client).await?;
-    let mut url = format!("https://steamcommunity.com/profiles/{me}/ajaxgetusernews/?l={lang}", lang = crate::lang::STEAM);
+    let mut url = format!("https://steamcommunity.com/profiles/{me}/ajaxgetusernews/?l={lang}", lang = crate::lang::steam());
     if start > 0 {
         url.push_str(&format!("&start={start}"));
     }
     let t = web.get_text(&url).await.map_err(|e| format!("{e:#}"))?;
-    let j: serde_json::Value = serde_json::from_str(&t).map_err(|_| "Steam ответил непонятно.".to_string())?;
+    let j: serde_json::Value = serde_json::from_str(&t).map_err(|_| tr!("Steam ответил непонятно.", "Steam gave an unclear answer.").to_string())?;
     let next = j["next_request"].as_str().and_then(|u| u.split("start=").nth(1)).and_then(|n| n.parse().ok());
     Ok(FeedPage { entries: parse(j["blotter_html"].as_str().unwrap_or("")), next })
 }

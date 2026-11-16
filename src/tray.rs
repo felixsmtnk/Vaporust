@@ -196,9 +196,9 @@ pub fn start() {
             THREAD_ID.store(windows_sys::Win32::System::Threading::GetCurrentThreadId(), Ordering::Relaxed);
         }
 
-        let open = MenuItem::new("Открыть Vaporust", true, None);
-        let tray_close = CheckMenuItem::new("Крестик сворачивает в трей", true, close_to_tray(), None);
-        let quit = MenuItem::new("Выход", true, None);
+        let open = MenuItem::new(tr!("Открыть Vaporust", "Open Vaporust"), true, None);
+        let tray_close = CheckMenuItem::new(tr!("Крестик сворачивает в трей", "Close button minimizes to the tray"), true, close_to_tray(), None);
+        let quit = MenuItem::new(tr!("Выход", "Exit"), true, None);
         let menu = Menu::new();
         let _ = menu.append_items(&[
             &open,
@@ -261,10 +261,10 @@ pub fn start() {
                             (None, false) => normal.clone(),
                         };
                         let _ = tray.set_icon(icon);
-                        let mut tip = String::from(if is_unread { "Vaporust - новые сообщения" } else { "Vaporust" });
+                        let mut tip = String::from(if is_unread { tr!("Vaporust - новые сообщения", "Vaporust - new messages") } else { "Vaporust" });
                         if let Some((name, f)) = &download {
-                            tip.push_str(&format!("
-Загрузка: {name} - {:.0}%", f * 100.0));
+                            tip.push_str(&trf!("
+Загрузка: {name} - {:.0}%", "\nDownloading: {name} - {:.0}%", f * 100.0));
                         }
                         let _ = tray.set_tooltip(Some(tip));
                     }

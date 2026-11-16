@@ -53,20 +53,20 @@ pub fn run_before(s: &GameScripts, appid: u32, name: &str, dir: &Path) -> Option
     }
     let mut child = match command(text, appid, name, dir).spawn() {
         Ok(c) => c,
-        Err(e) => return Some(format!("Команда перед запуском не выполнена: {e}")),
+        Err(e) => return Some(trf!("Команда перед запуском не выполнена: {e}", "The pre-launch command did not run: {e}")),
     };
     let start = Instant::now();
     loop {
         match child.try_wait() {
             Ok(Some(st)) if st.success() => return None,
             Ok(Some(st)) => {
-                return Some(format!("Команда перед запуском завершилась с кодом {}", st.code().unwrap_or(-1)))
+                return Some(trf!("Команда перед запуском завершилась с кодом {}", "The pre-launch command ended with code {}", st.code().unwrap_or(-1)))
             }
             Ok(None) if start.elapsed() > Duration::from_secs(120) => {
-                return Some("Команда перед запуском идет дольше 2 минут: запускаю игру, не дожидаясь ее.".into())
+                return Some(tr!("Команда перед запуском идет дольше 2 минут: запускаю игру, не дожидаясь ее.", "The pre-launch command takes longer than 2 minutes: starting the game without waiting for it.").into())
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(200)),
-            Err(e) => return Some(format!("Команда перед запуском: {e}")),
+            Err(e) => return Some(trf!("Команда перед запуском: {e}", "Pre-launch command: {e}")),
         }
     }
 }
@@ -77,7 +77,7 @@ pub fn run_after(s: &GameScripts, appid: u32, name: &str, dir: &Path) -> Option<
     if text.is_empty() {
         return None;
     }
-    command(text, appid, name, dir).spawn().err().map(|e| format!("Команда после выхода не выполнена: {e}"))
+    command(text, appid, name, dir).spawn().err().map(|e| trf!("Команда после выхода не выполнена: {e}", "The after-exit command did not run: {e}"))
 }
 
 #[cfg(test)]

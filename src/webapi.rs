@@ -19,7 +19,7 @@ fn err<E: std::fmt::Display>(e: E) -> String {
 }
 
 async fn token(client: &SteamClient) -> Result<String, String> {
-    let me = client.my_steam_id().ok_or_else(|| "Нет входа в Steam.".to_string())?;
+    let me = client.my_steam_id().ok_or_else(|| tr!("Нет входа в Steam.", "Not logged in to Steam.").to_string())?;
     if let Some((id, t, at)) = TOKEN.lock().unwrap().clone() {
         if id == me && at.elapsed() < Duration::from_secs(3600) {
             return Ok(t);
@@ -53,12 +53,12 @@ pub async fn get(client: &SteamClient, method: &str, params: &[(&str, String)]) 
     let status = resp.status().as_u16();
     if status == 401 || status == 403 {
         *TOKEN.lock().unwrap() = None;
-        crate::errlog::write("steam api", &format!("{method}: вход не принят ({status})"));
-        return Err("Steam не принял вход (войдите заново).".into());
+        crate::errlog::write("steam api", &trf!("{method}: вход не принят ({status})", "{method}: login not accepted ({status})"));
+        return Err(tr!("Steam не принял вход (войдите заново).", "Steam did not accept the login (log in again).").into());
     }
     if status != 200 {
-        crate::errlog::write("steam api", &format!("{method}: код {status}"));
-        return Err(format!("Steam ответил кодом {status}."));
+        crate::errlog::write("steam api", &trf!("{method}: код {status}", "{method}: code {status}"));
+        return Err(trf!("Steam ответил кодом {status}.", "Steam answered with code {status}."));
     }
     let v: serde_json::Value = resp.json().await.map_err(|e| err(e.without_url()))?;
     Ok(v.get("response").cloned().unwrap_or(v))
@@ -84,7 +84,7 @@ pub async fn post(client: &SteamClient, method: &str, params: &[(&str, String)])
         .map_err(err)?;
     let status = resp.status().as_u16();
     if status != 200 {
-        return Err(format!("Steam ответил кодом {status}."));
+        return Err(trf!("Steam ответил кодом {status}.", "Steam answered with code {status}."));
     }
     let v: serde_json::Value = resp.json().await.map_err(|e| err(e.without_url()))?;
     Ok(v.get("response").cloned().unwrap_or(v))
@@ -137,7 +137,7 @@ mod live {
 /// with frequent requests Steam stops issuing them - "Response timed out").
 pub async fn web_session(client: &SteamClient) -> Result<aurelia::web::web_session::WebSession, String> {
     let t = token(client).await?;
-    let me = client.my_steam_id().ok_or("нет входа")?;
+    let me = client.my_steam_id().ok_or(tr!("нет входа", "not logged in"))?;
     let cc = client.store_country();
     aurelia::web::web_session::WebSession::new(me, &t, Some(cc.as_str()).filter(|c| !c.is_empty())).map_err(err)
 }

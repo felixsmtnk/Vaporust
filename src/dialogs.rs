@@ -47,15 +47,15 @@ impl LauncherApp {
         // Friend nickname.
         if let Some((id, name, mut nick)) = self.social_ui.nick_edit.take() {
             let mut keep = true;
-            window(&format!("Ник: {name}")).show(ctx, |ui| {
-                ui.weak("Ваш ник для друга: виден только вам (в Steam и в Vaporust). Пусто - убрать.");
+            window(&trf!("Ник: {name}", "Nickname: {name}")).show(ctx, |ui| {
+                ui.weak(tr!("Ваш ник для друга: виден только вам (в Steam и в Vaporust). Пусто - убрать.", "Your nickname for the friend: only you see it (in Steam and in Vaporust). Empty - remove."));
                 ui.add(egui::TextEdit::singleline(&mut nick).desired_width(280.0));
                 ui.horizontal(|ui| {
-                    if ui.button("Сохранить").clicked() {
+                    if ui.button(tr!("Сохранить", "Save")).clicked() {
                         let _ = self.tx.send(Cmd::SetNickname(id, nick.trim().to_string()));
                         keep = false;
                     }
-                    if ui.button("Отмена").clicked() {
+                    if ui.button(tr!("Отмена", "Cancel")).clicked() {
                         keep = false;
                     }
                 });
@@ -73,18 +73,18 @@ impl LauncherApp {
                 let _ = self.tx.send(Cmd::AwardConfig);
                 let _ = self.tx.send(Cmd::PointsBalance);
             }
-            window("Наградить").show(ctx, |ui| {
-                ui.label(format!("Наградить: {what}"));
-                ui.weak("Награда тратит ваши очки Steam; автор получит часть очков. Ее увидят все.");
+            window(tr!("Наградить", "Award")).show(ctx, |ui| {
+                ui.label(trf!("Наградить: {what}", "Award: {what}"));
+                ui.weak(tr!("Награда тратит ваши очки Steam; автор получит часть очков. Ее увидят все.", "An award spends your Steam Points; the author gets part of them. Everyone can see it."));
                 if let Some(p) = net.points_balance {
-                    ui.label(format!("У вас очков: {}", crate::store::group_digits(p)));
+                    ui.label(trf!("У вас очков: {}", "Your points: {}", crate::store::group_digits(p)));
                 }
                 match &net.award_config {
                     None => {
                         crate::spin::spinner(ui);
                     }
                     Some(Err(e)) => {
-                        ui.label(format!("Не удалось загрузить награды: {e}"));
+                        ui.label(trf!("Не удалось загрузить награды: {e}", "Could not load awards: {e}"));
                     }
                     Some(Ok(list)) => {
                         ui.horizontal_wrapped(|ui| {
@@ -93,7 +93,7 @@ impl LauncherApp {
                                 let url = format!("https://store.fastly.steamstatic.com/public/images/loyalty/reactions/still/{id}.png");
                                 let r = ui
                                     .add(egui::ImageButton::new(egui::Image::new(url).fit_to_exact_size(egui::vec2(40.0, 40.0))))
-                                    .on_hover_text(format!("{cost} очков"));
+                                    .on_hover_text(trf!("{cost} очков", "{cost} points"));
                                 if r.clicked() {
                                     self.award_pick = Some((*id, *cost));
                                 }
@@ -103,13 +103,13 @@ impl LauncherApp {
                 }
                 if let Some((id, cost)) = self.award_pick {
                     ui.separator();
-                    ui.label(format!("Выбрана награда за {cost} очков. Отправить?"));
+                    ui.label(trf!("Выбрана награда за {cost} очков. Отправить?", "Award for {cost} points selected. Send?"));
                     ui.horizontal(|ui| {
-                        if ui.button("Да, наградить").clicked() {
+                        if ui.button(tr!("Да, наградить", "Yes, award")).clicked() {
                             let _ = self.tx.send(Cmd::Award { target_type: kind, target: target.clone(), reaction: id });
                             self.award_pick = None;
                         }
-                        if ui.button("Нет").clicked() {
+                        if ui.button(tr!("Нет", "No")).clicked() {
                             self.award_pick = None;
                         }
                     });
@@ -117,7 +117,7 @@ impl LauncherApp {
                 if let Some(m) = &net.action_msg {
                     ui.label(m);
                 }
-                if ui.button("Закрыть").clicked() {
+                if ui.button(tr!("Закрыть", "Close")).clicked() {
                     keep = false;
                 }
             });
@@ -139,12 +139,12 @@ impl LauncherApp {
                 .map(|f| (f.steam_id, f.persona_name.clone().unwrap_or_else(|| f.steam_id.to_string())))
                 .collect();
             friends.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
-            window("Новый групповой чат").show(ctx, |ui| {
+            window(tr!("Новый групповой чат", "New group chat")).show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label("Название");
-                    ui.add(egui::TextEdit::singleline(&mut name).desired_width(240.0).hint_text("необязательно"));
+                    ui.label(tr!("Название", "Name"));
+                    ui.add(egui::TextEdit::singleline(&mut name).desired_width(240.0).hint_text(tr!("необязательно", "optional")));
                 });
-                ui.label("Пригласить друзей:");
+                ui.label(tr!("Пригласить друзей:", "Invite friends:"));
                 egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
                     for (id, n) in &friends {
                         let mut on = picked.contains(id);
@@ -157,13 +157,13 @@ impl LauncherApp {
                         }
                     }
                 });
-                ui.weak("Друзьям придут приглашения; чат появится в «Групповых чатах».");
+                ui.weak(tr!("Друзьям придут приглашения; чат появится в «Групповых чатах».", "Friends get invitations; the chat appears in \"Group chats\"."));
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(!picked.is_empty(), egui::Button::new("Создать")).clicked() {
+                    if ui.add_enabled(!picked.is_empty(), egui::Button::new(tr!("Создать", "Create"))).clicked() {
                         let _ = self.tx.send(Cmd::CreateChatGroup { name: name.trim().to_string(), invitees: picked.iter().copied().collect() });
                         keep = false;
                     }
-                    if ui.button("Отмена").clicked() {
+                    if ui.button(tr!("Отмена", "Cancel")).clicked() {
                         keep = false;
                     }
                 });
@@ -185,31 +185,31 @@ impl LauncherApp {
                     filled = true;
                 }
             }
-            window(&format!("Обзор: {game}")).show(ctx, |ui| {
+            window(&trf!("Обзор: {game}", "Review: {game}")).show(ctx, |ui| {
                 match existing {
                     None => {
                         ui.horizontal(|ui| {
                             crate::spin::spinner(ui);
-                            ui.weak("Проверяю, писали ли вы уже обзор...");
+                            ui.weak(tr!("Проверяю, писали ли вы уже обзор...", "Checking whether you already reviewed this game..."));
                         });
                     }
                     Some(Ok(Some(_))) => {
-                        ui.weak("У вас уже есть обзор этой игры - сохранение заменит его.");
+                        ui.weak(tr!("У вас уже есть обзор этой игры - сохранение заменит его.", "You already have a review of this game - saving replaces it."));
                     }
                     _ => {}
                 }
                 ui.horizontal(|ui| {
-                    ui.radio_value(&mut r.up, true, "Рекомендую");
-                    ui.radio_value(&mut r.up, false, "Не рекомендую");
+                    ui.radio_value(&mut r.up, true, tr!("Рекомендую", "Recommended"));
+                    ui.radio_value(&mut r.up, false, tr!("Не рекомендую", "Not recommended"));
                 });
-                ui.add(egui::TextEdit::multiline(&mut r.text).desired_rows(8).desired_width(460.0).hint_text("Что понравилось, что нет"));
-                ui.checkbox(&mut r.public, "Виден всем (иначе - только друзьям)");
-                ui.weak("Обзор появится на странице игры в магазине и в вашем профиле.");
+                ui.add(egui::TextEdit::multiline(&mut r.text).desired_rows(8).desired_width(460.0).hint_text(tr!("Что понравилось, что нет", "What you liked and what you did not")));
+                ui.checkbox(&mut r.public, tr!("Виден всем (иначе - только друзьям)", "Visible to everyone (otherwise only to friends)"));
+                ui.weak(tr!("Обзор появится на странице игры в магазине и в вашем профиле.", "The review appears on the game's store page and in your profile."));
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(!r.text.trim().is_empty(), egui::Button::new("Опубликовать")).clicked() {
+                    if ui.add_enabled(!r.text.trim().is_empty(), egui::Button::new(tr!("Опубликовать", "Publish"))).clicked() {
                         let _ = self.tx.send(Cmd::ReviewSave { appid, review: MyReview { text: r.text.trim().to_string(), ..r.clone() } });
                     }
-                    if ui.button("Закрыть").clicked() {
+                    if ui.button(tr!("Закрыть", "Close")).clicked() {
                         keep = false;
                     }
                 });
@@ -225,16 +225,16 @@ impl LauncherApp {
         // New topic in the game's discussions.
         if let Some((appid, game, mut title, mut text)) = self.dialogs.topic.take() {
             let mut keep = true;
-            window(&format!("Новая тема: {game}")).show(ctx, |ui| {
-                ui.add(egui::TextEdit::singleline(&mut title).desired_width(460.0).hint_text("Заголовок"));
-                ui.add(egui::TextEdit::multiline(&mut text).desired_rows(8).desired_width(460.0).hint_text("Текст"));
-                ui.weak("Тема появится в «Общем обсуждении» игры, ее увидят все.");
+            window(&trf!("Новая тема: {game}", "New topic: {game}")).show(ctx, |ui| {
+                ui.add(egui::TextEdit::singleline(&mut title).desired_width(460.0).hint_text(tr!("Заголовок", "Title")));
+                ui.add(egui::TextEdit::multiline(&mut text).desired_rows(8).desired_width(460.0).hint_text(tr!("Текст", "Text")));
+                ui.weak(tr!("Тема появится в «Общем обсуждении» игры, ее увидят все.", "The topic appears in the game's \"General Discussions\", everyone can see it."));
                 ui.horizontal(|ui| {
                     let ok = !title.trim().is_empty() && !text.trim().is_empty();
-                    if ui.add_enabled(ok, egui::Button::new("Создать тему")).clicked() {
+                    if ui.add_enabled(ok, egui::Button::new(tr!("Создать тему", "Create topic"))).clicked() {
                         let _ = self.tx.send(Cmd::CreateTopic { appid, title: title.trim().to_string(), text: text.trim().to_string() });
                     }
-                    if ui.button("Закрыть").clicked() {
+                    if ui.button(tr!("Закрыть", "Close")).clicked() {
                         keep = false;
                     }
                 });
@@ -257,7 +257,7 @@ impl LauncherApp {
                 let inv = self.net.lock().unwrap().inv.clone();
                 let mut s = inv.lock().unwrap();
                 s.trade.busy = true;
-                s.trade.msg = Some("Выставляю на продажу...".into());
+                s.trade.msg = Some(tr!("Выставляю на продажу...", "Listing for sale...").into());
                 s.trade.msg_item = Some((*appid, hash.clone()));
                 s.trade.msg_at = Some(std::time::Instant::now());
             }

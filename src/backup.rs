@@ -32,7 +32,7 @@ pub fn backup_to(dir: &Path, files: &[PathBuf]) -> Result<(PathBuf, usize), Stri
     use std::io::Write;
     let files: Vec<&PathBuf> = files.iter().filter(|f| f.is_file()).collect();
     if files.is_empty() {
-        return Err("Файлов сохранений на этом ПК нет - копировать нечего.".into());
+        return Err(tr!("Файлов сохранений на этом ПК нет - копировать нечего.", "There are no save files on this PC - nothing to copy.").into());
     }
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     // Name by time; if a backup with this name already exists (two in one second) - "_2", "_3"...
@@ -45,17 +45,17 @@ pub fn backup_to(dir: &Path, files: &[PathBuf]) -> Result<(PathBuf, usize), Stri
             match fs::OpenOptions::new().write(true).create_new(true).open(&p) {
                 Ok(f) => Some(Ok((p, f))),
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => None,
-                Err(e) => Some(Err(format!("Архив не создан: {e}"))),
+                Err(e) => Some(Err(trf!("Архив не создан: {e}", "Archive not created: {e}"))),
             }
         })
-        .unwrap_or_else(|| Err("Архив не создан: слишком много копий за одну секунду.".into()))?;
+        .unwrap_or_else(|| Err(tr!("Архив не создан: слишком много копий за одну секунду.", "Archive not created: too many copies within one second.").into()))?;
     let r = (|| -> Result<(), String> {
         let mut z = zip::ZipWriter::new(file);
         let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
         let mut manifest = String::new();
         for (i, f) in files.iter().enumerate() {
             let name = format!("{i}_{}", f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
-            let data = fs::read(f).map_err(|e| format!("Не прочитан {}: {e}", f.display()))?;
+            let data = fs::read(f).map_err(|e| trf!("Не прочитан {}: {e}", "Not read {}: {e}", f.display()))?;
             z.start_file(format!("files/{name}"), opts).map_err(|e| e.to_string())?;
             z.write_all(&data).map_err(|e| e.to_string())?;
             manifest.push_str(&format!("{name}\t{}\n", f.display()));
@@ -96,11 +96,11 @@ pub fn list(game: &str) -> Vec<(PathBuf, std::time::SystemTime, u64)> {
 /// an error midway the already replaced ones are restored. Returns the number of files.
 pub fn restore(zip_path: &Path) -> Result<usize, String> {
     use std::io::Read;
-    let file = fs::File::open(zip_path).map_err(|e| format!("Архив не открыт: {e}"))?;
-    let mut z = zip::ZipArchive::new(file).map_err(|e| format!("Это не zip-архив: {e}"))?;
+    let file = fs::File::open(zip_path).map_err(|e| trf!("Архив не открыт: {e}", "Archive not opened: {e}"))?;
+    let mut z = zip::ZipArchive::new(file).map_err(|e| trf!("Это не zip-архив: {e}", "This is not a zip archive: {e}"))?;
     let mut manifest = String::new();
     z.by_name(MANIFEST)
-        .map_err(|_| "В архиве нет списка файлов - это не копия Vaporust.".to_string())?
+        .map_err(|_| tr!("В архиве нет списка файлов - это не копия Vaporust.", "The archive has no file list - this is not a Vaporust backup.").to_string())?
         .read_to_string(&mut manifest)
         .map_err(|e| e.to_string())?;
     // 1. Read all files of the backup. An error here - saves are untouched.
@@ -109,13 +109,13 @@ pub fn restore(zip_path: &Path) -> Result<usize, String> {
         let Some((name, dest)) = line.split_once('\t') else { continue };
         let mut data = Vec::new();
         z.by_name(&format!("files/{name}"))
-            .map_err(|e| format!("Копия повреждена, ничего не восстановлено: в архиве нет {name} ({e})."))?
+            .map_err(|e| trf!("Копия повреждена, ничего не восстановлено: в архиве нет {name} ({e}).", "The backup is damaged, nothing restored: the archive has no {name} ({e})."))?
             .read_to_end(&mut data)
-            .map_err(|e| format!("Копия повреждена, ничего не восстановлено: {e}."))?;
+            .map_err(|e| trf!("Копия повреждена, ничего не восстановлено: {e}.", "The backup is damaged, nothing restored: {e}."))?;
         items.push((PathBuf::from(dest), data));
     }
     if items.is_empty() {
-        return Err("В копии нет файлов.".into());
+        return Err(tr!("В копии нет файлов.", "The backup has no files.").into());
     }
     // 2. Read the previous contents of ALL targets before the first write. "File did not exist" only when
     // it really does not exist; a file that cannot be read (locked by the game, no access) stops
@@ -126,8 +126,8 @@ pub fn restore(zip_path: &Path) -> Result<usize, String> {
             Ok(d) => olds.push(Some(d)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => olds.push(None),
             Err(e) => {
-                return Err(format!(
-                    "Ничего не восстановлено: файл {} занят или недоступен ({e}). Закройте игру и Steam и попробуйте снова.",
+                return Err(trf!(
+                    "Ничего не восстановлено: файл {} занят или недоступен ({e}). Закройте игру и Steam и попробуйте снова.", "Nothing restored: file {} is busy or unavailable ({e}). Close the game and Steam and try again.",
                     dest.display()
                 ))
             }
@@ -140,7 +140,7 @@ pub fn restore(zip_path: &Path) -> Result<usize, String> {
             if let Some(parent) = dest.parent() {
                 fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
-            write_replace(dest, data).map_err(|e| format!("Не восстановлен {}: {e}", dest.display()))?;
+            write_replace(dest, data).map_err(|e| trf!("Не восстановлен {}: {e}", "Not restored {}: {e}", dest.display()))?;
             done.push((dest.clone(), old));
         }
         Ok(())
@@ -158,9 +158,9 @@ pub fn restore(zip_path: &Path) -> Result<usize, String> {
             }
         }
         return Err(if lost.is_empty() {
-            format!("{e}. Сохранения возвращены как были.")
+            trf!("{e}. Сохранения возвращены как были.", "{e}. The saves were put back as they were.")
         } else {
-            format!("{e}. Не удалось вернуть: {} - возьмите их из страховочной копии.", lost.join(", "))
+            trf!("{e}. Не удалось вернуть: {} - возьмите их из страховочной копии.", "{e}. Could not put back: {} - take them from the safety backup.", lost.join(", "))
         });
     }
     Ok(items.len())

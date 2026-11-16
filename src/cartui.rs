@@ -29,9 +29,9 @@ impl LauncherApp {
         }
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Корзина").size(20.0).strong());
+            ui.label(egui::RichText::new(tr!("Корзина", "Cart")).size(20.0).strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Обновить").clicked() {
+                if ui.button(tr!("Обновить", "Refresh")).clicked() {
                     let _ = self.tx.send(Cmd::CartLoad);
                 }
             });
@@ -43,13 +43,13 @@ impl LauncherApp {
                 return;
             }
             Some(Err(e)) => {
-                ui.label(format!("Не удалось загрузить корзину: {e}"));
+                ui.label(trf!("Не удалось загрузить корзину: {e}", "Could not load the cart: {e}"));
                 return;
             }
             Some(Ok(c)) => c.clone(),
         };
         if cart.lines.is_empty() {
-            ui.weak("Корзина пуста. Положить игру - кнопка «В корзину» на ее странице в магазине.");
+            ui.weak(tr!("Корзина пуста. Положить игру - кнопка «В корзину» на ее странице в магазине.", "The cart is empty. To add a game, use the \"Add to cart\" button on its store page."));
         }
         let names = net.store.lock().unwrap().package_names.clone();
         for l in &cart.lines {
@@ -57,14 +57,14 @@ impl LauncherApp {
                 if l.packageid > 0 && self.cart_ui.names_asked.insert(l.packageid) {
                     let _ = self.tx.send(Cmd::Store(crate::store::StoreCmd::PackageName(l.packageid)));
                 }
-                if l.bundleid > 0 { format!("Набор {}", l.bundleid) } else { format!("Пакет {}", l.packageid) }
+                if l.bundleid > 0 { trf!("Набор {}", "Bundle {}", l.bundleid) } else { trf!("Пакет {}", "Package {}", l.packageid) }
             });
             egui::Frame::none().fill(crate::theme::CARD).rounding(3.0).inner_margin(egui::Margin::same(8.0)).show(ui, |ui| {
                 ui.set_width(ui.available_width().min(760.0));
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(crate::richtext::fix(ui, &name)).size(15.0).color(egui::Color32::WHITE));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Убрать").clicked() {
+                        if ui.button(tr!("Убрать", "Remove")).clicked() {
                             let _ = self.tx.send(Cmd::CartRemove(l.line_id));
                         }
                         ui.label(egui::RichText::new(&l.price).strong());
@@ -76,17 +76,17 @@ impl LauncherApp {
         if !cart.lines.is_empty() {
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(format!("Итого: {}", cart.total)).size(16.0).strong());
+                ui.label(egui::RichText::new(trf!("Итого: {}", "Total: {}", cart.total)).size(16.0).strong());
                 ui.add_space(16.0);
                 if ui
-                    .add(egui::Button::new(egui::RichText::new("Оформить на сайте Steam").color(egui::Color32::WHITE)).fill(crate::theme::PLAY))
-                    .on_hover_text("Откроется корзина Steam в браузере: оплата - там")
+                    .add(egui::Button::new(egui::RichText::new(tr!("Оформить на сайте Steam", "Check out on the Steam website")).color(egui::Color32::WHITE)).fill(crate::theme::PLAY))
+                    .on_hover_text(tr!("Откроется корзина Steam в браузере: оплата - там", "The Steam cart opens in the browser: payment is there"))
                     .clicked()
                 {
                     ui.ctx().open_url(egui::OpenUrl::new_tab("https://store.steampowered.com/cart/"));
                 }
             });
-            ui.weak("Корзина общая с сайтом и клиентом Steam: что положено здесь, будет и там.");
+            ui.weak(tr!("Корзина общая с сайтом и клиентом Steam: что положено здесь, будет и там.", "The cart is shared with the Steam website and client: what you add here is there too."));
         }
         if let Some(m) = &net.action_msg {
             ui.add_space(6.0);
@@ -100,7 +100,7 @@ impl LauncherApp {
     pub(crate) fn cart_pick_dialog(&mut self, ctx: &egui::Context, net: &NetState) {
         let Some(appid) = self.cart_ui.pick else { return };
         let mut close = false;
-        egui::Window::new("В корзину")
+        egui::Window::new(tr!("В корзину", "Add to cart"))
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
@@ -110,15 +110,15 @@ impl LauncherApp {
                         crate::spin::spinner(ui);
                     }
                     Some(Err(e)) => {
-                        ui.label(format!("Не удалось узнать варианты покупки: {e}"));
+                        ui.label(trf!("Не удалось узнать варианты покупки: {e}", "Could not get purchase options: {e}"));
                     }
                     Some(Ok(list)) if list.is_empty() => {
-                        ui.label("У этой игры нет вариантов покупки для корзины.");
+                        ui.label(tr!("У этой игры нет вариантов покупки для корзины.", "This game has no purchase options for the cart."));
                     }
                     Some(Ok(list)) => {
-                        ui.label("Что положить в корзину:");
+                        ui.label(tr!("Что положить в корзину:", "What to add to the cart:"));
                         for (pkg, name, _) in list.iter().take(8) {
-                            let label = if name.is_empty() { format!("Пакет {pkg}") } else { name.clone() };
+                            let label = if name.is_empty() { trf!("Пакет {pkg}", "Package {pkg}") } else { name.clone() };
                             if ui.button(crate::richtext::fix(ui, &label)).clicked() {
                                 let _ = self.tx.send(Cmd::CartAdd(*pkg));
                             }
@@ -129,11 +129,11 @@ impl LauncherApp {
                     ui.label(m);
                 }
                 ui.horizontal(|ui| {
-                    if ui.button("Открыть корзину").clicked() {
+                    if ui.button(tr!("Открыть корзину", "Open cart")).clicked() {
                         close = true;
                         self.open_cart();
                     }
-                    if ui.button("Закрыть").clicked() {
+                    if ui.button(tr!("Закрыть", "Close")).clicked() {
                         close = true;
                     }
                 });

@@ -8,15 +8,18 @@ use aurelia::steam_client::SteamClient;
 use eframe::egui;
 
 /// Item kinds: (community_item_class, name).
-pub const CLASSES: [(u32, &str); 7] = [
-    (12, "Эффекты чата"),
-    (11, "Стикеры"),
-    (14, "Рамки аватара"),
-    (15, "Анимированные аватары"),
-    (3, "Фоны профиля"),
-    (13, "Мини-фоны профиля"),
-    (4, "Смайлики"),
-];
+#[allow(non_snake_case)]
+pub fn CLASSES() -> [(u32, &'static str); 7] {
+    [
+    (12, tr!("Эффекты чата", "Chat effects")),
+    (11, tr!("Стикеры", "Stickers")),
+    (14, tr!("Рамки аватара", "Avatar frames")),
+    (15, tr!("Анимированные аватары", "Animated avatars")),
+    (3, tr!("Фоны профиля", "Profile backgrounds")),
+    (13, tr!("Мини-фоны профиля", "Mini profile backgrounds")),
+    (4, tr!("Смайлики", "Emoticons")),
+]
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct RewardItem {
@@ -84,7 +87,7 @@ fn parse_item(d: &serde_json::Value) -> Option<RewardItem> {
 pub async fn query(client: &SteamClient, class: u32, search: &str, cursor: Option<&str>) -> Result<Page, String> {
     let mut p = vec![
         ("count", "60".to_string()),
-        ("language", crate::lang::STEAM.to_string()),
+        ("language", crate::lang::steam().to_string()),
         ("community_item_classes[0]", class.to_string()),
     ];
     if !search.trim().is_empty() {
@@ -145,7 +148,7 @@ pub async fn redeem(client: &SteamClient, defid: u64) -> Result<(), String> {
     if v.get("communityitemid").is_some() || v.get("bundle_community_item_ids").is_some() {
         Ok(())
     } else {
-        Err("Steam не выдал предмет (уже есть или не хватает очков?).".into())
+        Err(tr!("Steam не выдал предмет (уже есть или не хватает очков?).", "Steam did not give the item (already owned or not enough points?).").into())
     }
 }
 
@@ -179,23 +182,23 @@ impl LauncherApp {
             let _ = self.tx.send(Cmd::PointsQuery { class: want.0, search: want.1, cursor: None });
         }
         ui.horizontal(|ui| {
-            ui.heading("Очки Steam");
+            ui.heading(tr!("Очки Steam", "Steam Points"));
             match net.points_balance {
-                Some(b) => ui.label(format!("на счету: {}", crate::store::group_digits(b))),
+                Some(b) => ui.label(trf!("на счету: {}", "balance: {}", crate::store::group_digits(b))),
                 None => crate::spin::spinner(ui),
             };
-            ui.hyperlink_to("Магазин очков на сайте", "https://store.steampowered.com/points/shop");
+            ui.hyperlink_to(tr!("Магазин очков на сайте", "Points Shop on the website"), "https://store.steampowered.com/points/shop");
         });
         if let Some(m) = &net.points_msg {
             ui.label(m);
         }
         ui.horizontal_wrapped(|ui| {
-            for (c, name) in CLASSES {
+            for (c, name) in CLASSES() {
                 ui.selectable_value(&mut st.class, c, name);
             }
         });
         ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut st.search).hint_text("Поиск по названию или игре").desired_width(260.0));
+            ui.add(egui::TextEdit::singleline(&mut st.search).hint_text(tr!("Поиск по названию или игре", "Search by name or game")).desired_width(260.0));
             // The loading icon here only when the list is already shown (loading more); an empty list
             // shows its own icon below, a second one is not needed.
             let shown = matches!(&net.points_page, Some(Ok(p)) if p.class == st.class && p.search == st.search.trim());
@@ -203,12 +206,12 @@ impl LauncherApp {
                 crate::spin::spinner(ui);
             }
         });
-        ui.weak("Очки дают за покупки в Steam (100 очков за каждый доллар). Купленное появится в профиле и в чате.");
+        ui.weak(tr!("Очки дают за покупки в Steam (100 очков за каждый доллар). Купленное появится в профиле и в чате.", "Points are earned for purchases on Steam (100 points for every dollar). Purchases appear in the profile and in chat."));
         ui.separator();
         let page = match &net.points_page {
             Some(Ok(p)) if p.class == st.class && p.search == st.search.trim() => p.clone(),
             Some(Err(e)) => {
-                ui.label(format!("Не удалось загрузить: {e}"));
+                ui.label(trf!("Не удалось загрузить: {e}", "Could not load: {e}"));
                 return;
             }
             _ => {
@@ -221,7 +224,7 @@ impl LauncherApp {
         let owned = net.points_owned.clone().unwrap_or_default();
         let mut more = false;
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            ui.weak(format!("Найдено: {}", page.total));
+            ui.weak(trf!("Найдено: {}", "Found: {}", page.total));
             ui.horizontal_wrapped(|ui| {
                 for it in &page.items {
                     ui.allocate_ui(egui::vec2(150.0, 190.0), |ui| {
@@ -238,21 +241,21 @@ impl LauncherApp {
                                 ui.put(target, img.max_size(target.size()));
                             }
                             ui.add(egui::Label::new(egui::RichText::new(&it.title).small()).truncate());
-                            ui.label(format!("{} очков", crate::store::group_digits(it.cost)));
+                            ui.label(trf!("{} очков", "{} points", crate::store::group_digits(it.cost)));
                             if owned.has(it) {
-                                ui.colored_label(egui::Color32::from_rgb(110, 200, 110), "Уже есть");
+                                ui.colored_label(egui::Color32::from_rgb(110, 200, 110), tr!("Уже есть", "Owned"));
                             } else if st.confirm == Some(it.defid) {
                                 ui.horizontal(|ui| {
-                                    if ui.button("Купить").clicked() {
+                                    if ui.button(tr!("Купить", "Buy")).clicked() {
                                         buy = Some(it.clone());
                                     }
-                                    if ui.button("Нет").clicked() {
+                                    if ui.button(tr!("Нет", "No")).clicked() {
                                         st.confirm = None;
                                     }
                                 });
                             } else if ui
-                                .add_enabled(it.cost <= balance, egui::Button::new("Купить..."))
-                                .on_disabled_hover_text("Не хватает очков")
+                                .add_enabled(it.cost <= balance, egui::Button::new(tr!("Купить...", "Buy...")))
+                                .on_disabled_hover_text(tr!("Не хватает очков", "Not enough points"))
                                 .clicked()
                             {
                                 st.confirm = Some(it.defid);
@@ -261,7 +264,7 @@ impl LauncherApp {
                     });
                 }
             });
-            if page.cursor.is_some() && (page.items.len() as u64) < page.total && ui.button("Показать еще").clicked() {
+            if page.cursor.is_some() && (page.items.len() as u64) < page.total && ui.button(tr!("Показать еще", "Show more")).clicked() {
                 more = true;
             }
         });
@@ -299,7 +302,7 @@ mod tests {
             c.restore_session().await.unwrap();
             let me = c.my_steam_id().unwrap();
             println!("очков: {}", balance(&c, me).await.unwrap());
-            for (cl, name) in CLASSES {
+            for (cl, name) in CLASSES() {
                 let p = query(&c, cl, "", None).await.unwrap();
                 println!("{name}: {} всего, на странице {}, курсор {}", p.total, p.items.len(), p.cursor.is_some());
                 for it in p.items.iter().take(2) {

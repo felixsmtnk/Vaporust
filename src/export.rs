@@ -15,15 +15,15 @@ fn field(s: &str) -> String {
 
 /// Table rows: (appid, name, installed, size, minutes, family, collections).
 pub fn csv(rows: &[(u32, String, bool, u64, Option<u32>, bool, String)]) -> String {
-    let mut out = String::from("\u{feff}appid;Название;Установлена;Размер, ГБ;Часов в игре;Семейная библиотека;Коллекции\r\n");
+    let mut out = String::from(tr!("\u{feff}appid;Название;Установлена;Размер, ГБ;Часов в игре;Семейная библиотека;Коллекции\r\n", "\u{feff}appid;Name;Installed;Size, GB;Hours played;Family library;Collections\r\n"));
     for (appid, name, installed, size, min, family, colls) in rows {
         let gb = if *size > 0 { format!("{:.2}", *size as f64 / 1_073_741_824.0).replace('.', ",") } else { String::new() };
         let hours = min.map(|m| format!("{:.1}", m as f64 / 60.0).replace('.', ",")).unwrap_or_default();
         out.push_str(&format!(
             "{appid};{};{};{gb};{hours};{};{}\r\n",
             field(name),
-            if *installed { "да" } else { "" },
-            if *family { "да" } else { "" },
+            if *installed { tr!("да", "yes") } else { "" },
+            if *family { tr!("да", "yes") } else { "" },
             field(colls)
         ));
     }
@@ -34,9 +34,9 @@ impl LauncherApp {
     /// Ask where to save and write the table of all games. Returns text for the user.
     pub(crate) fn export_library(&self, net: &NetState) -> Option<String> {
         let path = rfd::FileDialog::new()
-            .set_title("Сохранить список игр")
-            .set_file_name("Vaporust - мои игры.csv")
-            .add_filter("Таблица CSV", &["csv"])
+            .set_title(tr!("Сохранить список игр", "Save the game list"))
+            .set_file_name(tr!("Vaporust - мои игры.csv", "Vaporust - my games.csv"))
+            .add_filter(tr!("Таблица CSV", "CSV table"), &["csv"])
             .save_file()?;
         let colls = net.collections.as_deref().unwrap_or(&[]);
         let mut rows: Vec<_> = self
@@ -49,8 +49,8 @@ impl LauncherApp {
             .collect();
         rows.sort_by_key(|r| r.1.to_lowercase());
         Some(match std::fs::write(&path, csv(&rows)) {
-            Ok(()) => format!("Сохранено игр: {} - {}", rows.len(), path.display()),
-            Err(e) => format!("Не удалось сохранить: {e}"),
+            Ok(()) => trf!("Сохранено игр: {} - {}", "Games saved: {} - {}", rows.len(), path.display()),
+            Err(e) => trf!("Не удалось сохранить: {e}", "Could not save: {e}"),
         })
     }
 }

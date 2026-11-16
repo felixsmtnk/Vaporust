@@ -26,21 +26,21 @@ pub fn looks_like_key(key: &str) -> bool {
 /// Clear explanation of a Steam refusal code (purchase_result_details).
 pub fn explain(code: i64) -> String {
     match code {
-        9 => "Этот продукт уже есть на вашем аккаунте.".into(),
-        13 => "Ключ нельзя активировать в вашем регионе.".into(),
-        14 => "Неверный ключ: проверьте, что он введен без ошибок.".into(),
-        15 => "Ключ уже активирован на другом аккаунте.".into(),
-        24 => "Сначала нужна основная игра: это дополнение к ней.".into(),
-        36 | 50 => "Это код для кошелька или другой платформы: активируйте его на странице кошелька Steam.".into(),
-        53 => "Слишком много попыток. Подождите час и попробуйте снова.".into(),
-        c => format!("Steam отказал (код {c})."),
+        9 => tr!("Этот продукт уже есть на вашем аккаунте.", "This product is already on your account.").into(),
+        13 => tr!("Ключ нельзя активировать в вашем регионе.", "The key cannot be activated in your region.").into(),
+        14 => tr!("Неверный ключ: проверьте, что он введен без ошибок.", "Invalid key: check that it was entered without mistakes.").into(),
+        15 => tr!("Ключ уже активирован на другом аккаунте.", "The key is already activated on another account.").into(),
+        24 => tr!("Сначала нужна основная игра: это дополнение к ней.", "The base game is needed first: this is its DLC.").into(),
+        36 | 50 => tr!("Это код для кошелька или другой платформы: активируйте его на странице кошелька Steam.", "This is a code for the wallet or another platform: redeem it on the Steam wallet page.").into(),
+        53 => tr!("Слишком много попыток. Подождите час и попробуйте снова.", "Too many attempts. Wait an hour and try again.").into(),
+        c => trf!("Steam отказал (код {c}).", "Steam refused (code {c})."),
     }
 }
 
 /// Parse the ajaxregisterkey response.
 pub fn parse(body: &str) -> KeyResult {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(body) else {
-        return KeyResult::Err("Steam ответил непонятно (сессия устарела? войдите заново).".into());
+        return KeyResult::Err(tr!("Steam ответил непонятно (сессия устарела? войдите заново).", "Steam gave an unclear answer (session expired? log in again).").into());
     };
     let names: Vec<String> = v
         .get("purchase_receipt_info")
@@ -58,11 +58,11 @@ pub fn parse(body: &str) -> KeyResult {
 pub async fn activate(client: &SteamClient, key: &str) -> KeyResult {
     let key = normalize(key);
     if !looks_like_key(&key) {
-        return KeyResult::Err("В ключе Steam только латинские буквы, цифры и дефисы.".into());
+        return KeyResult::Err(tr!("В ключе Steam только латинские буквы, цифры и дефисы.", "A Steam key has only Latin letters, digits and dashes.").into());
     }
     let web = match crate::webapi::web_session(client).await {
         Ok(w) => w,
-        Err(e) => return KeyResult::Err(format!("Нет входа на сайт Steam: {e}")),
+        Err(e) => return KeyResult::Err(trf!("Нет входа на сайт Steam: {e}", "Not logged in to the Steam website: {e}")),
     };
     let fields = [("product_key", key.clone()), ("sessionid", web.sessionid().to_string())];
     match web
@@ -74,8 +74,8 @@ pub async fn activate(client: &SteamClient, key: &str) -> KeyResult {
         .await
     {
         Ok((200, body)) => parse(&body),
-        Ok((status, _)) => KeyResult::Err(format!("Steam ответил кодом {status} (войдите заново?).")),
-        Err(e) => KeyResult::Err(format!("Нет связи со Steam: {e:#}")),
+        Ok((status, _)) => KeyResult::Err(trf!("Steam ответил кодом {status} (войдите заново?).", "Steam answered with code {status} (log in again?).")),
+        Err(e) => KeyResult::Err(trf!("Нет связи со Steam: {e:#}", "No connection to Steam: {e:#}")),
     }
 }
 
@@ -139,18 +139,18 @@ impl LauncherApp {
         let mut refresh = false;
         ctx.show_viewport_immediate(
             egui::ViewportId::from_hash_of("vaporust_key"),
-            crate::socialwin::viewport("Активировать ключ - Vaporust", [520.0, 340.0], [420.0, 300.0]),
+            crate::socialwin::viewport(tr!("Активировать ключ - Vaporust", "Activate a key - Vaporust"), [520.0, 340.0], [420.0, 300.0]),
             |ctx, _| {
                 crate::winframe::title_bar_auto(ctx);
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    ui.label(egui::RichText::new("Введите ключ активации").size(18.0).strong());
+                    ui.label(egui::RichText::new(tr!("Введите ключ активации", "Enter the activation key")).size(18.0).strong());
                     ui.add_space(4.0);
                     ui.label(
-                        "Ключ добавит продукт в вашу библиотеку Steam. Подойдет ключ с коробки, \
-                         из магазина или бандла.",
+                        tr!("Ключ добавит продукт в вашу библиотеку Steam. Подойдет ключ с коробки, \
+                         из магазина или бандла.", "The key adds a product to your Steam library. A key from a box, a store or a bundle works."),
                     );
                     ui.add_space(8.0);
-                    ui.label(egui::RichText::new("ПРИМЕРЫ КЛЮЧЕЙ АКТИВАЦИИ").size(11.0).strong().color(crate::theme::WEAK));
+                    ui.label(egui::RichText::new(tr!("ПРИМЕРЫ КЛЮЧЕЙ АКТИВАЦИИ", "PRODUCT KEY EXAMPLES")).size(11.0).strong().color(crate::theme::WEAK));
                     for ex in ["AAAAA-BBBBB-CCCCC", "AAAAA-BBBBB-CCCCC-DDDDD-EEEEE", "237ABCDGHJLPRST 23"] {
                         ui.label(egui::RichText::new(ex).monospace().color(crate::theme::WEAK));
                     }
@@ -164,29 +164,29 @@ impl LauncherApp {
                         );
                         let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                         let ok = !net.key_busy && valid && net.account.is_some();
-                        if ui.add_enabled(ok, egui::Button::new("Активировать")).clicked() || (enter && ok) {
+                        if ui.add_enabled(ok, egui::Button::new(tr!("Активировать", "Activate"))).clicked() || (enter && ok) {
                             send = Some(normalize(&input));
                         }
                     });
                     if !input.trim().is_empty() && !valid {
                         ui.colored_label(
                             egui::Color32::from_rgb(230, 170, 90),
-                            "В ключе Steam только латинские буквы, цифры и дефисы.",
+                            tr!("В ключе Steam только латинские буквы, цифры и дефисы.", "A Steam key has only Latin letters, digits and dashes."),
                         );
                     }
                     if net.account.is_none() {
-                        ui.weak("Нужен вход в аккаунт.");
+                        ui.weak(tr!("Нужен вход в аккаунт.", "An account login is needed."));
                     }
                     if net.key_busy {
                         ui.horizontal(|ui| {
                             crate::spin::spinner(ui);
-                            ui.label("Активирую...");
+                            ui.label(tr!("Активирую...", "Activating..."));
                         });
                     }
                     match &net.key_result {
                         Some(KeyResult::Ok(items)) => {
-                            let what = if items.is_empty() { "продукт".to_string() } else { items.join(", ") };
-                            ui.colored_label(egui::Color32::from_rgb(110, 200, 110), format!("Готово: на аккаунт добавлено {what}."));
+                            let what = if items.is_empty() { tr!("продукт", "product").to_string() } else { items.join(", ") };
+                            ui.colored_label(egui::Color32::from_rgb(110, 200, 110), trf!("Готово: на аккаунт добавлено {what}.", "Done: {what} added to the account."));
                             refresh = true;
                         }
                         Some(KeyResult::Err(e)) => {
@@ -195,7 +195,7 @@ impl LauncherApp {
                         None => {}
                     }
                     ui.add_space(6.0);
-                    ui.weak("Ключ проверяет сам Steam. После нескольких неверных ключей подряд Steam на час запрещает попытки.");
+                    ui.weak(tr!("Ключ проверяет сам Steam. После нескольких неверных ключей подряд Steam на час запрещает попытки.", "Steam checks the key itself. After several invalid keys in a row Steam blocks attempts for an hour."));
                 });
                 if ctx.input(|i| i.viewport().close_requested()) {
                     open = false;

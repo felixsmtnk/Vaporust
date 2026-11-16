@@ -23,7 +23,7 @@ pub struct CoplayPlayer {
 pub async fn load(client: &SteamClient, me: u64) -> Result<Vec<CoplayGame>, String> {
     let web = crate::webapi::web_session(client).await?;
     let t = web
-        .get_text(&format!("https://steamcommunity.com/profiles/{me}/friends/coplay?l={lang}", lang = crate::lang::STEAM))
+        .get_text(&format!("https://steamcommunity.com/profiles/{me}/friends/coplay?l={lang}", lang = crate::lang::steam()))
         .await
         .map_err(|e| format!("{e:#}"))?;
     Ok(parse(&t))
@@ -102,7 +102,7 @@ impl crate::LauncherApp {
             self.friends_page.coplay_asked = true;
             let _ = self.tx.send(crate::net::Cmd::Coplay);
         }
-        ui.weak("Люди, с которыми вы недавно играли в сетевых играх (не все игры сообщают об этом Steam).");
+        ui.weak(tr!("Люди, с которыми вы недавно играли в сетевых играх (не все игры сообщают об этом Steam).", "People you recently played online games with (not all games report this to Steam)."));
         ui.add_space(4.0);
         let games = match &net.coplay {
             None => {
@@ -110,13 +110,13 @@ impl crate::LauncherApp {
                 return;
             }
             Some(Err(e)) => {
-                ui.label(format!("Не удалось загрузить: {e}"));
+                ui.label(trf!("Не удалось загрузить: {e}", "Could not load: {e}"));
                 return;
             }
             Some(Ok(v)) => v,
         };
         if games.is_empty() {
-            ui.weak("Пока никого: Steam не запомнил, с кем вы играли.");
+            ui.weak(tr!("Пока никого: Steam не запомнил, с кем вы играли.", "Nobody yet: Steam has not recorded who you played with."));
             return;
         }
         let friends: std::collections::HashSet<u64> =
@@ -161,8 +161,8 @@ impl crate::LauncherApp {
                                         profile = Some(p.steamid);
                                     }
                                     if friends.contains(&p.steamid) {
-                                        ui.label(egui::RichText::new("в друзьях").small().color(crate::theme::PLAY_TEXT));
-                                    } else if ui.small_button("Добавить в друзья").clicked() {
+                                        ui.label(egui::RichText::new(tr!("в друзьях", "friend")).small().color(crate::theme::PLAY_TEXT));
+                                    } else if ui.small_button(tr!("Добавить в друзья", "Add friend")).clicked() {
                                         add = Some(p.steamid);
                                     }
                                 });

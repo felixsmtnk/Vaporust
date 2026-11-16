@@ -277,7 +277,7 @@ impl SmallLoader {
                     }
                     ctx.request_repaint();
                 })
-                .expect("поток картинок");
+                .expect(tr!("поток картинок", "image stream"));
         }
         let _ = SMALL_CACHE.set(cache.clone());
         SmallLoader { cache, jobs, wake }

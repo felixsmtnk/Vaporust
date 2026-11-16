@@ -18,21 +18,24 @@ pub fn set(v: bool) {
     ON.store(v, Ordering::Relaxed);
 }
 
-pub const HINT: &str = "Экспериментальная функция. Включить: «Настройки -> Аккаунт -> Экспериментальные функции»";
+#[allow(non_snake_case)]
+pub fn HINT() -> &'static str {
+    tr!("Экспериментальная функция. Включить: «Настройки -> Аккаунт -> Экспериментальные функции»", "Experimental feature. Turn on: \"Settings -> Account -> Experimental features\"")
+}
 
 /// Button of an experimental action: disabled without the switch, with a hint why.
 pub fn button(ui: &mut egui::Ui, text: impl Into<egui::WidgetText>) -> egui::Response {
-    ui.add_enabled(on(), egui::Button::new(text)).on_disabled_hover_text(HINT)
+    ui.add_enabled(on(), egui::Button::new(text)).on_disabled_hover_text(HINT())
 }
 
 pub fn small_button(ui: &mut egui::Ui, text: impl Into<egui::WidgetText>) -> egui::Response {
-    ui.add_enabled(on(), egui::Button::new(text).small()).on_disabled_hover_text(HINT)
+    ui.add_enabled(on(), egui::Button::new(text).small()).on_disabled_hover_text(HINT())
 }
 
 /// Explanation instead of a whole block of actions.
 pub fn note(ui: &mut egui::Ui, what: &str) {
-    ui.weak(format!(
-        "{what} - экспериментальная функция, сейчас выключена. Включить: «Настройки -> Аккаунт -> Экспериментальные функции»."
+    ui.weak(trf!(
+        "{what} - экспериментальная функция, сейчас выключена. Включить: «Настройки -> Аккаунт -> Экспериментальные функции».", "{what} is an experimental feature and is turned off now. Turn on: \"Settings -> Account -> Experimental features\"."
     ));
 }
 

@@ -76,7 +76,7 @@ pub fn new_message(friend: u64, name: Option<String>, text: String, accent: Opti
     }
     let focused = app_focused();
     if !(focused && OPEN_CHAT.load(Ordering::Relaxed) == friend) {
-        let title = name.unwrap_or_else(|| "Новое сообщение".into());
+        let title = name.unwrap_or_else(|| tr!("Новое сообщение", "New message").into());
         let (body, image) = crate::chatfmt::preview(&text);
         crate::popup::push_full(crate::popup::Kind::Message(friend), title, body, image, accent);
     }

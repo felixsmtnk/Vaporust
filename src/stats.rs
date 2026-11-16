@@ -27,8 +27,8 @@ pub fn frame(started: Instant) {
     let t = *last.get_or_insert_with(Instant::now);
     if t.elapsed().as_secs() >= 10 {
         *last = Some(Instant::now());
-        let line = format!(
-            "{} кадров, {:.1} мс на кадры; опросов процессов {}, {:.1} мс; кэш картинок {:.1} МБ\n",
+        let line = trf!(
+            "{} кадров, {:.1} мс на кадры; опросов процессов {}, {:.1} мс; кэш картинок {:.1} МБ\n", "{} frames, {:.1} ms on frames; process polls {}, {:.1} ms; image cache {:.1} MB\n",
             FRAMES.swap(0, Ordering::Relaxed),
             FRAME_US.swap(0, Ordering::Relaxed) as f64 / 1000.0,
             PROC_SCANS.swap(0, Ordering::Relaxed),

@@ -150,7 +150,7 @@ pub fn read_last_played(localconfig: &Path) -> std::collections::HashMap<u32, u6
 /// Current launch options of a game ("" if not set).
 pub fn read(localconfig: &Path, appid: u32) -> Result<String, String> {
     let text = fs::read_to_string(localconfig)
-        .map_err(|e| format!("Не удалось прочитать настройки Steam: {e}"))?;
+        .map_err(|e| trf!("Не удалось прочитать настройки Steam: {e}", "Could not read Steam settings: {e}"))?;
     let lines: Vec<&str> = text.split('\n').collect();
     Ok(locate(&lines, appid).launch.map(|(_, v)| v).unwrap_or_default())
 }
@@ -158,7 +158,7 @@ pub fn read(localconfig: &Path, appid: u32) -> Result<String, String> {
 /// Write launch options. Steam must be closed.
 pub fn write(localconfig: &Path, appid: u32, value: &str) -> Result<(), String> {
     let text = fs::read_to_string(localconfig)
-        .map_err(|e| format!("Не удалось прочитать настройки Steam: {e}"))?;
+        .map_err(|e| trf!("Не удалось прочитать настройки Steam: {e}", "Could not read Steam settings: {e}"))?;
     let lines: Vec<&str> = text.split('\n').collect();
     let found = locate(&lines, appid);
     let mut out: Vec<String> = lines.iter().map(|s| s.to_string()).collect();
@@ -186,22 +186,22 @@ pub fn write(localconfig: &Path, appid: u32, value: &str) -> Result<(), String> 
             out.insert(i + k, l);
         }
     } else {
-        return Err("В настройках Steam не найден раздел apps. Запустите Steam один раз обычным способом.".into());
+        return Err(tr!("В настройках Steam не найден раздел apps. Запустите Steam один раз обычным способом.", "The apps section was not found in Steam settings. Start Steam once the usual way.").into());
     }
 
     // Backup before our first edit, then write via a temporary file.
     let backup = localconfig.with_extension("vdf.vaporust.bak");
     if !backup.exists() {
-        fs::copy(localconfig, &backup).map_err(|e| format!("Не удалось сделать резервную копию: {e}"))?;
+        fs::copy(localconfig, &backup).map_err(|e| trf!("Не удалось сделать резервную копию: {e}", "Could not make a backup: {e}"))?;
     }
     let tmp = localconfig.with_extension("vdf.vaporust.tmp");
-    fs::write(&tmp, out.join("\n")).map_err(|e| format!("Не удалось записать настройки: {e}"))?;
-    fs::rename(&tmp, localconfig).map_err(|e| format!("Не удалось записать настройки: {e}"))?;
+    fs::write(&tmp, out.join("\n")).map_err(|e| trf!("Не удалось записать настройки: {e}", "Could not write the settings: {e}"))?;
+    fs::rename(&tmp, localconfig).map_err(|e| trf!("Не удалось записать настройки: {e}", "Could not write the settings: {e}"))?;
 
     // Check: read it back.
     let back = read(localconfig, appid)?;
     if back != value {
-        return Err(format!("После записи прочиталось «{back}» вместо «{value}»."));
+        return Err(trf!("После записи прочиталось «{back}» вместо «{value}».", "After writing, \"{back}\" was read instead of \"{value}\"."));
     }
     Ok(())
 }

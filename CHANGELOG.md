@@ -1,331 +1,263 @@
-# История версий Vaporust
-
-Что вошло в каждую вышедшую версию, сверху - самая новая. Планы на будущее - в
-[ROADMAP.md](ROADMAP.md), архивы и подробные тексты выпусков - на странице
-[Releases](../../releases).
-
-## ✅ 0.7.1-alpha: код для всех
-
-*Вышла 16.11.2026.* Исправления по обзорам Codex и Gemini, комментарии в коде на английском.
-
-- Комментарии в коде переведены на английский (для сторонних разработчиков); тексты интерфейса пока русские.
-- Кнопка «Вернуть Steam как было» переименована в «Убрать изменения Vaporust в Steam»: она убирает
-  служебные изменения, а язык, бета и параметры запуска игр остаются.
-- Значок в трее - белый силуэт без фона, как у других программ (на светлой панели задач - темный).
-- Галочка заморозки steamwebhelper в мастере первого запуска теперь действительно включает и
-  выключает заморозку.
-- Два одинаковых сообщения подряд в чате (например, два «да») больше не склеиваются в одно.
-- Кнопки «Снять с продажи» и «Отменить заявку» без экспериментальных функций видны серыми с
-  подсказкой, а не пропадают.
-
-## ✅ 0.7.0-alpha: без пароля и безопаснее
-
-*Вышла 16.11.2026.* По внешнему обзору Fable: доверие, безопасность, путь назад.
-
-- **Режим без входа:** только установленные игры и запуск через Steam, пароль не нужен. Выбор в
-  мастере первого запуска и кнопка «Без входа» на экране входа.
-- **Экспериментальные функции** (Настройки -> Аккаунт), по умолчанию выключены: продажа и обмены,
-  закрепление и откат версии, комментарии, оценки, награды, группы, блокировка, правка профиля.
-- **«Вернуть Steam как было»** (Настройки -> О программе): недокачанные игры снова видны Steam,
-  закрепленные версии откреплены, снят автономный режим, временные папки загрузок - в Корзину.
-- На видеокартах Intel по умолчанию обычная рамка Windows (против черной полосы на ноутбуках).
-- Новый логотип: V из шатуна с поршнем и рычага на медной шестерне. Значок окна квадратный, в трее
-  круглый.
-- Группы Steam больше не попадают в список друзей (были видны длинными номерами).
-- Плитка библиотеки при запуске открывается сверху (раньше со второго-третьего ряда).
-- Свой кэш библиотеки для каждого аккаунта; перенос старой истории времени один раз; история чата
-  не теряет новые сообщения; ключи входа вырезаются из журнала; семейные игры без «Запускать без
-  Steam»; DLC без названия не показываются номером.
-- Сборка на GitHub: действия закреплены по точным версиям, права только на чтение, у архивов
-  подпись происхождения. Новые SECURITY.md и раздел README «Пароль и безопасность».
-  TESTING.md (что проверяют тесты), шаблоны сообщений об ошибке.
-
-## ✅ 0.6.5-alpha: отзывчивость и порядок
-
-*Вышла 15.11.2026.* Исправления по внешним обзорам кода (Codex, Gemini).
-
-- Вход по QR-коду больше не задерживает остальное: можно передумать и войти паролем или
-  нажать «Отменить вход по QR».
-- История чата, достижения и обновление библиотеки грузятся в фоне и не задерживают другие
-  действия.
-- Тяжелые данные (игры, переписки, достижения) не копируются целиком при каждом событии.
-- Заявки площадки разбираются как JSON, валюта сверяется строго.
-- Язык текстов Steam собран в одном месте (подготовка к переводу).
-- Плитка: без черной полосы снизу, кнопка не пропадает у края; список игр слева без пустого места
-  внизу.
-- Старая общая история времени переносится только по кнопке в «Статистике»; сообщение о
-  продаже привязано к самому предмету; расчет цены при нулевой комиссии игры.
-- README: честно про заморозку steamwebhelper вместо `-no-browser`, сравнение с компактным
-  режимом Steam и Playnite; история версий - в CHANGELOG.md; новая картинка для ссылок.
-
-## ✅ 0.6.4-alpha: продажа и плитка библиотеки
-
-*Вышла 15.11.2026.* Исправления после проверки 0.6.3-alpha автором и внешним ревьюером.
-
-- **Быстрая и мгновенная продажа у всех игр.** Предметы без заявок на покупку (часто в CS2)
-  больше не считаются «не продающимися»; быстрая продажа есть всегда, даже если самый дешевый лот
-  уже по минимальной цене.
-- **Шаг быстрой продажи настраивается:** «Настройки - Аккаунт - Быстрая продажа» (по умолчанию -
-  один шаг цены валюты; у гривны это 1 ₴, дешевле на копейки Steam не разрешает).
-- Своя комиссия игры на площадке, если она у игры есть (как на сайте Steam).
-- Сообщение «подтвердите продажу» показывается 90 секунд и только у выставленного предмета.
-- **Плитка библиотеки как в Steam:** при наведении увеличивается вся плитка вместе с кнопкой;
-  у неустановленных игр - синяя кнопка «Установить»; одна игра больше не подсвечивается в двух
-  местах сразу; без повтора «ВСЕ ИГРЫ (N)».
-- **Меню по правому щелчку** в порядке Steam: Играть, Страница игры, переходы, Коллекции,
-  Управление (папка, удаление), Свойства.
-- Статистика: старая общая история переходит к аккаунту только если в Vaporust входили в один
-  аккаунт и время в ней не больше нынешнего; старый файл убирается только после записи нового.
-- Проверка «ответ от текущего аккаунта» - под той же блокировкой, что и запись.
-- Диагностика скрывает и короткие имена пользователя Windows.
-
-## ✅ 0.6.3-alpha: по подробной проверке
-
-*Вышла 15.11.2026.* Исправления по QA-отчету внешнего ревьюера (16 находок).
-
-- **Цены на площадке по правилам валюты**, как на сайте Steam: минимальная цена, шаг цены и
-  комиссии берутся из кошелька (у гривны - целые гривны, минимум 1 ₴). Раньше предпросмотр
-  считал как для доллара, а «быстрая продажа» снижала цену на 0,01. Без правил продажа не
-  предлагается.
-- **Восстановление сохранений**: файл, который не читается (занят игрой), останавливает
-  восстановление до замены - раньше откат мог его удалить.
-- **Ответы прошлого аккаунта** не попадают к новому и из подзадач («Свойства игры», друзья).
-- **Статистика времени - своя у каждого аккаунта** (старая общая история достается аккаунту,
-  только если это его игры).
-- **У каждой страницы своя прокрутка**: «Загрузки», достижения, страница игры открываются сверху.
-- **Маленькое окно и крупный масштаб**: наименьший размер окна растет с масштабом, строки
-  настроек и фильтры библиотеки переносятся, панель поиска магазина в узком окне - в две строки,
-  поиск в инвентаре по ширине, заголовки таблицы не слипаются.
-- Окно продажи: честный текст про подтверждение в телефоне, Esc - отмена.
-- «Хранилище»: путь без технической приставки `\\?\`.
-- «Настройки -> О программе -> Скопировать диагностику» для сообщений об ошибках.
-
-## ✅ 0.6.2-alpha: сохранность данных
-
-*Вышла 15.11.2026.* Исправления по второму внешнему обзору кода.
-
-- Восстановление сохранений - «все или ничего»: архив сначала проверяется целиком, а при сбое
-  посередине уже замененные файлы возвращаются как были.
-- Две копии сохранений в одну секунду больше не затирают друг друга.
-- Ответы фоновых задач прошлого аккаунта (после выхода или входа в другой) не попадают к новому.
-- Если вход не удалось зашифровать (хранилище ключей Windows недоступно), Vaporust сразу
-  предупреждает.
-- Подсказка поиска в библиотеке без неверного числа игр.
-
-## ✅ 0.6.1-alpha: надежность и безопасность
-
-*Вышла 14.11.2026.* Исправления по внешнему обзору кода и автоматические тесты.
-
-- Сохраненный вход в Steam хранится зашифрованным (ключ - в диспетчере учетных данных Windows);
-  уже лежащий открытый файл входа шифруется при первом запуске.
-- Ключ для запросов к Steam привязан к аккаунту и сбрасывается при выходе.
-- Восстановление сохранений не начинается, если не удалось сделать копию текущих.
-- Цена при продаже на площадке проверяется строго; неверная цена не дает выставить предмет.
-- Автообновление сверяет контрольную сумму архива и разрядность программы.
-- Автоматические тесты: разбор страниц Steam на сохраненных примерах и сбои (нет места, обрыв
-  загрузки, испорченные файлы, поврежденные архивы).
-- Размер и положение окна запоминаются (с проверкой, что окно помещается на экран).
-
-## ✅ 0.6.0-alpha: ближе к Steam
-
-*Вышла 14.11.2026.* Почти все, чего не хватало по сравнению со Steam: торговая площадка, корзина,
-редактирование профиля, несколько аккаунтов, вкладки в чате.
-
-**Библиотека и игры**
-- Полки «Недавние игры» и «Что нового» (новости своих игр) на главной библиотеки.
-- Фильтры «Готово к игре», «Есть обновление» и «Жанр»; сортировка «по имени» - просто по алфавиту.
-- Страница игры: разработчик, издатель, дата выхода, жанры, DLC (что куплено), «Поддержка»,
-  «Трейлер», «Ярлык» на рабочем столе, своя «Заметка».
-- «ПАУЗА» и «ПРОДОЛЖИТЬ» прямо на странице игры; двойной щелчок по неустановленной игре -
-  предложение установить.
-- Достижения и свойства игры - страницами главного окна; автообновление для каждой игры отдельно.
-- Сторонние игры в обе стороны: взять из Steam и добавить в Steam.
-- Саундтреки из библиотеки (MP3, WAV, WMA играют прямо в программе).
-
-**Загрузки**
-- Загрузка при открытом Steam: во временную папку, потом перенос в библиотеку.
-- Удаление установленной игры при открытом Steam.
-- Новая папка библиотеки, очистка кэша загрузок Steam, регион загрузки списком городов.
-
-**Магазин**
-- «Главная» с полками (особые предложения, лидеры продаж, новинки, рекомендации, скидки в
-  желаемом) и поиском.
-- Корзина в программе (оплата - на сайте Steam).
-- Список желаемого в порядке Steam, смена порядка правым щелчком; уведомление о выходе игры.
-- На странице игры: кураторы, все метки, «Не интересует», свой обзор, награды за очки у отзывов.
-
-**Инвентарь и торговая площадка**
-- У предмета: лучшая заявка, самый дешевый лот, график цены за 30 дней.
-- Продажа из инвентаря: своя цена, быстрая (на 0,01 дешевле самого дешевого лота) и мгновенная
-  (по самой высокой заявке); подтверждение - в мобильном приложении Steam.
-- «Снять с продажи», «Отменить заявку», вкладка «Обмены» (принять, отклонить, отменить).
-
-**Друзья и чат**
-- Друзья группами со сворачиванием, мини-профиль при наведении.
-- Свой ник для друга, подробный статус в игре, «Недавние игроки», блокировка.
-- Чат: вкладки бесед, ответ на сообщение, реакции, спойлеры, код, цитаты, «/me».
-- Создание группового чата.
-
-**Профиль и сообщество**
-- Редактирование своего профиля, аватар, настройки приватности.
-- Страница группы сообщества (вступить, выйти), новая тема в обсуждениях.
-- Коллекции Мастерской, оценка и избранное модов; приглашения в семью Steam.
-
-**Программа**
-- Несколько аккаунтов и быстрое переключение; мастер первого запуска.
-- Масштаб интерфейса 75-200%; «Мои лицензии», история покупок и кошелька.
-- Ход загрузки на значке в трее.
-
-**Известные ошибки**
-- Недокачанная игра, начатая при закрытом Steam, иногда не продолжается при открытом Steam -
-  закройте Steam и нажмите «ПРОДОЛЖИТЬ».
-- Открытый Steam не видит игру, скачанную при нем, до своего перезапуска (так устроен сам Steam).
-- Длинные имена в таблице «Семья Steam» обрезаются.
-- Черная полоса сверху окна на ноутбуке с графикой Intel. Обходной путь: «Настройки - Окно -
-  Рамка окон: Обычная Windows».
-
-## ✅ 0.5.1-alpha: исправления после проверки
-
-*Вышла 14.11.2026.* Исправления после проверки 0.5.0-alpha на двух компьютерах.
-
-**Библиотека и игры**
-- Удаление игры из меню по правому щелчку; недокачанные игры удаляются полностью.
-- Игры в общей папке (Counter-Strike, Half-Life, Blue Shift, Opposing Force в `common\Half-Life`):
-  удаляются только их собственные файлы, соседние игры не страдают.
-- «ОСТАНОВИТЬ» на странице запущенной игры; закрываются и дочерние процессы игры.
-- Сторонние игры со значком из exe; окно ключа с примерами, как в Steam.
-
-**Загрузки**
-- Страница «Загрузки» как в Steam: график скорости, «Далее», «Не докачаны», «Завершено».
-
-**Друзья и сообщество**
-- Профили друзей с коротким адресом снова полные; витрины с показателями.
-- Мастерская сеткой, как в Steam; магазин очков без перезагрузки картинок.
-
-**Программа**
-- Без отдельной полосы заголовка: кнопки окна в строке разделов, рядом с колокольчиком.
-- Пропажа интернета замечается без перезапуска.
-- Новый вид всплывающих уведомлений.
-
-## ✅ 0.5.0-alpha: как в Steam
-
-*Вышла 13.11.2026.* Вид как у клиента Steam, много функций сообщества, заметно меньше памяти и
-Aurelia 0.2.4 внутри.
-
-**Вид**
-- Сверху разделы МАГАЗИН, БИБЛИОТЕКА, СООБЩЕСТВО и профиль, под ними подразделы.
-- Библиотека: слева список игр со значками, поиском и фильтрами, справа «Главная» (обложки
-  плиткой или таблица с сортировкой по столбцам) или страница игры.
-- Страница игры: большой фон, зеленая «ИГРАТЬ», последний запуск, часы, достижения, ссылки.
-- Внизу: «+ Добавить игру», «Загрузки» с ходом скачивания, «Друзья и чат».
-- Цвета в духе Steam, своя рамка окон (обычную рамку Windows можно включить в настройках).
-- Китайские, японские, корейские названия и эмодзи вместо квадратиков.
-- Новый логотип: круглая эмблема с буквой V из рычагов на шарнирах.
-
-**Библиотека и игры**
-- Сторонние игры (не из Steam): добавляются в библиотеку и запускаются напрямую.
-- «Закрыть игру», проверка защиты игры, скрипты запуска, перепривязка игры к другой библиотеке.
-- Хранилище и чистка остатков, резервные копии сохранений, экспорт в CSV, статистика,
-  «Во что поиграть?», подсказка о возврате.
-
-**Загрузки**
-- Страница «Загрузки»: текущая загрузка с картинкой, очередь (пауза, порядок, убрать).
-- Продолжение прерванных загрузок; офлайн-режим.
-
-**Магазин и инвентарь**
-- Чарты, новости своих игр одной лентой, рекомендации, активация ключа, магазин очков.
-- Значки и коллекционные карточки.
-
-**Друзья и чат**
-- Страница «Друзья»: мои друзья, заявки, отправленные; аватары в списке друзей и в уведомлениях.
-- Чат: шапка с аватаром и статусом, сообщения группами, разделители по дням, поиск (Ctrl+F).
-- Избранные друзья и заметки о друзьях; друг по ссылке /id/имя.
-
-**Профиль и сообщество**
-- Профиль как в Steam: фон во всю ширину, две колонки, витрины, недавние игры, счетчики,
-  комментарии с удалением и подгрузкой.
-- Скриншоты друзей, оценки и комментарии к скриншотам.
-- Обсуждения и руководства игр, активность и лента событий друзей, групповые чаты.
-- Страница мода Мастерской; уведомления Steam с картинками игр; достижения подробнее (редкость,
-  сравнение с друзьями); семья Steam; переименование и удаление коллекций.
-
-**Программа**
-- Память: при запуске около 55-60 МБ, после обхода всех разделов около 80 МБ (было 140 МБ).
-- Раздел «Производительность»: отключить анимации и обложки, экономия памяти, «отдавать память
-  системе» в трее и во время игры.
-- Сведения об аккаунте, автозапуск, журнал ошибок.
-
-## ✅ 0.2.0-alpha: все для Windows
-
-*Вышла 12.11.2026.* Почти весь функционал Aurelia, перенесенный под Windows (вместо отдельной
-alpha.4 - одна большая версия).
-
-**Библиотека и игры**
-- Плитка с обложками или компактный список; коллекции Steam; страница игры с фоном, достижениями
-  и новостями.
-- Семейная библиотека Steam: игры семьи с пометкой, отдельный фильтр, установка и запуск.
-- «Уже скачана…»: добавить игру, файлы которой уже лежат на диске; поиск дублей установок.
-- Скриншоты: на этом ПК и в облаке Steam, по играм, скачивание на компьютер.
-- Запуск без Steam для игр без защиты.
-- Откат на старую версию и закрепление версии; облачные сохранения вручную; описания бет.
-
-**Загрузки**
-- Обновление игр, смена беты и языка без запуска Steam (обновление «через Steam» можно вернуть в
-  настройках).
-- Расписание загрузок: качать только в заданные часы и своя скорость в эти часы.
-- Ограничение скорости загрузки, действует сразу.
-
-**Магазин и инвентарь**
-- Отзывы на странице игры, системные требования, акции Steam во вкладке «Скидки».
-- Инвентарь с ценами, кошелек, поиск по торговой площадке, свои лоты и заявки.
-
-**Друзья и чат**
-- Профили, добавление и удаление друзей, заявки, список желаемого друга.
-- Эффекты комнаты в чате, как в Steam, и отправка своих купленных эффектов.
-- Свои уведомления: сообщения, друг в игре или в сети, скидки из списка желаемого, игра скачана;
-  у каждого вида свой звук.
-- Мастерская Steam: поиск, подписка, включение и выключение модов.
-
-**Программа**
-- Вкладка «Настройки», автообновление с GitHub Releases, прокси.
-- 32-битная сборка (сам Steam на 32-битной Windows с 2026 года не поддерживается, там пригодится
-  запуск без Steam).
-- Работа в трее и экономия ресурсов: в покое около 0,3% одного ядра, на старом ноутбуке около
-  30 МБ памяти.
-- Автосборка на GitHub: x64 и x86, тесты, черновик релиза по метке.
-
-## ✅ 0.1.0-alpha.3: магазин
-
-*Вышла 12.11.2026.* Магазин Steam внутри программы.
-
-**Магазин**
-- Поиск по магазину Steam, скидки, список желаемого; сортировка и фильтры.
-- Страница игры: цена и скидка, итог отзывов, дата выхода, онлайн, метки, скриншоты, описание,
-  новости, похожие игры; регион цен на выбор.
-- Покупка - на странице Steam в браузере (сама программа платежи не проводит).
-
-## ✅ 0.1.0-alpha.2: удобство на каждый день
-
-*Вышла 12.11.2026.* Мелочи, без которых неудобно пользоваться каждый день.
-
-**Программа**
-- Сохранение настроек между запусками, статус в сети, иконка в трее.
-- Уведомления о новых сообщениях: звук, мигание кнопки в панели задач, число непрочитанных.
-
-**Библиотека и загрузки**
-- Сортировка библиотеки; очередь загрузок с паузой у каждой игры и у всей очереди.
-
-## ✅ 0.1.0-alpha.1: первая публичная альфа
-
-*Вышла 11.11.2026.* Первая версия на GitHub.
-
-**Библиотека и игры**
-- Вход (пароль + Steam Guard, QR-код), библиотека, время в игре, поиск.
-- Запуск игр через скрытый Steam, закрытие Steam после игры, заморозка steamwebhelper.
-- Свойства игры: параметры запуска, язык, беты, проверка файлов, перенос, удаление, DLC, облако.
-
-**Загрузки**
-- Установка игр с прогрессом, докачка; обновления через скрытый Steam.
-
-**Друзья и чат**
-- Достижения; друзья и чат (смайлики, анимированные стикеры, картинки, Ctrl+V).
+# Vaporust changelog
+
+**English** · [Русский](CHANGELOG.ru.md)
+
+What went into each released version, newest first. Plans for the future are in
+[ROADMAP.md](ROADMAP.md), archives and full release notes are on the [Releases](../../releases) page.
+
+## 🔧 Coming in the next version
+
+- **English interface.** The whole interface is available in English and Russian ("Settings ->
+  Window -> Interface language", by default it follows the Windows language; also on the first
+  step of the first-run wizard). Steam texts (descriptions, news, achievements) come in the chosen language.
+- **Light mode** ("Settings -> Performance"): the window repaints less often, friend statuses
+  refresh every 15 s, the Steam connection is checked once a minute, Steam notifications every
+  30 minutes; the "What's new" shelf and friends activity on the game page are not loaded.
+  Turning it on also turns animations off and memory saving on.
+- **Weekly check of Steam pages** on GitHub: fresh public pages are downloaded and parsed, and if
+  Valve changed the markup, an issue is opened automatically.
+- The GitHub page, security notes, roadmap and this changelog are in English, with Russian copies
+  (`*.ru.md`).
+
+## ✅ 0.7.1-alpha: code for everyone
+
+*Released 2026-11-16.* Fixes after the Codex and Gemini reviews, code comments in English.
+
+- Code comments translated to English (for other developers).
+- The "Restore Steam as it was" button is renamed to "Remove Vaporust changes in Steam": it removes
+  service changes, while the language, beta and launch options of games stay.
+- The tray icon is a white silhouette without a background, like other programs (dark on a light taskbar).
+- The steamwebhelper freeze checkbox in the first-run wizard now really turns the freeze on and off.
+- Two identical messages in a row in the chat (for example two "yes") are no longer merged into one.
+- The "Remove from sale" and "Cancel buy order" buttons are shown greyed out with a hint without
+  experimental features, instead of disappearing.
+
+## ✅ 0.7.0-alpha: no password needed, safer
+
+*Released 2026-11-16.* After an external review by Fable: trust, safety, a way back.
+
+- **Without login mode:** installed games only, launched through Steam, no password needed. The
+  choice is in the first-run wizard and as a "Without login" button on the login screen.
+- **Experimental features** (Settings -> Account), off by default: selling and trades, version
+  pinning and rollback, comments, ratings, awards, groups, blocking, profile editing.
+- **"Restore Steam as it was"** (Settings -> About): unfinished games become visible to Steam
+  again, pinned versions are unpinned, the offline mode is removed, temporary download folders go
+  to the Recycle Bin.
+- On Intel graphics the normal Windows frame is the default (against the black bar on laptops).
+- A new logo: a V made of a connecting rod with a piston and a lever on a copper gear. The window
+  icon is square, the tray one is round.
+- Steam groups no longer appear in the friend list (they were shown as long numbers).
+- The library grid opens at the top at startup (it used to open from the second or third row).
+- A library cache per account; the old playtime history is moved only once; the chat history does
+  not lose new messages; login keys are cut out of the log; family games without "Launch without
+  Steam"; DLC without a name are not shown as numbers.
+- GitHub build: actions pinned to exact versions, read-only permissions, provenance attestation
+  for archives. New SECURITY.md and the "Password and security" README section, TESTING.md, issue templates.
+
+## ✅ 0.6.5-alpha: responsiveness and order
+
+*Released 2026-11-15.* Fixes after external code reviews (Codex, Gemini).
+
+- QR login no longer holds up everything else: you can change your mind and log in with a
+  password, or press "Cancel QR login".
+- Chat history, achievements and library refresh load in the background and do not delay other actions.
+- Heavy data (games, conversations, achievements) is not copied entirely on every event.
+- Market buy orders are parsed as JSON, the currency is checked strictly.
+- The language of Steam texts is gathered in one place (preparation for translation).
+- Grid: no black bar at the bottom, the button does not disappear at the edge; the game list on
+  the left has no empty space at the bottom.
+- The old shared playtime history is moved only with a button in "Statistics"; the sale message is
+  tied to the item itself; price calculation with a zero game fee.
+- README: honest words about freezing steamwebhelper instead of `-no-browser`, a comparison with
+  Steam compact mode and Playnite; the version history moved to CHANGELOG.md; a new social preview image.
+
+## ✅ 0.6.4-alpha: selling and the library grid
+
+*Released 2026-11-15.* Fixes after the author's and an external reviewer's check of 0.6.3-alpha.
+
+- **Quick and instant sale for all games.** Items without buy orders (common in CS2) are no
+  longer treated as "not selling"; quick sale is always available, even if the cheapest listing is
+  already at the minimum price.
+- **The quick sale step is configurable:** "Settings - Account - Quick sale" (by default one price
+  step of the currency).
+- The game's own market fee, if the game has one (as on the Steam website).
+- The "confirm the sale" message is shown for 90 seconds and only for the listed item.
+- **Library grid as in Steam:** on hover the whole tile grows together with the button; not
+  installed games get a blue "Install" button; one game is no longer highlighted in two places;
+  no repeated "ALL GAMES (N)".
+- **The right-click menu** in Steam's order: Play, Game page, links, Collections, Manage (folder,
+  uninstall), Properties.
+- Statistics: the old shared history goes to an account only if Vaporust was used with one
+  account and its time is not bigger than the current one; the old file is removed only after the
+  new one is written.
+- The "answer from the current account" check is under the same lock as the write.
+- Diagnostics also hide short Windows user names.
+
+## ✅ 0.6.3-alpha: after a detailed review
+
+*Released 2026-11-15.* Fixes after an external reviewer's QA report (16 findings).
+
+- **Market prices by the rules of the currency**, as on the Steam website: minimum price, price
+  step and fees come from the wallet. Without the rules selling is not offered.
+- **Restoring saves**: a file that cannot be read (used by the game) stops the restore before
+  anything is replaced - the rollback could delete it before.
+- **Answers of the previous account** do not reach the new one, from subtasks too ("Game
+  properties", friends).
+- **Playtime statistics per account.**
+- **Each page has its own scroll**: "Downloads", achievements and the game page open at the top.
+- **A small window and a big scale**: the minimum window size grows with the scale, settings rows
+  and library filters wrap, the store search bar takes two rows in a narrow window, the inventory
+  search fits the width, table headers do not stick together.
+- The sale window: honest text about confirming on the phone, Esc - cancel.
+- "Storage": paths without the technical `\\?\` prefix.
+- "Settings -> About -> Copy diagnostics" for bug reports.
+
+## ✅ 0.6.2-alpha: data safety
+
+*Released 2026-11-15.* Fixes after the second external code review.
+
+- Restoring saves is "all or nothing": the archive is checked entirely first, and on a failure in
+  the middle the already replaced files are put back.
+- Two save backups in the same second no longer overwrite each other.
+- Answers of background tasks of the previous account (after logging out or into another one) do
+  not reach the new one.
+- If the login could not be encrypted (Windows key storage unavailable), Vaporust warns at once.
+- The library search hint without a wrong game count.
+
+## ✅ 0.6.1-alpha: reliability and security
+
+*Released 2026-11-14.* Fixes after an external code review, and automated tests.
+
+- The saved Steam login is stored encrypted (the key is in the Windows Credential Manager); an
+  existing plain login file is encrypted at the first start.
+- The key for Steam requests is tied to the account and reset at logout.
+- Restoring saves does not start if a backup of the current ones could not be made.
+- The market sale price is checked strictly; a wrong price does not allow listing.
+- The self-update verifies the archive checksum and the program bitness.
+- Automated tests: parsing Steam pages on saved samples, and failures (no space, interrupted
+  download, damaged files, broken archives).
+- The window size and position are remembered (with a check that the window fits the screen).
+
+## ✅ 0.6.0-alpha: closer to Steam
+
+*Released 2026-11-14.* Almost everything that was missing compared to Steam: the market, cart,
+profile editing, several accounts, chat tabs.
+
+**Library and games**
+- "Recent games" and "What's new" (news of your games) shelves on the library home.
+- "Ready to play", "Update available" and "Genre" filters; sorting "by name" is plain alphabetical.
+- Game page: developer, publisher, release date, genres, DLC (what is owned), "Support",
+  "Trailer", a desktop "Shortcut", your own "Note".
+- "PAUSE" and "RESUME" right on the game page; double-clicking a not installed game offers to install it.
+- Achievements and game properties are pages of the main window; auto-update per game.
+- Non-Steam games both ways: import from Steam and add to Steam.
+- Soundtracks from the library (MP3, WAV, WMA play right in the program).
+
+**Downloads**
+- Downloading with Steam open: into a temporary folder, then moved into the library.
+- Uninstalling an installed game with Steam open.
+- A new library folder, clearing the Steam download cache, download region as a list of cities.
+
+**Store**
+- "Home" with shelves (special offers, top sellers, new releases, recommendations, wishlist
+  discounts) and search.
+- A cart in the program (payment on the Steam website).
+- The wishlist in Steam's order, reordering with a right click; a notification when a game is released.
+- On the game page: curators, all tags, "Not interested", your own review, Points awards for reviews.
+
+**Inventory and Community Market**
+- For an item: the best buy order, the cheapest listing, a 30-day price chart.
+- Selling from the inventory: your own price, quick (cheaper than the cheapest listing) and
+  instant (at the highest buy order); confirmation in the Steam mobile app.
+- "Remove from sale", "Cancel buy order", a "Trades" tab (accept, decline, cancel).
+
+**Friends and chat**
+- Friends in collapsible groups, a mini profile on hover.
+- Your own nickname for a friend, detailed in-game status, "Recent players", blocking.
+- Chat: conversation tabs, replying to a message, reactions, spoilers, code, quotes, "/me".
+- Creating a group chat.
+
+**Profile and community**
+- Editing your profile, avatar, privacy settings.
+- A community group page (join, leave), a new discussion topic.
+- Workshop collections, rating and favoriting mods; Steam Family invitations.
+
+**Program**
+- Several accounts and quick switching; a first-run wizard.
+- Interface scale 75-200%; "My licenses", purchase and wallet history.
+- Download progress on the tray icon.
+
+## ✅ 0.5.1-alpha: fixes after testing
+
+*Released 2026-11-14.* Fixes after testing 0.5.0-alpha on two PCs.
+
+- Uninstalling a game from the right-click menu; unfinished games are removed completely.
+- Games in a shared folder (Counter-Strike, Half-Life, Blue Shift, Opposing Force in
+  `common\Half-Life`): only their own files are removed, neighbouring games are not affected.
+- "STOP" on the page of a running game; child processes of the game are closed too.
+- Non-Steam games with an icon from the exe; a key window with examples, as in Steam.
+- A "Downloads" page as in Steam: a speed chart, "Up next", "Not finished", "Completed".
+- Friend profiles with a short URL are complete again; showcases with numbers.
+- Workshop as a grid, as in Steam; the Points Shop without reloading images.
+- No separate title bar: window buttons in the section row, next to the bell.
+- A lost internet connection is noticed without a restart.
+- A new look of pop-up notifications.
+
+## ✅ 0.5.0-alpha: like Steam
+
+*Released 2026-11-13.* A look like the Steam client, many community features, much less memory
+and Aurelia 0.2.4 inside.
+
+- At the top: STORE, LIBRARY, COMMUNITY and the profile, with subsections under them.
+- Library: the game list on the left with icons, search and filters, on the right "Home" (a cover
+  grid or a table sortable by columns) or a game page with a big background and a green "PLAY".
+- At the bottom: "+ Add a game", "Downloads" with progress, "Friends and chat".
+- Steam-like colors, an own window frame; Chinese, Japanese, Korean names and emoji instead of squares.
+- Non-Steam games; "Close game", game protection check, launch scripts, relinking a game to
+  another library; storage and leftovers cleanup, save backups, CSV export, statistics, "What to play?".
+- A downloads page and queue, resuming interrupted downloads, offline mode.
+- Charts, news of your games in one feed, recommendations, key activation, Points Shop, badges and cards.
+- A friends page, chat header with avatar, messages grouped, day separators, search (Ctrl+F),
+  favorite friends and notes.
+- A Steam-like profile, friends' screenshots, discussions and guides, activity feed, group chats,
+  Workshop mod pages, Steam notifications, detailed achievements, Steam Family, renaming and
+  deleting collections.
+- Memory: about 55-60 MB at startup, about 80 MB after visiting all sections (was 140 MB); a
+  "Performance" section; account details, autostart, an error log.
+
+## ✅ 0.2.0-alpha: everything for Windows
+
+*Released 2026-11-12.* Almost all of Aurelia's features brought to Windows.
+
+- A cover grid or a compact list; Steam collections; a game page with a background, achievements and news.
+- The Steam Family library; "Already downloaded..." and duplicate installs search; screenshots on
+  the PC and in the Steam cloud; launching DRM-free games without Steam; version rollback and
+  pinning; manual cloud saves; beta descriptions.
+- Updating games and changing beta and language without starting Steam; a download schedule and
+  a speed limit that applies at once.
+- Reviews, system requirements and Steam events in the store; inventory with prices, wallet,
+  market search, own listings and buy orders.
+- Profiles, adding and removing friends, requests, a friend's wishlist; room effects in the chat;
+  own notifications with different sounds; Steam Workshop.
+- A "Settings" tab, self-update from GitHub Releases, proxy, a 32-bit build, working in the tray,
+  low resource use (about 0.3% of one core when idle), automated builds on GitHub.
+
+## ✅ 0.1.0-alpha.3: store
+
+*Released 2026-11-12.* The Steam store inside the program: search, specials, wishlist, sorting
+and filters; a game page with price, reviews summary, release date, players online, tags,
+screenshots, description, news, similar games; a selectable price region. Buying happens on the
+Steam page in the browser.
+
+## ✅ 0.1.0-alpha.2: everyday convenience
+
+*Released 2026-11-12.* Settings saved between runs, online status, a tray icon; new message
+notifications (sound, taskbar flashing, unread count); library sorting; a download queue with
+pause per game and for the whole queue.
+
+## ✅ 0.1.0-alpha.1: first public alpha
+
+*Released 2026-11-11.* The first version on GitHub: login (password + Steam Guard, QR code),
+library, playtime, search; launching games through a hidden Steam and closing it after the game,
+freezing steamwebhelper; game properties; installing games with progress; achievements; friends
+and chat (emoticons, animated stickers, images, Ctrl+V).

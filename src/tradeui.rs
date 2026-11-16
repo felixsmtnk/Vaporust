@@ -91,22 +91,22 @@ pub fn market_block(ui: &mut egui::Ui, mk: &mut MarketUi, st: &crate::invent::In
         None => {
             ui.horizontal(|ui| {
                 crate::spin::spinner(ui);
-                ui.weak("Узнаю заявки...");
+                ui.weak(tr!("Узнаю заявки...", "Checking buy orders..."));
             });
         }
         Some(Err(e)) => {
-            ui.weak(format!("Заявки: {e}"));
-            if ui.small_button("Еще раз").clicked() {
+            ui.weak(trf!("Заявки: {e}", "Buy orders: {e}"));
+            if ui.small_button(tr!("Еще раз", "Again")).clicked() {
                 mk.asked.remove(&key);
             }
         }
         Some(Ok(sp)) => {
             egui::Grid::new("spread").num_columns(2).show(ui, |ui| {
-                ui.weak("Купят сразу за");
-                ui.label(if sp.highest_buy > 0 { format!("{} ({} заявок)", m(sp.highest_buy), sp.buy_count) } else { "нет заявок".into() });
+                ui.weak(tr!("Купят сразу за", "Instant buyers pay"));
+                ui.label(if sp.highest_buy > 0 { trf!("{} ({} заявок)", "{} ({} orders)", m(sp.highest_buy), sp.buy_count) } else { tr!("нет заявок", "no orders").into() });
                 ui.end_row();
-                ui.weak("Дешевле всех лот");
-                ui.label(if sp.lowest_sell > 0 { format!("{} ({} лотов)", m(sp.lowest_sell), sp.sell_count) } else { "нет лотов".into() });
+                ui.weak(tr!("Дешевле всех лот", "Cheapest listing"));
+                ui.label(if sp.lowest_sell > 0 { trf!("{} ({} лотов)", "{} ({} listings)", m(sp.lowest_sell), sp.sell_count) } else { tr!("нет лотов", "no listings").into() });
                 ui.end_row();
             });
         }
@@ -116,7 +116,7 @@ pub fn market_block(ui: &mut egui::Ui, mk: &mut MarketUi, st: &crate::invent::In
     }
     if it.marketable && !crate::exp::on() {
         ui.add_space(4.0);
-        crate::exp::note(ui, "Продажа на площадке");
+        crate::exp::note(ui, tr!("Продажа на площадке", "Selling on the market"));
     } else if it.marketable {
         let max_amount = it.amount.max(1);
         let base = |mode: u8, pay: i64| SellDlg {
@@ -135,7 +135,7 @@ pub fn market_block(ui: &mut egui::Ui, mk: &mut MarketUi, st: &crate::invent::In
         // Price rules of own currency (minimum, step, fees) come with the wallet. Without them prices
         // cannot be computed honestly - selling is not offered.
         let Some(r) = rules(st, appid) else {
-            ui.weak("Продажа недоступна: Steam не прислал правила цен для вашей валюты. Обновите кошелек (вкладка «Мои лоты») или продайте на сайте Steam.");
+            ui.weak(tr!("Продажа недоступна: Steam не прислал правила цен для вашей валюты. Обновите кошелек (вкладка «Мои лоты») или продайте на сайте Steam.", "Selling is unavailable: Steam did not send the price rules for your currency. Refresh the wallet (\"My listings\" tab) or sell on the Steam website."));
             return_with_msg(ui, mk, st, &key);
             return;
         };
@@ -149,12 +149,12 @@ pub fn market_block(ui: &mut egui::Ui, mk: &mut MarketUi, st: &crate::invent::In
                 let want = (sp.lowest_sell - cut).max(sp.highest_buy).max(min_total);
                 let pay = effective(want, &r);
                 let hint = if pay >= sp.lowest_sell {
-                    "Самый дешевый лот уже по минимальной цене (или вровень с лучшей заявкой): дешевле выставить нельзя, лот будет по той же цене".to_string()
+                    tr!("Самый дешевый лот уже по минимальной цене (или вровень с лучшей заявкой): дешевле выставить нельзя, лот будет по той же цене", "The cheapest listing is already at the minimum price (or level with the best buy order): you cannot list cheaper, the listing will be at the same price").to_string()
                 } else {
-                    format!("Лот на {} дешевле самого дешевого на площадке: обычно продается быстро. Шаг меняется в «Настройки -> Аккаунт».", m(cut))
+                    trf!("Лот на {} дешевле самого дешевого на площадке: обычно продается быстро. Шаг меняется в «Настройки -> Аккаунт».", "A listing {} cheaper than the cheapest one on the market: usually sells fast. The step is changed in \"Settings -> Account\".", m(cut))
                 };
                 if ui
-                    .add(egui::Button::new(format!("Быстрая продажа за {}", m(pay))).fill(egui::Color32::from_rgb(60, 90, 40)))
+                    .add(egui::Button::new(trf!("Быстрая продажа за {}", "Quick sale for {}", m(pay))).fill(egui::Color32::from_rgb(60, 90, 40)))
                     .on_hover_text(hint)
                     .clicked()
                 {
@@ -165,15 +165,15 @@ pub fn market_block(ui: &mut egui::Ui, mk: &mut MarketUi, st: &crate::invent::In
             if sp.highest_buy >= min_total {
                 let pay = effective(sp.highest_buy, &r);
                 if ui
-                    .add(egui::Button::new(format!("Мгновенная продажа за {}", m(pay))).fill(egui::Color32::from_rgb(110, 80, 30)))
-                    .on_hover_text("По самой высокой заявке на покупку: предмет продается сразу")
+                    .add(egui::Button::new(trf!("Мгновенная продажа за {}", "Instant sale for {}", m(pay))).fill(egui::Color32::from_rgb(110, 80, 30)))
+                    .on_hover_text(tr!("По самой высокой заявке на покупку: предмет продается сразу", "At the highest buy order: the item sells at once"))
                     .clicked()
                 {
                     mk.sell = Some(base(2, pay));
                 }
             }
         }
-        if ui.button("Продать по своей цене...").clicked() {
+        if ui.button(tr!("Продать по своей цене...", "Sell at your own price...")).clicked() {
             let min_total = crate::trade::pay_for(r.market_minimum, &r);
             let pay = spread.and_then(|x| x.as_ref().ok()).map(|sp| sp.lowest_sell.max(min_total)).unwrap_or(min_total.max(100));
             mk.sell = Some(base(0, effective(pay, &r)));
@@ -238,9 +238,9 @@ fn sell_window(ctx: &egui::Context, mk: &mut MarketUi, st: &crate::invent::InvSt
         return;
     }
     let title = match d.mode {
-        1 => "Быстрая продажа",
-        2 => "Мгновенная продажа",
-        _ => "Продажа на площадке",
+        1 => tr!("Быстрая продажа", "Quick sale"),
+        2 => tr!("Мгновенная продажа", "Instant sale"),
+        _ => tr!("Продажа на площадке", "Selling on the market"),
     };
     egui::Window::new(title)
         .collapsible(false)
@@ -249,7 +249,7 @@ fn sell_window(ctx: &egui::Context, mk: &mut MarketUi, st: &crate::invent::InvSt
         .show(ctx, |ui| {
             ui.label(egui::RichText::new(&d.name).strong());
             ui.horizontal(|ui| {
-                ui.label("Покупатель заплатит:");
+                ui.label(tr!("Покупатель заплатит:", "The buyer pays:"));
                 if ui.add(egui::TextEdit::singleline(&mut d.pay_text).desired_width(80.0)).changed() {
                     d.mode = 0; // own price: no longer "quick" or "instant"
                 }
@@ -266,37 +266,37 @@ fn sell_window(ctx: &egui::Context, mk: &mut MarketUi, st: &crate::invent::InvSt
             let real_pay = if receive > 0 { crate::trade::pay_for(receive, &r) } else { 0 };
             match parsed {
                 Some(p) if p < min_total => {
-                    ui.colored_label(egui::Color32::from_rgb(230, 90, 80), format!("Слишком мало: в вашей валюте цена для покупателя не меньше {}.", m(min_total)));
+                    ui.colored_label(egui::Color32::from_rgb(230, 90, 80), trf!("Слишком мало: в вашей валюте цена для покупателя не меньше {}.", "Too low: in your currency the buyer price is at least {}.", m(min_total)));
                 }
                 Some(p) => {
-                    ui.label(format!("Вы получите: {} (комиссия Steam и игры: {})", m(receive), m(real_pay - receive)));
+                    ui.label(trf!("Вы получите: {} (комиссия Steam и игры: {})", "You receive: {} (Steam and game fees: {})", m(receive), m(real_pay - receive)));
                     if real_pay != p {
                         ui.colored_label(
                             egui::Color32::from_rgb(230, 170, 60),
-                            format!("Steam округлит цену по правилам вашей валюты: покупатель заплатит {}.", m(real_pay)),
+                            trf!("Steam округлит цену по правилам вашей валюты: покупатель заплатит {}.", "Steam rounds the price by the rules of your currency: the buyer pays {}.", m(real_pay)),
                         );
                     }
                 }
                 None => {
-                    ui.colored_label(egui::Color32::from_rgb(230, 90, 80), "Неверная цена: только цифры и до двух знаков после запятой, например 12,50.");
+                    ui.colored_label(egui::Color32::from_rgb(230, 90, 80), tr!("Неверная цена: только цифры и до двух знаков после запятой, например 12,50.", "Wrong price: digits only and up to two decimals, for example 12.50."));
                 }
             }
             if d.max_amount > 1 {
                 ui.horizontal(|ui| {
-                    ui.label("Сколько штук:");
+                    ui.label(tr!("Сколько штук:", "Quantity:"));
                     ui.add(egui::DragValue::new(&mut d.amount).range(1..=d.max_amount));
                 });
             }
             if d.mode == 2 {
-                ui.weak("Цена равна самой высокой заявке: предмет могут купить сразу.");
+                ui.weak(tr!("Цена равна самой высокой заявке: предмет могут купить сразу.", "The price equals the highest buy order: the item may be bought at once."));
             }
             ui.weak(
-                "Нажатие «Выставить» отправляет лот в Steam. Если Steam попросит подтверждение, подтвердите \
-                 продажу в мобильном приложении; иначе лот появится сразу. Деньги придут в кошелек Steam.",
+                tr!("Нажатие «Выставить» отправляет лот в Steam. Если Steam попросит подтверждение, подтвердите \
+                 продажу в мобильном приложении; иначе лот появится сразу. Деньги придут в кошелек Steam.", "Pressing \"List\" sends the listing to Steam. If Steam asks for confirmation, confirm the sale in the mobile app; otherwise the listing appears right away. The money goes to the Steam wallet."),
             );
             ui.horizontal(|ui| {
                 let ok = receive >= r.market_minimum && !st.trade.busy;
-                let text = if receive > 0 { format!("Выставить за {}", m(real_pay)) } else { "Выставить".to_string() };
+                let text = if receive > 0 { trf!("Выставить за {}", "List for {}", m(real_pay)) } else { tr!("Выставить", "List").to_string() };
                 if ui.add_enabled(ok, egui::Button::new(text)).clicked() {
                     req(MarketCmd::Sell {
                         appid: d.appid,
@@ -309,11 +309,11 @@ fn sell_window(ctx: &egui::Context, mk: &mut MarketUi, st: &crate::invent::InvSt
                     });
                     keep = false;
                 }
-                if ui.button("Отмена").clicked() {
+                if ui.button(tr!("Отмена", "Cancel")).clicked() {
                     keep = false;
                 }
             });
-            ui.weak("Esc - отмена.");
+            ui.weak(tr!("Esc - отмена.", "Esc - cancel."));
         });
     if keep {
         mk.sell = Some(d);
@@ -330,7 +330,7 @@ fn price_chart(ui: &mut egui::Ui, h: &[(i64, f64, u64)], cur: u32) {
     let (min, max) = pts.iter().fold((f64::MAX, f64::MIN), |(a, b), p| (a.min(p.1), b.max(p.1)));
     let span = (max - min).max(0.01);
     let (t0, t1) = (pts[0].0, pts[pts.len() - 1].0);
-    ui.weak("Цена за 30 дней");
+    ui.weak(tr!("Цена за 30 дней", "Price over 30 days"));
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width().min(240.0), 80.0), egui::Sense::hover());
     let p = ui.painter();
     p.rect_filled(rect, 3.0, egui::Color32::from_rgb(20, 26, 34));
@@ -351,7 +351,7 @@ fn price_chart(ui: &mut egui::Ui, h: &[(i64, f64, u64)], cur: u32) {
         if let Some(q) = pts.iter().min_by_key(|q| (q.0 - t).abs()) {
             use chrono::TimeZone;
             let d = chrono::Local.timestamp_opt(q.0, 0).single().map(|d| d.format("%d.%m %H:00").to_string()).unwrap_or_default();
-            resp.on_hover_text(format!("{d}: {} (продано {})", fmt(q.1), q.2));
+            resp.on_hover_text(trf!("{d}: {} (продано {})", "{d}: {} ({} sold)", fmt(q.1), q.2));
         }
     }
 }
@@ -363,15 +363,15 @@ pub fn remove_lot_button(ui: &mut egui::Ui, mk: &mut MarketUi, id: &str, name: &
     }
     ui.horizontal(|ui| {
         if mk.confirm.as_deref() == Some(id) {
-            ui.label("Снять с продажи? Предмет вернется в инвентарь.");
-            if ui.button("Да, снять").clicked() {
+            ui.label(tr!("Снять с продажи? Предмет вернется в инвентарь.", "Remove from sale? The item goes back to the inventory."));
+            if ui.button(tr!("Да, снять", "Yes, remove")).clicked() {
                 req(MarketCmd::RemoveListing { id: id.to_string(), name: name.to_string() });
                 mk.confirm = None;
             }
-            if ui.button("Нет").clicked() {
+            if ui.button(tr!("Нет", "No")).clicked() {
                 mk.confirm = None;
             }
-        } else if crate::exp::small_button(ui, "Снять с продажи").clicked() {
+        } else if crate::exp::small_button(ui, tr!("Снять с продажи", "Remove from sale")).clicked() {
             mk.confirm = Some(id.to_string());
         }
     });
@@ -384,15 +384,15 @@ pub fn cancel_order_button(ui: &mut egui::Ui, mk: &mut MarketUi, id: &str, name:
     }
     ui.horizontal(|ui| {
         if mk.confirm.as_deref() == Some(id) {
-            ui.label("Отменить заявку? Деньги вернутся в кошелек.");
-            if ui.button("Да, отменить").clicked() {
+            ui.label(tr!("Отменить заявку? Деньги вернутся в кошелек.", "Cancel the buy order? The money goes back to the wallet."));
+            if ui.button(tr!("Да, отменить", "Yes, cancel")).clicked() {
                 req(MarketCmd::CancelOrder { id: id.to_string(), name: name.to_string() });
                 mk.confirm = None;
             }
-            if ui.button("Нет").clicked() {
+            if ui.button(tr!("Нет", "No")).clicked() {
                 mk.confirm = None;
             }
-        } else if crate::exp::small_button(ui, "Отменить заявку").clicked() {
+        } else if crate::exp::small_button(ui, tr!("Отменить заявку", "Cancel request")).clicked() {
             mk.confirm = Some(id.to_string());
         }
     });
@@ -401,7 +401,7 @@ pub fn cancel_order_button(ui: &mut egui::Ui, mk: &mut MarketUi, id: &str, name:
 fn offer_items(ui: &mut egui::Ui, title: &str, items: &[OfferItem]) {
     ui.weak(format!("{title} ({})", items.len()));
     if items.is_empty() {
-        ui.weak("ничего");
+        ui.weak(tr!("ничего", "nothing"));
         return;
     }
     ui.horizontal_wrapped(|ui| {
@@ -423,10 +423,10 @@ pub fn offers_tab(ui: &mut egui::Ui, st: &crate::invent::InvState, mk: &mut Mark
     }
     egui::CentralPanel::default().show_inside(ui, |ui| {
         ui.horizontal(|ui| {
-            if ui.button("Обновить").clicked() {
+            if ui.button(tr!("Обновить", "Refresh")).clicked() {
                 req(MarketCmd::Offers);
             }
-            if ui.button("Обмены в браузере").clicked() {
+            if ui.button(tr!("Обмены в браузере", "Trades in the browser")).clicked() {
                 ui.ctx().open_url(egui::OpenUrl::new_tab("https://steamcommunity.com/my/tradeoffers/"));
             }
         });
@@ -440,13 +440,13 @@ pub fn offers_tab(ui: &mut egui::Ui, st: &crate::invent::InvState, mk: &mut Mark
                 return;
             }
             Some(Err(e)) => {
-                ui.label(format!("Не удалось загрузить обмены: {e}"));
+                ui.label(trf!("Не удалось загрузить обмены: {e}", "Could not load trades: {e}"));
                 return;
             }
             Some(Ok(o)) => o,
         };
         if offers.is_empty() {
-            ui.weak("Активных обменов нет. Предложить обмен другу пока можно на сайте Steam.");
+            ui.weak(tr!("Активных обменов нет. Предложить обмен другу пока можно на сайте Steam.", "No active trades. For now you can offer a friend a trade on the Steam website."));
             return;
         }
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
@@ -454,14 +454,14 @@ pub fn offers_tab(ui: &mut egui::Ui, st: &crate::invent::InvState, mk: &mut Mark
                 egui::Frame::none().fill(crate::theme::CARD).rounding(4.0).inner_margin(egui::Margin::same(8.0)).show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
-                        ui.strong(if o.incoming { "Вам предлагают обмен" } else { "Ваше предложение" });
-                        ui.hyperlink_to("профиль участника", format!("https://steamcommunity.com/profiles/{}", o.partner));
+                        ui.strong(if o.incoming { tr!("Вам предлагают обмен", "You are offered a trade") } else { tr!("Ваше предложение", "Your offer") });
+                        ui.hyperlink_to(tr!("профиль участника", "partner's profile"), format!("https://steamcommunity.com/profiles/{}", o.partner));
                         match o.state {
                             9 => {
-                                ui.colored_label(egui::Color32::from_rgb(240, 200, 80), "ждет подтверждения в мобильном приложении");
+                                ui.colored_label(egui::Color32::from_rgb(240, 200, 80), tr!("ждет подтверждения в мобильном приложении", "waiting for confirmation in the mobile app"));
                             }
                             11 => {
-                                ui.weak("удержание Steam");
+                                ui.weak(tr!("удержание Steam", "Steam hold"));
                             }
                             _ => {}
                         }
@@ -469,34 +469,34 @@ pub fn offers_tab(ui: &mut egui::Ui, st: &crate::invent::InvState, mk: &mut Mark
                     if !o.message.is_empty() {
                         ui.label(format!("«{}»", o.message));
                     }
-                    offer_items(ui, "Вы отдаете", &o.give);
-                    offer_items(ui, "Вы получаете", &o.get);
+                    offer_items(ui, tr!("Вы отдаете", "You give"), &o.give);
+                    offer_items(ui, tr!("Вы получаете", "You get"), &o.get);
                     ui.horizontal(|ui| match mk.offer_confirm.clone() {
                         Some((id, act)) if id == o.id => {
                             ui.label(match act {
-                                0 => "Принять обмен? Предметы перейдут после подтверждения в мобильном приложении.",
-                                1 => "Отклонить обмен?",
-                                _ => "Отменить свое предложение?",
+                                0 => tr!("Принять обмен? Предметы перейдут после подтверждения в мобильном приложении.", "Accept the trade? The items move after confirmation in the mobile app."),
+                                1 => tr!("Отклонить обмен?", "Decline the trade?"),
+                                _ => tr!("Отменить свое предложение?", "Cancel your offer?"),
                             });
-                            if ui.button("Да").clicked() {
+                            if ui.button(tr!("Да", "Yes")).clicked() {
                                 req(MarketCmd::Offer { id: o.id.clone(), partner: o.partner, act });
                                 mk.offer_confirm = None;
                             }
-                            if ui.button("Нет").clicked() {
+                            if ui.button(tr!("Нет", "No")).clicked() {
                                 mk.offer_confirm = None;
                             }
                         }
                         _ => {
                             if !crate::exp::on() {
-                                ui.weak("Принять или отклонить обмен: экспериментальная функция (Настройки -> Аккаунт).");
+                                ui.weak(tr!("Принять или отклонить обмен: экспериментальная функция (Настройки -> Аккаунт).", "Accepting or declining a trade is an experimental feature (Settings -> Account)."));
                             } else if o.incoming {
-                                if o.state == 2 && ui.button("Принять...").clicked() {
+                                if o.state == 2 && ui.button(tr!("Принять...", "Accept...")).clicked() {
                                     mk.offer_confirm = Some((o.id.clone(), 0));
                                 }
-                                if ui.button("Отклонить...").clicked() {
+                                if ui.button(tr!("Отклонить...", "Decline...")).clicked() {
                                     mk.offer_confirm = Some((o.id.clone(), 1));
                                 }
-                            } else if ui.button("Отменить...").clicked() {
+                            } else if ui.button(tr!("Отменить...", "Cancel...")).clicked() {
                                 mk.offer_confirm = Some((o.id.clone(), 2));
                             }
                         }

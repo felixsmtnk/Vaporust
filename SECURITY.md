@@ -1,45 +1,47 @@
-# Безопасность
+# Security
 
-## Как сообщить об уязвимости
+**English** · [Русский](SECURITY.ru.md)
 
-Если вы нашли уязвимость (утечка данных входа, выполнение чужого кода, подмена обновления и т.п.),
-пожалуйста, **не создавайте открытый issue**. Сообщите закрыто: вкладка **Security** этого
-репозитория -> **Report a vulnerability**. Опишите, что нашли и как это повторить.
+## Reporting a vulnerability
 
-Обычные ошибки (что-то не работает, неверно показывается) - в [Issues](../../issues).
+If you found a vulnerability (leaking login data, running foreign code, a replaced update and so on),
+please **do not open a public issue**. Report it privately: the **Security** tab of this
+repository -> **Report a vulnerability**. Describe what you found and how to reproduce it.
 
-## Какие версии поддерживаются
+Ordinary bugs (something does not work or shows wrong) go to [Issues](../../issues).
 
-Исправления выходят только в последней версии со страницы [Releases](../../releases).
-Vaporust - альфа, старые версии не обновляются.
+## Supported versions
 
-## Как проверить скачанный архив
+Fixes are released only in the latest version on the [Releases](../../releases) page.
+Vaporust is an alpha, old versions are not updated.
 
-- Рядом с каждым архивом лежит файл `.sha256` с контрольной суммой. Проверка в PowerShell:
-  `Get-FileHash Vaporust-...-windows-x64.zip -Algorithm SHA256` - число должно совпасть.
-  Встроенное автообновление делает эту проверку само и без совпадения ничего не заменяет.
-- Архивы собирает GitHub Actions из кода этого репозитория и подписывает происхождение
-  (build provenance). Проверить можно программой GitHub CLI:
+## Verifying a downloaded archive
+
+- Next to every archive there is a `.sha256` file with its checksum. To check it in PowerShell:
+  `Get-FileHash Vaporust-...-windows-x64.zip -Algorithm SHA256` - the number must match.
+  The built-in self-update does this check itself and replaces nothing without a match.
+- The archives are built by GitHub Actions from the code of this repository with a build
+  provenance attestation. You can verify it with the GitHub CLI:
   `gh attestation verify Vaporust-...-windows-x64.zip --repo felixsmtnk/Vaporust`.
-- Действия GitHub Actions закреплены по точным версиям (commit SHA), у сборки права только на
-  чтение; запись (черновик релиза) есть только у последнего шага.
+- GitHub Actions are pinned to exact versions (commit SHA), the build has read-only permissions;
+  only the last step (the draft release) can write.
 
-## Что Vaporust делает с данными
+## What Vaporust does with your data
 
-- **Пароль Steam** не сохраняется. Он передается только серверам Steam при входе (так же, как
-  в обычном клиенте). Можно вообще не вводить пароль: вход по QR-коду из приложения Steam или
-  режим «Без входа».
-- **Сохраненный вход** (ключ сеанса, не пароль) хранится в `%USERPROFILE%\.config\Aurelia\session.json`
-  в зашифрованном виде; ключ шифрования - в диспетчере учетных данных Windows. Состояние видно
-  в «Настройки -> Аккаунт».
-- **Телеметрии нет.** Vaporust обращается только к серверам Steam (Valve) и к GitHub (проверка
-  обновлений, ее можно выключить).
-- **Журнал ошибок** (`%APPDATA%\Vaporust\vaporust.log`) пишется без логина, SteamID, имени
-  пользователя Windows и ключей входа.
+- **The Steam password** is not stored. It goes only to Steam servers at login (the same as in
+  the normal client). You may not enter a password at all: log in with a QR code from the Steam
+  app, or use the "Without login" mode.
+- **The saved login** (a session key, not the password) is kept encrypted in
+  `%USERPROFILE%\.config\Aurelia\session.json`; the encryption key is in the Windows Credential
+  Manager. Its state is shown in "Settings -> Account".
+- **No telemetry.** Vaporust talks only to Steam (Valve) servers and to GitHub (update check,
+  which can be turned off).
+- **The error log** (`%APPDATA%\Vaporust\vaporust.log`) is written without the login, SteamID,
+  Windows user name and login keys.
 
-## Как отозвать доступ
+## Revoking access
 
-- Выйти в Vaporust: меню «Vaporust» -> «Выйти из аккаунта» (сохраненный вход удаляется).
-- Отозвать все входы на стороне Steam: [store.steampowered.com/account/authorizeddevices](https://store.steampowered.com/account/authorizeddevices)
-  или «Деавторизовать все другие устройства» в настройках Steam Guard.
-- Перед удалением Vaporust: «Настройки -> О программе -> Убрать изменения Vaporust в Steam».
+- Log out in Vaporust: the "Vaporust" menu -> "Log out" (the saved login is deleted).
+- Revoke all logins on the Steam side: [store.steampowered.com/account/authorizeddevices](https://store.steampowered.com/account/authorizeddevices)
+  or "Deauthorize all other devices" in the Steam Guard settings.
+- Before uninstalling Vaporust: "Settings -> About -> Remove Vaporust changes in Steam".

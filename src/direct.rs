@@ -105,23 +105,23 @@ impl DrmReport {
     /// Summary in one line and whether it works without Steam (Some(true) - yes, Some(false) - no, None - maybe).
     pub fn verdict(&self) -> (Option<bool>, String) {
         if !self.steamstub.is_empty() {
-            return (Some(false), "Защита Steam (SteamStub): без Steam игра не запустится.".into());
+            return (Some(false), tr!("Защита Steam (SteamStub): без Steam игра не запустится.", "Steam protection (SteamStub): the game will not start without Steam.").into());
         }
         if self.drm_notice.is_some() {
-            return (Some(false), "Сторонняя защита: она проверяет покупку через Steam, без Steam игра не запустится.".into());
+            return (Some(false), tr!("Сторонняя защита: она проверяет покупку через Steam, без Steam игра не запустится.", "Third-party protection: it checks the purchase through Steam, the game will not start without Steam.").into());
         }
         if self.account_notice.is_some() {
-            return (None, "Игре нужен сторонний аккаунт или лаунчер: без Steam может не запуститься. Попробуйте.".into());
+            return (None, tr!("Игре нужен сторонний аккаунт или лаунчер: без Steam может не запуститься. Попробуйте.", "The game needs a third-party account or launcher: it may not start without Steam. Try it.").into());
         }
         if self.steam_api {
             return (
                 None,
-                "Защиты Steam нет, но игра обращается к Steam (steam_api.dll): может перезапуститься \
-                 через Steam, запуститься без достижений или не запуститься. Попробуйте."
+                tr!("Защиты Steam нет, но игра обращается к Steam (steam_api.dll): может перезапуститься \
+                 через Steam, запуститься без достижений или не запуститься. Попробуйте.", "No Steam protection, but the game talks to Steam (steam_api.dll): it may restart through Steam, run without achievements or not start. Try it.")
                     .into(),
             );
         }
-        (Some(true), "Защиты не найдено: игра должна запускаться без Steam.".into())
+        (Some(true), tr!("Защиты не найдено: игра должна запускаться без Steam.", "No protection found: the game should run without Steam.").into())
     }
 }
 
@@ -174,7 +174,7 @@ pub fn scan_drm(dir: &Path) -> DrmReport {
 
 /// Store notes about protection: (third-party DRM, third-party account). Public store API.
 pub fn store_drm_notes(appid: u32) -> (Option<String>, Option<String>) {
-    let url = format!("https://store.steampowered.com/api/appdetails?appids={appid}&l={lang}&filters=basic", lang = crate::lang::STEAM);
+    let url = format!("https://store.steampowered.com/api/appdetails?appids={appid}&l={lang}&filters=basic", lang = crate::lang::steam());
     let Ok(resp) = ehttp::fetch_blocking(&ehttp::Request::get(url)) else { return (None, None) };
     let Ok(v) = serde_json::from_slice::<serde_json::Value>(&resp.bytes) else { return (None, None) };
     let data = v.get(appid.to_string()).and_then(|x| x.get("data"));
@@ -201,13 +201,13 @@ impl LauncherApp {
             return;
         }
         if net.account.is_some() {
-            *self.launch_status.lock().unwrap() = "Готовлю запуск без Steam...".into();
+            *self.launch_status.lock().unwrap() = tr!("Готовлю запуск без Steam...", "Preparing to launch without Steam...").into();
             let _ = self.tx.send(Cmd::DirectSpec(appid));
         } else if let Some(spec) = self.settings.direct_specs.get(&appid).cloned() {
             self.direct_run(appid, spec);
         } else {
             *self.launch_status.lock().unwrap() =
-                "Для первого запуска без Steam нужен вход в аккаунт (узнать, какой файл запускать).".into();
+                tr!("Для первого запуска без Steam нужен вход в аккаунт (узнать, какой файл запускать).", "The first launch without Steam needs an account login (to find out which file to run).").into();
         }
     }
 
@@ -216,7 +216,7 @@ impl LauncherApp {
         let Some(game) = self.games.iter().find(|g| g.appid == appid).cloned() else { return };
         let exe = join(&game.dir, &spec.exe);
         if !exe.exists() {
-            *self.launch_status.lock().unwrap() = format!("Не найден файл игры: {}", exe.display());
+            *self.launch_status.lock().unwrap() = trf!("Не найден файл игры: {}", "Game file not found: {}", exe.display());
             return;
         }
         let cwd = if spec.workdir.is_empty() {
@@ -241,12 +241,12 @@ impl LauncherApp {
         // In a separate thread: the pre-launch command may take a long time.
         std::thread::spawn(move || {
             if !script.before.trim().is_empty() {
-                *status.lock().unwrap() = "Выполняю команду перед запуском...".into();
+                *status.lock().unwrap() = tr!("Выполняю команду перед запуском...", "Running the pre-launch command...").into();
             }
             let warn = crate::scripts::run_before(&script, appid, &game.name, &game.dir);
             match cmd.spawn() {
                 Ok(mut child) => {
-                    *status.lock().unwrap() = format!("Игра запущена без Steam: {}", game.name);
+                    *status.lock().unwrap() = trf!("Игра запущена без Steam: {}", "Game started without Steam: {}", game.name);
                     {
                         let _running = crate::local::RunningGuard::set(appid, &game.name, &game.dir);
                         let _ = child.wait();
@@ -258,11 +258,11 @@ impl LauncherApp {
                     }
                     let after = crate::scripts::run_after(&script, appid, &game.name, &game.dir);
                     *status.lock().unwrap() = match warn.or(after) {
-                        Some(w) => format!("Готово. {w}"),
-                        None => "Готово.".into(),
+                        Some(w) => trf!("Готово. {w}", "Done. {w}"),
+                        None => tr!("Готово.", "Done.").into(),
                     };
                 }
-                Err(e) => *status.lock().unwrap() = format!("Не удалось запустить игру: {e}"),
+                Err(e) => *status.lock().unwrap() = trf!("Не удалось запустить игру: {e}", "Could not start the game: {e}"),
             }
             launching.store(false, Ordering::Relaxed);
             rescan.store(true, Ordering::Relaxed);
@@ -285,7 +285,7 @@ impl LauncherApp {
             Some(s) => self.direct_run(appid, s),
             None => {
                 *self.launch_status.lock().unwrap() =
-                    "Steam не сообщил, какой файл запускать у этой игры. Запустите ее через Steam.".into()
+                    tr!("Steam не сообщил, какой файл запускать у этой игры. Запустите ее через Steam.", "Steam did not say which file to run for this game. Start it through Steam.").into()
             }
         }
     }

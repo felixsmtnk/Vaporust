@@ -1,4 +1,4 @@
-# Предложения обновить закрепленные версии действий GitHub Actions (раз в месяц).
+# Proposals to update the pinned GitHub Actions versions (once a month).
 version: 2
 updates:
   - package-ecosystem: github-actions

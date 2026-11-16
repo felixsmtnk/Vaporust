@@ -63,15 +63,15 @@ impl LauncherApp {
         }
         // Outside the window: the running install is paused, but not marked as paused in the queue, so
         // it resumes by itself when the window starts.
-        if let Some(inst) = net.install.as_ref().filter(|i| i.active() && i.done_text == "установлена.") {
+        if let Some(inst) = net.install.as_ref().filter(|i| i.active() && i.done_text == tr!("установлена.", "installed.")) {
             inst.abort.store(true, std::sync::atomic::Ordering::Relaxed);
             self.settings.downloads.retain(|q| q.appid != inst.appid);
             self.settings.downloads.insert(
                 0,
                 crate::settings::QueueItem { appid: inst.appid, name: inst.name.clone(), paused: false },
             );
-            self.install_note = format!(
-                "«{}»: загрузка остановлена по расписанию, продолжится в {}.",
+            self.install_note = trf!(
+                "«{}»: загрузка остановлена по расписанию, продолжится в {}.", "\"{}\": the download stopped by schedule, it continues at {}.",
                 inst.name,
                 hh(self.settings.sched_from)
             );

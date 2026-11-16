@@ -81,14 +81,14 @@ pub fn title_bar(ctx: &egui::Context, title: &str) {
             let close = egui::Rect::from_min_max(egui::pos2(rect.right() - w, rect.top()), rect.right_bottom());
             let max = close.translate(egui::vec2(-w, 0.0));
             let min = max.translate(egui::vec2(-w, 0.0));
-            if button(ui, close, "vaporust_tb_close", Glyph::Close, "Закрыть") {
+            if button(ui, close, "vaporust_tb_close", Glyph::Close, tr!("Закрыть", "Close")) {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
-            let (g, hint) = if maximized { (Glyph::Restore, "Свернуть в окно") } else { (Glyph::Maximize, "Развернуть") };
+            let (g, hint) = if maximized { (Glyph::Restore, tr!("Свернуть в окно", "Restore down")) } else { (Glyph::Maximize, tr!("Развернуть", "Maximize")) };
             if button(ui, max, "vaporust_tb_max", g, hint) {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
             }
-            if button(ui, min, "vaporust_tb_min", Glyph::Minimize, "Свернуть") {
+            if button(ui, min, "vaporust_tb_min", Glyph::Minimize, tr!("Свернуть", "Collapse")) {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
             }
         });
@@ -227,8 +227,8 @@ pub fn heal_client_size(ctx: &egui::Context) {
         SetWindowPos(hwnd, std::ptr::null_mut(), 0, 0, w, h, flags);
     }
     crate::errlog::write(
-        "окно",
-        &format!("размер рабочей области расходился (Windows {cw}x{ch}, программа {ew:.0}x{eh:.0}), исправлено"),
+        tr!("окно", "window"),
+        &trf!("размер рабочей области расходился (Windows {cw}x{ch}, программа {ew:.0}x{eh:.0}), исправлено", "the client area size differed (Windows {cw}x{ch}, program {ew:.0}x{eh:.0}), fixed"),
     );
 }
 
@@ -279,8 +279,8 @@ pub fn caption_forced() -> Option<String> {
     if now.duration_since(since) < Duration::from_millis(1500) {
         return None;
     }
-    Some(format!(
-        "окно {}x{}, рабочая область {}x{}",
+    Some(trf!(
+        "окно {}x{}, рабочая область {}x{}", "window {}x{}, client area {}x{}",
         wr.right - wr.left,
         wr.bottom - wr.top,
         cr.right - cr.left,
@@ -341,16 +341,16 @@ pub fn window_buttons(ui: &mut egui::Ui, height: f32) {
     let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
     let size = egui::vec2(46.0, height);
     let (close, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-    if button(ui, close, "vaporust_tb_close", Glyph::Close, "Закрыть") {
+    if button(ui, close, "vaporust_tb_close", Glyph::Close, tr!("Закрыть", "Close")) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
     }
     let (max, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-    let (g, hint) = if maximized { (Glyph::Restore, "Свернуть в окно") } else { (Glyph::Maximize, "Развернуть") };
+    let (g, hint) = if maximized { (Glyph::Restore, tr!("Свернуть в окно", "Restore down")) } else { (Glyph::Maximize, tr!("Развернуть", "Maximize")) };
     if button(ui, max, "vaporust_tb_max", g, hint) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
     }
     let (min, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-    if button(ui, min, "vaporust_tb_min", Glyph::Minimize, "Свернуть") {
+    if button(ui, min, "vaporust_tb_min", Glyph::Minimize, tr!("Свернуть", "Collapse")) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
     }
     });
@@ -382,11 +382,11 @@ pub fn diag_once(ctx: &egui::Context) {
     let ex = unsafe { GetWindowLongW(hwnd, GWL_EXSTYLE) } as u32;
     let screen = ctx.input(|i| i.screen_rect());
     crate::errlog::write(
-        "окно",
-        &format!(
+        tr!("окно", "window"),
+        &trf!(
             "рамка {}, стиль {style:08x}, доп. стиль {ex:08x}, окно {}x{} ({},{}), рабочая область {}x{}, \
-             программа {:.0}x{:.0} при масштабе {:.2}, развернуто {}",
-            if system() { "Windows" } else { "своя" },
+             программа {:.0}x{:.0} при масштабе {:.2}, развернуто {}", "frame {}, style {style:08x}, ex style {ex:08x}, window {}x{} ({},{}), client area {}x{}, program {:.0}x{:.0} at scale {:.2}, maximized {}",
+            if system() { "Windows" } else { tr!("своя", "own") },
             wr.right - wr.left,
             wr.bottom - wr.top,
             wr.left,

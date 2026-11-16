@@ -77,15 +77,15 @@ impl LauncherApp {
     pub(crate) fn note_dialog(&mut self, ctx: &egui::Context) {
         let Some((appid, name, mut text)) = self.note_edit.take() else { return };
         let mut keep = true;
-        egui::Window::new(format!("Заметка: {name}"))
+        egui::Window::new(trf!("Заметка: {name}", "Note: {name}"))
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
             .show(ctx, |ui| {
-                ui.weak("Видна только вам: например, где вы остановились, коды или настройки.");
+                ui.weak(tr!("Видна только вам: например, где вы остановились, коды или настройки.", "Only you see it: for example where you stopped, codes or settings."));
                 ui.add(egui::TextEdit::multiline(&mut text).desired_rows(4).desired_width(360.0));
                 ui.horizontal(|ui| {
-                    if ui.button("Сохранить").clicked() {
+                    if ui.button(tr!("Сохранить", "Save")).clicked() {
                         if text.trim().is_empty() {
                             self.settings.game_notes.remove(&appid);
                         } else {
@@ -93,7 +93,7 @@ impl LauncherApp {
                         }
                         keep = false;
                     }
-                    if ui.button("Отмена").clicked() {
+                    if ui.button(tr!("Отмена", "Cancel")).clicked() {
                         keep = false;
                     }
                 });
@@ -121,10 +121,10 @@ impl LauncherApp {
             .trim()
             .to_string();
         let text = match create_lnk(&exe, &format!("{RUN_ARG} {appid}"), &icon, &file_name) {
-            Ok(()) => format!("Ярлык «{file_name}» создан на рабочем столе."),
+            Ok(()) => trf!("Ярлык «{file_name}» создан на рабочем столе.", "Shortcut \"{file_name}\" created on the desktop."),
             Err(e) => {
-                crate::errlog::write("ярлык", &e);
-                format!("Не удалось создать ярлык: {e}")
+                crate::errlog::write(tr!("ярлык", "shortcut"), &e);
+                trf!("Не удалось создать ярлык: {e}", "Could not create the shortcut: {e}")
             }
         };
         *self.launch_status.lock().unwrap() = text;
@@ -176,5 +176,5 @@ fn create_lnk(target: &std::path::Path, args: &str, icon: &std::path::Path, name
 
 #[cfg(not(windows))]
 fn create_lnk(_t: &std::path::Path, _a: &str, _i: &std::path::Path, _n: &str) -> Result<(), String> {
-    Err("только Windows".into())
+    Err(tr!("только Windows", "Windows only").into())
 }

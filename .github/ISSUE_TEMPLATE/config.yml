@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
-  - name: Уязвимость
+  - name: Vulnerability / Уязвимость
     url: https://github.com/felixsmtnk/Vaporust/security/advisories/new
-    about: Об уязвимостях - закрыто, не в открытом issue
+    about: Report vulnerabilities privately, not in a public issue / Об уязвимостях - закрыто, не в открытом issue

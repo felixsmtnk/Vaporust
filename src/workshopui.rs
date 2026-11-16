@@ -52,12 +52,12 @@ fn fmt_date(unix: u64) -> String {
 
 fn item_info(ui: &mut egui::Ui, it: &WorkshopItem) {
     let url = format!("https://steamcommunity.com/sharedfiles/filedetails/?id={}", it.id);
-    ui.hyperlink_to(&it.title, url).on_hover_text("Открыть страницу мода в браузере");
+    ui.hyperlink_to(&it.title, url).on_hover_text(tr!("Открыть страницу мода в браузере", "Open the mod page in the browser"));
     if it.file_size > 0 {
         ui.weak(net::fmt_bytes(it.file_size));
     }
     if it.time_updated > 0 {
-        ui.weak(format!("обновлен {}", fmt_date(it.time_updated as u64)));
+        ui.weak(trf!("обновлен {}", "updated {}", fmt_date(it.time_updated as u64)));
     }
 }
 
@@ -66,25 +66,25 @@ pub fn browse(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &mut Ve
     let appid = w.appid;
     let subs = ws.sub_ids.get(&appid).cloned().unwrap_or_default();
     ui.horizontal_wrapped(|ui| {
-        ui.strong("Мастерская");
-        ui.weak(format!("подписок: {} (включить/выключить - в «Свойствах»)", subs.len()));
+        ui.strong(tr!("Мастерская", "Workshop"));
+        ui.weak(trf!("подписок: {} (включить/выключить - в «Свойствах»)", "subscriptions: {} (enable/disable in \"Properties\")", subs.len()));
     });
     if let Some(e) = &ws.error {
         ui.colored_label(egui::Color32::from_rgb(230, 110, 110), e);
     }
     ui.horizontal_wrapped(|ui| {
-        let edit = ui.add(egui::TextEdit::singleline(&mut w.text).hint_text("Поиск модов").desired_width(220.0));
-        let sorts = [(0u32, "популярные"), (3, "в тренде"), (1, "новые"), (21, "обновленные"), (9, "по подпискам")];
+        let edit = ui.add(egui::TextEdit::singleline(&mut w.text).hint_text(tr!("Поиск модов", "Search mods")).desired_width(220.0));
+        let sorts = [(0u32, tr!("популярные", "popular")), (3, tr!("в тренде", "trending")), (1, tr!("новые", "newest")), (21, tr!("обновленные", "updated")), (9, tr!("по подпискам", "by subscriptions"))];
         let before = w.sort;
         egui::ComboBox::from_id_salt("ws_sort")
-            .selected_text(sorts.iter().find(|s| s.0 == w.sort).map_or("популярные", |s| s.1))
+            .selected_text(sorts.iter().find(|s| s.0 == w.sort).map_or(tr!("популярные", "popular"), |s| s.1))
             .show_ui(ui, |ui| {
                 for (v, l) in sorts {
                     ui.selectable_value(&mut w.sort, v, l);
                 }
             });
         let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-        if enter || ui.button("Искать").clicked() || before != w.sort {
+        if enter || ui.button(tr!("Искать", "Search")).clicked() || before != w.sort {
             cmds.push(Cmd::Social(SocialCmd::WorkshopQuery { appid, text: w.text.clone(), sort: w.sort }));
         }
         if ws.searching.contains(&appid) {
@@ -94,14 +94,14 @@ pub fn browse(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &mut Ve
     match ws.results.get(&appid) {
         None => {}
         Some(Err(_)) => {
-            ui.weak("У этой игры нет Мастерской.");
+            ui.weak(tr!("У этой игры нет Мастерской.", "This game has no Workshop."));
         }
         Some(Ok(items)) if items.is_empty() => {
-            ui.weak("Ничего не найдено.");
+            ui.weak(tr!("Ничего не найдено.", "Nothing found."));
         }
         Some(Ok(items)) => {
             if let Some(t) = ws.total.get(&appid) {
-                ui.weak(format!("Всего модов: {t}"));
+                ui.weak(trf!("Всего модов: {t}", "Total mods: {t}"));
             }
             // A grid as in the Steam Workshop: the whole square image (on a dark background), under it
             // the name on two lines and a star rating; subscribing - a "+" button on the image on hover.
@@ -176,7 +176,7 @@ fn tile(ui: &mut egui::Ui, it: &aurelia::core::models::WorkshopItem, w: f32, sub
             p.line_segment([c + egui::vec2(-6.0, 0.0), c + egui::vec2(6.0, 0.0)], s);
             p.line_segment([c + egui::vec2(0.0, -6.0), c + egui::vec2(0.0, 6.0)], s);
         }
-        let br = br.on_hover_text(if subscribed { "Отписаться" } else { "Подписаться (Steam скачает мод при запуске игры)" });
+        let br = br.on_hover_text(if subscribed { tr!("Отписаться", "Unsubscribe") } else { tr!("Подписаться (Steam скачает мод при запуске игры)", "Subscribe (Steam downloads the mod when the game starts)") });
         if br.clicked() {
             act = Some(TileAct::Subscribe(!subscribed));
         }
@@ -255,19 +255,19 @@ impl crate::LauncherApp {
         let in_item = self.ws_ui.item.is_some();
         ui.horizontal(|ui| {
             if in_item {
-                if ui.button("< Все моды").clicked() {
+                if ui.button(tr!("< Все моды", "< All mods")).clicked() {
                     self.ws_ui.item = None;
                 }
-            } else if !self.ws_detached && ui.button("< К игре").clicked() {
+            } else if !self.ws_detached && ui.button(tr!("< К игре", "< Back to game")).clicked() {
                 self.view = crate::View::Library;
             }
-            ui.label(egui::RichText::new(format!("Мастерская  ·  {name}")).size(15.0).color(crate::theme::WEAK));
+            ui.label(egui::RichText::new(trf!("Мастерская  ·  {name}", "Workshop  ·  {name}")).size(15.0).color(crate::theme::WEAK));
             if !in_item {
                 ui.add_space(12.0);
-                if ui.selectable_label(!self.ws_ui.collections, "Моды").clicked() {
+                if ui.selectable_label(!self.ws_ui.collections, tr!("Моды", "Mods")).clicked() {
                     self.ws_ui.collections = false;
                 }
-                if ui.selectable_label(self.ws_ui.collections, "Коллекции").on_hover_text("Наборы модов, собранные игроками").clicked() {
+                if ui.selectable_label(self.ws_ui.collections, tr!("Коллекции", "Collections")).on_hover_text(tr!("Наборы модов, собранные игроками", "Mod sets collected by players")).clicked() {
                     self.ws_ui.collections = true;
                 }
             }
@@ -297,7 +297,7 @@ impl crate::LauncherApp {
         let closed = ctx.show_viewport_immediate(
             egui::ViewportId::from_hash_of("vaporust_workshop"),
             egui::ViewportBuilder::default()
-                .with_title(format!("Мастерская: {name} - Vaporust"))
+                .with_title(trf!("Мастерская: {name} - Vaporust", "Workshop: {name} - Vaporust"))
                 .with_inner_size([720.0, 560.0])
                 .with_min_inner_size([480.0, 320.0])
                 .with_icon(crate::icons::icon(crate::icons::Kind::Launcher))
@@ -319,7 +319,7 @@ impl crate::LauncherApp {
 /// the mod stays in the list while the window is open so it can be turned back on.
 pub fn subscriptions(ui: &mut egui::Ui, appid: u32, ws: &WorkshopState, cmds: &mut Vec<Cmd>) {
     let subs = ws.sub_ids.get(&appid).cloned().unwrap_or_default();
-    ui.weak("Включенные моды Steam скачает и обновит при следующем запуске игры. Найти новые - на странице игры в библиотеке.");
+    ui.weak(tr!("Включенные моды Steam скачает и обновит при следующем запуске игры. Найти новые - на странице игры в библиотеке.", "Steam downloads and updates the enabled mods the next time the game starts. Find new ones on the game page in the library."));
     if let Some(e) = &ws.error {
         ui.colored_label(egui::Color32::from_rgb(230, 110, 110), e);
     }
@@ -328,13 +328,13 @@ pub fn subscriptions(ui: &mut egui::Ui, appid: u32, ws: &WorkshopState, cmds: &m
             crate::spin::spinner(ui);
         }
         Some(Err(_)) => {
-            ui.weak("У этой игры нет Мастерской.");
+            ui.weak(tr!("У этой игры нет Мастерской.", "This game has no Workshop."));
         }
         Some(Ok(list)) if list.is_empty() => {
-            ui.weak("Подписанных модов нет.");
+            ui.weak(tr!("Подписанных модов нет.", "No subscribed mods."));
         }
         Some(Ok(list)) => {
-            ui.label(format!("Включено модов: {} из {}", list.iter().filter(|i| subs.contains(&i.id)).count(), list.len()));
+            ui.label(trf!("Включено модов: {} из {}", "Mods enabled: {} of {}", list.iter().filter(|i| subs.contains(&i.id)).count(), list.len()));
             ui.separator();
             for it in list {
                 ui.horizontal_wrapped(|ui| {
@@ -440,12 +440,12 @@ pub async fn load_detail(_c: &aurelia::steam_client::SteamClient, id: u64) -> Re
         .await
         .map_err(|e| format!("{e:#}"))?;
     if !resp.status().is_success() {
-        return Err(format!("Steam ответил кодом {}.", resp.status().as_u16()));
+        return Err(trf!("Steam ответил кодом {}.", "Steam answered with code {}.", resp.status().as_u16()));
     }
     let v: serde_json::Value = resp.json().await.map_err(|e| format!("{e:#}"))?;
     let d = &v["response"]["publishedfiledetails"][0];
     if d.is_null() || num(&d["result"]) != 1 {
-        return Err("мод не найден или скрыт автором".into());
+        return Err(tr!("мод не найден или скрыт автором", "the mod was not found or is hidden by the author").into());
     }
     let mut det = parse_detail(d);
     // Mod screenshots - only on its page (a strip of thumbnails under the main image).
@@ -486,7 +486,7 @@ pub fn detail_page(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &m
             return;
         }
         Some(Err(e)) => {
-            ui.label(format!("Не удалось загрузить мод: {e}"));
+            ui.label(trf!("Не удалось загрузить мод: {e}", "Could not load the mod: {e}"));
             return;
         }
         Some(Ok(d)) => d.clone(),
@@ -548,35 +548,35 @@ pub fn detail_page(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &m
                 ui.painter().text(
                     r.left_center() + egui::vec2(72.0, 0.0),
                     egui::Align2::LEFT_CENTER,
-                    format!("оценок: {}", crate::store::group_digits(votes_all)),
+                    trf!("оценок: {}", "ratings: {}", crate::store::group_digits(votes_all)),
                     egui::FontId::proportional(12.0),
                     crate::theme::WEAK,
                 );
                 ui.add_space(4.0);
             }
             let (text, fill) = if subscribed {
-                ("Отписаться", egui::Color32::from_rgb(70, 78, 92))
+                (tr!("Отписаться", "Unsubscribe"), egui::Color32::from_rgb(70, 78, 92))
             } else {
-                ("Подписаться", crate::theme::PLAY)
+                (tr!("Подписаться", "Subscribe"), crate::theme::PLAY)
             };
             if crate::theme::big_button(ui, text, fill, true).clicked() {
                 cmds.push(Cmd::Social(SocialCmd::WorkshopSubscribe { appid, id, on: !subscribed }));
             }
-            ui.weak("Steam скачает мод сам при следующем запуске игры.");
+            ui.weak(tr!("Steam скачает мод сам при следующем запуске игры.", "Steam downloads the mod itself the next time the game starts."));
             ui.horizontal_wrapped(|ui| {
-                if crate::exp::button(ui, "Нравится").on_hover_text("Оценить мод (видно автору)").clicked() {
+                if crate::exp::button(ui, tr!("Нравится", "Like")).on_hover_text(tr!("Оценить мод (видно автору)", "Rate the mod (the author sees it)")).clicked() {
                     cmds.push(Cmd::WsVote { id, up: true });
                 }
-                if crate::exp::button(ui, "Не нравится").clicked() {
+                if crate::exp::button(ui, tr!("Не нравится", "Dislike")).clicked() {
                     cmds.push(Cmd::WsVote { id, up: false });
                 }
-                if crate::exp::button(ui, "В избранное").on_hover_text("Избранное Мастерской в вашем профиле").clicked() {
+                if crate::exp::button(ui, tr!("В избранное", "Add to favorites")).on_hover_text(tr!("Избранное Мастерской в вашем профиле", "Workshop favorites in your profile")).clicked() {
                     cmds.push(Cmd::WsFavorite { id, appid, add: true });
                 }
-                if crate::exp::button(ui, "Наградить...").on_hover_text("Наградить мод очками Steam").clicked() {
-                    crate::storewin::UI_REQ.lock().unwrap().push(crate::storewin::UiReq::Award(2, id.to_string(), format!("мод «{}»", d.title)));
+                if crate::exp::button(ui, tr!("Наградить...", "Award...")).on_hover_text(tr!("Наградить мод очками Steam", "Award the mod with Steam Points")).clicked() {
+                    crate::storewin::UI_REQ.lock().unwrap().push(crate::storewin::UiReq::Award(2, id.to_string(), trf!("мод «{}»", "mod \"{}\"", d.title)));
                 }
-                if ui.button("Комментарии").on_hover_text("Откроются на сайте Steam").clicked() {
+                if ui.button(tr!("Комментарии", "Comments")).on_hover_text(tr!("Откроются на сайте Steam", "Open on the Steam website")).clicked() {
                     ui.ctx().open_url(egui::OpenUrl::new_tab(format!("https://steamcommunity.com/sharedfiles/filedetails/comments/{id}")));
                 }
             });
@@ -589,26 +589,26 @@ pub fn detail_page(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &m
                     ui.end_row();
                 };
                 if votes > 0 {
-                    row("Оценки", format!("{}% хорошо ({})", d.votes_up * 100 / votes, crate::store::group_digits(votes)));
+                    row(tr!("Оценки", "Ratings"), trf!("{}% хорошо ({})", "{}% good ({})", d.votes_up * 100 / votes, crate::store::group_digits(votes)));
                 }
-                row("Подписчиков", crate::store::group_digits(d.subscriptions));
+                row(tr!("Подписчиков", "Subscribers"), crate::store::group_digits(d.subscriptions));
                 if d.favorited > 0 {
-                    row("В избранном", crate::store::group_digits(d.favorited));
+                    row(tr!("В избранном", "Favorited"), crate::store::group_digits(d.favorited));
                 }
                 if d.views > 0 {
-                    row("Просмотров", crate::store::group_digits(d.views));
+                    row(tr!("Просмотров", "Views"), crate::store::group_digits(d.views));
                 }
                 if d.size > 0 {
-                    row("Размер", net::fmt_bytes(d.size));
+                    row(tr!("Размер", "Size"), net::fmt_bytes(d.size));
                 }
                 if d.created > 0 {
-                    row("Опубликован", fmt_date(d.created));
+                    row(tr!("Опубликован", "Published"), fmt_date(d.created));
                 }
                 if d.updated > 0 {
-                    row("Обновлен", fmt_date(d.updated));
+                    row(tr!("Обновлен", "Updated"), fmt_date(d.updated));
                 }
                 if d.comments > 0 {
-                    row("Комментариев", d.comments.to_string());
+                    row(tr!("Комментариев", "Comments"), d.comments.to_string());
                 }
             });
             if !d.tags.is_empty() {
@@ -622,7 +622,7 @@ pub fn detail_page(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &m
                 });
             }
             ui.add_space(6.0);
-            if ui.link("Открыть в браузере (комментарии, обсуждения)").clicked() {
+            if ui.link(tr!("Открыть в браузере (комментарии, обсуждения)", "Open in the browser (comments, discussions)")).clicked() {
                 ui.ctx().open_url(egui::OpenUrl::new_tab(format!("https://steamcommunity.com/sharedfiles/filedetails/?id={}", d.id)));
             }
         });
@@ -631,7 +631,7 @@ pub fn detail_page(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &m
     // Description - in a card, in normal text size.
     egui::Frame::none().fill(crate::theme::CARD).rounding(4.0).inner_margin(egui::Margin::same(14.0)).show(ui, |ui| {
         ui.set_width(ui.available_width());
-        ui.label(egui::RichText::new("Описание").size(15.0).strong());
+        ui.label(egui::RichText::new(tr!("Описание", "Description")).size(15.0).strong());
         ui.add_space(6.0);
         ui.style_mut().override_text_style = Some(egui::TextStyle::Body);
         for b in crate::store::description_blocks(&d.description) {
@@ -699,7 +699,7 @@ fn collections_view(ui: &mut egui::Ui, w: &mut WsUi, net: &net::NetState, ws: &W
     let appid = w.appid;
     let subs = ws.sub_ids.get(&appid).cloned().unwrap_or_default();
     if let Some(cid) = w.coll_open {
-        if ui.button("< Все коллекции").clicked() {
+        if ui.button(tr!("< Все коллекции", "< All collections")).clicked() {
             w.coll_open = None;
             w.sub_all = false;
             return;
@@ -722,26 +722,26 @@ fn collections_view(ui: &mut egui::Ui, w: &mut WsUi, net: &net::NetState, ws: &W
                 crate::spin::spinner(ui);
             }
             Some(Err(e)) => {
-                ui.label(format!("Не удалось загрузить: {e}"));
+                ui.label(trf!("Не удалось загрузить: {e}", "Could not load: {e}"));
             }
             Some(Ok(items)) => {
                 let missing: Vec<u64> = items.iter().copied().filter(|i| !subs.contains(i)).collect();
                 ui.horizontal(|ui| {
-                    ui.weak(format!("Модов: {}, из них вы подписаны на {}", items.len(), items.len() - missing.len()));
+                    ui.weak(trf!("Модов: {}, из них вы подписаны на {}", "Mods: {}, you are subscribed to {}", items.len(), items.len() - missing.len()));
                     if !missing.is_empty() {
                         if !w.sub_all {
-                            if ui.button(format!("Подписаться на все ({})", missing.len())).clicked() {
+                            if ui.button(trf!("Подписаться на все ({})", "Subscribe to all ({})", missing.len())).clicked() {
                                 w.sub_all = true;
                             }
                         } else {
-                            ui.label(format!("Подписаться на {} модов? Steam скачает их при запуске игры.", missing.len()));
-                            if ui.button("Да").clicked() {
+                            ui.label(trf!("Подписаться на {} модов? Steam скачает их при запуске игры.", "Subscribe to {} mods? Steam downloads them when the game starts.", missing.len()));
+                            if ui.button(tr!("Да", "Yes")).clicked() {
                                 for id in &missing {
                                     cmds.push(Cmd::Social(SocialCmd::WorkshopSubscribe { appid, id: *id, on: true }));
                                 }
                                 w.sub_all = false;
                             }
-                            if ui.button("Нет").clicked() {
+                            if ui.button(tr!("Нет", "No")).clicked() {
                                 w.sub_all = false;
                             }
                         }
@@ -754,8 +754,8 @@ fn collections_view(ui: &mut egui::Ui, w: &mut WsUi, net: &net::NetState, ws: &W
                     }
                     let name = match ws.details.get(id) {
                         Some(Ok(d)) => d.title.clone(),
-                        Some(Err(_)) => format!("мод {id} (недоступен)"),
-                        None => format!("мод {id}"),
+                        Some(Err(_)) => trf!("мод {id} (недоступен)", "mod {id} (unavailable)"),
+                        None => trf!("мод {id}", "mod {id}"),
                     };
                     ui.horizontal(|ui| {
                         let on = subs.contains(id);
@@ -763,7 +763,7 @@ fn collections_view(ui: &mut egui::Ui, w: &mut WsUi, net: &net::NetState, ws: &W
                             w.item = Some(*id);
                         }
                         if on {
-                            ui.label(egui::RichText::new("подписаны").small().color(crate::theme::PLAY_TEXT));
+                            ui.label(egui::RichText::new(tr!("подписаны", "subscribed")).small().color(crate::theme::PLAY_TEXT));
                         }
                     });
                 }
@@ -773,8 +773,8 @@ fn collections_view(ui: &mut egui::Ui, w: &mut WsUi, net: &net::NetState, ws: &W
     }
     let key = (appid, w.text.trim().to_string());
     ui.horizontal(|ui| {
-        let edit = ui.add(egui::TextEdit::singleline(&mut w.text).hint_text("Поиск коллекций").desired_width(220.0));
-        if (edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) || ui.button("Искать").clicked() {
+        let edit = ui.add(egui::TextEdit::singleline(&mut w.text).hint_text(tr!("Поиск коллекций", "Search collections")).desired_width(220.0));
+        if (edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) || ui.button(tr!("Искать", "Search")).clicked() {
             w.coll_asked.remove(&(appid, w.text.trim().to_string()));
         }
     });
@@ -786,10 +786,10 @@ fn collections_view(ui: &mut egui::Ui, w: &mut WsUi, net: &net::NetState, ws: &W
             crate::spin::spinner(ui);
         }
         Some(Err(e)) => {
-            ui.label(format!("Не удалось загрузить: {e}"));
+            ui.label(trf!("Не удалось загрузить: {e}", "Could not load: {e}"));
         }
         Some(Ok(list)) if list.is_empty() => {
-            ui.weak("Коллекций нет.");
+            ui.weak(tr!("Коллекций нет.", "No collections."));
         }
         Some(Ok(list)) => {
             for c in list {
@@ -801,7 +801,7 @@ fn collections_view(ui: &mut egui::Ui, w: &mut WsUi, net: &net::NetState, ws: &W
                         }
                         ui.vertical(|ui| {
                             ui.label(egui::RichText::new(crate::richtext::fix(ui, &c.title)).size(15.0).color(egui::Color32::WHITE));
-                            ui.weak(format!("модов: {} · следят: {}", c.items, crate::store::group_digits(c.subscriptions)));
+                            ui.weak(trf!("модов: {} · следят: {}", "mods: {} · followers: {}", c.items, crate::store::group_digits(c.subscriptions)));
                         });
                     });
                 });

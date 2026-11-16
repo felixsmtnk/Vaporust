@@ -165,7 +165,7 @@ pub fn parse(msg: &str) -> Vec<Seg> {
                 "gameinvite" => {
                     // Game invite from Steam chat.
                     flush(&mut text, &mut segs);
-                    segs.push(Seg::Text("[приглашение в игру]".into()));
+                    segs.push(Seg::Text(tr!("[приглашение в игру]", "[game invite]").into()));
                     rest = inner("gameinvite").map(|(_, t)| t).unwrap_or(body);
                     continue;
                 }
@@ -235,8 +235,8 @@ fn plain(s: &str) -> String {
             Seg::Quote { text, .. } => text,
             Seg::Link { label, .. } => label,
             Seg::Emoticon(n) => format!(":{n}:"),
-            Seg::Sticker(n) => format!("[стикер {n}]"),
-            Seg::Image { .. } => "[картинка]".into(),
+            Seg::Sticker(n) => trf!("[стикер {n}]", "[sticker {n}]"),
+            Seg::Image { .. } => tr!("[картинка]", "[image]").into(),
             Seg::RoomEffect(_) => String::new(),
         })
         .collect()
@@ -365,22 +365,22 @@ pub fn preview(msg: &str) -> (String, Option<String>) {
             Seg::Me(t) => text.push_str(&format!("* {t}")),
             Seg::Quote { text: q, .. } => text.push_str(&format!("«{q}» ")),
             // Do not reveal a spoiler in a notification.
-            Seg::Spoiler(_) => text.push_str("[спойлер]"),
+            Seg::Spoiler(_) => text.push_str(tr!("[спойлер]", "[spoiler]")),
             Seg::Link { label, .. } => text.push_str(&label),
-            Seg::Image { .. } => what = "картинка",
+            Seg::Image { .. } => what = tr!("картинка", "image"),
             Seg::Emoticon(n) => {
                 image.get_or_insert_with(|| emoticon_url(&n));
                 if what.is_empty() {
-                    what = "смайлик";
+                    what = tr!("смайлик", "emoticon");
                 }
             }
             Seg::Sticker(n) => {
                 image.get_or_insert_with(|| sticker_url(&n));
-                what = "стикер";
+                what = tr!("стикер", "sticker");
             }
             Seg::RoomEffect(t) => {
                 image.get_or_insert_with(|| crate::effects::icon_url(&t));
-                text.push_str(&format!("эффект комнаты: {}", crate::effects::short_name(&t)));
+                text.push_str(&trf!("эффект комнаты: {}", "room effect: {}", crate::effects::short_name(&t)));
             }
         }
     }

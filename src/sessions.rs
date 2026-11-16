@@ -22,10 +22,10 @@ fn num(v: &serde_json::Value) -> u64 {
 
 fn kind(platform: u64) -> &'static str {
     match platform {
-        1 => "клиент Steam",
-        2 => "браузер",
-        3 => "мобильное приложение Steam",
-        _ => "другое",
+        1 => tr!("клиент Steam", "Steam client"),
+        2 => tr!("браузер", "browser"),
+        3 => tr!("мобильное приложение Steam", "Steam mobile app"),
+        _ => tr!("другое", "other"),
     }
 }
 
@@ -43,7 +43,7 @@ pub fn parse(v: &serde_json::Value) -> Vec<Session> {
         .into_iter()
         .flatten()
         .map(|t| Session {
-            name: t["token_description"].as_str().filter(|s| !s.is_empty()).unwrap_or("без названия").to_string(),
+            name: t["token_description"].as_str().filter(|s| !s.is_empty()).unwrap_or(tr!("без названия", "no name")).to_string(),
             kind: kind(num(&t["platform_type"])).to_string(),
             logged_in: t["logged_in"].as_bool().unwrap_or(false),
             last_time: num(&t["last_seen"]["time"]).max(num(&t["time_updated"])),

@@ -63,20 +63,20 @@ impl LauncherApp {
                 continue;
             }
             let Some((was_online, was_game)) = before else { continue };
-            let name = f.persona_name.clone().unwrap_or_else(|| "Друг".into());
+            let name = f.persona_name.clone().unwrap_or_else(|| tr!("Друг", "Friend").into());
             if let Some(game) = now.1.filter(|g| Some(*g) != was_game) {
                 if s.notify_friend_game {
                     // Game name: from Steam, from the cache, or request it and wait (see below).
                     if let Some(t) =
                         f.game_name.clone().filter(|t| !t.is_empty()).or_else(|| net.app_names.get(&game).cloned())
                     {
-                        popup::push_full(Kind::FriendGame(*id), name, format!("играет в {t}"), None, popup::status_color(f.persona_state, true));
+                        popup::push_full(Kind::FriendGame(*id), name, trf!("играет в {t}", "is playing {t}"), None, popup::status_color(f.persona_state, true));
                     } else {
                         n.pending.push((*id, name, game, Instant::now()));
                     }
                 }
             } else if online && !was_online && s.notify_friend_online {
-                popup::push_full(Kind::FriendOnline(*id), name, "в сети".into(), None, popup::status_color(f.persona_state, false));
+                popup::push_full(Kind::FriendOnline(*id), name, tr!("в сети", "online").into(), None, popup::status_color(f.persona_state, false));
             }
         }
     }
@@ -90,7 +90,7 @@ impl LauncherApp {
                 ask.push(*game);
                 return true;
             }
-            let body = title.map(|t| format!("играет в {t}")).unwrap_or_else(|| "зашел в игру".into());
+            let body = title.map(|t| trf!("играет в {t}", "is playing {t}")).unwrap_or_else(|| tr!("зашел в игру", "started a game").into());
             popup::push_full(Kind::FriendGame(*id), name.clone(), body, None, popup::status_color(Some(1), true));
             false
         });
@@ -118,7 +118,7 @@ impl LauncherApp {
             if *soon {
                 self.settings.wish_upcoming.insert(*appid);
             } else if self.settings.wish_upcoming.remove(appid) {
-                popup::push(Kind::Sale(*appid), format!("Вышла игра: {name}"), "Из вашего списка желаемого.");
+                popup::push(Kind::Sale(*appid), trf!("Вышла игра: {name}", "Released: {name}"), tr!("Из вашего списка желаемого.", "From your wishlist."));
             }
         }
         let now = std::time::SystemTime::now()
@@ -138,15 +138,15 @@ impl LauncherApp {
                 let s = fresh[0];
                 popup::push(
                     Kind::Sale(s.appid),
-                    format!("Скидка -{}%: {}", s.pct, s.name),
-                    format!("Из вашего списка желаемого. Сейчас {}.", s.price),
+                    trf!("Скидка -{}%: {}", "-{}% off: {}", s.pct, s.name),
+                    trf!("Из вашего списка желаемого. Сейчас {}.", "From your wishlist. Now {}.", s.price),
                 );
             }
             k => {
                 let names: Vec<String> =
                     fresh.iter().take(4).map(|s| format!("{} (-{}%)", s.name, s.pct)).collect();
-                let more = if k > 4 { format!(" и еще {}", k - 4) } else { String::new() };
-                popup::push(Kind::Sale(0), format!("Скидки в списке желаемого: {k}"), format!("{}{more}", names.join(", ")));
+                let more = if k > 4 { trf!(" и еще {}", " and {} more", k - 4) } else { String::new() };
+                popup::push(Kind::Sale(0), trf!("Скидки в списке желаемого: {k}", "Discounts in your wishlist: {k}"), format!("{}{more}", names.join(", ")));
             }
         }
         for s in fresh {
@@ -166,12 +166,12 @@ impl LauncherApp {
         let staged = self.settings.staged.contains_key(&i.appid) && crate::local::steam_running();
         if before == Some((i.appid, false))
             && finished_ok
-            && i.done_text == "установлена."
+            && i.done_text == tr!("установлена.", "installed.")
             && self.settings.notify_on
             && (staged || (self.settings.notify_download && !crate::notify::app_focused()))
         {
-            let body = if staged { "Перезапустите Steam, чтобы играть.".to_string() } else { format!("{} - можно играть.", i.name) };
-            popup::push(Kind::Download(i.appid), "Игра скачана", body);
+            let body = if staged { tr!("Перезапустите Steam, чтобы играть.", "Restart Steam to play.").to_string() } else { trf!("{} - можно играть.", "{} - ready to play.", i.name) };
+            popup::push(Kind::Download(i.appid), tr!("Игра скачана", "Game downloaded"), body);
         }
     }
 }

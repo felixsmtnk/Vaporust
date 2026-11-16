@@ -167,9 +167,9 @@ fn parse_hist_date(s: &str) -> Option<i64> {
 }
 
 pub fn parse_history(body: &str) -> Result<Vec<(i64, f64, u64)>, String> {
-    let v: Value = serde_json::from_str(body).map_err(|_| "Steam прислал непонятный ответ".to_string())?;
+    let v: Value = serde_json::from_str(body).map_err(|_| tr!("Steam прислал непонятный ответ", "Steam sent an unclear answer").to_string())?;
     if v["success"].as_bool() != Some(true) {
-        return Err("истории цены нет".into());
+        return Err(tr!("истории цены нет", "no price history").into());
     }
     Ok(v["prices"]
         .as_array()
@@ -190,16 +190,16 @@ pub fn parse_history(body: &str) -> Result<Vec<(i64, f64, u64)>, String> {
 /// Parsed as JSON, not by substring search. There may be no orders (amtMaxBuyOrder: null) - that is
 /// 0, not an error. The currency is required: without it prices cannot be compared.
 pub fn parse_spread_page(body: &str) -> Result<(Spread, u32), String> {
-    let v: Value = serde_json::from_str(body.trim()).map_err(|_| "Steam прислал непонятный ответ о заявках".to_string())?;
-    let outer = v.get("data").ok_or("Steam прислал непонятный ответ о заявках")?;
+    let v: Value = serde_json::from_str(body.trim()).map_err(|_| tr!("Steam прислал непонятный ответ о заявках", "Steam sent an unclear answer about buy orders").to_string())?;
+    let outer = v.get("data").ok_or(tr!("Steam прислал непонятный ответ о заявках", "Steam sent an unclear answer about buy orders"))?;
     if outer.get("success").and_then(Value::as_bool) != Some(true) {
-        return Err("предмет не продается на площадке".into());
+        return Err(tr!("предмет не продается на площадке", "the item is not sold on the market").into());
     }
-    let d = outer.get("data").ok_or("предмет не продается на площадке")?;
+    let d = outer.get("data").ok_or(tr!("предмет не продается на площадке", "the item is not sold on the market"))?;
     let int = |k: &str| d.get(k).and_then(|x| x.as_i64().or_else(|| x.as_str().and_then(|s| s.parse().ok())));
-    let currency = int("eCurrency").filter(|c| *c > 0).ok_or("Steam не сообщил валюту цен")? as u32;
+    let currency = int("eCurrency").filter(|c| *c > 0).ok_or(tr!("Steam не сообщил валюту цен", "Steam did not report the price currency"))? as u32;
     if d.get("amtMinSellOrder").is_none() && d.get("amtMaxBuyOrder").is_none() {
-        return Err("предмет не продается на площадке".into());
+        return Err(tr!("предмет не продается на площадке", "the item is not sold on the market").into());
     }
     Ok((
         Spread {
@@ -213,9 +213,9 @@ pub fn parse_spread_page(body: &str) -> Result<(Spread, u32), String> {
 }
 
 pub fn parse_spread(body: &str) -> Result<Spread, String> {
-    let v: Value = serde_json::from_str(body).map_err(|_| "Steam прислал непонятный ответ".to_string())?;
+    let v: Value = serde_json::from_str(body).map_err(|_| tr!("Steam прислал непонятный ответ", "Steam sent an unclear answer").to_string())?;
     if num(&v["success"]) != 1 {
-        return Err("заявки не загрузились".into());
+        return Err(tr!("заявки не загрузились", "buy orders did not load").into());
     }
     let count = |k: &str| {
         // buy_order_graph / sell_order_graph: [[price, accumulated units, caption], ...] - the last = total.
@@ -253,7 +253,7 @@ pub fn handle(client: &SteamClient, cmd: MarketCmd, st: &SharedInv, ctx: &egui::
         let web = match crate::webapi::web_session(&c).await {
             Ok(w) => w,
             Err(e) => {
-                set_msg(format!("Нет доступа к сайту Steam: {e}"));
+                set_msg(trf!("Нет доступа к сайту Steam: {e}", "No access to the Steam website: {e}"));
                 ctx.request_repaint();
                 return;
             }
@@ -273,14 +273,14 @@ pub fn handle(client: &SteamClient, cmd: MarketCmd, st: &SharedInv, ctx: &egui::
                 let url = format!("https://steamcommunity.com/market/orderbook?q=Load&qp={}", url_encode(&qp));
                 let (cur, _) = wallet(&st);
                 let r = match web.get_raw(&url, &[("x-valve-request-type", "queryAction")]).await {
-                    Ok((429, _)) => Err("Steam просит подождать (частые запросы)".to_string()),
+                    Ok((429, _)) => Err(tr!("Steam просит подождать (частые запросы)", "Steam asks to wait (too many requests)").to_string()),
                     // The price currency must match the wallet currency (by this time the wallet
                     // is already loaded: without it orders are not requested).
                     Ok((_, t)) => parse_spread_page(&t).and_then(|(sp, c)| {
                         if c == cur {
                             Ok(sp)
                         } else {
-                            Err("Steam показал цены в другой валюте, обновите позже".to_string())
+                            Err(tr!("Steam показал цены в другой валюте, обновите позже", "Steam showed prices in another currency, refresh later").to_string())
                         }
                     }),
                     Err(e) => Err(format!("{e:#}")),
@@ -303,21 +303,21 @@ pub fn handle(client: &SteamClient, cmd: MarketCmd, st: &SharedInv, ctx: &egui::
                         if v["success"].as_bool() == Some(true) {
                             let mobile = v["needs_mobile_confirmation"].as_bool() == Some(true) || num(&v["requires_confirmation"]) == 1;
                             if mobile {
-                                format!("«{name}» выставлен. Подтвердите продажу в мобильном приложении Steam (Подтверждения).")
+                                trf!("«{name}» выставлен. Подтвердите продажу в мобильном приложении Steam (Подтверждения).", "\"{name}\" listed. Confirm the sale in the Steam mobile app (Confirmations).")
                             } else {
-                                format!("«{name}» выставлен на продажу.")
+                                trf!("«{name}» выставлен на продажу.", "\"{name}\" listed for sale.")
                             }
                         } else {
-                            let why = v["message"].as_str().map(String::from).unwrap_or_else(|| format!("ответ {status}"));
-                            format!("Не выставлен: {why}")
+                            let why = v["message"].as_str().map(String::from).unwrap_or_else(|| trf!("ответ {status}", "answer {status}"));
+                            trf!("Не выставлен: {why}", "Not listed: {why}")
                         }
                     }
-                    Err(e) => format!("Не выставлен: {e:#}"),
+                    Err(e) => trf!("Не выставлен: {e:#}", "Not listed: {e:#}"),
                 };
                 set_msg(m);
                 // Reread the inventory of this context and own listings.
                 st.lock().unwrap().items.remove(&(appid, cx));
-                if let Ok(items) = aurelia::steam_client::inventory_via_lang(&web, appid, cx, crate::lang::STEAM).await {
+                if let Ok(items) = aurelia::steam_client::inventory_via_lang(&web, appid, cx, crate::lang::steam()).await {
                     st.lock().unwrap().items.insert((appid, cx), Ok(items));
                 }
                 if let Ok(body) = web.get_text("https://steamcommunity.com/market/mylistings/?norender=1&count=100&l=russian").await {
@@ -330,9 +330,9 @@ pub fn handle(client: &SteamClient, cmd: MarketCmd, st: &SharedInv, ctx: &egui::
                     .post_form(&format!("https://steamcommunity.com/market/removelisting/{id}"), &fields, "https://steamcommunity.com/market/")
                     .await;
                 set_msg(match r {
-                    Ok((s, _)) if s < 400 => format!("Лот «{name}» снят, предмет вернулся в инвентарь."),
-                    Ok((s, _)) => format!("Не снят: ответ {s}"),
-                    Err(e) => format!("Не снят: {e:#}"),
+                    Ok((s, _)) if s < 400 => trf!("Лот «{name}» снят, предмет вернулся в инвентарь.", "Listing \"{name}\" removed, the item is back in the inventory."),
+                    Ok((s, _)) => trf!("Не снят: ответ {s}", "Not removed: answer {s}"),
+                    Err(e) => trf!("Не снят: {e:#}", "Not removed: {e:#}"),
                 });
                 if let Ok(body) = web.get_text("https://steamcommunity.com/market/mylistings/?norender=1&count=100&l=russian").await {
                     st.lock().unwrap().listings = Some(crate::invent::parse_my_market(&body));
@@ -343,10 +343,10 @@ pub fn handle(client: &SteamClient, cmd: MarketCmd, st: &SharedInv, ctx: &egui::
                 let r = web.post_form("https://steamcommunity.com/market/cancelbuyorder/", &fields, "https://steamcommunity.com/market/").await;
                 set_msg(match r {
                     Ok((_, b)) if serde_json::from_str::<Value>(&b).map(|v| num(&v["success"]) == 1).unwrap_or(false) => {
-                        format!("Заявка на «{name}» отменена, деньги вернулись в кошелек.")
+                        trf!("Заявка на «{name}» отменена, деньги вернулись в кошелек.", "Buy order for \"{name}\" cancelled, the money is back in the wallet.")
                     }
-                    Ok((s, _)) => format!("Не отменена: ответ {s}"),
-                    Err(e) => format!("Не отменена: {e:#}"),
+                    Ok((s, _)) => trf!("Не отменена: ответ {s}", "Not cancelled: answer {s}"),
+                    Err(e) => trf!("Не отменена: {e:#}", "Not cancelled: {e:#}"),
                 });
                 if let Ok(body) = web.get_text("https://steamcommunity.com/market/mylistings/?norender=1&count=100&l=russian").await {
                     st.lock().unwrap().listings = Some(crate::invent::parse_my_market(&body));
@@ -377,26 +377,26 @@ pub fn handle(client: &SteamClient, cmd: MarketCmd, st: &SharedInv, ctx: &egui::
                             Ok((s, b)) if s < 400 => {
                                 let v: Value = serde_json::from_str(&b).unwrap_or(Value::Null);
                                 if v["needs_mobile_confirmation"].as_bool() == Some(true) {
-                                    Ok("Обмен принят: подтвердите его в мобильном приложении Steam.".to_string())
+                                    Ok(tr!("Обмен принят: подтвердите его в мобильном приложении Steam.", "Trade accepted: confirm it in the Steam mobile app.").to_string())
                                 } else {
-                                    Ok("Обмен принят.".to_string())
+                                    Ok(tr!("Обмен принят.", "Trade accepted.").to_string())
                                 }
                             }
                             Ok((s, b)) => Err(serde_json::from_str::<Value>(&b)
                                 .ok()
                                 .and_then(|v| v["strError"].as_str().map(String::from))
-                                .unwrap_or_else(|| format!("ответ {s}"))),
+                                .unwrap_or_else(|| trf!("ответ {s}", "answer {s}"))),
                             Err(e) => Err(format!("{e:#}")),
                         }
                     }
                     1 => crate::webapi::post(&c, "IEconService/DeclineTradeOffer/v1", &[("tradeofferid", id.clone())])
                         .await
-                        .map(|_| "Обмен отклонен.".to_string()),
+                        .map(|_| tr!("Обмен отклонен.", "Trade declined.").to_string()),
                     _ => crate::webapi::post(&c, "IEconService/CancelTradeOffer/v1", &[("tradeofferid", id.clone())])
                         .await
-                        .map(|_| "Предложение обмена отменено.".to_string()),
+                        .map(|_| tr!("Предложение обмена отменено.", "Trade offer cancelled.").to_string()),
                 };
-                set_msg(r.unwrap_or_else(|e| format!("Не получилось: {e}")));
+                set_msg(r.unwrap_or_else(|e| trf!("Не получилось: {e}", "Failed: {e}")));
                 let fresh = load_offers(&c).await;
                 st.lock().unwrap().trade.offers = Some(fresh);
             }
@@ -416,7 +416,7 @@ pub async fn load_offers(c: &SteamClient) -> Result<Vec<Offer>, String> {
             ("get_sent_offers", "1".into()),
             ("active_only", "1".into()),
             ("get_descriptions", "1".into()),
-            ("language", crate::lang::STEAM.into()),
+            ("language", crate::lang::steam().into()),
         ],
     )
     .await?;
@@ -433,7 +433,7 @@ pub async fn load_offers(c: &SteamClient) -> Result<Vec<Offer>, String> {
             .flatten()
             .map(|it| {
                 let key = (num(&it["classid"]).to_string(), num(&it["instanceid"]).to_string());
-                let (name, icon) = desc.get(&key).cloned().unwrap_or_else(|| ("предмет".into(), None));
+                let (name, icon) = desc.get(&key).cloned().unwrap_or_else(|| (tr!("предмет", "item").into(), None));
                 OfferItem { name, icon, amount: num(&it["amount"]).max(1) as u64 }
             })
             .collect()
