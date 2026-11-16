@@ -148,7 +148,7 @@ impl LauncherApp {
                                     }
                                 }
                                 Some(false) => {
-                                    if ui.button("Вступить в группу...").clicked() {
+                                    if crate::exp::button(ui, "Вступить в группу...").clicked() {
                                         self.group_ui.confirm = Some(true);
                                     }
                                 }
@@ -160,7 +160,7 @@ impl LauncherApp {
                                 } else {
                                     "Выйти из группы? Если она закрытая, вернуться можно только по приглашению."
                                 });
-                                if ui.button(if join { "Вступить" } else { "Выйти" }).clicked() {
+                                if crate::exp::button(ui, if join { "Вступить" } else { "Выйти" }).clicked() {
                                     let _ = self.tx.send(Cmd::GroupMembership { url: url.clone(), info: g.clone(), join });
                                     self.group_ui.confirm = None;
                                 }

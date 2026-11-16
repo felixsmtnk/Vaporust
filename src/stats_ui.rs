@@ -16,6 +16,8 @@ pub struct History {
     /// Чья история (SteamID). У каждого аккаунта свой файл: иначе общее время второго аккаунта
     /// засчиталось бы как «сыграно сегодня».
     pub owner: u64,
+    /// Старая общая история уже перенесена в эту (повторный перенос удвоил бы часы).
+    pub legacy_imported: bool,
     /// С какого дня ведется запись (ГГГГ-ММ-ДД).
     pub since: String,
     /// Последнее известное общее время: appid -> минут.
@@ -55,11 +57,18 @@ pub fn legacy() -> Option<History> {
 /// Перенести старую историю в историю аккаунта `owner` (по просьбе пользователя): дни
 /// складываются с уже записанными, последние известные времена берутся новые. Старый файл
 /// переименовывается только после успешной записи.
-pub fn take_legacy(owner: u64, current: &History) -> Result<History, String> {
+/// Возвращает историю и предупреждение (если перенос удался, а старый файл убрать не вышло).
+pub fn take_legacy(owner: u64, current: &History) -> Result<(History, Option<String>), String> {
     let old_path = legacy_path().ok_or("нет папки данных")?;
     let old = read(&old_path).ok_or("старой истории больше нет")?;
+    if current.legacy_imported {
+        // Уже перенесена (например, в прошлый раз не удалось убрать старый файл) - не складывать второй раз.
+        let _ = std::fs::rename(&old_path, old_path.with_extension("json.migrated"));
+        return Ok((current.clone(), None));
+    }
     let mut h = current.clone();
     h.owner = owner;
+    h.legacy_imported = true;
     for (day, games) in old.days {
         let d = h.days.entry(day).or_default();
         for (app, min) in games {
@@ -72,16 +81,15 @@ pub fn take_legacy(owner: u64, current: &History) -> Result<History, String> {
     for (app, total) in old.last {
         h.last.entry(app).or_insert(total);
     }
+    // Сначала записать перенесенную историю (с пометкой legacy_imported), потом убрать старый файл.
+    // Если убрать не вышло - перенос все равно состоялся, а пометка не даст сложить часы дважды.
     save(&h)?;
-    std::fs::rename(&old_path, old_path.with_extension("json.migrated")).map_err(|e| e.to_string())?;
-    Ok(h)
+    let warn = std::fs::rename(&old_path, old_path.with_extension("json.migrated"))
+        .err()
+        .map(|e| format!("История перенесена, но старый файл убрать не удалось ({e}). Повторно часы не сложатся."));
+    Ok((h, warn))
 }
 
-/// «Это не моя история»: старый файл больше не предлагать (он остается на диске как .declined).
-pub fn decline_legacy() -> Result<(), String> {
-    let p = legacy_path().ok_or("нет папки данных")?;
-    std::fs::rename(&p, p.with_extension("json.declined")).map_err(|e| e.to_string())
-}
 
 /// Похож ли старый общий файл на историю аккаунта с такими играми: не меньше 80% игр из файла
 /// есть у аккаунта, и ни у одной время в файле не больше нынешнего (время в игре не убывает).
@@ -240,6 +248,10 @@ impl LauncherApp {
     /// Старая общая история (из версий до разделения по аккаунтам): спросить, чья она.
     fn legacy_offer(&mut self, ui: &mut egui::Ui, net: &NetState) {
         let Some(me) = net.my_id else { return };
+        // Отказ - отдельно для каждого аккаунта: настоящему владельцу предложение останется.
+        if self.settings.legacy_declined.contains(&me) || self.stats_ui.history.as_ref().is_some_and(|h| h.legacy_imported) {
+            return;
+        }
         if self.stats_ui.legacy_checked == Some(me) && !self.stats_ui.legacy_present {
             return;
         }
@@ -267,18 +279,19 @@ impl LauncherApp {
                 if ui.button("Это моя история - перенести").clicked() {
                     let cur = self.stats_ui.history.clone().unwrap_or(History { owner: me, ..Default::default() });
                     match take_legacy(me, &cur) {
-                        Ok(h) => {
+                        Ok((h, warn)) => {
                             self.stats_ui.history = Some(h);
                             self.stats_ui.legacy_present = false;
+                            if let Some(w) = warn {
+                                crate::popup::push(crate::popup::Kind::Info, "Статистика", w);
+                            }
                         }
                         Err(e) => crate::popup::push(crate::popup::Kind::Info, "Статистика", format!("Не перенесено: {e}")),
                     }
                 }
                 if ui.button("Это не моя").clicked() {
-                    match decline_legacy() {
-                        Ok(()) => self.stats_ui.legacy_present = false,
-                        Err(e) => crate::popup::push(crate::popup::Kind::Info, "Статистика", format!("Не получилось: {e}")),
-                    }
+                    // Только для этого аккаунта: файл остается, другим аккаунтам предложение покажется.
+                    self.settings.legacy_declined.push(me);
                 }
             });
         });

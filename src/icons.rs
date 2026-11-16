@@ -10,6 +10,10 @@ pub enum Kind {
     Chat,
     /// Иконка трея с красной точкой: есть непрочитанные сообщения.
     LauncherUnread,
+    /// Значок трея: круглый вариант логотипа.
+    Tray,
+    /// Значок трея с красной точкой.
+    TrayUnread,
 }
 
 pub fn icon(kind: Kind) -> Arc<egui::IconData> {
@@ -35,7 +39,7 @@ pub fn icon_sized(kind: Kind, n: usize) -> Arc<egui::IconData> {
             ];
             // Белый знак поверх фона.
             let mark = match kind {
-                Kind::Launcher | Kind::LauncherUnread => 0.0,
+                Kind::Launcher | Kind::LauncherUnread | Kind::Tray | Kind::TrayUnread => 0.0,
                 Kind::Chat => {
                     let bubble = rounded_rect(fx, fy, 12.0, 14.0, 52.0, 42.0, 9.0);
                     let tail = triangle(fx, fy, (20.0, 38.0), (32.0, 41.0), (17.0, 52.0));
@@ -43,15 +47,21 @@ pub fn icon_sized(kind: Kind, n: usize) -> Arc<egui::IconData> {
                 }
             };
             let i = (y * N + x) * 4;
-            if matches!(kind, Kind::Launcher | Kind::LauncherUnread) {
-                // Логотип Vaporust: круглая эмблема, белая буква V из двух рычагов на шарнирах.
+            if matches!(kind, Kind::Launcher | Kind::LauncherUnread | Kind::Tray | Kind::TrayUnread) {
+                // Окно и exe - скругленный квадрат, трей - круг.
+                let style = if matches!(kind, Kind::Tray | Kind::TrayUnread) {
+                    crate::logo::Style { shape: crate::logo::Shape::Circle, ..crate::logo::DEFAULT }
+                } else {
+                    crate::logo::DEFAULT
+                };
+                // Логотип Vaporust (src/logo.rs): V из шатуна с поршнем и голубого рычага на медной шестерне.
                 // 4x4 выборки на пиксель для гладких краев.
                 let mut acc = [0.0f32; 4];
                 for sy in 0..4 {
                     for sx in 0..4 {
                         let px = (x as f32 + (sx as f32 + 0.5) / 4.0) * s;
                         let py = (y as f32 + (sy as f32 + 0.5) / 4.0) * s;
-                        if let Some(col) = logo(px, py) {
+                        if let Some(col) = crate::logo::mark(px, py, crate::logo::DEFAULT) {
                             for c in 0..3 {
                                 acc[c] += col[c] / 16.0;
                             }
@@ -70,7 +80,7 @@ pub fn icon_sized(kind: Kind, n: usize) -> Arc<egui::IconData> {
                 rgba[i + 3] = (bg * 255.0) as u8;
             }
             // Красная точка в правом верхнем углу: есть непрочитанные сообщения.
-            if matches!(kind, Kind::LauncherUnread) {
+            if matches!(kind, Kind::LauncherUnread | Kind::TrayUnread) {
                 let d = ((fx - 50.0).powi(2) + (fy - 14.0).powi(2)).sqrt();
                 let dot = (13.5 - d).clamp(0.0, 1.0);
                 if dot > 0.0 {
@@ -84,38 +94,6 @@ pub fn icon_sized(kind: Kind, n: usize) -> Arc<egui::IconData> {
         }
     }
     Arc::new(egui::IconData { rgba, width: N as u32, height: N as u32 })
-}
-
-/// Логотип Vaporust в точке (x, y) поля 64x64: цвет или None (вне эмблемы). Круг с градиентом
-/// от голубого к темно-синему, белая V из двух рычагов на трех шарнирах.
-fn logo(x: f32, y: f32) -> Option<[f32; 3]> {
-    let circ = |cx: f32, cy: f32, r: f32| (x - cx).powi(2) + (y - cy).powi(2) <= r * r;
-    if !circ(32.0, 32.0, 29.5) {
-        return None;
-    }
-    let t = (((x - 2.5) * 0.45 + (y - 2.5)) / (29.5 * 2.9)).clamp(0.0, 1.0);
-    let mix = |a: f32, b: f32| a + (b - a) * t;
-    let bg = [mix(44.0, 12.0), mix(118.0, 22.0), mix(196.0, 48.0)];
-    const WHITE: [f32; 3] = [246.0, 248.0, 252.0];
-    // Расстояние до отрезка (рычаг).
-    let rod = |a: (f32, f32), b: (f32, f32), w: f32| {
-        let (vx, vy) = (b.0 - a.0, b.1 - a.1);
-        let k = (((x - a.0) * vx + (y - a.1) * vy) / (vx * vx + vy * vy)).clamp(0.0, 1.0);
-        ((x - a.0 - vx * k).powi(2) + (y - a.1 - vy * k).powi(2)).sqrt() <= w
-    };
-    let (a, b, m) = ((17.0, 19.0), (47.0, 19.0), (32.0, 46.0));
-    for (p, r, hole) in [(a, 6.2, 2.6), (b, 6.2, 2.6), (m, 5.6, 2.3)] {
-        if circ(p.0, p.1, hole) {
-            return Some(bg);
-        }
-        if circ(p.0, p.1, r) {
-            return Some(WHITE);
-        }
-    }
-    if rod(a, m, 3.0) || rod(b, m, 3.0) {
-        return Some(WHITE);
-    }
-    Some(bg)
 }
 
 /// Покрытие (0..1) точки скругленным прямоугольником, со сглаживанием краев.
@@ -579,7 +557,7 @@ mod social {
                 for sx in 0..3 {
                     let px = (x as f32 + (sx as f32 + 0.5) / 3.0 - ox) / size * 64.0;
                     let py = (y as f32 + (sy as f32 + 0.5) / 3.0 - oy) / size * 64.0;
-                    let c = super::logo(px, py).unwrap_or(bg);
+                    let c = crate::logo::mark(px, py, crate::logo::DEFAULT).map(|c| [c[0], c[1], c[2]]).unwrap_or(bg);
                     for k in 0..3 {
                         acc[k] += c[k] / 9.0;
                     }

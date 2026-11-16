@@ -274,7 +274,7 @@ fn invite_block(
         for (id, role) in &fam.pending {
             ui.horizontal(|ui| {
                 ui.label(format!("{} ({})", name_of(*id), if *role == 2 { "ребенок" } else { "взрослый" }));
-                if ui.small_button("Отменить").clicked() {
+                if crate::exp::small_button(ui, "Отменить").clicked() {
                     let _ = tx.send(Cmd::FamilyCancel { family: fam.id.clone(), steamid: *id });
                 }
             });
@@ -289,7 +289,7 @@ fn invite_block(
         .read()
         .unwrap()
         .values()
-        .filter(|f| f.relationship == 3 && !fam.members.iter().any(|m| m.steamid == f.steam_id))
+        .filter(|f| (f.relationship == 3 && (f.steam_id >> 52) & 0xF == 1) && !fam.members.iter().any(|m| m.steamid == f.steam_id))
         .map(|f| (f.steam_id, f.persona_name.clone().unwrap_or_else(|| f.steam_id.to_string())))
         .collect();
     friends.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
@@ -307,7 +307,7 @@ fn invite_block(
             inv.1 = 1;
         }
         if !inv.2 {
-            if ui.add_enabled(inv.0 != 0, egui::Button::new("Пригласить...")).clicked() {
+            if ui.add_enabled(inv.0 != 0 && crate::exp::on(), egui::Button::new("Пригласить...")).on_disabled_hover_text(crate::exp::HINT).clicked() {
                 inv.2 = true;
             }
         } else {

@@ -43,6 +43,9 @@ mod winpos;
 mod invent;
 mod invwin;
 mod lang;
+mod exp;
+mod restore;
+mod logo;
 mod launchopts;
 mod libview;
 mod local;
@@ -396,9 +399,27 @@ impl LauncherApp {
                 s
             })
             .unwrap_or_default();
+        // Видеокарты Intel: с рамкой, нарисованной программой, Windows на части ноутбуков рисует
+        // поверх свой заголовок (черная полоса, мышь попадает мимо). Там по умолчанию обычная рамка
+        // Windows; проверяется один раз, дальше выбор пользователя в «Настройки -> Окно».
+        let mut saved = saved;
+        if !saved.frame_checked {
+            saved.frame_checked = true;
+            if let Some(gl) = cc.gl.as_ref() {
+                use eframe::glow::HasContext;
+                let (vendor, renderer) = unsafe { (gl.get_parameter_string(eframe::glow::VENDOR), gl.get_parameter_string(eframe::glow::RENDERER)) };
+                if crate::winframe::needs_system_frame(&vendor, &renderer) {
+                    saved.system_frame = true;
+                    crate::errlog::write("окно", &format!("видеокарта {vendor} / {renderer}: обычная рамка Windows"));
+                }
+            }
+        }
         let net: Shared = Arc::default();
         let tx = net::spawn_worker(net.clone(), ctx.clone());
-        let _ = tx.send(Cmd::Restore);
+        // В режиме без входа сеанс Steam не поднимаем вовсе (пароль и ключ входа не нужны).
+        if !saved.local_mode {
+            let _ = tx.send(Cmd::Restore);
+        }
         // Цвета в духе клиента Steam.
         theme::apply(ctx);
         // Полосы прокрутки всегда видны (по умолчанию тонкие и появляются только при наведении).
@@ -925,7 +946,7 @@ impl LauncherApp {
                 }
             }
         }
-        if net.offline && net.account.is_none() && !net.busy {
+        if net.offline && net.account.is_none() && !net.busy && !self.settings.local_mode {
             let due = self.offline_retry.is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(60));
             if due {
                 self.offline_retry = Some(std::time::Instant::now());
@@ -1011,7 +1032,8 @@ impl LauncherApp {
             return;
         }
         // Игра без защиты Steam - запускаем напрямую (галочка в «Свойствах»).
-        if !update && self.settings.no_steam.contains(&appid) {
+        let family = is_family_only(&self.net.lock().unwrap(), appid);
+        if !update && self.settings.no_steam.contains(&appid) && !family {
             let net = self.net.lock().unwrap().clone();
             self.direct_launch(appid, &net);
             return;
@@ -1219,7 +1241,8 @@ impl LauncherApp {
             let roster = net.roster.read().unwrap();
             roster
                 .values()
-                .filter(|f| f.relationship == 3) // 3 = друг (EFriendRelationship)
+                // 3 = друг (EFriendRelationship); группы Steam (тип аккаунта 7) в этом же списке - их не показываем.
+                .filter(|f| f.relationship == 3 && (f.steam_id >> 52) & 0xF == 1)
                 .map(|f| {
                     // Название игры: от Steam, из своей библиотеки, из уже узнанных, иначе номер.
                     let game = f.game_name.clone().filter(|g| !g.is_empty()).or_else(|| {
@@ -1235,7 +1258,8 @@ impl LauncherApp {
                         }))
                     });
                     // Свой ник для друга (задан в Steam) - главным, имя в Steam - в скобках, как в Steam.
-                    let persona = f.persona_name.clone().unwrap_or_else(|| f.steam_id.to_string());
+                    // Имя еще не пришло (у друзей не в сети Steam присылает его чуть позже) - не показываем номер.
+                    let persona = f.persona_name.clone().filter(|n| !n.is_empty()).unwrap_or_else(|| "загружается...".into());
                     let shown = match &f.nickname {
                         Some(n) => format!("{n} ({persona})"),
                         None => persona,
@@ -1804,6 +1828,27 @@ impl LauncherApp {
     fn account_panel(&mut self, ui: &mut egui::Ui, net: &NetState) {
         if net.account.is_some() {
             self.top_nav(ui, net);
+        } else if self.settings.local_mode {
+            // Режим без входа: только установленные игры и запуск через Steam.
+            ui.horizontal_wrapped(|ui| {
+                ui.label(egui::RichText::new("Режим без входа в аккаунт").strong());
+                ui.weak("Установленные игры из файлов Steam, запуск через Steam. Пароль Steam в Vaporust не вводится.");
+                // Верхнего меню без входа нет: библиотека и настройки - здесь.
+                if ui.selectable_label(self.view == View::Library, "Библиотека").clicked() {
+                    self.view = View::Library;
+                }
+                if ui.selectable_label(self.view == View::Settings, "Настройки").clicked() {
+                    self.view = View::Settings;
+                }
+                if ui
+                    .button("Войти в аккаунт")
+                    .on_hover_text("Включит магазин, друзей и чат, загрузку и обновление игр без Steam")
+                    .clicked()
+                {
+                    self.settings.local_mode = false;
+                    let _ = self.tx.send(Cmd::Restore);
+                }
+            });
         } else if net.offline {
             ui.horizontal_wrapped(|ui| {
                 ui.colored_label(egui::Color32::from_rgb(230, 170, 60), "Нет связи со Steam.")
@@ -1860,6 +1905,17 @@ impl LauncherApp {
                     .clicked()
                 {
                     let _ = self.tx.send(Cmd::LoginQr);
+                }
+                if ui
+                    .button("Без входа")
+                    .on_hover_text("Только установленные игры и запуск через Steam: пароль Steam вводить не нужно. Войти можно позже.")
+                    .clicked()
+                {
+                    self.settings.local_mode = true;
+                    let mut s = self.net.lock().unwrap();
+                    s.need_login = false;
+                    s.qr_url = None;
+                    s.message.clear();
                 }
             });
             if let Some(url) = &net.qr_url {
@@ -1935,7 +1991,7 @@ impl LauncherApp {
                         let roster = net.roster.read().unwrap();
                         let mut friends: Vec<(u64, String)> = roster
                             .values()
-                            .filter(|f| f.relationship == 3)
+                            .filter(|f| (f.relationship == 3 && (f.steam_id >> 52) & 0xF == 1))
                             .map(|f| (f.steam_id, f.persona_name.clone().unwrap_or_else(|| f.steam_id.to_string())))
                             .collect();
                         drop(roster);
@@ -2274,6 +2330,12 @@ impl eframe::App for LauncherApp {
         [0.0, 0.0, 0.0, 0.0]
     }
 
+    /// Прокрутку и раскрытые блоки между запусками не запоминаем: библиотека, как в Steam,
+    /// открывается сверху. Все нужное (вид, масштаб, окно) хранится в своих настройках.
+    fn persist_egui_memory(&self) -> bool {
+        false
+    }
+
     /// eframe вызывает при выходе и периодически (раз в 30 с).
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         self.settings.window = if self.settings.remember_window {
@@ -2302,6 +2364,7 @@ impl eframe::App for LauncherApp {
             }
             self.mem_place = Some(place);
         }
+        crate::exp::set(self.settings.experimental);
         imgload::ANIMATIONS.store(self.settings.animations, Ordering::Relaxed);
         imgload::ECONOMY.store(self.settings.economy, Ordering::Relaxed);
         imgload::budget_tick(ctx);
@@ -2818,6 +2881,11 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(|cc| Ok(Box::new(LauncherApp::new(cc)))),
     )
+}
+
+/// Игра доступна только через семейную библиотеку (своей копии на аккаунте нет).
+pub(crate) fn is_family_only(net: &net::NetState, appid: u32) -> bool {
+    !net.owned.iter().any(|g| g.app_id == appid) && net.family.iter().any(|f| f.app_id == appid)
 }
 
 /// Продолжить ли оборвавшуюся загрузку самой: не «Отмена»/«Пауза», ошибка сети, не больше 3 раз подряд.

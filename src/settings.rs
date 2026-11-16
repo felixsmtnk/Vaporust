@@ -132,11 +132,20 @@ pub struct Settings {
     pub whats_new: bool,
     /// Обычная рамка окон Windows вместо своей.
     pub system_frame: bool,
+    /// Видеокарта уже проверена на рамку окон (Intel -> обычная рамка Windows).
+    pub frame_checked: bool,
     /// Запоминать размер и положение главного окна (и сами размер/положение).
     pub remember_window: bool,
     /// Быстрая продажа: на сколько дешевле самого дешевого лота (минимальные единицы валюты; 0 - на
     /// один шаг цены валюты).
     pub quick_undercut: i64,
+    /// Аккаунты (SteamID), которые ответили «Это не моя» на старую общую историю времени.
+    pub legacy_declined: Vec<u64>,
+    /// Режим без входа в аккаунт: только установленные игры из файлов Steam и запуск через Steam,
+    /// пароль Steam в Vaporust не вводится и сеанс Steam не поднимается.
+    pub local_mode: bool,
+    /// Экспериментальные функции (продажа, обмены, откат версии, публичные действия).
+    pub experimental: bool,
     pub window: Option<crate::winpos::WinPos>,
     /// Производительность: анимации (стикеры, GIF, эффекты чата, значки загрузки).
     pub animations: bool,
@@ -261,8 +270,12 @@ impl Default for Settings {
             random_button: true,
             whats_new: true,
             system_frame: false,
+            frame_checked: false,
             remember_window: true,
             quick_undercut: 0,
+            legacy_declined: Vec::new(),
+            local_mode: false,
+            experimental: false,
             window: None,
             animations: true,
             covers: true,

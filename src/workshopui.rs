@@ -564,16 +564,16 @@ pub fn detail_page(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &m
             }
             ui.weak("Steam скачает мод сам при следующем запуске игры.");
             ui.horizontal_wrapped(|ui| {
-                if ui.button("Нравится").on_hover_text("Оценить мод (видно автору)").clicked() {
+                if crate::exp::button(ui, "Нравится").on_hover_text("Оценить мод (видно автору)").clicked() {
                     cmds.push(Cmd::WsVote { id, up: true });
                 }
-                if ui.button("Не нравится").clicked() {
+                if crate::exp::button(ui, "Не нравится").clicked() {
                     cmds.push(Cmd::WsVote { id, up: false });
                 }
-                if ui.button("В избранное").on_hover_text("Избранное Мастерской в вашем профиле").clicked() {
+                if crate::exp::button(ui, "В избранное").on_hover_text("Избранное Мастерской в вашем профиле").clicked() {
                     cmds.push(Cmd::WsFavorite { id, appid, add: true });
                 }
-                if ui.button("Наградить...").on_hover_text("Наградить мод очками Steam").clicked() {
+                if crate::exp::button(ui, "Наградить...").on_hover_text("Наградить мод очками Steam").clicked() {
                     crate::storewin::UI_REQ.lock().unwrap().push(crate::storewin::UiReq::Award(2, id.to_string(), format!("мод «{}»", d.title)));
                 }
                 if ui.button("Комментарии").on_hover_text("Откроются на сайте Steam").clicked() {

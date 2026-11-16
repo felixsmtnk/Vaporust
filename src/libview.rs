@@ -208,7 +208,7 @@ pub fn grid(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, recent: &
     // Под полкой - разделительная линия: полка и общий список - разные разделы.
     let shelf_h = if recent.is_empty() { 0.0 } else { label_h + row_h + label_h };
     let n_rows = rows.len().div_ceil(cols);
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show_viewport(ui, |ui, vp| {
+    egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt("lib_grid").show_viewport(ui, |ui, vp| {
         let total = shelf_h + n_rows as f32 * row_h;
         ui.set_min_height(total);
         let origin = ui.min_rect().min;
@@ -799,10 +799,12 @@ pub fn page(
                         out = Some(Action::Props(r.appid, r.name.clone()));
                     }
                 });
-                let mut sorted: Vec<_> = dlc.iter().collect();
-                sorted.sort_by_key(|d| !d.owned);
-                for d in sorted.iter().take(8) {
-                    let name = c.net.app_names.get(&d.app_id).cloned().unwrap_or_else(|| format!("DLC {}", d.app_id));
+                // Только дополнения с названием: номер вместо названия («DLC 271840») выглядит как
+                // ошибка. Без названия - обычно скрытые в магазине; их только считаем.
+                let mut sorted: Vec<_> = dlc.iter().filter_map(|d| c.net.app_names.get(&d.app_id).map(|n| (d, n.clone()))).collect();
+                let unnamed = dlc.len() - sorted.len();
+                sorted.sort_by_key(|(d, _)| !d.owned);
+                for (d, name) in sorted.iter().take(8) {
                     ui.horizontal(|ui| {
                         let (state, color) = match (d.owned, d.installed) {
                             (true, true) => ("установлено", egui::Color32::from_rgb(120, 190, 80)),
@@ -813,8 +815,18 @@ pub fn page(
                         ui.label(egui::RichText::new(state).size(12.0).color(color));
                     });
                 }
-                if dlc.len() > 8 {
-                    ui.weak(format!("и еще {}", dlc.len() - 8));
+                let more = sorted.len().saturating_sub(8);
+                match (more, unnamed) {
+                    (0, 0) => {}
+                    (m, 0) => {
+                        ui.weak(format!("и еще {m}"));
+                    }
+                    (0, u) => {
+                        ui.weak(format!("и еще {u} без названия (скрыты в магазине или еще загружаются)"));
+                    }
+                    (m, u) => {
+                        ui.weak(format!("и еще {} (из них {u} без названия)", m + u));
+                    }
                 }
             }
         }
@@ -850,7 +862,7 @@ pub fn page(
             .read()
             .unwrap()
             .values()
-            .filter(|f| f.relationship == 3 && f.game_app_id == Some(r.appid))
+            .filter(|f| (f.relationship == 3 && (f.steam_id >> 52) & 0xF == 1) && f.game_app_id == Some(r.appid))
             .map(|f| f.persona_name.clone().unwrap_or_else(|| f.steam_id.to_string()))
             .collect();
         if !playing.is_empty() {

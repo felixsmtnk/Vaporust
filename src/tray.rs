@@ -183,8 +183,8 @@ pub fn start() {
             let d = crate::icons::icon(kind);
             Icon::from_rgba(d.rgba.clone(), d.width, d.height).ok()
         };
-        let (normal, unread) = (to_icon(crate::icons::Kind::Launcher), to_icon(crate::icons::Kind::LauncherUnread));
-        let base = crate::icons::icon(crate::icons::Kind::Launcher);
+        let (normal, unread) = (to_icon(crate::icons::Kind::Tray), to_icon(crate::icons::Kind::TrayUnread));
+        let base = crate::icons::icon(crate::icons::Kind::Tray);
         // Текущее состояние: непрочитанное и загрузка - значок и подсказка собираются из обоих.
         let mut is_unread = false;
         let mut download: Option<(String, f32)> = None;

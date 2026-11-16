@@ -18,7 +18,7 @@ impl LauncherApp {
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-            .fixed_size(egui::vec2(460.0, 260.0))
+            .fixed_size(egui::vec2(460.0, 300.0))
             .show(ctx, |ui| {
                 ui.weak(format!("Шаг {} из {STEPS}", step + 1));
                 ui.add_space(6.0);
@@ -37,6 +37,20 @@ impl LauncherApp {
                             )
                             .color(egui::Color32::from_rgb(230, 190, 90)),
                         );
+                        ui.add_space(6.0);
+                        // Как работать: с входом в аккаунт или без (пароль Steam не вводится).
+                        let before = self.settings.local_mode;
+                        ui.radio_value(&mut self.settings.local_mode, false, "Войти в аккаунт Steam: все возможности");
+                        ui.radio_value(&mut self.settings.local_mode, true, "Без входа: только установленные игры, пароль не нужен");
+                        if self.settings.local_mode != before {
+                            if self.settings.local_mode {
+                                let mut s = self.net.lock().unwrap();
+                                s.need_login = false;
+                                s.message.clear();
+                            } else {
+                                let _ = self.tx.send(crate::net::Cmd::Restore);
+                            }
+                        }
                         ui.add_space(6.0);
                         ui.weak("Дальше - несколько настроек. Все их можно поменять потом: меню «Vaporust» -> «Настройки».");
                     }

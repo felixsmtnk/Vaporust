@@ -311,7 +311,7 @@ impl LauncherApp {
             if ui.selectable_label(st.tab == 1, "Руководства").clicked() {
                 st.tab = 1;
             }
-            if ui.button("Новая тема...").on_hover_text("Создать тему в «Общем обсуждении» игры").clicked() {
+            if crate::exp::button(ui, "Новая тема...").on_hover_text("Создать тему в «Общем обсуждении» игры").clicked() {
                 new_topic = true;
             }
         });
@@ -370,7 +370,7 @@ impl LauncherApp {
                             ui.add_space(6.0);
                             if t.can_reply {
                                 ui.add(egui::TextEdit::multiline(&mut st.draft).hint_text("Ваш ответ").desired_rows(3).desired_width(f32::INFINITY));
-                                if ui.add_enabled(!st.draft.trim().is_empty(), egui::Button::new("Ответить")).clicked() {
+                                if ui.add_enabled(!st.draft.trim().is_empty() && crate::exp::on(), egui::Button::new("Ответить")).on_disabled_hover_text(crate::exp::HINT).clicked() {
                                     send = Some(st.draft.trim().to_string());
                                 }
                             } else {

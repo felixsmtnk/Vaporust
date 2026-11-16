@@ -1,0 +1,7 @@
+# Предложения обновить закрепленные версии действий GitHub Actions (раз в месяц).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

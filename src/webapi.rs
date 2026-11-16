@@ -48,7 +48,8 @@ pub async fn get(client: &SteamClient, method: &str, params: &[(&str, String)]) 
         url.push('=');
         url.push_str(&urlenc(v));
     }
-    let resp = http.get(url).send().await.map_err(err)?;
+    // В адресе - ключ входа: из текста ошибки адрес убираем (without_url), чтобы ключ не попал на экран.
+    let resp = http.get(url).send().await.map_err(|e| err(e.without_url()))?;
     let status = resp.status().as_u16();
     if status == 401 || status == 403 {
         *TOKEN.lock().unwrap() = None;
@@ -59,7 +60,7 @@ pub async fn get(client: &SteamClient, method: &str, params: &[(&str, String)]) 
         crate::errlog::write("steam api", &format!("{method}: код {status}"));
         return Err(format!("Steam ответил кодом {status}."));
     }
-    let v: serde_json::Value = resp.json().await.map_err(err)?;
+    let v: serde_json::Value = resp.json().await.map_err(|e| err(e.without_url()))?;
     Ok(v.get("response").cloned().unwrap_or(v))
 }
 
@@ -85,7 +86,7 @@ pub async fn post(client: &SteamClient, method: &str, params: &[(&str, String)])
     if status != 200 {
         return Err(format!("Steam ответил кодом {status}."));
     }
-    let v: serde_json::Value = resp.json().await.map_err(err)?;
+    let v: serde_json::Value = resp.json().await.map_err(|e| err(e.without_url()))?;
     Ok(v.get("response").cloned().unwrap_or(v))
 }
 

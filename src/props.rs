@@ -305,10 +305,14 @@ impl LauncherApp {
 
                     ui.add_space(12.0);
                     ui.strong("Запуск без Steam");
-                    let mut direct = self.settings.no_steam.contains(&appid);
+                    // Семейные игры (чужие, из семейной библиотеки) - только через Steam: запуск в обход
+                    // Steam обошел бы правила семейного доступа (например, блокировку, пока играет владелец).
+                    let family = crate::is_family_only(net, appid);
+                    let mut direct = self.settings.no_steam.contains(&appid) && !family;
                     if ui
-                        .checkbox(&mut direct, "Запускать эту игру без Steam")
+                        .add_enabled(!family, egui::Checkbox::new(&mut direct, "Запускать эту игру без Steam"))
                         .on_hover_text("Быстрее и легче: Steam не запускается вовсе. Только для игр без защиты Steam.")
+                        .on_disabled_hover_text("Игра из семейной библиотеки: запускается только через Steam, чтобы соблюдались правила семейного доступа.")
                         .changed()
                     {
                         if direct {
@@ -528,7 +532,8 @@ impl LauncherApp {
                                  обновления не сломались моды или сохранения.",
                             );
                             if ui
-                                .add_enabled(!locked && logged_in, egui::Button::new("Закрепить текущую версию"))
+                                .add_enabled(!locked && logged_in && crate::exp::on(), egui::Button::new("Закрепить текущую версию"))
+                                .on_disabled_hover_text(crate::exp::HINT)
                                 .clicked()
                             {
                                 pin_action = Some(true);
@@ -537,6 +542,9 @@ impl LauncherApp {
                     }
 
                     ui.add_space(8.0);
+                    if !crate::exp::on() {
+                        crate::exp::note(ui, "Закрепление и откат версии");
+                    }
                     egui::CollapsingHeader::new("Откатить на старую версию").id_salt("downgrade").show(ui, |ui| {
                         ui.weak(
                             "Steam делит игру на части (хранилища): основные файлы, языки, файлы для \
@@ -586,7 +594,7 @@ impl LauncherApp {
                         ui.add_space(4.0);
                         if ui
                             .add_enabled(
-                                !locked && logged_in && !bad && !overrides.is_empty(),
+                                !locked && logged_in && !bad && !overrides.is_empty() && crate::exp::on(),
                                 egui::Button::new("Скачать выбранную версию"),
                             )
                             .on_hover_text("Ход загрузки - внизу главного окна. После отката версия закрепится.")
@@ -742,7 +750,7 @@ impl LauncherApp {
                                 .or_else(|| net.owned.iter().find(|g| g.app_id == d.app_id).map(|g| g.name.clone()))
                                 .unwrap_or_else(|| {
                                     unknown.push(d.app_id);
-                                    format!("DLC {}", d.app_id)
+                                    format!("Дополнение без названия (№ {})", d.app_id)
                                 });
                             ui.horizontal(|ui| {
                                 if d.owned && d.installed {

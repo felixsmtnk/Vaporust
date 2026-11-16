@@ -503,7 +503,7 @@ mod friend_live {
             c.restore_session().await.unwrap();
             let friends = c.collect_friends(std::time::Duration::from_secs(5)).await.unwrap();
             let mut any = false;
-            for f in friends.iter().filter(|f| f.relationship == 3).take(8) {
+            for f in friends.iter().filter(|f| f.relationship == 3 && (f.steam_id >> 52) & 0xF == 1).take(8) {
                 match c.user_screenshots(f.steam_id, 0, 1, 50).await {
                     Ok((total, v)) => {
                         any |= !v.is_empty();

@@ -92,7 +92,7 @@ impl LauncherApp {
                             ui.strong(&w.title);
                         }
                         ui.horizontal(|ui| {
-                            if ui.button("Нравится").on_hover_text("Поставить оценку, как кнопка «палец вверх» в Steam").clicked() {
+                            if crate::exp::button(ui, "Нравится").on_hover_text("Поставить оценку, как кнопка «палец вверх» в Steam").clicked() {
                                 send = Some(Cmd::ShotVote { id: w.id, up: true });
                             }
                             if ui.button("Страница в Steam").clicked() {
@@ -118,7 +118,7 @@ impl LauncherApp {
                                             .hint_text("Ваш комментарий")
                                             .desired_width(ui.available_width() - 100.0),
                                     );
-                                    if ui.add_enabled(!w.draft.trim().is_empty(), egui::Button::new("Отправить")).clicked() {
+                                    if ui.add_enabled(!w.draft.trim().is_empty() && crate::exp::on(), egui::Button::new("Отправить")).on_disabled_hover_text(crate::exp::HINT).clicked() {
                                         send = Some(Cmd::ShotComment { owner: w.owner, id: w.id, text: w.draft.trim().to_string() });
                                         w.draft.clear();
                                     }
@@ -174,7 +174,7 @@ mod tests {
             let mut c = aurelia::steam_client::SteamClient::new().unwrap();
             c.restore_session().await.unwrap();
             let friends = c.collect_friends(std::time::Duration::from_secs(5)).await.unwrap();
-            for f in friends.iter().filter(|f| f.relationship == 3).take(8) {
+            for f in friends.iter().filter(|f| f.relationship == 3 && (f.steam_id >> 52) & 0xF == 1).take(8) {
                 let Ok((_, shots)) = c.user_screenshots(f.steam_id, 0, 1, 50).await else { continue };
                 if let Some(s) = shots.iter().max_by_key(|s| s.comments) {
                     let r = super::load(&c, f.steam_id, s.id).await.unwrap();

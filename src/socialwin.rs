@@ -97,7 +97,7 @@ pub fn friend_menu(resp: &egui::Response, id: u64, name: &str, fav: bool, out: &
             *out = Some(FriendAction::Remove(id));
             ui.close_menu();
         }
-        if ui.button("Заблокировать...").clicked() {
+        if crate::exp::button(ui, "Заблокировать...").clicked() {
             *out = Some(FriendAction::Block(id));
             ui.close_menu();
         }
@@ -426,7 +426,7 @@ impl LauncherApp {
                                 }
                                 ui.add_space(10.0);
                                 if is_me {
-                                    if ui.button("Редактировать профиль").clicked() {
+                                    if crate::exp::button(ui, "Редактировать профиль").clicked() {
                                         act = Some(ProfileAct::Edit);
                                     }
                                 } else {
@@ -446,7 +446,7 @@ impl LauncherApp {
                                                 act = Some(ProfileAct::Url(p.profile_url.clone()));
                                                 ui.close_menu();
                                             }
-                                            if ui.button("Наградить...").on_hover_text("Наградить профиль очками Steam").clicked() {
+                                            if crate::exp::button(ui, "Наградить...").on_hover_text("Наградить профиль очками Steam").clicked() {
                                                 self.net.lock().unwrap().action_msg = None;
                                                 self.social_ui.award = Some((3, id.to_string(), "этот профиль".into()));
                                                 ui.close_menu();
@@ -455,7 +455,7 @@ impl LauncherApp {
                                             // Заблокирован: по Steam (1 - заблокирован, 5/6 - игнорируется) или в этом сеансе.
                                             let rel = net.roster.read().unwrap().get(&id).map(|f| f.relationship).unwrap_or(0);
                                             let blocked = net.blocked.contains(&id) || matches!(rel, 1 | 5 | 6);
-                                            if ui.button(if blocked { "Разблокировать..." } else { "Заблокировать..." }).clicked() {
+                                            if crate::exp::button(ui, if blocked { "Разблокировать..." } else { "Заблокировать..." }).clicked() {
                                                 self.social_ui.confirm_block = Some((id, !blocked));
                                                 ui.close_menu();
                                             }
@@ -1023,7 +1023,7 @@ fn profile_left(
                 }
             }
             ui.add(egui::TextEdit::singleline(&mut sui.comment_draft).hint_text("Оставить комментарий").desired_width(ui.available_width() - 100.0));
-            if ui.add_enabled(!sui.comment_draft.trim().is_empty(), egui::Button::new("Отправить")).clicked() {
+            if ui.add_enabled(!sui.comment_draft.trim().is_empty() && crate::exp::on(), egui::Button::new("Отправить")).on_disabled_hover_text(crate::exp::HINT).clicked() {
                 *act = Some(ProfileAct::Post(sui.comment_draft.trim().to_string()));
             }
         });
@@ -1075,7 +1075,7 @@ fn profile_left(
                                 {
                                     *act = Some(ProfileAct::Delete(c.id.clone()));
                                 }
-                            } else if trash_button(ui)
+                            } else if crate::exp::on() && trash_button(ui)
                                 .on_hover_text(if is_me { "Удалить комментарий из своего профиля" } else { "Удалить свой комментарий" })
                                 .clicked()
                             {

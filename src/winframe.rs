@@ -403,3 +403,19 @@ pub fn diag_once(ctx: &egui::Context) {
 
 #[cfg(not(windows))]
 pub fn diag_once(_ctx: &egui::Context) {}
+
+/// Нужна ли обычная рамка Windows для этой видеокарты (по строкам OpenGL VENDOR / RENDERER).
+pub fn needs_system_frame(vendor: &str, renderer: &str) -> bool {
+    let v = format!("{vendor} {renderer}").to_lowercase();
+    v.contains("intel")
+}
+
+#[cfg(test)]
+mod gpu_tests {
+    #[test]
+    fn intel_detect() {
+        assert!(super::needs_system_frame("Intel", "Intel(R) HD Graphics 4000"));
+        assert!(!super::needs_system_frame("NVIDIA Corporation", "NVIDIA GeForce GTX 1060/PCIe/SSE2"));
+        assert!(!super::needs_system_frame("ATI Technologies Inc.", "AMD Radeon RX 580"));
+    }
+}

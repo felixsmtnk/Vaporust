@@ -114,7 +114,10 @@ pub fn market_block(ui: &mut egui::Ui, mk: &mut MarketUi, st: &crate::invent::In
     if let Some(Ok(h)) = st.trade.history.get(&key) {
         price_chart(ui, h, cur);
     }
-    if it.marketable {
+    if it.marketable && !crate::exp::on() {
+        ui.add_space(4.0);
+        crate::exp::note(ui, "Продажа на площадке");
+    } else if it.marketable {
         let max_amount = it.amount.max(1);
         let base = |mode: u8, pay: i64| SellDlg {
             appid,
@@ -355,7 +358,7 @@ fn price_chart(ui: &mut egui::Ui, h: &[(i64, f64, u64)], cur: u32) {
 
 /// «Снять с продажи» у своего лота (второе нажатие подтверждает).
 pub fn remove_lot_button(ui: &mut egui::Ui, mk: &mut MarketUi, id: &str, name: &str) {
-    if id.is_empty() {
+    if id.is_empty() || !crate::exp::on() {
         return;
     }
     ui.horizontal(|ui| {
@@ -376,7 +379,7 @@ pub fn remove_lot_button(ui: &mut egui::Ui, mk: &mut MarketUi, id: &str, name: &
 
 /// «Отменить заявку» у своей заявки на покупку.
 pub fn cancel_order_button(ui: &mut egui::Ui, mk: &mut MarketUi, id: &str, name: &str) {
-    if id.is_empty() {
+    if id.is_empty() || !crate::exp::on() {
         return;
     }
     ui.horizontal(|ui| {
@@ -484,7 +487,9 @@ pub fn offers_tab(ui: &mut egui::Ui, st: &crate::invent::InvState, mk: &mut Mark
                             }
                         }
                         _ => {
-                            if o.incoming {
+                            if !crate::exp::on() {
+                                ui.weak("Принять или отклонить обмен: экспериментальная функция (Настройки -> Аккаунт).");
+                            } else if o.incoming {
                                 if o.state == 2 && ui.button("Принять...").clicked() {
                                     mk.offer_confirm = Some((o.id.clone(), 0));
                                 }

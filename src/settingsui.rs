@@ -52,7 +52,7 @@ fn card(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
 }
 
 /// Строка «название - значение».
-fn row(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui)) {
+pub(crate) fn row(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui)) {
     let lw = label_w(ui);
     // Значения (кнопки масштаба и т.п.), которым не хватает ширины, переносятся на следующую строку.
     ui.horizontal(|ui| {
@@ -244,6 +244,14 @@ impl LauncherApp {
                             crate::spin::spinner(ui);
                         }
                     });
+                    row(ui, "Экспериментальные функции", |ui| {
+                        ui.checkbox(&mut self.settings.experimental, "Включены");
+                    });
+                    note(
+                        ui,
+                        "Продажа и обмены, закрепление и откат версии, комментарии, оценки, награды, группы, \
+                         блокировка, правка профиля. Проверены мало, многие видны другим людям.",
+                    );
                     // Быстрая продажа на площадке: на сколько дешевле самого дешевого лота.
                     let (cur, step) = match &wallet {
                         Some(Ok(w)) => (w.currency, w.fee_rules.map(|r| r.currency_increment).unwrap_or(1)),
@@ -943,6 +951,7 @@ impl LauncherApp {
                         ui.ctx().open_url(egui::OpenUrl::new_tab(url));
                     }
                 });
+                self.restore_row(ui, net);
                 ui.add_space(4.0);
                 ui.weak("Неофициальный проект, не связан с Valve. Лицензия GPL-3.0-or-later. Основан на Aurelia (Drackrath).");
                 ui.add_space(12.0);

@@ -559,7 +559,7 @@ impl LauncherApp {
                                     if row.clicked() {
                                         open_page = Some(id);
                                     }
-                                    if reorder {
+                                    if reorder && crate::exp::on() {
                                         {
                                             let pos = all.iter().position(|x| *x == id).unwrap_or(0);
                                             row.context_menu(|ui| {
@@ -987,7 +987,7 @@ fn game_page(
                             *install = Some((appid, a.name.clone()));
                         }
                         ui.label(egui::RichText::new("в библиотеке").color(GREEN));
-                        if ui.button("Написать обзор").on_hover_text("Свой обзор игры (или изменить уже написанный)").clicked() {
+                        if crate::exp::button(ui, "Написать обзор").on_hover_text("Свой обзор игры (или изменить уже написанный)").clicked() {
                             UI_REQ.lock().unwrap().push(UiReq::Review(appid, a.name.clone()));
                         }
                         if ui.button("Страница в браузере").clicked() {
@@ -1327,12 +1327,12 @@ fn review_card(ui: &mut egui::Ui, r: &store::Review, st: &store::StoreState, cmd
                         // Выбранная оценка подсвечена; «полезный» и «бесполезный» взаимоисключающие.
                         let on = mine == Some(kind);
                         let text = if on { egui::RichText::new(label).small().strong() } else { egui::RichText::new(label).small() };
-                        if ui.add(egui::SelectableLabel::new(on, text)).clicked() && !on {
+                        if ui.add_enabled(crate::exp::on(), egui::SelectableLabel::new(on, text)).on_disabled_hover_text(crate::exp::HINT).clicked() && !on {
                             cmds.push(Cmd::Store(StoreCmd::ReviewVote { url: r.url.clone(), kind }));
                         }
                     }
                     if let Some(Ok((_, rid, _))) = full {
-                        if *rid > 0 && ui.small_button("Наградить...").on_hover_text("Наградить обзор очками Steam").clicked() {
+                        if *rid > 0 && crate::exp::small_button(ui, "Наградить...").on_hover_text("Наградить обзор очками Steam").clicked() {
                             UI_REQ.lock().unwrap().push(UiReq::Award(1, rid.to_string(), format!("обзор {}", r.author)));
                         }
                     }

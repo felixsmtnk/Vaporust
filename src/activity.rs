@@ -115,7 +115,7 @@ impl LauncherApp {
             .read()
             .unwrap()
             .values()
-            .filter(|f| f.relationship == 3)
+            .filter(|f| (f.relationship == 3 && (f.steam_id >> 52) & 0xF == 1))
             .map(|f| (f.steam_id, f.persona_name.clone().unwrap_or_else(|| f.steam_id.to_string())))
             .collect();
         let _ = self.tx.send(Cmd::Activity(friends));
@@ -305,7 +305,7 @@ mod tests {
             let mut c = SteamClient::new().unwrap();
             c.restore_session().await.unwrap();
             let friends = c.collect_friends(std::time::Duration::from_secs(5)).await.unwrap();
-            let ids: Vec<(u64, String)> = friends.iter().filter(|f| f.relationship == 3).map(|f| (f.steam_id, String::new())).collect();
+            let ids: Vec<(u64, String)> = friends.iter().filter(|f| (f.relationship == 3 && (f.steam_id >> 52) & 0xF == 1)).map(|f| (f.steam_id, String::new())).collect();
             let n = ids.len();
             let v = load(&c, ids).await.unwrap();
             println!("друзей {n}, играли за 2 недели {}, популярных игр {}", v.len(), popular(&v).len());

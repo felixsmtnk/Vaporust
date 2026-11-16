@@ -137,7 +137,7 @@ Steam остается открытым.")
                     self.accounts_open = true;
                     ui.close_menu();
                 }
-                if ui.button("Редактировать профиль").clicked() {
+                if crate::exp::button(ui, "Редактировать профиль").clicked() {
                     self.open_profile_edit();
                     ui.close_menu();
                 }

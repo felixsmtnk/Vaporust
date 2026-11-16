@@ -577,6 +577,11 @@ pub fn spawn_worker(st: Shared, ctx: egui::Context) -> UnboundedSender<Cmd> {
 }
 
 async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Context) {
+    // Запасная защита: экспериментальные действия без переключателя не выполняются.
+    if crate::exp::guarded(&cmd) && !crate::exp::on() {
+        upd(st, ctx, |s| s.message = "Это экспериментальная функция: включите ее в «Настройки -> Аккаунт».".into());
+        return;
+    }
     match cmd {
         Cmd::Restore => {
             upd(st, ctx, |s| {
@@ -588,7 +593,9 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 // Нет связи со Steam, но вход сохранен: автономный режим - библиотека из кэша Aurelia
                 // (список игр и время в игре на момент последнего входа); UI сам пробует переподключиться.
                 Err(e) if client.is_offline() || network_failure(&e).await => {
-                    let cached = aurelia::core::config::load_library_cache().await.unwrap_or_default();
+                    // Свой кэш этого аккаунта (по SteamID из сохраненного входа), а не общий кэш Aurelia.
+                    let me = aurelia::core::config::load_session().await.ok().and_then(|s| s.steam_id);
+                    let cached = load_library_cache(me);
                     let why = format!("{e:#}");
                 crate::errlog::write("сеть", &format!("нет связи со Steam: {why}"));
                     upd(st, ctx, |s| {
@@ -739,9 +746,9 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                     Ok((msgs, more)) => {
                         conv.oldest = msgs.iter().map(|m| (m.timestamp, m.ordinal)).min();
                         conv.more_history = more;
-                        // Steam отдает от новых к старым; живые сообщения, пришедшие
-                        // до загрузки истории, уже входят в нее.
-                        conv.lines = msgs
+                        // Steam отдает от новых к старым. Сообщения, пришедшие или отправленные, пока
+                        // история грузилась, могут быть новее ее снимка - их сохраняем (merge_history).
+                        let history: Vec<ChatLine> = msgs
                             .into_iter()
                             .rev()
                             .map(|m| ChatLine {
@@ -752,6 +759,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                                 reactions: m.reactions,
                             })
                             .collect();
+                        conv.lines = merge_history(history, std::mem::take(&mut conv.lines));
                         conv.history_loaded = true;
                         conv.error = None;
                     }
@@ -1847,6 +1855,26 @@ async fn secure_session() -> anyhow::Result<bool> {
     Ok(EncryptedSession::from_json(&raw).is_some())
 }
 
+/// Объединить загруженную историю чата с тем, что уже есть на экране: история - основа, а
+/// строки, которых в ней нет и которые не старше ее последнего сообщения (пришли или отправлены,
+/// пока история грузилась), добавляются в конец. Дубли - то же направление, тот же текст и
+/// время в пределах 2 минут (у отправленного своего сообщения время - по часам этого ПК).
+pub(crate) fn merge_history(history: Vec<ChatLine>, current: Vec<ChatLine>) -> Vec<ChatLine> {
+    let newest = history.iter().map(|l| l.time).max().unwrap_or(0);
+    let mut out = history;
+    for l in current {
+        if l.time + 120 < newest {
+            continue; // старое - уже есть в истории
+        }
+        let dup = out.iter().any(|h| h.from_self == l.from_self && h.text == l.text && h.time.abs_diff(l.time) <= 120);
+        if !dup {
+            out.push(l);
+        }
+    }
+    out.sort_by_key(|l| l.time);
+    out
+}
+
 /// Номер сеанса проверки связи: новый вход останавливает проверку прошлого сеанса.
 static PROBE_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -2264,14 +2292,47 @@ fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st: &Shared, 
     });
 }
 
+/// Свой кэш списка игр - отдельный файл для каждого аккаунта (у Aurelia он один на всех).
+/// Из него берется библиотека, когда нет связи со Steam.
+fn library_cache_file(steam_id: u64) -> Option<std::path::PathBuf> {
+    let base = if crate::portable::enabled() { crate::portable::data_dir() } else { crate::portable::normal_dir() };
+    base.map(|d| d.join(format!("library_{steam_id}.json")))
+}
+
+/// Записать кэш, только пока ответ относится к текущему входу (под блокировкой состояния):
+/// поздний ответ прошлого аккаунта не должен попасть в кэш нового.
+fn save_library_cache(st: &Shared, steam_id: Option<u64>, games: &[aurelia::core::models::OwnedGame]) {
+    let Some(p) = steam_id.and_then(library_cache_file) else { return };
+    let Some(_guard) = lock_current(st) else { return };
+    if let Some(d) = p.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let tmp = p.with_extension("json.tmp");
+    if serde_json::to_vec(games).ok().is_some_and(|b| std::fs::write(&tmp, b).is_ok()) {
+        let _ = std::fs::rename(&tmp, &p);
+    }
+}
+
+/// Кэш списка игр аккаунта (для работы без связи).
+fn load_library_cache(steam_id: Option<u64>) -> Vec<aurelia::core::models::OwnedGame> {
+    steam_id
+        .and_then(library_cache_file)
+        .and_then(|p| std::fs::read(p).ok())
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
 async fn load_owned(client: &mut SteamClient, st: &Shared, ctx: &egui::Context) {
     upd(st, ctx, |s| s.message = "Загружаю библиотеку...".into());
     match client.fetch_owned_games().await {
-        Ok(games) => upd(st, ctx, |s| {
-            s.message.clear();
-            s.owned = Arc::new(games);
-            s.busy = false;
-        }),
+        Ok(games) => {
+            save_library_cache(st, client.my_steam_id(), &games);
+            upd(st, ctx, |s| {
+                s.message.clear();
+                s.owned = Arc::new(games);
+                s.busy = false;
+            })
+        }
         Err(e) => upd(st, ctx, |s| {
             s.message = format!("Не удалось получить список игр: {e:#}");
             s.busy = false;
@@ -3392,7 +3453,7 @@ mod ach_live {
             let icons = mine.iter().filter(|a| !a.icon_unlocked.is_empty()).count();
             println!("мои: {} из {}, иконок {icons}", mine.iter().filter(|a| a.unlocked).count(), mine.len());
             let friends = c.collect_friends(std::time::Duration::from_secs(5)).await.unwrap();
-            for f in friends.iter().filter(|f| f.relationship == 3).take(6) {
+            for f in friends.iter().filter(|f| (f.relationship == 3 && (f.steam_id >> 52) & 0xF == 1)).take(6) {
                 match c.fetch_achievements_for(550, "russian", f.steam_id).await {
                     Ok(v) => println!("друг: {} из {}", v.iter().filter(|a| a.unlocked).count(), v.len()),
                     Err(e) => println!("друг: ошибка {e:#}"),
@@ -3605,5 +3666,27 @@ mod session_tests {
             parent.await.unwrap();
             assert!(st.lock().unwrap().message.is_empty(), "подзадача прошлого входа ничего не записала");
         });
+    }
+}
+
+#[cfg(test)]
+mod merge_tests {
+    use super::{merge_history, ChatLine};
+
+    fn l(from_self: bool, text: &str, time: u64) -> ChatLine {
+        ChatLine { from_self, text: text.into(), time, ..Default::default() }
+    }
+
+    /// Поздний ответ истории не убирает сообщение, отправленное, пока она грузилась.
+    #[test]
+    fn late_history_keeps_new_lines() {
+        let history = vec![l(false, "привет", 1000), l(true, "как дела", 1010)];
+        let current = vec![l(true, "как дела", 1012), l(true, "новое", 1100)];
+        let m = merge_history(history, current);
+        let texts: Vec<&str> = m.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, vec!["привет", "как дела", "новое"], "без дублей, новое на месте");
+        // Старые строки, которых нет в истории (давно), не добавляются.
+        let m = merge_history(vec![l(false, "a", 5000)], vec![l(false, "старое", 100)]);
+        assert_eq!(m.len(), 1);
     }
 }

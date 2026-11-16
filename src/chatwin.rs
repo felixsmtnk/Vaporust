@@ -691,7 +691,7 @@ mod history_live {
             let mut c = aurelia::steam_client::SteamClient::new().unwrap();
             c.restore_session().await.unwrap();
             let friends = c.collect_friends(std::time::Duration::from_secs(5)).await.unwrap();
-            for f in friends.iter().filter(|f| f.relationship == 3) {
+            for f in friends.iter().filter(|f| (f.relationship == 3 && (f.steam_id >> 52) & 0xF == 1)) {
                 let (first, more) = c.chat_history(f.steam_id, 50, None).await.unwrap();
                 if first.len() < 50 || !more {
                     continue;

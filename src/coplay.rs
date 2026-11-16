@@ -120,7 +120,7 @@ impl crate::LauncherApp {
             return;
         }
         let friends: std::collections::HashSet<u64> =
-            net.roster.read().unwrap().values().filter(|f| f.relationship == 3).map(|f| f.steam_id).collect();
+            net.roster.read().unwrap().values().filter(|f| (f.relationship == 3 && (f.steam_id >> 52) & 0xF == 1)).map(|f| f.steam_id).collect();
         let mut profile = None;
         let mut add = None;
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {

@@ -14,7 +14,39 @@ pub fn path() -> Option<PathBuf> {
 }
 
 /// Убрать из текста длинные числа (SteamID и т.п.) и путь к папке пользователя.
+/// Убрать ключи входа: значения access_token=, refresh_token=, sessionid= и сами ключи вида JWT
+/// (eyJ...). Такой текст мог попасть в ошибку вместе с адресом запроса.
+fn hide_keys(s: &str) -> String {
+    let mut out = s.to_string();
+    for key in ["access_token=", "refresh_token=", "sessionid=", "steamLoginSecure="] {
+        let mut from = 0;
+        while let Some(p) = out[from..].find(key) {
+            let start = from + p + key.len();
+            let end = out[start..].find(|c: char| c == '&' || c == '"' || c == ';' || c.is_whitespace()).map(|e| start + e).unwrap_or(out.len());
+            out.replace_range(start..end, "<скрыт>");
+            from = start + "<скрыт>".len();
+        }
+    }
+    // JWT: «eyJ» + длинная строка из букв, цифр, «-», «_», «.».
+    let mut res = String::with_capacity(out.len());
+    let mut rest = out.as_str();
+    while let Some(p) = rest.find("eyJ") {
+        res.push_str(&rest[..p]);
+        let tail = &rest[p..];
+        let len = tail.find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')).unwrap_or(tail.len());
+        if len >= 30 {
+            res.push_str("<ключ>");
+        } else {
+            res.push_str(&tail[..len]);
+        }
+        rest = &tail[len.max(3)..];
+    }
+    res.push_str(rest);
+    res
+}
+
 fn scrub(s: &str) -> String {
+    let s = &hide_keys(s);
     let mut out = String::new();
     let mut digits = String::new();
     for c in s.chars() {
@@ -114,6 +146,9 @@ mod diag_tests {
     #[test]
     fn scrub_hides_ids_and_user() {
         let s = super::scrub("друг 76561198000000000 и appid 730");
+        let k = super::scrub("error sending request for url (https://api.steampowered.com/X/?access_token=eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJyOlN0ZWFt.abcdef&x=1)");
+        assert!(!k.contains("eyJhbGci") && k.contains("access_token=<скрыт>") && k.contains("&x=1"), "{k}");
+        assert!(super::scrub("токен eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3NjU2MTE5 конец").contains("<ключ> конец"));
         assert!(s.contains("<id>") && !s.contains("76561198000000000") && s.contains("730"), "{s}");
         let d = super::diagnostics(&[("Окно", "960x630".into())]);
         assert!(d.contains("Vaporust") && d.contains("Окно: 960x630"), "{d}");

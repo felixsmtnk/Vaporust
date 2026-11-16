@@ -197,7 +197,8 @@ impl LauncherApp {
                                 self.badges_ui.confirm = None;
                             }
                         } else if ui
-                            .button("Создать значок...")
+                            .add_enabled(crate::exp::on(), egui::Button::new("Создать значок..."))
+                            .on_disabled_hover_text(crate::exp::HINT)
                             .on_hover_text("Из полного набора карточек: значок, опыт Steam, фон и смайлик игры")
                             .clicked()
                         {
