@@ -121,7 +121,7 @@ mod live {
                 match super::get(&c, m, &p).await {
                     Ok(v) => {
                         let keys: Vec<String> = v.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
-                        println!("{m}: ок, ключи {keys:?}, {} байт", v.to_string().len());
+                        println!("{m}: ok, keys {keys:?}, {} bytes", v.to_string().len());
                     }
                     Err(e) => println!("{m}: {e}"),
                 }

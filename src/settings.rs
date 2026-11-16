@@ -326,6 +326,6 @@ mod tests {
         let mut s = Settings { resume_downloads: false, ..Default::default() };
         s.current_download = Some(QueueItem { appid: 1, name: "a".into(), paused: false });
         s.migrate();
-        assert!(s.downloads[0].paused, "без галочки - на паузе");
+        assert!(s.downloads[0].paused, "unchecked - paused");
     }
 }

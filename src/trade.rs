@@ -514,16 +514,16 @@ mod tests {
             let hash = "Mann Co. Supply Crate Key";
             let h = web.get_text(&format!("https://steamcommunity.com/market/pricehistory/?appid=440&market_hash_name={}", url_encode(hash))).await.unwrap();
             let h = parse_history(&h).unwrap();
-            println!("история: {} точек, последняя {:?}", h.len(), h.last());
+            println!("history: {} points, last {:?}", h.len(), h.last());
             let qp = serde_json::json!([440, hash]).to_string();
             let (code, page) = web
                 .get_raw(&format!("https://steamcommunity.com/market/orderbook?q=Load&qp={}", url_encode(&qp)), &[("x-valve-request-type", "queryAction")])
                 .await
                 .unwrap();
-            println!("заявки ({code}): {:?}", parse_spread_page(&page));
+            println!("orders ({code}): {:?}", parse_spread_page(&page));
             match load_offers(&c).await {
-                Ok(o) => println!("обменов активных: {}", o.len()),
-                Err(e) => println!("обмены: ошибка {e}"),
+                Ok(o) => println!("active trades: {}", o.len()),
+                Err(e) => println!("trades: error {e}"),
             }
         });
     }
@@ -542,10 +542,10 @@ mod rules_live {
             c.restore_session().await.unwrap();
             let web = crate::webapi::web_session(&c).await.unwrap();
             let w = aurelia::steam_client::wallet_via(&web).await.unwrap();
-            println!("валюта {}: {:?}", w.currency, w.fee_rules);
+            println!("currency {}: {:?}", w.currency, w.fee_rules);
             if let Some(r) = w.fee_rules {
                 for receive in [1, 50, 100, 101, 1000] {
-                    println!("получите {receive} -> покупатель {}", super::pay_for(receive, &r));
+                    println!("you receive {receive} -> buyer pays {}", super::pay_for(receive, &r));
                 }
             }
         });
@@ -611,9 +611,9 @@ mod spread_tests {
     fn undercut_steps() {
         let uah = super::FeeRules { market_minimum: 100, currency_increment: 100, ..super::default_rules() };
         let usd = super::default_rules();
-        assert_eq!(crate::tradeui::undercut_amount(0, &uah), 100, "по умолчанию - один шаг");
-        assert_eq!(crate::tradeui::undercut_amount(2, &uah), 100, "2 копейки у гривны - не меньше шага");
-        assert_eq!(crate::tradeui::undercut_amount(150, &uah), 200, "вверх до шага");
+        assert_eq!(crate::tradeui::undercut_amount(0, &uah), 100, "one step by default");
+        assert_eq!(crate::tradeui::undercut_amount(2, &uah), 100, "2 kopecks in hryvnia - not less than a step");
+        assert_eq!(crate::tradeui::undercut_amount(150, &uah), 200, "rounded up to a step");
         assert_eq!(crate::tradeui::undercut_amount(2, &usd), 2);
         assert_eq!(crate::tradeui::undercut_amount(0, &usd), 1);
     }
@@ -626,7 +626,7 @@ mod zero_fee_tests {
     fn zero_publisher_fee() {
         let r = super::FeeRules { market_minimum: 100, currency_increment: 1, steam_fee_percent: 0.05, publisher_fee_percent: 0.0 };
         let base = super::receive_for(300, &r);
-        assert_eq!(super::pay_for(base, &r), 300, "получите {base}");
+        assert_eq!(super::pay_for(base, &r), 300, "you receive {base}");
         for b in 100..3000 {
             assert_eq!(super::receive_for(super::pay_for(b, &r), &r), b, "base {b}");
         }

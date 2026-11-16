@@ -244,7 +244,7 @@ mod tests {
             let me = c.my_steam_id().unwrap();
             let f = super::load(&c, me).await.unwrap();
             println!(
-                "в семье: {}, участников {}, свободно {}, игр в общей {}, записей игры {}, с общими играми у участников {:?}",
+                "in family: {}, members {}, free slots {}, shared games {}, playtime records {}, members with shared games {:?}",
                 !f.none,
                 f.members.len(),
                 f.free_spots,

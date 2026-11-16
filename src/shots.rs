@@ -507,12 +507,12 @@ mod friend_live {
                 match c.user_screenshots(f.steam_id, 0, 1, 50).await {
                     Ok((total, v)) => {
                         any |= !v.is_empty();
-                        println!("друг: всего {total}, на странице {}, с картинкой {}", v.len(), v.iter().filter(|s| !s.preview_url.is_empty()).count());
+                        println!("friend: total {total}, on the page {}, with an image {}", v.len(), v.iter().filter(|s| !s.preview_url.is_empty()).count());
                     }
-                    Err(e) => println!("друг: ошибка {e:#}"),
+                    Err(e) => println!("friend: error {e:#}"),
                 }
             }
-            assert!(any, "ни у кого из друзей нет видимых скриншотов");
+            assert!(any, "no friend has visible screenshots");
         });
     }
 }

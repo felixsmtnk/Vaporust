@@ -118,15 +118,15 @@ mod live {
             let before = run(&c, CollCmd::Load).await.unwrap();
             let names = |v: &[Coll]| v.iter().map(|c| (c.id.clone(), c.name.clone(), c.apps.len())).collect::<Vec<_>>();
             let list = run(&c, CollCmd::Create { name: "Vaporust test".into(), appid: Some(70) }).await.unwrap();
-            let t = list.iter().find(|c| c.name == "Vaporust test").expect("создана").id.clone();
+            let t = list.iter().find(|c| c.name == "Vaporust test").expect("created").id.clone();
             let list = run(&c, CollCmd::Rename { id: t.clone(), name: "Vaporust test 2".into() }).await.unwrap();
-            assert!(list.iter().any(|c| c.id == t && c.name == "Vaporust test 2"), "переименована");
+            assert!(list.iter().any(|c| c.id == t && c.name == "Vaporust test 2"), "renamed");
             let list = run(&c, CollCmd::Delete { id: t.clone() }).await.unwrap();
-            assert!(!list.iter().any(|c| c.id == t), "удалена");
+            assert!(!list.iter().any(|c| c.id == t), "deleted");
             // Reload from the cloud: the temporary one is gone, the others are as they were.
             let after = run(&c, CollCmd::Load).await.unwrap();
             assert_eq!(names(&before), names(&after));
-            println!("коллекций: {}, все на месте", after.len());
+            println!("collections: {}, all in place", after.len());
         });
     }
 }

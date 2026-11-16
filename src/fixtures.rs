@@ -91,7 +91,7 @@ pub(crate) mod capture {
                 std::fs::create_dir_all(dir()).unwrap();
                 let body = if name.ends_with(".html") { trim(body) } else { body.to_string() };
                 std::fs::write(dir().join(name), &body).unwrap();
-                println!("{name}: {} КБ", body.len() / 1024);
+                println!("{name}: {} KB", body.len() / 1024);
             };
             // Public profile with showcases, badges and groups.
             const GABE: u64 = 76561197960435530; // Robin Walker (Valve), a public profile
@@ -111,7 +111,7 @@ pub(crate) mod capture {
                 .into_iter()
                 .find(|t| !t.sticky && t.replies > 3)
                 .map(|t| t.url)
-                .expect("нет тем");
+                .expect("no topics");
             save("topic.html", &get(format!("{topic_url}?l=english")).await);
             let guides = get("https://steamcommunity.com/app/70/guides/?browsefilter=toprated&l=russian".into()).await;
             let guide = first_between(&guides, "sharedfiles/filedetails/?id=", "\"").unwrap().split('&').next().unwrap().to_string();
@@ -128,7 +128,7 @@ pub(crate) mod capture {
             )
             .await;
             save("reviews.html", &reviews);
-            let review_url = crate::store::parse_reviews(&reviews).into_iter().map(|r| r.url).find(|u| !u.is_empty()).expect("нет отзывов");
+            let review_url = crate::store::parse_reviews(&reviews).into_iter().map(|r| r.url).find(|u| !u.is_empty()).expect("no reviews");
             save("review_page.html", &get(review_url).await);
             // Curators, store, market.
             save(
@@ -159,12 +159,12 @@ mod tests {
     fn profile_page() {
         let html = page("profile.html");
         let info = crate::profile_extra::parse_page(&html);
-        assert!(info.friends.len() >= 5, "друзья: {}", info.friends.len());
+        assert!(info.friends.len() >= 5, "friends: {}", info.friends.len());
         let counts = crate::profile_extra::parse_counts(&html);
-        assert!(counts.len() >= 3, "счетчики: {counts:?}");
+        assert!(counts.len() >= 3, "counters: {counts:?}");
         let shows = crate::profile_extra::parse_showcases(&html);
-        assert!(!shows.is_empty(), "витрины");
-        assert!(shows.iter().any(|s| !s.stats.is_empty()), "числа витрин");
+        assert!(!shows.is_empty(), "showcases");
+        assert!(shows.iter().any(|s| !s.stats.is_empty()), "showcase numbers");
     }
 
     #[test]
@@ -172,11 +172,11 @@ mod tests {
         // Steam gives details (name, URL) only for the first groups, the rest - as bare ids.
         let xml = page("profile.xml");
         let groups = crate::profile_extra::parse_groups(&xml);
-        assert!(groups.len() >= 3 && groups.len() == xml.matches("<groupName>").count(), "группы: {}", groups.len());
+        assert!(groups.len() >= 3 && groups.len() == xml.matches("<groupName>").count(), "groups: {}", groups.len());
         assert!(groups.iter().all(|g| !g.name.is_empty() && g.url.starts_with("https://")));
         let j = json("profile_comments.json");
         let comments = crate::profile_extra::parse_comments(j["comments_html"].as_str().unwrap());
-        assert!(comments.len() >= 5, "комментарии: {}", comments.len());
+        assert!(comments.len() >= 5, "comments: {}", comments.len());
         assert!(comments.iter().all(|c| !c.author.is_empty() && !c.id.is_empty() && c.time > 1_000_000_000));
     }
 
@@ -189,7 +189,7 @@ mod tests {
 
     #[test]
     fn group_xml() {
-        let g = crate::grouppage::parse(&page("group.xml")).expect("группа");
+        let g = crate::grouppage::parse(&page("group.xml")).expect("group");
         assert!(g.id64 > 103582791429521408);
         assert!(!g.name.is_empty());
     }
@@ -197,13 +197,13 @@ mod tests {
     #[test]
     fn discussions() {
         let topics = crate::community::parse_topics(&page("topics.html"));
-        assert!(topics.len() >= 10, "темы: {}", topics.len());
+        assert!(topics.len() >= 10, "topics: {}", topics.len());
         assert!(topics.iter().all(|t| t.url.contains("/discussions/") && !t.title.is_empty()));
         let t = crate::community::parse_topic(&page("topic.html"), "https://steamcommunity.com/app/70/discussions/0/1/");
         assert!(!t.title.is_empty());
-        assert!(!t.items.is_empty(), "первое сообщение");
-        assert!(!t.owner.is_empty() && !t.forum.is_empty() && !t.topic.is_empty(), "данные ветки для ответов");
-        assert!(!t.replies.is_empty(), "ответы");
+        assert!(!t.items.is_empty(), "first post");
+        assert!(!t.owner.is_empty() && !t.forum.is_empty() && !t.topic.is_empty(), "thread data for replies");
+        assert!(!t.replies.is_empty(), "replies");
     }
 
     #[test]
@@ -216,14 +216,14 @@ mod tests {
     #[test]
     fn workshop_item() {
         let shots = crate::workshopui::page_screenshots(&page("workshop_item.html"));
-        assert!(!shots.is_empty(), "скриншоты мода не найдены");
+        assert!(!shots.is_empty(), "mod screenshots not found");
         assert!(shots.iter().all(|u| u.starts_with("https://")), "{shots:?}");
     }
 
     #[test]
     fn reviews() {
         let r = crate::store::parse_reviews(&page("reviews.html"));
-        assert!(r.len() >= 5, "отзывы: {}", r.len());
+        assert!(r.len() >= 5, "reviews: {}", r.len());
         assert!(r.iter().all(|x| !x.author.is_empty() && !x.text.is_empty() && x.url.contains("/recommended/")));
         let (text, id, _hours) = crate::store::parse_review_page(&page("review_page.html")).unwrap();
         assert!(!text.is_empty());
@@ -241,8 +241,8 @@ mod tests {
     #[test]
     fn appdetails() {
         let d = crate::store::parse_appdetails(&json("appdetails.json"), 70);
-        assert!(d.requirements.is_some(), "требования");
-        assert!(!d.genres.is_empty(), "жанры");
+        assert!(d.requirements.is_some(), "requirements");
+        assert!(!d.genres.is_empty(), "genres");
     }
 
     #[test]
@@ -254,9 +254,9 @@ mod tests {
 
     #[test]
     fn github_releases() {
-        let r = crate::updater::parse_latest(page("github_releases.json").as_bytes(), "0.0.1").unwrap().expect("релиз");
+        let r = crate::updater::parse_latest(page("github_releases.json").as_bytes(), "0.0.1").unwrap().expect("release");
         assert!(r.asset_url.is_some());
-        assert!(r.sha_url.is_some(), "у релизов CI есть .sha256");
+        assert!(r.sha_url.is_some(), "CI releases have .sha256");
     }
 
     /// Corrupted and empty responses: parsing does not crash and does not invent data.

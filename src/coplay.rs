@@ -197,9 +197,9 @@ mod live {
             let t = web.get_text(&format!("https://steamcommunity.com/profiles/{me}/friends/coplay?l=russian")).await.unwrap();
             std::fs::write(&path, &t).unwrap();
             let v = super::parse(&t);
-            println!("игр {}, людей {}", v.len(), v.iter().map(|g| g.players.len()).sum::<usize>());
+            println!("games {}, people {}", v.len(), v.iter().map(|g| g.players.len()).sum::<usize>());
             for g in v.iter().take(5) {
-                println!("{} {} [{}] - {} чел.", g.appid, g.name, g.when, g.players.len());
+                println!("{} {} [{}] - {} people", g.appid, g.name, g.when, g.players.len());
             }
         });
     }

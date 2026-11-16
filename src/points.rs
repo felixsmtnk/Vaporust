@@ -301,17 +301,17 @@ mod tests {
             let mut c = SteamClient::new().unwrap();
             c.restore_session().await.unwrap();
             let me = c.my_steam_id().unwrap();
-            println!("очков: {}", balance(&c, me).await.unwrap());
+            println!("points: {}", balance(&c, me).await.unwrap());
             for (cl, name) in CLASSES() {
                 let p = query(&c, cl, "", None).await.unwrap();
-                println!("{name}: {} всего, на странице {}, курсор {}", p.total, p.items.len(), p.cursor.is_some());
+                println!("{name}: {} total, on the page {}, cursor {}", p.total, p.items.len(), p.cursor.is_some());
                 for it in p.items.iter().take(2) {
                     let r = ehttp::fetch_blocking(&ehttp::Request::get(&it.image));
                     println!("  {} -> {:?}", it.image, r.map(|r| (r.status, r.content_type().map(str::to_owned), r.bytes.len(), r.bytes.iter().take(8).copied().collect::<Vec<u8>>())));
                 }
             }
             let p = query(&c, 11, "cat", None).await.unwrap();
-            println!("стикеры «cat»: {}", p.total);
+            println!("stickers \"cat\": {}", p.total);
         });
     }
 }
@@ -327,17 +327,17 @@ mod owned_live {
             let mut c = super::SteamClient::new().unwrap();
             c.restore_session().await.unwrap();
             let o = super::owned(&c).await.unwrap();
-            println!("предметов профиля {}, в инвентаре {}", o.profile.len(), o.names.len());
+            println!("profile items {}, in inventory {}", o.profile.len(), o.names.len());
             let frames: Vec<(u32, u32, u32)> = o.profile.iter().filter(|k| k.1 == 14).copied().collect();
             for (appid, _, _) in frames.iter().take(3) {
                 let v = crate::webapi::get(&c, "ILoyaltyRewardsService/QueryRewardItems/v1", &[("count", "50".into()), ("community_item_classes[0]", "14".into()), ("appids[0]", appid.to_string())]).await.unwrap();
                 let items: Vec<super::RewardItem> = v["definitions"].as_array().map(|a| a.iter().filter_map(super::parse_item).collect()).unwrap_or_default();
-                println!("рамки игры: {} в каталоге, отмечено {}; мои типы {:?}, в каталоге {:?}", items.len(), items.iter().filter(|i| o.has(i)).count(), frames.iter().filter(|f| f.0 == *appid).map(|f| f.2).collect::<Vec<_>>(), items.iter().map(|i| (i.class, i.item_type)).collect::<Vec<_>>());
+                println!("game frames: {} in the catalog, marked {}; my types {:?}, in the catalog {:?}", items.len(), items.iter().filter(|i| o.has(i)).count(), frames.iter().filter(|f| f.0 == *appid).map(|f| f.2).collect::<Vec<_>>(), items.iter().map(|i| (i.class, i.item_type)).collect::<Vec<_>>());
             }
             for cl in [12u32, 14] {
                 let p = super::query(&c, cl, "", None).await.unwrap();
                 let have: Vec<&str> = p.items.iter().filter(|i| o.has(i)).map(|i| i.title.as_str()).collect();
-                println!("класс {cl}: есть {} из {}: {:?}", have.len(), p.items.len(), have);
+                println!("class {cl}: owned {} of {}: {:?}", have.len(), p.items.len(), have);
             }
         });
     }

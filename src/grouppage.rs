@@ -210,6 +210,6 @@ mod tests {
     fn group_live() {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let g = rt.block_on(super::load("https://steamcommunity.com/groups/steamuniverse")).unwrap();
-        println!("{} | {} | участников {} в сети {} | {}", g.name, g.headline, g.members, g.online, g.summary.chars().take(80).collect::<String>());
+        println!("{} | {} | members {} online {} | {}", g.name, g.headline, g.members, g.online, g.summary.chars().take(80).collect::<String>());
     }
 }

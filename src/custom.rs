@@ -136,10 +136,10 @@ pub fn exe_icon(_path: &str) -> Option<(usize, Vec<u8>)> {
 mod icon_tests {
     #[test]
     fn notepad_icon() {
-        let (side, px) = super::exe_icon(r"C:\Windows\System32\notepad.exe").expect("значок блокнота");
+        let (side, px) = super::exe_icon(r"C:\Windows\System32\notepad.exe").expect("Notepad icon");
         assert!(side >= 16);
         assert_eq!(px.len(), side * side * 4);
-        assert!(px.chunks(4).any(|p| p[3] > 0), "значок не пустой");
+        assert!(px.chunks(4).any(|p| p[3] > 0), "the icon is not empty");
     }
 }
 

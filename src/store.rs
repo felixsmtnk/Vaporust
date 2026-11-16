@@ -1004,9 +1004,9 @@ mod reviews_live {
             let mut seen = std::collections::HashSet::new();
             for page in 1..=3 {
                 let (v, next) = super::fetch_reviews(70, 1, "russian", page, cursor.clone()).await.unwrap();
-                println!("стр. {page}: {} отзывов, первый - {}", v.len(), v.first().map(|r| r.author.clone()).unwrap_or_default());
+                println!("page {page}: {} reviews, first - {}", v.len(), v.first().map(|r| r.author.clone()).unwrap_or_default());
                 for r in &v {
-                    assert!(seen.insert(r.url.clone()), "повтор: {}", r.url);
+                    assert!(seen.insert(r.url.clone()), "repeat: {}", r.url);
                 }
                 cursor = next;
             }
@@ -1146,13 +1146,13 @@ mod chart_tests {
         rt.block_on(async {
             for k in 0..3u8 {
                 let v = fetch_chart(k, "GE").await.unwrap();
-                println!("{} : {} игр, первая {:?}", CHARTS()[k as usize].0, v.len(), v.first());
+                println!("{} : {} games, first {:?}", CHARTS()[k as usize].0, v.len(), v.first());
                 assert!(v.len() >= 5, "{}", v.len());
             }
             let mut c = aurelia::steam_client::SteamClient::new().unwrap();
             c.restore_session().await.unwrap();
             let q = c.discovery_queue("GE", false).await.unwrap();
-            println!("очередь открытий: {} игр", q.len());
+            println!("discovery queue: {} games", q.len());
             assert!(!q.is_empty());
         });
     }
@@ -1178,7 +1178,7 @@ mod reviews_rich_live {
         rt.block_on(async {
             let (v, _) = super::fetch_reviews(550, 0, "russian", 1, None).await.unwrap();
             println!(
-                "отзывов {}, с аватаром {}, с наградами {}, полезно у первого {}, забавно {}",
+                "reviews {}, with avatar {}, with awards {}, first helpful {}, funny {}",
                 v.len(),
                 v.iter().filter(|r| !r.avatar.is_empty()).count(),
                 v.iter().filter(|r| !r.awards.is_empty()).count(),
@@ -1188,10 +1188,10 @@ mod reviews_rich_live {
             let mut c = aurelia::steam_client::SteamClient::new().unwrap();
             c.restore_session().await.unwrap();
             let (text, id, at) = super::review_page(&c, &v[0].url).await.unwrap();
-            println!("часы на момент отзыва: {at}");
-            println!("полный текст {} знаков (в списке {}), номер есть: {}", text.chars().count(), v[0].text.chars().count(), id > 0);
+            println!("hours at review time: {at}");
+            println!("full text {} chars (in the list {}), has id: {}", text.chars().count(), v[0].text.chars().count(), id > 0);
             let (en, _) = super::fetch_reviews(550, 7, "english", 1, None).await.unwrap();
-            println!("забавные на английском: {}", en.len());
+            println!("funny in English: {}", en.len());
         });
     }
 }
@@ -1348,7 +1348,7 @@ mod review_paging_tests {
         r.loading = false;
         r.pages = 1;
         r.cursor = Some("ru-cursor".into());
-        r.list.push(review("по-русски"));
+        r.list.push(review("in Russian"));
         // "Show more" while English is now chosen: page 2 becomes page 1 of English, without the cursor.
         let (p, second) = r.begin(0, "english", 2).unwrap();
         assert_eq!(p, 1);

@@ -124,7 +124,7 @@ mod tests {
         assert_eq!(fit(p(-10, -10, 2560, 1400), SCREEN), Some(p(0, 0, 1920, 1040)));
         // On a disconnected second monitor - not restored.
         assert_eq!(fit(p(2000, 100, 960, 630), SCREEN), None);
-        assert_eq!(fit(p(1800, 100, 960, 630), SCREEN), None, "видно меньше 200 точек");
+        assert_eq!(fit(p(1800, 100, 960, 630), SCREEN), None, "less than 200 points visible");
         // A tiny window or one hidden in the tray - not restored.
         assert_eq!(fit(p(100, 100, 120, 80), SCREEN), None);
         assert_eq!(fit(p(-32000, -32000, 960, 630), SCREEN), None);

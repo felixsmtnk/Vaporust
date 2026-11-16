@@ -178,7 +178,7 @@ mod tests {
                 let Ok((_, shots)) = c.user_screenshots(f.steam_id, 0, 1, 50).await else { continue };
                 if let Some(s) = shots.iter().max_by_key(|s| s.comments) {
                     let r = super::load(&c, f.steam_id, s.id).await.unwrap();
-                    println!("скриншот: оценок {}, комментариев {} (в выдаче {}), загружено {}", s.votes_up, s.comments, r.0, r.1.len());
+                    println!("screenshot: votes {}, comments {} (reported {}), loaded {}", s.votes_up, s.comments, r.0, r.1.len());
                     if s.comments > 0 {
                         assert!(!r.1.is_empty());
                         return;

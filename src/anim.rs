@@ -122,7 +122,7 @@ mod tests {
     fn apng_frames() {
         let bytes = std::fs::read(std::env::var("VAPORUST_APNG").unwrap()).unwrap();
         let ctx = eframe::egui::Context::default();
-        let a = super::decode(&ctx, "test", &bytes).expect("должна быть анимация");
+        let a = super::decode(&ctx, "test", &bytes).expect("must be an animation");
         println!("frames={} total={:.2}s", a.frames.len(), a.total);
     }
 }

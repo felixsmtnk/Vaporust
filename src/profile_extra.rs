@@ -475,7 +475,7 @@ mod tests {
                 println!("{u} -> {:?}", r.map(|r| (r.status, r.content_type().map(str::to_owned), r.bytes.len())));
             }
             println!(
-                "уровень {:?}, рамка {}, аним. аватар {}, фон {}, недавних {}, групп {}, комментариев {} из {}, с текстом {}, с автором {}",
+                "level {:?}, frame {}, animated avatar {}, background {}, recent {}, groups {}, comments {} of {}, with text {}, with author {}",
                 x.level,
                 x.frame.is_some(),
                 x.animated_avatar.is_some(),
@@ -501,7 +501,7 @@ mod showcase_tests {
         let html = std::fs::read_to_string(format!("{dir}/profile_friend.html")).unwrap();
         let v = super::parse_showcases(&html);
         for s in &v {
-            println!("{} | картинок {} (со ссылкой {}) | текст {} знаков", s.title, s.images.len(), s.images.iter().filter(|i| i.1.is_some()).count(), s.text.chars().count());
+            println!("{} | images {} (with a link {}) | text {} chars", s.title, s.images.len(), s.images.iter().filter(|i| i.1.is_some()).count(), s.text.chars().count());
             if s.title == "Витрина" { println!("   {}", s.text.chars().take(160).collect::<String>()); }
         }
         assert!(v.len() >= 5);
@@ -583,10 +583,10 @@ mod counts_live {
             c.restore_session().await.unwrap();
             let me = c.my_steam_id().unwrap();
             let x = super::load(&c, me).await.unwrap();
-            println!("счетчики: {:?}", x.counts.iter().map(|(l, n, _)| format!("{l}={n}")).collect::<Vec<_>>());
-            println!("комментариев {}, с номером {}, можно удалить {}", x.comments.len(), x.comments.iter().filter(|c| !c.id.is_empty()).count(), x.comments.iter().filter(|c| c.can_delete).count());
+            println!("counters: {:?}", x.counts.iter().map(|(l, n, _)| format!("{l}={n}")).collect::<Vec<_>>());
+            println!("comments {}, with id {}, deletable {}", x.comments.len(), x.comments.iter().filter(|c| !c.id.is_empty()).count(), x.comments.iter().filter(|c| c.can_delete).count());
             let (total, more) = super::load_comments(&c, me, 10).await.unwrap();
-            println!("всего {total}, со 10-го: {}", more.len());
+            println!("total {total}, from the 10th: {}", more.len());
         });
     }
 }
@@ -605,7 +605,7 @@ mod counts_dump {
             let html = web.get_text(&format!("https://steamcommunity.com/profiles/{me}/?l=russian")).await.unwrap();
             let dir = std::env::var("VAPORUST_DUMP").unwrap();
             std::fs::write(format!("{dir}/profile_me.html"), html.replace(&me.to_string(), "ID")).unwrap();
-            println!("сохранено {} байт", html.len());
+            println!("saved {} bytes", html.len());
         });
     }
 }
@@ -761,16 +761,16 @@ mod page_tests {
         let html = std::fs::read_to_string(format!("{dir}/profile_me.html")).unwrap();
         let p = super::parse_page(&html);
         for g in &p.recent {
-            println!("игра {} {} {:?} картинка {}", g.appid, g.name, g.details, !g.capsule.is_empty());
+            println!("game {} {} {:?} image {}", g.appid, g.name, g.details, !g.capsule.is_empty());
         }
-        println!("за 2 недели: {:?}", p.recent_total);
-        println!("наград {}, значков {}, друзей {}", p.awards.len(), p.badges.len(), p.friends.len());
+        println!("2 weeks: {:?}", p.recent_total);
+        println!("awards {}, badges {}, friends {}", p.awards.len(), p.badges.len(), p.friends.len());
         for f in &p.friends {
-            println!("друг: {} / {} / ур. {:?} / в сети {} / id есть {}", f.name, f.status, f.level, f.online, f.steamid != 0);
+            println!("friend: {} / {} / lvl {:?} / online {} / has id {}", f.name, f.status, f.level, f.online, f.steamid != 0);
         }
-        println!("статус {:?} {:?}, избранный значок {:?}", p.status, p.status_game, p.fav_badge.as_ref().map(|b| &b.1));
+        println!("status {:?} {:?}, favorite badge {:?}", p.status, p.status_game, p.fav_badge.as_ref().map(|b| &b.1));
         let s = super::parse_showcases(&html);
-        println!("витрин {}", s.len());
+        println!("showcases {}", s.len());
     }
 
     #[test]
@@ -819,9 +819,9 @@ mod friend_pages_live {
             ids.extend(mine.page.friends.iter().map(|f| f.steamid));
             for id in ids {
                 let x = super::load(&c, id).await.unwrap();
-                let name = mine.page.friends.iter().find(|f| f.steamid == id).map(|f| f.name.clone()).unwrap_or("я".into());
+                let name = mine.page.friends.iter().find(|f| f.steamid == id).map(|f| f.name.clone()).unwrap_or("me".into());
                 println!(
-                    "{name}: уровень {:?}, счетчиков {}, недавних {}, наград {}, значков {}, друзей {}, витрин {}, групп {}, комм. {}",
+                    "{name}: level {:?}, counters {}, recent {}, awards {}, badges {}, friends {}, showcases {}, groups {}, comments {}",
                     x.level,
                     x.counts.len(),
                     x.page.recent.len(),
@@ -850,7 +850,7 @@ mod showcase_html_live {
             c.restore_session().await.unwrap();
             let me = c.my_steam_id().unwrap();
             let mine = super::load(&c, me).await.unwrap();
-            let f = mine.page.friends.iter().find(|f| f.name == want).expect("нет такого друга");
+            let f = mine.page.friends.iter().find(|f| f.name == want).expect("no such friend");
             let web = crate::webapi::web_session(&c).await.unwrap();
             let html = web.get_text(&format!("https://steamcommunity.com/profiles/{}/?l=russian", f.steamid)).await.unwrap();
             let area = html.split("profile_customization_area").nth(1).unwrap_or("");

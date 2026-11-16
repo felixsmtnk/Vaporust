@@ -281,7 +281,7 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let v = super::load(vec![(70, "Half-Life".into()), (550, "L4D2".into()), (730, "CS2".into())]).await.unwrap();
-            println!("новостей: {}", v.len());
+            println!("news: {}", v.len());
             for n in v.iter().take(3) {
                 println!("{} | {} | {}", n.game, n.title, n.excerpt.chars().take(60).collect::<String>());
             }

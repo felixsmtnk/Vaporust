@@ -181,7 +181,7 @@ mod ico {
         }
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets").join("vaporust.ico");
         std::fs::write(&path, out).unwrap();
-        println!("{} байт", std::fs::metadata(path).unwrap().len());
+        println!("{} bytes", std::fs::metadata(path).unwrap().len());
     }
 }
 
@@ -558,8 +558,8 @@ mod shape_tests {
         let win = super::icon(super::Kind::Launcher);
         let px = |d: &egui_alpha::Data, x: usize, y: usize| d.rgba[(y * d.width as usize + x) * 4 + 3];
         // Point (8, 8): inside the rounded square (radius 14 from 3..61) but outside a radius-30 circle.
-        assert_eq!(px(&tray, 8, 8), 0, "у силуэта угол прозрачный");
-        assert!(px(&win, 8, 8) > 200, "у квадрата угол закрашен");
+        assert_eq!(px(&tray, 8, 8), 0, "the silhouette corner is transparent");
+        assert!(px(&win, 8, 8) > 200, "the square corner is filled");
     }
 
     mod egui_alpha {

@@ -464,7 +464,7 @@ mod tests {
     fn storage_live() {
         let steam = local::find_steam().unwrap();
         for l in scan(&steam.dir, &HashSet::new()) {
-            println!("{} | свободно {:?} | игр {}", l.path.display(), l.free.map(net::fmt_bytes), l.games.len());
+            println!("{} | free {:?} | games {}", l.path.display(), l.free.map(net::fmt_bytes), l.games.len());
             for x in &l.leftovers {
                 println!("   {:?} {} {}", x.kind, x.path.display(), net::fmt_bytes(x.size));
             }

@@ -1,11 +1,16 @@
-Vaporust - легкий клиент-лаунчер Steam для Windows.
+Vaporust - a lightweight Steam client and launcher for Windows.
 Copyright (c) 2026 Vaporust contributors
 
-Vaporust включает измененную копию Aurelia (версия 0.2.5, каталог vendor/aurelia,
+Vaporust includes a modified copy of Aurelia (version 0.2.5, directory vendor/aurelia,
 https://github.com/Drackrath/Aurelia, Copyright (c) 2026 Drackrath),
-которая распространяется по GPL-3.0-or-later; условия и история лицензии
-Aurelia - в файле vendor/aurelia/LICENSE. Список изменений в Aurelia -
+which is distributed under GPL-3.0-or-later; the license terms and history of
+Aurelia are in vendor/aurelia/LICENSE. The list of changes made to Aurelia is in
 vendor/aurelia/VAPORUST_CHANGES.md.
+
+Vaporust - легкий клиент-лаунчер Steam для Windows. Vaporust включает измененную
+копию Aurelia (версия 0.2.5, каталог vendor/aurelia, Copyright (c) 2026 Drackrath),
+которая распространяется по GPL-3.0-or-later; условия - в vendor/aurelia/LICENSE,
+список изменений - в vendor/aurelia/VAPORUST_CHANGES.md.
 
 This program is free software: you can redistribute it and/or modify it
 under the terms of the GNU General Public License as published by the Free

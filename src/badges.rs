@@ -291,7 +291,7 @@ mod tests {
             let me = c.my_steam_id().unwrap();
             let b = load(&c, me).await.unwrap();
             println!(
-                "уровень {}, xp {}, до след. {}, значков {}, игр с карточками {}, выпадет {}",
+                "level {}, xp {}, to next {}, badges {}, games with cards {}, drops left {}",
                 b.level,
                 b.xp,
                 b.xp_to_next,

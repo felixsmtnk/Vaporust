@@ -687,8 +687,8 @@ mod detail_live {
             let p = c.query_workshop_files(550, None, 0, "*", 1, &[]).await.unwrap();
             let id = p.items[0].id;
             match super::load_detail(&c, id).await {
-                Ok(d) => println!("ok: {} картинок, {} тегов, описание {} знаков, оценки {}/{}", d.previews.len(), d.tags.len(), d.description.len(), d.votes_up, d.votes_down),
-                Err(e) => println!("ошибка: {e}"),
+                Ok(d) => println!("ok: {} images, {} tags, description {} chars, votes {}/{}", d.previews.len(), d.tags.len(), d.description.len(), d.votes_up, d.votes_down),
+                Err(e) => println!("error: {e}"),
             }
         });
     }

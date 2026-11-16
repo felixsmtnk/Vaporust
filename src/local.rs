@@ -1403,7 +1403,7 @@ mod offline_tests {
         let b = t.split("\"2\"").nth(1).unwrap();
         assert!(b.contains("\"WantsOfflineMode\"\t\t\"1\"") && b.contains("\"SkipOfflineModeWarning\"\t\t\"1\""));
         assert!(t.split("\"2\"").next().unwrap().contains("\"WantsOfflineMode\"\t\t\"0\""));
-        assert!(!set_steam_offline(&dir, true).unwrap(), "повторно - без изменений");
+        assert!(!set_steam_offline(&dir, true).unwrap(), "a second time - no change");
         assert!(set_steam_offline(&dir, false).unwrap());
         assert!(!fs::read_to_string(&p).unwrap().contains("\"1\"\n\t\t\"SkipOfflineModeWarning\"\t\t\"1\""));
         let _ = fs::remove_dir_all(&dir);
@@ -1546,7 +1546,7 @@ mod stop_tests {
         thread::sleep(Duration::from_secs(2));
         assert_eq!(stop_game(&dir, false), 1);
         thread::sleep(Duration::from_secs(2));
-        assert!(a.try_wait().unwrap().is_some(), "Блокнот закрылся мягко");
+        assert!(a.try_wait().unwrap().is_some(), "Notepad closed gently");
         let mut b = {
             use std::os::windows::process::CommandExt;
             // CREATE_NO_WINDOW: the process has no windows at all.
@@ -1555,10 +1555,10 @@ mod stop_tests {
         thread::sleep(Duration::from_secs(2));
         stop_game(&dir, false);
         thread::sleep(Duration::from_secs(2));
-        assert!(b.try_wait().unwrap().is_none(), "у cmd нет окна, мягко не закрывается");
+        assert!(b.try_wait().unwrap().is_none(), "cmd has no window, a gentle close does not work");
         assert_eq!(stop_game(&dir, true), 1);
         thread::sleep(Duration::from_secs(1));
-        assert!(b.try_wait().unwrap().is_some(), "закрыт принудительно");
+        assert!(b.try_wait().unwrap().is_some(), "closed by force");
         assert!(game_pids(&dir).is_empty());
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1828,7 +1828,7 @@ mod uninstall_tests {
         assert!(!dir.exists());
         assert!(!steamapps.join("downloading").join("777").exists());
         assert!(!steamapps.join(format!("appmanifest_777{STASH_EXT}")).exists());
-        assert!(steamapps.join("appmanifest_778.acf").exists(), "чужое не трогаем");
+        assert!(steamapps.join("appmanifest_778.acf").exists(), "other games are not touched");
         assert!(steamapps.join("common").exists());
         // Shared folder (like common\Half-Life of Counter-Strike and Half-Life) - refused, files intact.
         let shared = steamapps.join("common").join("Half-Life");
@@ -1923,7 +1923,7 @@ mod acf_top_tests {
         set_acf_top(&p, "AutoUpdateBehavior", "1").unwrap();
         assert_eq!(acf_top(&p, "AutoUpdateBehavior").as_deref(), Some("1"));
         let t = fs::read_to_string(&p).unwrap();
-        assert!(t.contains("\t\t\"AutoUpdateBehavior\"\t\t\"9\""), "вложенное не тронуто");
+        assert!(t.contains("\t\t\"AutoUpdateBehavior\"\t\t\"9\""), "the nested one is not touched");
         // No key - it is added.
         set_acf_top(&p, "AllowOtherDownloadsWhileRunning", "1").unwrap();
         assert_eq!(acf_top(&p, "AllowOtherDownloadsWhileRunning").as_deref(), Some("1"));
@@ -2110,7 +2110,7 @@ mod staging_tests {
         super::unstage(&lib, 60).unwrap();
         assert!(lib.join("steamapps").join("common").join("Игра").join("game.exe").exists());
         assert!(lib.join("steamapps").join("appmanifest_60.acf").exists());
-        assert!(!super::staging_dir(&lib).exists(), "пустая временная папка удалена");
+        assert!(!super::staging_dir(&lib).exists(), "the empty temporary folder is removed");
         let _ = std::fs::remove_dir_all(&lib);
     }
 }

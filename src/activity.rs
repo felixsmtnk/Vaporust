@@ -308,7 +308,7 @@ mod tests {
             let ids: Vec<(u64, String)> = friends.iter().filter(|f| (f.relationship == 3 && (f.steam_id >> 52) & 0xF == 1)).map(|f| (f.steam_id, String::new())).collect();
             let n = ids.len();
             let v = load(&c, ids).await.unwrap();
-            println!("друзей {n}, играли за 2 недели {}, популярных игр {}", v.len(), popular(&v).len());
+            println!("friends {n}, played in 2 weeks {}, popular games {}", v.len(), popular(&v).len());
         });
     }
 }

@@ -356,7 +356,7 @@ mod tests {
         )
         .unwrap();
         let ns = parse(&v);
-        assert_eq!(ns.list.len(), 3, "сообщения чата и скрытые не показываем");
+        assert_eq!(ns.list.len(), 3, "chat messages and hidden ones are not shown");
         assert_eq!(ns.unread, 2);
         assert_eq!(ns.list[0].id, "2");
         assert_eq!(ns.list[0].link, Link::Wishlist);
@@ -373,7 +373,7 @@ mod tests {
             let mut c = SteamClient::new().unwrap();
             c.restore_session().await.unwrap();
             let ns = load(&c).await.unwrap();
-            println!("всего {}, непрочитанных {}", ns.list.len(), ns.unread);
+            println!("total {}, unread {}", ns.list.len(), ns.unread);
             for n in ns.list.iter().take(5) {
                 println!("{} | {:?} | {:?}", n.title, n.appid, n.link);
             }

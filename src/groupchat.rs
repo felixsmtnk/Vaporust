@@ -198,25 +198,25 @@ mod tests {
             c.restore_session().await.unwrap();
             let g = c.my_chat_groups().await.unwrap();
             c.activate_chat_groups(&g.iter().map(|x| x.group_id).collect::<Vec<_>>()).await.unwrap();
-            println!("групп: {}, каналов: {:?}", g.len(), g.iter().map(|x| x.channels.len()).collect::<Vec<_>>());
+            println!("groups: {}, channels: {:?}", g.len(), g.iter().map(|x| x.channels.len()).collect::<Vec<_>>());
             for x in &g {
-                println!("группа: имя есть {}, значок {:?}, участников в списке {}", !x.name.is_empty(), x.avatar_url, x.top_members.len());
+                println!("group: has name {}, icon {:?}, members listed {}", !x.name.is_empty(), x.avatar_url, x.top_members.len());
             }
             for x in &g {
                 for ch in &x.channels {
-                    println!("канал: последнее сообщение есть {}, время {}", !ch.last_message.is_empty(), ch.last_time);
+                    println!("channel: has last message {}, time {}", !ch.last_message.is_empty(), ch.last_time);
                 }
             }
             for x in &g {
                 for ch in &x.channels {
                     let m = c.group_messages(x.group_id, ch.chat_id, 20).await;
-                    println!("канал {}: {:?}", ch.chat_id % 1000, m.map(|v| v.len()).map_err(|e| format!("{e:#}")));
+                    println!("channel {}: {:?}", ch.chat_id % 1000, m.map(|v| v.len()).map_err(|e| format!("{e:#}")));
                 }
             }
             if let Some(first) = g.first() {
                 let ch = first.channels.first().map_or(first.default_chat, |c| c.chat_id);
                 let m = c.group_messages(first.group_id, ch, 20).await.unwrap();
-                println!("сообщений: {}, по порядку: {}", m.len(), m.windows(2).all(|w| w[0].time <= w[1].time));
+                println!("messages: {}, in order: {}", m.len(), m.windows(2).all(|w| w[0].time <= w[1].time));
             }
         });
     }

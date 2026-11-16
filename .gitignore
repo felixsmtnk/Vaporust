@@ -1,22 +1,22 @@
-# Сборка
+# Build output
 /target
 /vendor/aurelia/target
 
-# Архив исходников Aurelia: те же файлы уже лежат в vendor/aurelia
+# Aurelia source archive: the same files are already in vendor/aurelia
 /Aurelia-0.2.3.zip
 
-# Рабочие заметки для Claude: в них сведения о личной машине и аккаунте
+# Working notes for Claude: they hold details about the personal machine and account
 /CLAUDE.md
 
-# Готовые архивы для релизов
+# Ready release archives
 /dist
 
-# 32-битная сборка (отдельная папка, чтобы не мешать 64-битной)
+# 32-bit build (a separate folder so it does not clash with the 64-bit one)
 /target32
 
-# Портативный режим, если запускать программу прямо из папки проекта
+# Portable mode, if the program is run right from the project folder
 /VaporustData
 /portable.txt
 
-# Варианты логотипа (черновики; итоговый - assets/logo.png и assets/vaporust.ico)
+# Logo drafts (the final ones are assets/logo.png and assets/vaporust.ico)
 /assets/logo_variants

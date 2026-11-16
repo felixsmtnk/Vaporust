@@ -48,7 +48,7 @@ mod live {
                 match web.get_text(&url).await {
                     Ok(t) => {
                         std::fs::write(dir.join(format!("{name}.html")), &t).unwrap();
-                        println!("== {name}: {} байт", t.len());
+                        println!("== {name}: {} bytes", t.len());
                         // Store scripts: look for Web API methods in them.
                         if name == "wishlist" || name == "cart" || name == "app" {
                             for src in t.split("<script").filter_map(|s| s.split("src=\"").nth(1)).filter_map(|s| s.split('"').next()) {
@@ -70,7 +70,7 @@ mod live {
                             }
                         }
                     }
-                    Err(e) => println!("== {name}: ошибка {e:#}"),
+                    Err(e) => println!("== {name}: error {e:#}"),
                 }
             }
             let t = std::fs::read_to_string(dir.join("discussions.html")).unwrap_or_default();

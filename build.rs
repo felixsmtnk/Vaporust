@@ -1,6 +1,6 @@
-//! Ресурсы vaporust.exe для Windows: значок (assets/vaporust.ico, рисуется в src/icons.rs, тест
-//! write_ico пересобирает .ico) и сведения о версии (название «Vaporust» видно в Проводнике,
-//! Диспетчере задач и программам, которые ищут окна по названию приложения).
+//! Windows resources of vaporust.exe: the icon (assets/vaporust.ico, drawn in src/icons.rs; the
+//! write_ico test rebuilds the .ico) and version info (the name "Vaporust" shown in Explorer, Task
+//! Manager and in programs that find windows by application name).
 
 fn main() {
     println!("cargo:rerun-if-changed=assets/vaporust.ico");
@@ -9,7 +9,7 @@ fn main() {
         return;
     }
     let version = std::env::var("CARGO_PKG_VERSION").unwrap_or_default();
-    // «0.2.0-alpha» -> 0,2,0,0 (числовая версия ресурса).
+    // "0.2.0-alpha" -> 0,2,0,0 (the numeric resource version).
     let nums: Vec<u16> = version
         .split(|c: char| c == '.' || c == '-')
         .take(3)

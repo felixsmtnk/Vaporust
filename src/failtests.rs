@@ -59,7 +59,7 @@ fn junk_variants() -> Vec<Vec<u8>> {
 fn not_enough_space() {
     const GB: u64 = 1 << 30;
     // 10 GB game, 5 free - refused with a clear message.
-    let e = crate::net::space_error(10 * GB, 0, Some(5 * GB)).expect("должен быть отказ");
+    let e = crate::net::space_error(10 * GB, 0, Some(5 * GB)).expect("must be refused");
     assert!(e.contains("Не хватает места") && e.contains("10.00 ГБ") && e.contains("5.00 ГБ"), "{e}");
     // Resuming: 8 GB already downloaded, 2 more needed - enough.
     assert!(crate::net::space_error(10 * GB, 8 * GB, Some(5 * GB)).is_none());
@@ -82,8 +82,8 @@ fn download_interrupted() {
         "Нет связи со Steam",
     ] {
         assert!(should_resume(e, false, 0), "{e}");
-        assert!(!should_resume(e, false, 3), "{e}: после 3 попыток хватит");
-        assert!(!should_resume(e, true, 0), "{e}: пользователь сам остановил");
+        assert!(!should_resume(e, false, 3), "{e}: enough after 3 tries");
+        assert!(!should_resume(e, true, 0), "{e}: stopped by the user");
     }
     // Not a network error - do not retry (it would loop for nothing).
     for e in [
@@ -106,7 +106,7 @@ fn broken_appmanifest() {
     assert_eq!(info.state_flags, 0);
     assert!(crate::local::acf_top(&missing, "installdir").is_none());
     assert!(crate::local::set_acf_top(&missing, "AutoUpdateBehavior", "1").is_err());
-    assert!(!missing.exists(), "запись в отсутствующий файл не создает его");
+    assert!(!missing.exists(), "writing to a missing file does not create it");
     // Garbage and truncated files: reading does not crash.
     for (i, junk) in junk_variants().into_iter().enumerate() {
         let p = t.file(&format!("appmanifest_{i}.acf"), &junk);
@@ -134,7 +134,7 @@ fn broken_libraryfolders() {
     for junk in junk_variants() {
         t.file("Steam/steamapps/libraryfolders.vdf", &junk);
         let dirs = crate::local::library_dirs(&steam);
-        assert_eq!(dirs.first(), Some(&steam), "папка самого Steam есть всегда");
+        assert_eq!(dirs.first(), Some(&steam), "the Steam folder itself is always there");
         let _ = crate::local::scan_games(&steam);
     }
 }
@@ -150,7 +150,7 @@ fn broken_localconfig_is_not_overwritten() {
     let _ = crate::launchopts::read(&p, 70);
     let _ = crate::launchopts::read_last_played(&p);
     assert!(crate::launchopts::write(&p, 70, "-novid").is_err());
-    assert_eq!(fs::read_to_string(&p).unwrap(), cut, "испорченный файл не переписан");
+    assert_eq!(fs::read_to_string(&p).unwrap(), cut, "a broken file is not rewritten");
     // Garbage - also no crash and no write.
     for junk in junk_variants() {
         let p = t.file("junk.vdf", &junk);
@@ -158,7 +158,7 @@ fn broken_localconfig_is_not_overwritten() {
         let _ = crate::launchopts::read_last_played(&p);
         let r = crate::launchopts::write(&p, 70, "-novid");
         if r.is_err() {
-            assert_eq!(fs::read(&p).unwrap(), junk, "при ошибке файл не изменен");
+            assert_eq!(fs::read(&p).unwrap(), junk, "on error the file is unchanged");
         }
     }
 }
@@ -182,13 +182,13 @@ fn broken_shortcuts_vdf() {
     // Any truncated piece is an error, not a crash and not an "empty list" (otherwise when adding
     // a shortcut we would rewrite the file without the old shortcuts).
     for n in 0..bytes.len() {
-        assert!(crate::shortcuts::parse(&bytes[..n]).is_err(), "обрезано до {n} байт");
+        assert!(crate::shortcuts::parse(&bytes[..n]).is_err(), "cut to {n} bytes");
     }
     let t = TempDir::new("shortcuts");
     let p = t.file("shortcuts.vdf", &bytes[..bytes.len() / 2]);
     assert!(crate::shortcuts::read(&p).is_err());
     assert!(crate::shortcuts::add(&p, "Новая", "\"C:\\new.exe\"", "").is_err());
-    assert_eq!(fs::read(&p).unwrap(), &bytes[..bytes.len() / 2], "испорченный файл не переписан");
+    assert_eq!(fs::read(&p).unwrap(), &bytes[..bytes.len() / 2], "a broken file is not rewritten");
 }
 
 fn zip_with(files: &[(&str, &[u8])]) -> Vec<u8> {
@@ -243,14 +243,14 @@ fn broken_update_archive() {
         x
     };
     for (what, data) in [
-        ("мусор", b"garbage".to_vec()),
-        ("пусто", Vec::new()),
-        ("нет exe", zip_with(&[("README.md", b"hi")])),
-        ("не программа", zip_with(&[("vaporust.exe", b"text, not a program")])),
-        ("другая разрядность", zip_with(&[("vaporust.exe", &other_arch)])),
+        ("garbage", b"garbage".to_vec()),
+        ("empty", Vec::new()),
+        ("no exe", zip_with(&[("README.md", b"hi")])),
+        ("not a program", zip_with(&[("vaporust.exe", b"text, not a program")])),
+        ("other bitness", zip_with(&[("vaporust.exe", &other_arch)])),
     ] {
         assert!(crate::updater::replace_exe(&exe, &data).is_err(), "{what}");
-        assert_eq!(fs::read(&exe).unwrap(), b"current version", "{what}: программа не тронута");
+        assert_eq!(fs::read(&exe).unwrap(), b"current version", "{what}: the program is untouched");
         assert!(!exe.with_extension("exe.old").exists(), "{what}");
     }
     // A real exe of our bitness is installed.
@@ -272,7 +272,7 @@ fn staging_conflict_keeps_files() {
     fs::write(st.join("common").join("Game").join("data.bin"), b"old").unwrap();
     assert!(crate::local::to_staging(&lib, 60).is_err());
     assert_eq!(fs::read(lib.join("steamapps/common/Game/data.bin")).unwrap(), b"new");
-    assert!(lib.join("steamapps/appmanifest_60.acf").exists(), "appmanifest на месте");
+    assert!(lib.join("steamapps/appmanifest_60.acf").exists(), "appmanifest is in place");
     // Moving back when the library already has such a folder - also refused without losses.
     fs::write(st.join("appmanifest_60.acf"), acf).unwrap();
     assert!(crate::local::unstage(&lib, 60).is_err());
@@ -295,7 +295,7 @@ fn restore_is_all_or_nothing() {
         &zip_with(&[("files/0_a.sav", b"A-old"), ("vaporust_backup.txt", manifest.as_bytes())]),
     );
     assert!(crate::backup::restore(&z).is_err());
-    assert_eq!(fs::read(&a).unwrap(), b"A-now", "первый файл не тронут");
+    assert_eq!(fs::read(&a).unwrap(), b"A-now", "the first file is untouched");
     assert_eq!(fs::read(&b).unwrap(), b"B-now");
     // A folder in place of the second file (unreadable): refused BEFORE writing, the first is untouched.
     let blocked = t.0.join("save").join("dir.sav");
@@ -320,9 +320,9 @@ fn restore_is_all_or_nothing() {
     );
     let e = crate::backup::restore(&z).unwrap_err();
     assert!(e.contains("возвращены как были"), "{e}");
-    assert_eq!(fs::read(&a).unwrap(), b"A-now", "откат первого файла");
+    assert_eq!(fs::read(&a).unwrap(), b"A-now", "the first file is rolled back");
     assert_eq!(fs::read(&ro).unwrap(), b"RO-now");
-    assert!(!t.0.join("save").join("a.sav.vaporust-tmp").exists(), "временных файлов не осталось");
+    assert!(!t.0.join("save").join("a.sav.vaporust-tmp").exists(), "no temporary files left");
     // A new file that did not exist before is deleted on rollback.
     let fresh = t.0.join("save").join("new.sav");
     let manifest = format!("0_n.sav\t{}\n1_r.sav\t{}\n", fresh.display(), ro.display());
@@ -357,7 +357,7 @@ fn restore_keeps_unreadable_file() {
     let e = crate::backup::restore(&z).unwrap_err();
     drop(lock);
     assert!(e.contains("Ничего не восстановлено"), "{e}");
-    assert_eq!(fs::read(&a).unwrap(), b"A-now", "файл на месте и не изменен");
+    assert_eq!(fs::read(&a).unwrap(), b"A-now", "the file is in place and unchanged");
 }
 
 #[test]
@@ -372,7 +372,7 @@ fn backups_in_one_second_do_not_overwrite() {
     let (z3, _) = crate::backup::backup_to(&dir, &[save.clone()]).unwrap();
     assert!(z1 != z2 && z2 != z3 && z1 != z3, "{z1:?} {z2:?} {z3:?}");
     crate::backup::restore(&z1).unwrap();
-    assert_eq!(fs::read(&save).unwrap(), b"first", "первая копия не затерта второй");
+    assert_eq!(fs::read(&save).unwrap(), b"first", "the first copy is not overwritten by the second");
     crate::backup::restore(&z2).unwrap();
     assert_eq!(fs::read(&save).unwrap(), b"second");
 }

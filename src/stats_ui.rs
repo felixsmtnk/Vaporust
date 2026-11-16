@@ -405,11 +405,11 @@ mod tests {
     fn records_deltas() {
         let mut h = History::default();
         assert!(record(&mut h, "2026-11-13", &[(70, 600), (10, 0)]));
-        assert!(h.days.is_empty(), "первый раз - только запоминаем");
+        assert!(h.days.is_empty(), "the first time - only remember");
         assert!(!record(&mut h, "2026-11-13", &[(70, 600), (10, 0)]));
         assert!(record(&mut h, "2026-11-13", &[(70, 660), (10, 0), (20, 300)]));
         assert_eq!(h.days["2026-11-13"].get(&70), Some(&60));
-        assert_eq!(h.days["2026-11-13"].get(&20), None, "новая игра не считается сыгранной сегодня");
+        assert_eq!(h.days["2026-11-13"].get(&20), None, "a new game is not counted as played today");
         record(&mut h, "2026-11-14", &[(70, 700), (20, 330)]);
         let today = chrono::NaiveDate::from_ymd_opt(2026, 11, 14).unwrap();
         let d = per_day(&h, today, 3);
@@ -421,10 +421,10 @@ mod tests {
     fn legacy_file_owner() {
         let mut h = History::default();
         record(&mut h, "2026-11-13", &[(70, 10), (10, 5), (20, 1), (30, 0), (40, 0)]);
-        assert!(adopt_legacy(&h, &[(70, 12), (10, 5), (20, 1), (30, 0), (40, 0), (50, 3)]), "все игры свои, время не убыло");
-        assert!(adopt_legacy(&h, &[(70, 10), (10, 5), (20, 1), (30, 0)]), "4 из 5 = 80%");
-        assert!(!adopt_legacy(&h, &[(70, 10), (10, 5), (99, 1)]), "чужой аккаунт");
-        assert!(!adopt_legacy(&h, &[(70, 3), (10, 5), (20, 1), (30, 0), (40, 0)]), "время в файле больше нынешнего - файл чужой");
-        assert!(!adopt_legacy(&History::default(), &[(70, 1)]), "пустой файл");
+        assert!(adopt_legacy(&h, &[(70, 12), (10, 5), (20, 1), (30, 0), (40, 0), (50, 3)]), "all games are ours, time did not decrease");
+        assert!(adopt_legacy(&h, &[(70, 10), (10, 5), (20, 1), (30, 0)]), "4 of 5 = 80%");
+        assert!(!adopt_legacy(&h, &[(70, 10), (10, 5), (99, 1)]), "another account");
+        assert!(!adopt_legacy(&h, &[(70, 3), (10, 5), (20, 1), (30, 0), (40, 0)]), "the file has more time than now - another account's file");
+        assert!(!adopt_legacy(&History::default(), &[(70, 1)]), "empty file");
     }
 }

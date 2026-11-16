@@ -2807,7 +2807,7 @@ mod limit_live {
                         cfg.download_limit_kbit = l2;
                         cfg.save().await.unwrap();
                         aurelia::steam_client::set_download_limit_now(l2);
-                        println!("лимит сменен: {last} байт за 8 с");
+                        println!("limit changed: {last} bytes in 8 s");
                         mark = Some((t0.elapsed().as_secs_f64(), last));
                     }
                 }
@@ -2817,9 +2817,9 @@ mod limit_live {
                     Err(_) => {}
                 }
             }
-            println!("progress bytes: {last} за {:.1} с", t0.elapsed().as_secs_f64());
+            println!("progress bytes: {last} in {:.1} s", t0.elapsed().as_secs_f64());
             if let Some((t, b)) = mark {
-                println!("после смены: {:.2} МБ/с", (last - b) as f64 / 1e6 / (t0.elapsed().as_secs_f64() - t));
+                println!("after the change: {:.2} MB/s", (last - b) as f64 / 1e6 / (t0.elapsed().as_secs_f64() - t));
             }
             abort.store(true, Ordering::Relaxed);
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -2839,12 +2839,12 @@ mod family_live {
             c.restore_session().await.unwrap();
             match c.fetch_family_shared_apps().await {
                 Ok(v) => {
-                    println!("семейных игр: {}", v.len());
+                    println!("family games: {}", v.len());
                     for a in v.iter().take(40) {
-                        println!("{} {} владелец={}", a.app_id, a.name, a.owner_steamid.is_some());
+                        println!("{} {} owner={}", a.app_id, a.name, a.owner_steamid.is_some());
                     }
                 }
-                Err(e) => println!("ошибка: {e:#}"),
+                Err(e) => println!("error: {e:#}"),
             }
         });
     }
@@ -2993,7 +2993,7 @@ mod update_direct_live {
         let steam = crate::local::find_steam().unwrap();
         assert!(
             !crate::local::scan_games(&steam.dir).iter().any(|g| g.appid == appid),
-            "игра {appid} установлена в Steam - тест ее не трогает"
+            "game {appid} is installed in Steam - the test does not touch it"
         );
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
@@ -3011,7 +3011,7 @@ mod update_direct_live {
                     match p.state {
                         DownloadProgressState::Completed => return true,
                         DownloadProgressState::Failed => {
-                            println!("ошибка: {}", p.current_file);
+                            println!("error: {}", p.current_file);
                             return false;
                         }
                         _ => {}
@@ -3026,7 +3026,7 @@ mod update_direct_live {
                     ..Default::default()
                 };
                 let rx = c.install_game(appid, DepotPlatform::Windows, opts, st).await.unwrap();
-                assert!(drain(rx).await, "установка не удалась");
+                assert!(drain(rx).await, "the install failed");
             }
             // "Old" version + what Aurelia loses when rewriting.
             let real_versions = crate::local::installed_depots(&acf);
@@ -3044,11 +3044,11 @@ mod update_direct_live {
             let ok = drain(rx).await;
             super::merge_after_update(&acf, &original, ok).unwrap();
             let after = std::fs::read_to_string(&acf).unwrap();
-            println!("обновление: {ok}, {:.1} с\n{after}", t.elapsed().as_secs_f32());
+            println!("update: {ok}, {:.1} s\n{after}", t.elapsed().as_secs_f32());
             assert!(ok);
-            assert_eq!(crate::local::installed_depots(&acf), real_versions, "версии не обновились");
-            assert!(after.contains("\"language\"\t\t\"russian\""), "язык потерян");
-            assert!(after.contains("SharedDepots"), "SharedDepots потеряны");
+            assert_eq!(crate::local::installed_depots(&acf), real_versions, "versions not updated");
+            assert!(after.contains("\"language\"\t\t\"russian\""), "language lost");
+            assert!(after.contains("SharedDepots"), "SharedDepots lost");
             assert!(after.contains("\"StateFlags\"\t\t\"4\""));
         });
     }
@@ -3082,7 +3082,7 @@ mod small_games_live {
             }
             out.sort();
             for (s, id, n) in out.iter().take(10) {
-                println!("{id} {n}: {} МБ", s / 1_000_000);
+                println!("{id} {n}: {} MB", s / 1_000_000);
             }
         });
     }
@@ -3190,7 +3190,7 @@ pub async fn switch_language(
         // As Steam does: delete old-language files that are not in the game's remaining depots
         // (shared ones included). If some list could not be obtained - delete nothing.
         if let Err(e) = remove_language_files(c, appid, acf, &library, &installed, &shared, &edit.remove_installed).await {
-            eprintln!("файлы старого языка не удалены: {e}");
+            eprintln!("old language files not removed: {e}");
         }
         local::edit_depot_lists(acf, &local::DepotEdit { remove_installed: edit.remove_installed.clone(), ..Default::default() })?;
         text = std::fs::read_to_string(acf).map_err(|e| trf!("Не удалось прочитать файл игры: {e}", "Could not read the game file: {e}"))?;
@@ -3245,7 +3245,7 @@ mod language_live {
         use aurelia::core::models::{DepotPlatform, DownloadProgressState, DownloadState};
         let appid = 60u32;
         let steam = crate::local::find_steam().unwrap();
-        assert!(!crate::local::scan_games(&steam.dir).iter().any(|g| g.appid == appid), "Ricochet установлена в Steam");
+        assert!(!crate::local::scan_games(&steam.dir).iter().any(|g| g.appid == appid), "Ricochet is installed in Steam");
         let root = std::path::PathBuf::from(std::env::var("VAPORUST_DUMP").unwrap());
         let (cfg_dir, lib) = (root.join("cfg"), root.join("lib"));
         std::fs::create_dir_all(&cfg_dir).unwrap();
@@ -3280,7 +3280,7 @@ mod language_live {
                         break;
                     }
                 }
-                assert!(ok, "установка не удалась");
+                assert!(ok, "the install failed");
                 crate::local::set_user_config(&acf, "language", "english").unwrap();
                 crate::local::set_mounted_config(&acf, "language", "english").unwrap();
             }
@@ -3298,16 +3298,16 @@ mod language_live {
             let before = count(&dir);
             super::switch_language(&c, appid, &acf, "french", &abort, &shared, &ctx).await.unwrap();
             let fr = std::fs::read_to_string(&acf).unwrap();
-            println!("--- french, файлов {} -> {}\n{fr}", before, count(&dir));
-            assert!(crate::local::installed_depots(&acf).contains_key(&62), "62 не установлено");
+            println!("--- french, files {} -> {}\n{fr}", before, count(&dir));
+            assert!(crate::local::installed_depots(&acf).contains_key(&62), "62 not installed");
             assert_eq!(crate::local::shared_depots(&acf).get(&72), Some(&70));
             let i = crate::local::read_acf(&acf);
             assert_eq!((i.user_language.as_str(), i.mounted_language.as_str(), i.state_flags), ("french", "french", 4));
             super::switch_language(&c, appid, &acf, "english", &abort, &shared, &ctx).await.unwrap();
             let en = std::fs::read_to_string(&acf).unwrap();
             let after = count(&dir);
-            println!("--- english, файлов {after}\n{en}");
-            assert_eq!(after, before, "файлы французского не удалены");
+            println!("--- english, files {after}\n{en}");
+            assert_eq!(after, before, "French files not removed");
             assert!(!crate::local::installed_depots(&acf).contains_key(&62));
             assert!(!crate::local::shared_depots(&acf).contains_key(&72));
             let i = crate::local::read_acf(&acf);
@@ -3399,7 +3399,7 @@ mod installed_langs_live {
                 if !own.is_empty() || shared > 0 {
                     let acf = crate::local::read_acf(&crate::local::appmanifest_path(g));
                     println!(
-                        "{} ({}, {} МБ): свои языки {:?}, общих {}; сейчас язык «{}»",
+                        "{} ({}, {} MB): own languages {:?}, shared {}; current language \"{}\"",
                         g.name, g.appid, g.size / 1_000_000, own, shared, acf.mounted_language
                     );
                 }
@@ -3432,11 +3432,11 @@ mod offline_live {
             let r = c.restore_session().await;
             let cached = aurelia::core::config::load_library_cache().await.unwrap_or_default();
             if let Err(e) = &r {
-                println!("Vaporust считает это сетью: {}", super::network_failure(e).await);
+                println!("Vaporust treats this as a network problem: {}", super::network_failure(e).await);
             }
             println!(
-                "вход: {}; вид ошибки: {:?}; офлайн: {}; игр в кэше: {}; {:.1} с",
-                r.as_ref().map(|_| "удался".to_string()).unwrap_or_else(|e| format!("ошибка ({e:#})")),
+                "login: {}; error kind: {:?}; offline: {}; cached games: {}; {:.1} s",
+                r.as_ref().map(|_| "ok".to_string()).unwrap_or_else(|e| format!("error ({e:#})")),
                 r.as_ref().err().map(|e| aurelia::core::error::classify(e).kind),
                 c.is_offline(),
                 cached.len(),
@@ -3479,12 +3479,12 @@ mod ach_live {
             c.restore_session().await.unwrap();
             let mine = c.fetch_achievements(550, "russian").await.unwrap();
             let icons = mine.iter().filter(|a| !a.icon_unlocked.is_empty()).count();
-            println!("мои: {} из {}, иконок {icons}", mine.iter().filter(|a| a.unlocked).count(), mine.len());
+            println!("mine: {} of {}, icons {icons}", mine.iter().filter(|a| a.unlocked).count(), mine.len());
             let friends = c.collect_friends(std::time::Duration::from_secs(5)).await.unwrap();
             for f in friends.iter().filter(|f| (f.relationship == 3 && (f.steam_id >> 52) & 0xF == 1)).take(6) {
                 match c.fetch_achievements_for(550, "russian", f.steam_id).await {
-                    Ok(v) => println!("друг: {} из {}", v.iter().filter(|a| a.unlocked).count(), v.len()),
-                    Err(e) => println!("друг: ошибка {e:#}"),
+                    Ok(v) => println!("friend: {} of {}", v.iter().filter(|a| a.unlocked).count(), v.len()),
+                    Err(e) => println!("friend: error {e:#}"),
                 }
             }
         });
@@ -3618,11 +3618,11 @@ mod shared_uninstall_live {
         let appid: u32 = std::env::var("VAPORUST_APP").ok().and_then(|v| v.parse().ok()).unwrap_or(10);
         let steam = crate::local::find_steam().unwrap();
         let games = crate::local::scan_games(&steam.dir);
-        let me = games.iter().find(|g| g.appid == appid).expect("игра не установлена");
+        let me = games.iter().find(|g| g.appid == appid).expect("the game is not installed");
         let dir = me.dir.to_string_lossy().to_lowercase();
         let others: Vec<u32> =
             games.iter().filter(|g| g.appid != appid && g.dir.to_string_lossy().to_lowercase() == dir).map(|g| g.appid).collect();
-        println!("{} ({appid}), соседи: {others:?}", me.name);
+        println!("{} ({appid}), neighbours: {others:?}", me.name);
         let steamapps = me.dir.parent().unwrap().parent().unwrap().to_path_buf();
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
@@ -3633,7 +3633,7 @@ mod shared_uninstall_live {
             for f in &list {
                 *tops.entry(f.split(['/', '\\']).next().unwrap_or("").to_lowercase()).or_default() += 1;
             }
-            println!("удалилось бы файлов: {}; по верхним папкам: {tops:?}", list.len());
+            println!("files that would be removed: {}; by top folders: {tops:?}", list.len());
         });
     }
 }
@@ -3658,19 +3658,19 @@ mod session_tests {
             let (st2, ctx2) = (st.clone(), ctx.clone());
             let old = spawn_session(async move {
                 let _ = rx.await; // a "long request" of the old account
-                upd(&st2, &ctx2, |s| s.message = "старый аккаунт".into());
+                upd(&st2, &ctx2, |s| s.message = "old account".into());
             });
             // While the request was running, another account logged in.
             SESSION_GEN.fetch_add(1, Ordering::Relaxed);
             let _ = tx.send(());
             old.await.unwrap();
-            assert!(st.lock().unwrap().message.is_empty(), "ответ прошлого входа отброшен");
+            assert!(st.lock().unwrap().message.is_empty(), "an answer from the previous login is dropped");
             let (st3, ctx3) = (st.clone(), ctx.clone());
-            spawn_session(async move { upd(&st3, &ctx3, |s| s.message = "новый".into()) }).await.unwrap();
-            assert_eq!(st.lock().unwrap().message, "новый");
+            spawn_session(async move { upd(&st3, &ctx3, |s| s.message = "new".into()) }).await.unwrap();
+            assert_eq!(st.lock().unwrap().message, "new");
         });
-        upd(&st, &ctx, |s| s.message = "вне задач".into());
-        assert_eq!(st.lock().unwrap().message, "вне задач");
+        upd(&st, &ctx, |s| s.message = "outside tasks".into());
+        assert_eq!(st.lock().unwrap().message, "outside tasks");
     }
 
     /// QA-03: a subtask started from a login task also counts as that login's task - even if
@@ -3687,12 +3687,12 @@ mod session_tests {
             let parent = spawn_session(async move {
                 let _ = rx.await;
                 // The subtask is created after the login switch.
-                spawn_session(async move { upd(&st2, &ctx2, |s| s.message = "ответ подзадачи".into()) }).await.unwrap();
+                spawn_session(async move { upd(&st2, &ctx2, |s| s.message = "subtask answer".into()) }).await.unwrap();
             });
             SESSION_GEN.fetch_add(1, Ordering::Relaxed);
             let _ = tx.send(());
             parent.await.unwrap();
-            assert!(st.lock().unwrap().message.is_empty(), "подзадача прошлого входа ничего не записала");
+            assert!(st.lock().unwrap().message.is_empty(), "a subtask of the previous login wrote nothing");
         });
     }
 }
@@ -3708,28 +3708,28 @@ mod merge_tests {
     /// A late history response does not remove a message sent while it was loading.
     #[test]
     fn late_history_keeps_new_lines() {
-        let history = vec![l(false, "привет", 1000), l(true, "как дела", 1010)];
-        let current = vec![l(true, "как дела", 1012), l(true, "новое", 1100)];
+        let history = vec![l(false, "hi", 1000), l(true, "how are you", 1010)];
+        let current = vec![l(true, "how are you", 1012), l(true, "new", 1100)];
         let m = merge_history(history, current);
         let texts: Vec<&str> = m.iter().map(|x| x.text.as_str()).collect();
-        assert_eq!(texts, vec!["привет", "как дела", "новое"], "без дублей, новое на месте");
+        assert_eq!(texts, vec!["hi", "how are you", "new"], "no duplicates, the new line is kept");
         // Old lines that are not in the history (long ago) are not added.
-        let m = merge_history(vec![l(false, "a", 5000)], vec![l(false, "старое", 100)]);
+        let m = merge_history(vec![l(false, "a", 5000)], vec![l(false, "old", 100)]);
         assert_eq!(m.len(), 1);
     }
 
     /// Two identical messages in a row are two messages: a history line covers only one.
     #[test]
     fn same_text_twice_is_not_dup() {
-        let current = vec![l(true, "да", 1000), l(true, "да", 1060)];
-        assert_eq!(merge_history(vec![l(false, "привет", 990)], current.clone()).len(), 3);
-        assert_eq!(merge_history(vec![l(true, "да", 1000)], current).len(), 2);
+        let current = vec![l(true, "yes", 1000), l(true, "yes", 1060)];
+        assert_eq!(merge_history(vec![l(false, "hi", 990)], current.clone()).len(), 3);
+        assert_eq!(merge_history(vec![l(true, "yes", 1000)], current).len(), 2);
     }
 
     /// A new "yes" sent while the history (with an older "yes" a minute ago) was loading stays on screen.
     #[test]
     fn new_message_not_swallowed_by_older_same_text() {
-        let merged = merge_history(vec![l(true, "да", 1000)], vec![l(true, "да", 1060)]);
+        let merged = merge_history(vec![l(true, "yes", 1000)], vec![l(true, "yes", 1060)]);
         assert_eq!(merged.iter().map(|m| m.time).collect::<Vec<_>>(), vec![1000, 1060]);
     }
 
@@ -3743,18 +3743,18 @@ mod merge_tests {
     fn quick_repeats_with_server_ids() {
         for from_self in [true, false] {
             // History has "yes" at 1000; on screen only the new "yes" at 1001 (arrived after the request).
-            let m = merge_history(vec![x(from_self, "да", 1000, 0)], vec![x(from_self, "да", 1001, 0)]);
-            assert_eq!(m.len(), 2, "через секунду");
+            let m = merge_history(vec![x(from_self, "yes", 1000, 0)], vec![x(from_self, "yes", 1001, 0)]);
+            assert_eq!(m.len(), 2, "one second later");
             // Same second, next ordinal.
-            let m = merge_history(vec![x(from_self, "да", 1000, 0)], vec![x(from_self, "да", 1000, 1)]);
-            assert_eq!(m.len(), 2, "в ту же секунду");
+            let m = merge_history(vec![x(from_self, "yes", 1000, 0)], vec![x(from_self, "yes", 1000, 1)]);
+            assert_eq!(m.len(), 2, "in the same second");
             assert_eq!(m.iter().map(|l| l.ordinal).collect::<Vec<_>>(), vec![0, 1]);
             // The same message seen twice is one line.
-            let m = merge_history(vec![x(from_self, "да", 1000, 1)], vec![x(from_self, "да", 1000, 1)]);
-            assert_eq!(m.len(), 1, "то же сообщение");
+            let m = merge_history(vec![x(from_self, "yes", 1000, 1)], vec![x(from_self, "yes", 1000, 1)]);
+            assert_eq!(m.len(), 1, "the same message");
             // Server rewrote the text (sticker command): still one message by its identity.
             let m = merge_history(vec![x(from_self, "[sticker]", 1000, 0)], vec![x(from_self, "/sticker A", 1000, 0)]);
-            assert_eq!(m.len(), 1, "текст изменен сервером");
+            assert_eq!(m.len(), 1, "text changed by the server");
         }
     }
 }

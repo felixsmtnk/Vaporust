@@ -191,7 +191,7 @@ mod tests {
             let p = load_days(&c, me, 0, 20).await.unwrap();
             let days: std::collections::BTreeSet<&str> = p.entries.iter().map(|e| e.day.as_str()).collect();
             println!(
-                "событий {}, дней {}, с игрой {}, с картинками {}, дальше {}",
+                "events {}, days {}, with a game {}, with images {}, next {}",
                 p.entries.len(),
                 days.len(),
                 p.entries.iter().filter(|e| e.appid.is_some()).count(),
@@ -199,7 +199,7 @@ mod tests {
                 p.next.is_some()
             );
             for e in p.entries.iter().filter(|e| !e.images.is_empty()).take(3) {
-                println!("КРУПНОЕ: {}", e.text.chars().take(140).collect::<String>());
+                println!("LARGE: {}", e.text.chars().take(140).collect::<String>());
             }
             assert!(!p.entries.is_empty());
         });

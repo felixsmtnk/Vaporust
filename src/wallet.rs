@@ -74,9 +74,9 @@ mod tests {
             let mut c = aurelia::steam_client::SteamClient::new().unwrap();
             c.restore_session().await.unwrap();
             let rows = super::load(&c).await.unwrap();
-            println!("строк: {}", rows.len());
+            println!("rows: {}", rows.len());
             if let Some(r) = rows.first() {
-                println!("первая: дата '{}', тип '{}', есть сумма {}", r.date, r.kind, !r.total.is_empty());
+                println!("first: date '{}', kind '{}', has total {}", r.date, r.kind, !r.total.is_empty());
             }
         });
     }

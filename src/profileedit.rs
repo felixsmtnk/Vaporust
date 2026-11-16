@@ -401,7 +401,7 @@ mod live {
             let mut c = aurelia::steam_client::SteamClient::new().unwrap();
             c.restore_session().await.unwrap();
             let e = super::load(&c).await.unwrap();
-            println!("имя есть: {}, о себе: {} знаков, аватар: {}, приватность профиля: {}", !e.persona.is_empty(), e.summary.chars().count(), !e.avatar_hash.is_empty(), e.privacy.profile);
+            println!("has name: {}, summary: {} chars, avatar: {}, profile privacy: {}", !e.persona.is_empty(), e.summary.chars().count(), !e.avatar_hash.is_empty(), e.privacy.profile);
         });
     }
 }

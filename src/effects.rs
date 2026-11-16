@@ -907,7 +907,7 @@ mod live {
                 }
                 std::thread::sleep(std::time::Duration::from_millis(33));
             }
-            println!("{n}: {} картинок, {frames} кадров, {:.1} с", e.assets.tex.len(), t0.elapsed().as_secs_f32());
+            println!("{n}: {} images, {frames} frames, {:.1} s", e.assets.tex.len(), t0.elapsed().as_secs_f32());
         }
     }
 }
@@ -968,7 +968,7 @@ mod confetti_check {
                 .sum::<usize>();
             std::thread::sleep(std::time::Duration::from_millis(500));
         }
-        println!("треугольников: {tris}");
-        assert!(tris >= 100, "конфетти не рисуется: {tris}");
+        println!("triangles: {tris}");
+        assert!(tris >= 100, "confetti is not drawn: {tris}");
     }
 }

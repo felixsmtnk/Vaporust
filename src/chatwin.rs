@@ -749,11 +749,11 @@ mod history_live {
                 let oldest = first.iter().min_by_key(|m| (m.timestamp, m.ordinal)).unwrap();
                 let (older, more2) = c.chat_history(f.steam_id, 50, Some((oldest.timestamp, oldest.ordinal))).await.unwrap();
                 let newest_older = older.iter().map(|m| (m.timestamp, m.ordinal)).max();
-                println!("первая порция {}, еще {}, следующая {} (все старше: {}), еще {}", first.len(), more, older.len(), newest_older.is_some_and(|n| n < (oldest.timestamp, oldest.ordinal)), more2);
+                println!("first batch {}, more {}, next {} (all older: {}), more {}", first.len(), more, older.len(), newest_older.is_some_and(|n| n < (oldest.timestamp, oldest.ordinal)), more2);
                 assert!(!older.is_empty());
                 return;
             }
-            println!("нет переписки длиннее 50 сообщений");
+            println!("no conversation longer than 50 messages");
         });
     }
 }

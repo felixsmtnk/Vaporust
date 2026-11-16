@@ -553,12 +553,12 @@ mod tests {
             let mut c = SteamClient::new().unwrap();
             c.restore_session().await.unwrap();
             let topics = load_topics(&c, 550, 1).await.unwrap();
-            println!("тем: {}, закрепленных {}, с ответами {}", topics.len(), topics.iter().filter(|t| t.sticky).count(), topics.iter().filter(|t| t.replies > 0).count());
+            println!("topics: {}, pinned {}, with replies {}", topics.len(), topics.iter().filter(|t| t.sticky).count(), topics.iter().filter(|t| t.replies > 0).count());
             assert!(topics.iter().all(|t| !t.title.is_empty() && t.url.starts_with("https://")));
             let t = topics.iter().filter(|t| !t.sticky).max_by_key(|t| t.replies).unwrap();
             let v = load_topic(&c, &t.url).await.unwrap();
             println!(
-                "тема: заголовок {}, автор {}, текст {} знаков, ответов {} (загружено {}), можно ответить {}, ветка {}",
+                "topic: title {}, author {}, text {} chars, replies {} (loaded {}), can reply {}, thread {}",
                 !v.title.is_empty(),
                 !v.author.is_empty(),
                 v.items.len(),
@@ -568,9 +568,9 @@ mod tests {
                 !v.owner.is_empty() && !v.extended.is_empty()
             );
             let g = load_guides(&c, 550, "").await.unwrap();
-            println!("руководств: {}, первое с оценками {}", g.len(), g.first().map_or(0, |x| x.votes_up));
+            println!("guides: {}, first with votes {}", g.len(), g.first().map_or(0, |x| x.votes_up));
             let s = load_guides(&c, 550, "achievement").await.unwrap();
-            println!("поиск руководств: {}", s.len());
+            println!("guide search: {}", s.len());
         });
     }
 }
@@ -589,7 +589,7 @@ mod guide_live {
             let g = super::load_guides(&c, 550, "").await.unwrap();
             let v = super::load_guide(&c, g[0].id).await.unwrap();
             let imgs: usize = v.sections.iter().map(|s| s.1.iter().filter(|i| matches!(i, crate::richtext::Item::Image(_))).count()).sum();
-            println!("руководство «{}»: разделов {}, картинок {}", v.title, v.sections.len(), imgs);
+            println!("guide \"{}\": sections {}, images {}", v.title, v.sections.len(), imgs);
             assert!(!v.sections.is_empty());
         });
     }

@@ -231,7 +231,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join("shortcuts.vdf");
         assert!(add(&p, "Игра", r"C:\Games\Игра\game.exe", "-x").unwrap());
-        assert!(!add(&p, "Игра", r"c:\games\игра\GAME.exe", "").unwrap(), "дубль не добавляется");
+        assert!(!add(&p, "Игра", r"c:\games\игра\GAME.exe", "").unwrap(), "a duplicate is not added");
         assert!(add(&p, "Вторая", r"C:\B\b.exe", "").unwrap());
         let v = read(&p).unwrap();
         assert_eq!(v.len(), 2);
@@ -252,7 +252,7 @@ mod tests {
         let steam = crate::local::find_steam().unwrap();
         let p = path(&steam.dir).unwrap();
         let b = std::fs::read(&p).unwrap();
-        assert_eq!(write(&parse(&b).unwrap()), b, "запись без изменений должна совпасть байт в байт");
+        assert_eq!(write(&parse(&b).unwrap()), b, "writing without changes must match byte for byte");
         for s in read(&p).unwrap() {
             println!("{} | {} | {}", s.name, s.exe, s.start_dir);
         }

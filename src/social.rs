@@ -260,7 +260,7 @@ mod nick_live {
             let nick = list.iter().filter(|f| f.nickname.is_some()).count();
             let game = list.iter().filter(|f| f.game_app_id.is_some()).count();
             let rich: Vec<&str> = list.iter().filter_map(|f| f.rich_status.as_deref()).collect();
-            println!("друзей {}, с ником {nick}, в игре {game}, с подробным статусом {}: {:?}", list.len(), rich.len(), rich);
+            println!("friends {}, with a nickname {nick}, in game {game}, with rich status {}: {:?}", list.len(), rich.len(), rich);
         });
     }
 }

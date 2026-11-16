@@ -471,33 +471,33 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let cur = super::curators_for_app(70).await.unwrap();
-            println!("кураторов с обзором HL: {}", cur.len());
+            println!("curators reviewing HL: {}", cur.len());
             for c in cur.iter().take(3) {
                 println!("  {} [{}] {}", c.name, c.state, c.blurb.chars().take(60).collect::<String>());
             }
             let mut c = aurelia::steam_client::SteamClient::new().unwrap();
             c.restore_session().await.unwrap();
             let colls = super::ws_collections(&c, 550, "").await.unwrap();
-            println!("коллекций L4D2: {}", colls.len());
+            println!("L4D2 collections: {}", colls.len());
             if let Some(f) = colls.first() {
                 let items = super::ws_collection_items(f.id).await.unwrap();
-                println!("  «{}»: модов {} (в списке {}), подписчиков {}, картинка {}", f.title, items.len(), f.items, f.subscriptions, !f.preview.is_empty());
+                println!("  \"{}\": mods {} (listed {}), subscribers {}, image {}", f.title, items.len(), f.items, f.subscriptions, !f.preview.is_empty());
             }
             match super::cart_get(&c, "UA").await {
-                Ok(cart) => println!("корзина: строк {}, итого {}", cart.lines.len(), cart.total),
-                Err(e) => println!("корзина: ошибка {e}"),
+                Ok(cart) => println!("cart: lines {}, total {}", cart.lines.len(), cart.total),
+                Err(e) => println!("cart: error {e}"),
             }
             match super::award_config(&c).await {
-                Ok(a) => println!("наград: {} (первые {:?})", a.len(), a.iter().take(4).collect::<Vec<_>>()),
-                Err(e) => println!("награды: ошибка {e}"),
+                Ok(a) => println!("awards: {} (first {:?})", a.len(), a.iter().take(4).collect::<Vec<_>>()),
+                Err(e) => println!("awards: error {e}"),
             }
             match super::app_packages(70, "UA").await {
-                Ok(p) => println!("пакеты HL: {:?}", p.iter().take(3).collect::<Vec<_>>()),
-                Err(e) => println!("пакеты: ошибка {e}"),
+                Ok(p) => println!("HL packages: {:?}", p.iter().take(3).collect::<Vec<_>>()),
+                Err(e) => println!("packages: error {e}"),
             }
             match super::review_load(&c, 70).await {
-                Ok(r) => println!("свой обзор HL: {}", r.map_or("нет".into(), |r| format!("{} знаков, up {}", r.text.len(), r.up))),
-                Err(e) => println!("обзор: ошибка {e}"),
+                Ok(r) => println!("own HL review: {}", r.map_or("none".into(), |r| format!("{} chars, up {}", r.text.len(), r.up))),
+                Err(e) => println!("review: error {e}"),
             }
         });
     }
@@ -522,7 +522,7 @@ mod dump {
             .unwrap();
             let f = &v["publishedfiledetails"][0];
             let keys: Vec<String> = f.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
-            println!("ключи: {keys:?}");
+            println!("keys: {keys:?}");
             println!("subscriptions={} lifetime={} preview_url={} file_url={}", f["subscriptions"], f["lifetime_subscriptions"], f["preview_url"], f["file_url"]);
         });
     }
@@ -543,7 +543,7 @@ mod cart_dump {
                 println!("{cc}: {}", v.map(|v| v.to_string().chars().take(700).collect::<String>()).unwrap_or_else(|e| e));
             }
             let w = crate::webapi::get(&c, "IWishlistService/GetWishlist/v1", &[("steamid", c.my_steam_id().unwrap().to_string())]).await;
-            let w = w.unwrap(); let items = w["items"].as_array().unwrap(); let mut ranked: Vec<(u64,u64)> = items.iter().map(|i| (i["priority"].as_u64().unwrap_or(0), i["appid"].as_u64().unwrap_or(0))).filter(|p| p.0 > 0).collect(); ranked.sort(); println!("wishlist: всего {}, с приоритетом {}, первые {:?}", items.len(), ranked.len(), ranked.iter().take(5).collect::<Vec<_>>());
+            let w = w.unwrap(); let items = w["items"].as_array().unwrap(); let mut ranked: Vec<(u64,u64)> = items.iter().map(|i| (i["priority"].as_u64().unwrap_or(0), i["appid"].as_u64().unwrap_or(0))).filter(|p| p.0 > 0).collect(); ranked.sort(); println!("wishlist: total {}, with priority {}, first {:?}", items.len(), ranked.len(), ranked.iter().take(5).collect::<Vec<_>>());
         });
     }
 }
@@ -560,7 +560,7 @@ mod cart_live {
             c.restore_session().await.unwrap();
             let me = c.my_steam_id().unwrap();
             let wl = crate::store::wishlist_ranked(&c, me).await.unwrap();
-            println!("желаемое по порядку Steam, первые: {:?}", wl.iter().take(3).collect::<Vec<_>>());
+            println!("wishlist in Steam order, first: {:?}", wl.iter().take(3).collect::<Vec<_>>());
             let mut pkg = None;
             for a in wl.iter().take(15) {
                 if let Ok(p) = super::app_packages(*a, "UA").await {
@@ -570,18 +570,18 @@ mod cart_live {
                     }
                 }
             }
-            let pkg = pkg.expect("пакет");
+            let pkg = pkg.expect("package");
             let r = super::cart_add(&c, pkg, "UA").await;
-            println!("добавить {pkg}: {r:?}");
+            println!("add {pkg}: {r:?}");
             let cart = super::cart_get(&c, "UA").await.unwrap();
-            println!("в корзине строк: {} итого {}", cart.lines.len(), cart.total);
+            println!("cart lines: {} total {}", cart.lines.len(), cart.total);
             for l in &cart.lines {
                 if l.packageid == pkg {
-                    println!("убрать: {:?}", super::cart_remove(&c, l.line_id, "UA").await);
+                    println!("remove: {:?}", super::cart_remove(&c, l.line_id, "UA").await);
                 }
             }
             let cart = super::cart_get(&c, "UA").await.unwrap();
-            println!("после: строк {}", cart.lines.len());
+            println!("after: lines {}", cart.lines.len());
         });
     }
 }

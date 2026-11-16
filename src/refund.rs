@@ -127,7 +127,7 @@ mod tests {
         assert_eq!(v.len(), 2);
         assert_eq!(v[0].name, "CHAOS;HEAD NOAH - COSTUME DLC");
         assert_eq!(v[1].method, "Steam Store");
-        assert!(find("CHAOS;HEAD NOAH", &v).is_none(), "DLC - не сама игра");
+        assert!(find("CHAOS;HEAD NOAH", &v).is_none(), "DLC is not the game itself");
         let lic = License { date: v[1].date, name: "Hollow Knight Game of the Year Edition".into(), method: "Steam Store".into() };
         assert!(find("Hollow Knight", &[lic.clone()]).is_some());
         assert!(hint(&lic, 30, lic.date + 3 * 86_400).unwrap().contains("3 дн."));
@@ -144,10 +144,10 @@ mod tests {
             c.restore_session().await.unwrap();
             let v = load(&c).await.unwrap();
             let store = v.iter().filter(|l| l.method == "Steam Store").count();
-            println!("лицензий {}, куплено в магазине {}", v.len(), store);
+            println!("licenses {}, bought in the store {}", v.len(), store);
             let owned = c.fetch_owned_games().await.unwrap();
             let matched = owned.iter().filter(|g| find(&g.name, &v).is_some()).count();
-            println!("игр с найденной датой покупки: {matched} из {}", owned.len());
+            println!("games with a found purchase date: {matched} of {}", owned.len());
             assert!(!v.is_empty());
         });
     }

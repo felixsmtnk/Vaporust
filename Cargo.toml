@@ -2,27 +2,27 @@
 name = "vaporust"
 version = "0.8.2-alpha"
 edition = "2021"
-description = "Лёгкий клиент-лаунчер Steam для Windows (Rust + egui), построенный на Aurelia"
+description = "A lightweight Steam client and launcher for Windows (Rust + egui), built on Aurelia"
 license = "GPL-3.0-or-later"
 
 [dependencies]
 eframe = { version = "0.29", features = ["persistence"] }
 serde = { version = "1", features = ["derive"] }
-# Разбор списка игр с инвентарём на странице steamcommunity (та же версия, что у Aurelia).
+# CRC32 for non-Steam game shortcut ids in shortcuts.vdf (the same version as in Aurelia).
 crc32fast = "1.5"
 zip = "2.2.2"
 sha2 = "0.10"
 serde_json = "1"
-anyhow = "1" # тип ошибок Aurelia (разбор: нет сети или отказ во входе)
-# Системный идентификатор окна (для мигания в панели задач и трея).
+anyhow = "1" # Aurelia error type (to tell "no network" from "login refused")
+# Native window handle (taskbar flashing and the tray).
 raw-window-handle = "0.6"
-# Иконка в области уведомлений (трей).
+# Notification area (tray) icon.
 tray-icon = { version = "0.21", default-features = false }
-# Картинки, смайлики и стикеры в чате: загрузка по http и декодирование.
+# Images, emoticons and stickers in chat: loading and decoding.
 egui_extras = { version = "0.29", default-features = false, features = ["file", "image", "gif"] }
-# Картинка из буфера обмена по Ctrl+V (та же версия, что внутри egui).
+# Image from the clipboard on Ctrl+V (the same version as inside egui).
 arboard = "3"
-# Скачивание обложек, которых нет в кэше Steam (та же версия, что внутри egui_extras).
+# Downloads covers missing from the Steam cache (the same version as inside egui_extras).
 ehttp = "0.5"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 aurelia = { package = "aurelia-steam", path = "vendor/aurelia" }
@@ -39,11 +39,11 @@ winreg = "0.52"
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_Storage_FileSystem", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_Media_Audio", "Win32_UI_Shell", "Win32_System_Memory", "Win32_Security", "Win32_System_LibraryLoader", "Win32_Graphics_Gdi", "Win32_Media_Multimedia"] }
 
 [build-dependencies]
-# Значок exe (ресурс Windows из assets/vaporust.rc).
+# Exe icon and version info (a Windows resource generated in build.rs).
 embed-resource = "2"
 
 [dev-dependencies]
-# Только для живых тестов протокола (те же версии, что у Aurelia).
+# Only for live protocol tests (the same versions as in Aurelia).
 steam-vent = { package = "aurelia-steam-vent", version = "0.7.2" }
 steam-vent-proto = "=0.5.2"
 
