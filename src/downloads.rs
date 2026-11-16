@@ -201,8 +201,8 @@ impl LauncherApp {
         sample(net, &self.settings.downloads);
         let label = self.downloads_label(net);
         let on = self.view == View::Downloads;
-        let text = egui::RichText::new(label).size(13.0).color(if on { egui::Color32::WHITE } else { theme::TEXT });
-        let resp = ui.add(egui::Button::new(text).frame(false)).on_hover_cursor(egui::CursorIcon::PointingHand);
+        // The same button as "Add a game" and "Friends and chat" (theme::bar_button), without an icon.
+        let resp = theme::bar_button(ui, &label, None, None, on);
         if let Some(i) = net.install.as_ref().filter(|i| i.result.is_none() && i.total > 0) {
             let frac = (i.done as f32 / i.total as f32).clamp(0.0, 1.0);
             let r = resp.rect;

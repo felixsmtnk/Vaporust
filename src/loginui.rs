@@ -20,12 +20,12 @@ fn sz(normal: f32, compact: f32) -> f32 {
 }
 
 /// A small blue caption above a field ("LOGIN"), like in the Steam login window.
-fn caption(ui: &mut egui::Ui, text: &str) {
+pub(crate) fn caption(ui: &mut egui::Ui, text: &str) {
     ui.label(egui::RichText::new(text).size(11.5).strong().color(theme::ACCENT));
 }
 
 /// A text field in the program's style: a dark plate without a frame, full width.
-fn field(ui: &mut egui::Ui, text: &mut String, password: bool, hint: &str) -> egui::Response {
+pub(crate) fn field(ui: &mut egui::Ui, text: &mut String, password: bool, hint: &str) -> egui::Response {
     let w = ui.available_width();
     let mut out = None;
     egui::Frame::none().fill(theme::CARD).rounding(4.0).inner_margin(egui::Margin::symmetric(10.0, 0.0)).show(ui, |ui| {

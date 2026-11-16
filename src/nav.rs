@@ -25,29 +25,35 @@ pub fn section_of(v: View) -> Option<Section> {
     })
 }
 
-/// Large top bar item (turns white on hover, the selected one is light blue with an underline).
+/// A text menu item drawn by hand: the text lights up smoothly on hover, the underline grows from
+/// the middle (on hover - dim, for the selected item - full and blue).
+fn nav_text(ui: &mut egui::Ui, on: bool, text: &str, size: f32, rest: egui::Color32, line: f32) -> egui::Response {
+    let font = egui::FontId::proportional(size);
+    let galley = ui.painter().layout_no_wrap(text.to_string(), font, egui::Color32::WHITE);
+    let pad = egui::vec2(6.0, 4.0);
+    let (rect, resp) = ui.allocate_exact_size(galley.size() + pad * 2.0, egui::Sense::click());
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    let t = ui.ctx().animate_bool_with_time(resp.id, resp.hovered(), 0.12);
+    let color = if on { theme::ACCENT } else { theme::lerp_color(rest, egui::Color32::WHITE, t) };
+    ui.painter().galley_with_override_text_color(rect.min + pad, galley, color);
+    let u = if on { 1.0 } else { t * 0.6 };
+    if u > 0.01 {
+        let half = (rect.width() / 2.0 - pad.x) * u;
+        let y = rect.bottom() + 1.0;
+        let c = if on { theme::ACCENT } else { theme::lerp_color(theme::TOP, theme::WEAK, t) };
+        ui.painter().line_segment([egui::pos2(rect.center().x - half, y), egui::pos2(rect.center().x + half, y)], egui::Stroke::new(line, c));
+    }
+    resp
+}
+
+/// Large top bar item (STORE, LIBRARY...).
 pub(crate) fn top_item(ui: &mut egui::Ui, on: bool, text: &str) -> egui::Response {
-    let mut t = egui::RichText::new(text).size(15.0).strong();
-    if on {
-        t = t.color(theme::ACCENT);
-    }
-    let r = ui.add(egui::Button::new(t).frame(false)).on_hover_cursor(egui::CursorIcon::PointingHand);
-    if on {
-        let y = r.rect.bottom() + 2.0;
-        ui.painter().line_segment([egui::pos2(r.rect.left() + 4.0, y), egui::pos2(r.rect.right() - 4.0, y)], egui::Stroke::new(2.0, theme::ACCENT));
-    }
-    r
+    nav_text(ui, on, text, 16.5, theme::TEXT, 2.0)
 }
 
 /// Submenu item.
 fn sub_item(ui: &mut egui::Ui, on: bool, text: &str) -> egui::Response {
-    let t = egui::RichText::new(text).size(13.5).color(if on { egui::Color32::WHITE } else { theme::WEAK });
-    let r = ui.add(egui::Button::new(t).frame(false)).on_hover_cursor(egui::CursorIcon::PointingHand);
-    if on {
-        let y = r.rect.bottom() + 1.0;
-        ui.painter().line_segment([egui::pos2(r.rect.left() + 4.0, y), egui::pos2(r.rect.right() - 4.0, y)], egui::Stroke::new(1.5, theme::ACCENT));
-    }
-    r
+    nav_text(ui, on, text, 14.0, theme::WEAK, 1.5)
 }
 
 impl LauncherApp {

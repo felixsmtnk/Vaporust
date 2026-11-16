@@ -302,7 +302,7 @@ fn restore_last_point(steam_dir: &std::path::Path, points: &std::path::Path) -> 
 
 impl LauncherApp {
     /// Switch to an account (folder) and restart Vaporust.
-    fn switch_account(&mut self, dir: String) {
+    pub(crate) fn switch_account(&mut self, dir: String) {
         let mut a = load();
         let login = a.list.iter().find(|e| e.dir == dir).map(|e| e.login.clone()).unwrap_or_default();
         a.active = dir;

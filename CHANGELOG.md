@@ -5,6 +5,18 @@
 What went into each released version, newest first. Plans for the future are in
 [ROADMAP.md](ROADMAP.md), archives and full release notes are on the [Releases](../../releases) page.
 
+## ✅ 0.8.4-alpha: one style
+
+*Released 2026-11-16.* The library, settings and windows in the style of the new sign-in screen.
+
+- Buttons, lists and fields across the program are dark plates with a soft hover, as on the sign-in screen.
+- Larger top menu with a smooth hover and a growing underline; "Add a game", "Downloads" and
+  "Friends and chat" share one animated button style with drawn icons.
+- Library: "Home" with an icon and a blue marker, search with a magnifier. Settings: sections like
+  the library column, groups on plates, quieter names. The key activation window is restyled.
+- Without login: "Sign in" opens a menu of saved accounts (no password needed); key activation is
+  shown only after sign-in.
+
 ## ✅ 0.8.3-alpha: new sign-in and accounts
 
 *Released 2026-11-16.* A new sign-in screen and first-run wizard, reliable account switching.

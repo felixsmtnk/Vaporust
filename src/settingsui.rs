@@ -43,15 +43,15 @@ fn card(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
         return;
     }
     if first {
-        ui.label(egui::RichText::new(title).size(20.0).strong());
+        ui.label(egui::RichText::new(title).size(22.0).strong().color(egui::Color32::WHITE));
         ui.add_space(12.0);
-    } else {
-        ui.add_space(6.0);
-        ui.separator();
-        ui.add_space(6.0);
     }
-    add(ui);
-    ui.add_space(8.0);
+    // Each group of settings is a plate, like the cards of the sign-in page.
+    egui::Frame::none().fill(crate::theme::SIDEBAR).rounding(6.0).inner_margin(egui::Margin::same(14.0)).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        add(ui);
+    });
+    ui.add_space(10.0);
 }
 
 /// A "name - value" row.
@@ -59,7 +59,11 @@ pub(crate) fn row(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui
     let lw = label_w(ui);
     // Values (scale buttons and the like) that do not fit wrap to the next line.
     ui.horizontal(|ui| {
-        ui.add_sized([lw, 22.0], egui::Label::new(egui::RichText::new(label).strong()).wrap().halign(egui::Align::LEFT));
+        // The name on the left of its column, quieter than the value (add_sized would center it).
+        ui.allocate_ui_with_layout(egui::vec2(lw, 22.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            ui.set_width(lw);
+            ui.add(egui::Label::new(egui::RichText::new(label).color(crate::theme::WEAK)).wrap());
+        });
         // Wrapping happens inside the values column, not under the name.
         ui.horizontal_wrapped(|ui| add(ui));
     });
@@ -148,19 +152,21 @@ impl LauncherApp {
         // Sections on the left (as in Steam settings), the selected section on the right.
         let current = SECTIONS().get(self.settings_section as usize).copied().unwrap_or(SECTIONS()[0]);
         CURRENT.with(|c| *c.borrow_mut() = (current.to_string(), Vec::new()));
-        egui::SidePanel::left("settings_sections").resizable(false).exact_width(170.0).show_inside(ui, |ui| {
-            ui.add_space(8.0);
-            ui.label(egui::RichText::new(tr!("Настройки", "Settings")).size(20.0).strong());
-            ui.add_space(10.0);
+        // The section list - like the library's left column: a side panel with plates and a blue marker.
+        let side = egui::Frame::none().fill(crate::theme::SIDEBAR).inner_margin(egui::Margin::symmetric(8.0, 10.0));
+        egui::SidePanel::left("settings_sections").resizable(false).exact_width(190.0).frame(side).show_inside(ui, |ui| {
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new(tr!("Настройки", "Settings")).size(20.0).strong().color(egui::Color32::WHITE));
+            ui.add_space(12.0);
+            ui.spacing_mut().item_spacing.y = 2.0;
             for (i, s) in SECTIONS().iter().enumerate() {
-                let sel = self.settings_section as usize == i;
-                let text = if sel { egui::RichText::new(*s).strong() } else { egui::RichText::new(*s) };
-                if ui.add_sized([150.0, 26.0], egui::SelectableLabel::new(sel, text)).clicked() {
+                if crate::theme::side_item(ui, self.settings_section as usize == i, s, None).clicked() {
                     self.settings_section = i as u8;
                 }
             }
         });
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        let main = egui::Frame::none().fill(crate::theme::BG).inner_margin(egui::Margin { left: 22.0, right: 14.0, top: 10.0, bottom: 0.0 });
+        egui::CentralPanel::default().frame(main).show_inside(ui, |ui| {
         egui::ScrollArea::vertical().id_salt(("settings", self.settings_section)).auto_shrink([false, false]).show(ui, |ui| {
             ui.add_space(8.0);
             // Not wider than the visible area: otherwise explanations wrap at 820 px and get cut off on the right.

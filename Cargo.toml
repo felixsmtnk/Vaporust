@@ -1,6 +1,6 @@
 [package]
 name = "vaporust"
-version = "0.8.3-alpha"
+version = "0.8.4-alpha"
 edition = "2021"
 description = "A lightweight Steam client and launcher for Windows (Rust + egui), built on Aurelia"
 license = "GPL-3.0-or-later"

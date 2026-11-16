@@ -10,14 +10,14 @@ const STEPS: usize = 4;
 /// A small picture drawn on a choice card.
 type Pic = fn(&egui::Painter, egui::Rect, egui::Color32);
 
-/// Grid picture: covers in two rows.
+/// Grid picture: a row of tall covers, as in the library.
 fn pic_grid(p: &egui::Painter, r: egui::Rect, c: egui::Color32) {
-    let (w, h) = ((r.width() - 3.0 * 4.0) / 4.0, (r.height() - 4.0) / 2.0);
-    for row in 0..2 {
-        for col in 0..4 {
-            let min = r.min + egui::vec2(col as f32 * (w + 4.0), row as f32 * (h + 4.0));
-            p.rect_filled(egui::Rect::from_min_size(min, egui::vec2(w, h)), 2.0, c);
-        }
+    let h = r.height();
+    let w = (h * 0.67).round();
+    let n = ((r.width() + 5.0) / (w + 5.0)).floor().max(1.0) as usize;
+    for col in 0..n {
+        let min = r.min + egui::vec2(col as f32 * (w + 5.0), 0.0);
+        p.rect_filled(egui::Rect::from_min_size(min, egui::vec2(w, h)), 2.0, c);
     }
 }
 
@@ -63,6 +63,10 @@ fn switch_row(ui: &mut egui::Ui, on: &mut bool, enabled: bool, title: &str, desc
             ui.vertical(|ui| {
                 ui.set_width(text_w);
                 let c = if enabled { egui::Color32::WHITE } else { theme::WEAK };
+                if desc.is_empty() {
+                    // A title alone - on the switch's line, not above it.
+                    ui.add_space(2.0);
+                }
                 ui.label(egui::RichText::new(title).strong().color(c));
                 if !desc.is_empty() {
                     ui.label(egui::RichText::new(desc).size(12.0).color(theme::WEAK));

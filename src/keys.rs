@@ -142,32 +142,42 @@ impl LauncherApp {
             crate::socialwin::viewport(tr!("Активировать ключ - Vaporust", "Activate a key - Vaporust"), [520.0, 340.0], [420.0, 300.0]),
             |ctx, _| {
                 crate::winframe::title_bar_auto(ctx);
-                egui::CentralPanel::default().show(ctx, |ui| {
-                    ui.label(egui::RichText::new(tr!("Введите ключ активации", "Enter the activation key")).size(18.0).strong());
+                // The same look as the sign-in page: a title, blue captions, a dark field and a big blue button.
+                let frame = egui::Frame::none().fill(crate::theme::SIDEBAR).inner_margin(egui::Margin::symmetric(24.0, 18.0));
+                egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
+                    ui.label(egui::RichText::new(tr!("Активировать продукт", "Activate a product")).size(22.0).strong().color(egui::Color32::WHITE));
+                    ui.label(
+                        egui::RichText::new(tr!(
+                            "Ключ добавит игру или дополнение в вашу библиотеку Steam. Подойдет ключ с коробки, из магазина или бандла.",
+                            "The key adds a game or DLC to your Steam library. A key from a box, a store or a bundle works."
+                        ))
+                        .color(crate::theme::WEAK),
+                    );
+                    ui.add_space(14.0);
+                    crate::loginui::caption(ui, tr!("КЛЮЧ ПРОДУКТА", "PRODUCT KEY"));
+                    let valid = looks_like_key(&input);
+                    let edit = crate::loginui::field(ui, &mut input, false, "AAAAA-BBBBB-CCCCC");
                     ui.add_space(4.0);
                     ui.label(
-                        tr!("Ключ добавит продукт в вашу библиотеку Steam. Подойдет ключ с коробки, \
-                         из магазина или бандла.", "The key adds a product to your Steam library. A key from a box, a store or a bundle works."),
+                        egui::RichText::new(tr!(
+                            "Например: AAAAA-BBBBB-CCCCC, AAAAA-BBBBB-CCCCC-DDDDD-EEEEE или 237ABCDGHJLPRST 23",
+                            "For example: AAAAA-BBBBB-CCCCC, AAAAA-BBBBB-CCCCC-DDDDD-EEEEE or 237ABCDGHJLPRST 23"
+                        ))
+                        .size(12.0)
+                        .color(crate::theme::WEAK),
                     );
-                    ui.add_space(8.0);
-                    ui.label(egui::RichText::new(tr!("ПРИМЕРЫ КЛЮЧЕЙ АКТИВАЦИИ", "PRODUCT KEY EXAMPLES")).size(11.0).strong().color(crate::theme::WEAK));
-                    for ex in ["AAAAA-BBBBB-CCCCC", "AAAAA-BBBBB-CCCCC-DDDDD-EEEEE", "237ABCDGHJLPRST 23"] {
-                        ui.label(egui::RichText::new(ex).monospace().color(crate::theme::WEAK));
+                    ui.add_space(12.0);
+                    let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    let ok = !net.key_busy && valid && net.account.is_some();
+                    let w = ui.available_width();
+                    let b = egui::Button::new(egui::RichText::new(tr!("Активировать", "Activate")).size(15.0).strong().color(egui::Color32::WHITE))
+                        .fill(crate::theme::ACCENT)
+                        .rounding(4.0)
+                        .min_size(egui::vec2(w, 36.0));
+                    if ui.add_enabled(ok, b).clicked() || (enter && ok) {
+                        send = Some(normalize(&input));
                     }
-                    ui.add_space(8.0);
-                    let valid = looks_like_key(&input);
-                    ui.horizontal(|ui| {
-                        let edit = ui.add(
-                            egui::TextEdit::singleline(&mut input)
-                                .desired_width(ui.available_width() - 110.0)
-                                .hint_text("AAAAA-BBBBB-CCCCC"),
-                        );
-                        let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                        let ok = !net.key_busy && valid && net.account.is_some();
-                        if ui.add_enabled(ok, egui::Button::new(tr!("Активировать", "Activate"))).clicked() || (enter && ok) {
-                            send = Some(normalize(&input));
-                        }
-                    });
+                    ui.add_space(6.0);
                     if !input.trim().is_empty() && !valid {
                         ui.colored_label(
                             egui::Color32::from_rgb(230, 170, 90),

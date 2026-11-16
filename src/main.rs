@@ -1613,7 +1613,8 @@ impl LauncherApp {
         // No count: the search covers all library games (own, family, non-Steam), and the count
         // of "own" ones (228) next to the "All games (345)" title was confusing.
         let hint = tr!("Поиск по названию", "Search by name");
-        ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text(hint).desired_width(if toolbar { 220.0 } else { f32::INFINITY }));
+        let w = if toolbar { 220.0 } else { ui.available_width() };
+        theme::search_field(ui, &mut self.filter, hint, w);
                     // Steam collections (right click on a game - add to a collection).
                     if let Some(colls) = net.collections.as_ref() {
                         let current = self
@@ -1789,9 +1790,7 @@ impl LauncherApp {
     fn library_sidebar(&mut self, ui: &mut egui::Ui, net: &NetState, rows: &[Row], vc: &libview::Ctx) -> Option<libview::Action> {
         let mut out = None;
         let home = self.lib_page.is_none();
-        let text = egui::RichText::new(tr!("Главная", "Home")).size(14.0).strong().color(if home { egui::Color32::WHITE } else { theme::TEXT });
-        let fill = if home { theme::CARD } else { egui::Color32::TRANSPARENT };
-        if ui.add_sized([ui.available_width(), 28.0], egui::Button::new(text).fill(fill)).clicked() {
+        if theme::side_item(ui, home, tr!("Главная", "Home"), Some(theme::icon_home)).clicked() {
             self.lib_page = None;
         }
         ui.add_space(4.0);
@@ -1849,14 +1848,49 @@ impl LauncherApp {
                     "Установленные игры из файлов Steam, запуск через Steam. Пароль Steam в Vaporust не вводится.",
                     "Installed games from Steam files, launched through Steam. The Steam password is not entered in Vaporust."
                 ));
+                // "Sign in": a menu of the saved accounts (their login is remembered, no password needed)
+                // and "Another account...".
                 let b = egui::Button::new(egui::RichText::new(tr!("Войти в аккаунт", "Sign in")).color(egui::Color32::WHITE)).fill(theme::ACCENT).rounding(3.0);
-                if ui
+                let resp = ui
                     .add(b)
-                    .on_hover_text(tr!("Включит магазин, друзей и чат, загрузку и обновление игр без Steam", "Turns on the store, friends and chat, game downloads and updates without Steam"))
-                    .clicked()
-                {
-                    self.settings.local_mode = false;
-                    let _ = self.tx.send(Cmd::Restore);
+                    .on_hover_text(tr!("Включит магазин, друзей и чат, загрузку и обновление игр без Steam", "Turns on the store, friends and chat, game downloads and updates without Steam"));
+                let menu_id = ui.make_persistent_id("signin_menu");
+                if resp.clicked() {
+                    ui.memory_mut(|m| m.toggle_popup(menu_id));
+                }
+                let mut pick: Option<Option<String>> = None; // Some(Some(dir)) - an account, Some(None) - another one
+                egui::popup::popup_below_widget(ui, menu_id, &resp, egui::PopupCloseBehavior::CloseOnClick, |ui| {
+                    ui.set_min_width(240.0);
+                    let saved = accounts::load();
+                    for e in saved.list.iter().filter(|e| !e.login.is_empty()) {
+                        let title = if e.name.is_empty() { e.login.clone() } else { format!("{} ({})", e.name, e.login) };
+                        if ui.button(crate::richtext::fix(ui, &title)).on_hover_text(tr!("Вход сохранен, пароль не нужен", "The login is saved, no password needed")).clicked() {
+                            pick = Some(Some(e.dir.clone()));
+                        }
+                    }
+                    if saved.list.iter().any(|e| !e.login.is_empty()) {
+                        ui.separator();
+                    }
+                    if ui.button(tr!("Другой аккаунт...", "Another account...")).clicked() {
+                        pick = Some(None);
+                    }
+                });
+                match pick {
+                    Some(Some(dir)) => {
+                        self.settings.local_mode = false;
+                        if dir == accounts::load().active {
+                            let _ = self.tx.send(Cmd::Restore);
+                        } else {
+                            self.switch_account(dir);
+                        }
+                    }
+                    Some(None) => {
+                        self.settings.local_mode = false;
+                        let mut s = self.net.lock().unwrap();
+                        s.need_login = true;
+                        s.message.clear();
+                    }
+                    None => {}
                 }
             });
         } else if net.offline {
@@ -2506,12 +2540,17 @@ impl eframe::App for LauncherApp {
                 ui.add_space(2.0);
                 let full = ui.max_rect();
                 let row = ui.horizontal(|ui| {
-                    // On the left, as in Steam - "Add a game".
-                    ui.menu_button(egui::RichText::new(tr!("+ Добавить игру", "+ Add a game")).size(13.0), |ui| {
+                    // On the left, as in Steam - "Add a game" (a menu that opens upwards).
+                    let add_id = ui.make_persistent_id("add_game_menu");
+                    let open = ui.memory(|m| m.is_popup_open(add_id));
+                    let add = theme::bar_button(ui, tr!("Добавить игру", "Add a game"), Some(theme::icon_plus), None, open);
+                    if add.clicked() {
+                        ui.memory_mut(|m| m.toggle_popup(add_id));
+                    }
+                    egui::popup::popup_above_or_below_widget(ui, add_id, &add, egui::AboveOrBelow::Above, egui::PopupCloseBehavior::CloseOnClick, |ui| {
                         ui.set_min_width(220.0);
                         if ui.button(tr!("Добавить стороннюю игру...", "Add a non-Steam game...")).on_hover_text(tr!("Игра или программа не из Steam", "A game or program not from Steam")).clicked() {
                             self.custom_edit = Some(custom::Edit { to_steam: self.settings.custom_to_steam, ..Default::default() });
-                            ui.close_menu();
                         }
                         if ui
                             .button(tr!("Взять сторонние игры из Steam", "Import non-Steam games from Steam"))
@@ -2519,13 +2558,14 @@ impl eframe::App for LauncherApp {
                             .clicked()
                         {
                             self.import_steam_shortcuts();
-                            ui.close_menu();
                         }
-                        if ui.button(tr!("Активировать в Steam...", "Activate on Steam...")).on_hover_text(tr!("Ключ продукта Steam: игра, дополнение, набор", "Steam product key: a game, DLC, bundle")).clicked() {
+                        // A key is activated on Steam's servers for the signed-in account.
+                        if net.account.is_some()
+                            && ui.button(tr!("Активировать в Steam...", "Activate on Steam...")).on_hover_text(tr!("Ключ продукта Steam: игра, дополнение, набор", "Steam product key: a game, DLC, bundle")).clicked()
+                        {
                             self.key_input = Some(String::new());
                             self.key_refreshed = false;
                             self.net.lock().unwrap().key_result = None;
-                            ui.close_menu();
                         }
                     });
                     // On the right, as in Steam - "Friends and chat".
@@ -2533,7 +2573,9 @@ impl eframe::App for LauncherApp {
                         let unread: u32 = net.chats.values().map(|c| c.unread).sum();
                         let label = if unread > 0 { trf!("Друзья и чат ({unread})", "Friends and chat ({unread})") } else { tr!("Друзья и чат", "Friends and chat").to_string() };
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.toggle_value(&mut self.show_friends, label);
+                            if theme::bar_button(ui, &label, None, Some(theme::icon_friends), self.show_friends).clicked() {
+                                self.show_friends = !self.show_friends;
+                            }
                         });
                     }
                 }).response.rect;
