@@ -57,12 +57,12 @@ the time you play.
 
 |   | Regular Steam | **Vaporust** |
 |---|---|---|
-| Memory when idle* | hundreds of MB | **30-80 MB** |
+| Memory when idle* | hundreds of MB | **30-80 MB** for Vaporust itself; Steam is not running |
 | While playing | client + steamwebhelper | Steam in the background: steamwebhelper is frozen and paged out, the rest is 10-20 MB |
 | Installing and updating games | through the client | **without starting Steam** |
 | Changing language and beta | through the client | **without starting Steam** |
 | Launching games | Steam | through a hidden Steam; DRM-free games - without Steam at all |
-| Password | required | **optional**: QR login or "Without login" mode |
+| Login | password or QR code | password or QR code; **"Without login" mode** runs installed games with no login in Vaporust at all |
 | Open source | no | yes, GPL-3.0 |
 
 \* By the "Memory" column of the Windows Task Manager (private working set). Other counters

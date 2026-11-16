@@ -165,7 +165,7 @@ impl LauncherApp {
             ui.add_space(8.0);
             // Not wider than the visible area: otherwise explanations wrap at 820 px and get cut off on the right.
             ui.set_max_width(ui.available_width().min(820.0));
-            if current == tr!("Аккаунт", "Account") && net.account.is_none() {
+            if self.settings_section == 0 && net.account.is_none() {
                 ui.label(egui::RichText::new(tr!("Аккаунт", "Account")).size(20.0).strong());
                 ui.weak(tr!("Войдите в аккаунт Steam, чтобы увидеть сведения о нем.", "Log in to your Steam account to see its details."));
             }

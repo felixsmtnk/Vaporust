@@ -5,6 +5,15 @@
 What went into each released version, newest first. Plans for the future are in
 [ROADMAP.md](ROADMAP.md), archives and full release notes are on the [Releases](../../releases) page.
 
+## 🔧 Coming in the next version
+
+- Switching the interface language during a download no longer breaks the download schedule or the
+  "download complete" handling (the kind of operation is no longer recognised by its text).
+- A new chat message identical to an older one (for example "yes") no longer disappears when the
+  history loads at the same moment.
+- Reviews open in the interface language by default; friends playing now are grouped under
+  "IN GAME"; the Vaporust update button says "Update".
+
 ## ✅ 0.8.0-alpha: in English, lighter
 
 *Released 2026-11-16.* The whole interface in English, light mode for weak PCs, a weekly check of Steam pages.

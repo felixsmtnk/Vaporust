@@ -777,10 +777,16 @@ pub fn REVIEW_SORTS() -> [(&'static str, &'static str); 8] {
 /// Review languages: (Steam code, name).
 #[allow(non_snake_case)]
 pub fn REVIEW_LANGS() -> [(&'static str, &'static str); 13] {
+    // The first entry (the default) is the interface language.
+    let (first, third) = if crate::lang::en() {
+        (("english", "English"), ("russian", "Russian"))
+    } else {
+        (("russian", "На русском"), ("english", "Английский"))
+    };
     [
-    ("russian", tr!("На русском", "In Russian")),
+    first,
     ("all", tr!("На всех языках", "All languages")),
-    ("english", tr!("Английский", "English")),
+    third,
     ("ukrainian", tr!("Украинский", "Ukrainian")),
     ("german", tr!("Немецкий", "German")),
     ("french", tr!("Французский", "French")),
@@ -806,7 +812,7 @@ async fn fetch_reviews(
 ) -> Result<(Vec<Review>, Option<String>), String> {
     let http = aurelia::core::net::steam_web_client().map_err(err)?;
     let filter = REVIEW_SORTS().get(sort as usize).map_or("toprated", |s| s.0);
-    let lang = REVIEW_LANGS().get(lang as usize).map_or("russian", |l| l.0);
+    let lang = REVIEW_LANGS().get(lang as usize).map_or(crate::lang::steam(), |l| l.0);
     let p = page.max(1);
     let cursor = match (p, cursor) {
         (1, _) => String::new(),

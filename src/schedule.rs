@@ -63,7 +63,7 @@ impl LauncherApp {
         }
         // Outside the window: the running install is paused, but not marked as paused in the queue, so
         // it resumes by itself when the window starts.
-        if let Some(inst) = net.install.as_ref().filter(|i| i.active() && i.done_text == tr!("установлена.", "installed.")) {
+        if let Some(inst) = net.install.as_ref().filter(|i| i.active() && i.download) {
             inst.abort.store(true, std::sync::atomic::Ordering::Relaxed);
             self.settings.downloads.retain(|q| q.appid != inst.appid);
             self.settings.downloads.insert(

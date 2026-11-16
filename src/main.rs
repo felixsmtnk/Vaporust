@@ -1352,7 +1352,7 @@ impl LauncherApp {
         };
         let mut toggle_group: Option<u8> = None;
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            for (gid, gname) in [(3u8, tr!("ИЗБРАННЫЕ", "FAVORITES")), (0, tr!("В ИГРЕ", "PLAYED")), (1, tr!("В СЕТИ", "ONLINE")), (2, tr!("НЕ В СЕТИ", "OFFLINE"))] {
+            for (gid, gname) in [(3u8, tr!("ИЗБРАННЫЕ", "FAVORITES")), (0, tr!("В ИГРЕ", "IN GAME")), (1, tr!("В СЕТИ", "ONLINE")), (2, tr!("НЕ В СЕТИ", "OFFLINE"))] {
             let members: Vec<&(u64, String, u32, Option<String>, u32)> = list
                 .iter()
                 .filter(|f| group_of(f) == gid)
@@ -2823,7 +2823,7 @@ impl eframe::App for LauncherApp {
         tray::set_download(
             net.install
                 .as_ref()
-                .filter(|i| i.result.is_none() && i.total > 0 && i.done_text == tr!("установлена.", "installed."))
+                .filter(|i| i.result.is_none() && i.total > 0 && i.download)
                 .map(|i| (i.name.clone(), i.done as f32 / i.total as f32)),
         );
         self.zoom_tick(ctx);

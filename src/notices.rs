@@ -166,7 +166,7 @@ impl LauncherApp {
         let staged = self.settings.staged.contains_key(&i.appid) && crate::local::steam_running();
         if before == Some((i.appid, false))
             && finished_ok
-            && i.done_text == tr!("установлена.", "installed.")
+            && i.download
             && self.settings.notify_on
             && (staged || (self.settings.notify_download && !crate::notify::app_focused()))
         {

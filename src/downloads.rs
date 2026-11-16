@@ -85,7 +85,7 @@ fn sample(net: &NetState, queue: &[settings::QueueItem]) {
     };
     // Result of a file operation (uninstall, verify, move) - also as a popup notification:
     // a downloaded game is announced by notices.rs.
-    if i.done_text != tr!("установлена.", "installed.") {
+    if !i.download {
         // The operation name contains the action kind ("Удаление: игра"): only the game goes into the notification.
         let name = [tr!("Смена языка: ", "Language change: "), tr!("Обновление: ", "Update: "), tr!("Проверка файлов: ", "Verifying files: "), tr!("Перенос: ", "Moving: "), tr!("Добавление: ", "Adding: "), tr!("Откат версии: ", "Version rollback: "), tr!("Удаление: ", "Uninstalling: ")]
             .iter()
@@ -104,7 +104,7 @@ fn sample(net: &NetState, queue: &[settings::QueueItem]) {
             appid: i.appid,
             name: i.name.clone(),
             result,
-            install: i.done_text == tr!("установлена.", "installed."),
+            install: i.download,
             when: chrono::Local::now().format("%H:%M").to_string(),
         },
     );
@@ -267,7 +267,7 @@ impl LauncherApp {
                     ui.add_space(18.0);
                     return;
                 };
-                let is_install = inst.done_text == tr!("установлена.", "installed.");
+                let is_install = inst.download;
                 let frac = if inst.total > 0 { (inst.done as f32 / inst.total as f32).clamp(0.0, 1.0) } else { 0.0 };
                 ui.horizontal(|ui| {
                     if !crate::custom::is_custom(inst.appid) {

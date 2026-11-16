@@ -309,6 +309,9 @@ pub struct Install {
     pub abort: Arc<AtomicBool>,
     /// What to show on success ("установлена.", "файлы в порядке."...).
     pub done_text: String,
+    /// A game download (install or resume), not another file operation: the schedule,
+    /// the queue and notifications rely on it. Not derived from the text - it is translated.
+    pub download: bool,
 }
 
 impl Install {
@@ -719,6 +722,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                     result: None,
                     abort: abort.clone(),
                     done_text: tr!("установлена.", "installed.").into(),
+                    download: true,
                 });
             });
             // The install runs in a separate task so other commands do not wait.
@@ -1860,6 +1864,11 @@ async fn secure_session() -> anyhow::Result<bool> {
 /// while the history loaded) are appended. A duplicate is a history line with the same direction,
 /// text and time within 2 minutes; each history line covers only one on-screen
 /// line (two identical "yes" in a row are two messages, not a duplicate).
+/// A history line and a line on screen are the same message only if their times are this close.
+/// Times come from the Steam server (equal for one message); a small margin covers a local fallback
+/// time. A wider window would swallow a new "yes" sent while an older "yes" sits in the history.
+const SAME_MESSAGE_SECS: u64 = 2;
+
 pub(crate) fn merge_history(history: Vec<ChatLine>, current: Vec<ChatLine>) -> Vec<ChatLine> {
     let newest = history.iter().map(|l| l.time).max().unwrap_or(0);
     let hist_len = history.len();
@@ -1870,7 +1879,7 @@ pub(crate) fn merge_history(history: Vec<ChatLine>, current: Vec<ChatLine>) -> V
             continue; // old - already in the history
         }
         let m = (0..hist_len).find(|&i| {
-            !used[i] && out[i].from_self == l.from_self && out[i].text == l.text && out[i].time.abs_diff(l.time) <= 120
+            !used[i] && out[i].from_self == l.from_self && out[i].text == l.text && out[i].time.abs_diff(l.time) <= SAME_MESSAGE_SECS
         });
         match m {
             Some(i) => used[i] = true,
@@ -2509,6 +2518,7 @@ where
             result: None,
             abort: abort.clone(),
             done_text: done_text.into(),
+            download: false,
         });
     });
     let (st, ctx) = (st.clone(), ctx.clone());
@@ -3705,5 +3715,12 @@ mod merge_tests {
         let current = vec![l(true, "да", 1000), l(true, "да", 1060)];
         assert_eq!(merge_history(vec![l(false, "привет", 990)], current.clone()).len(), 3);
         assert_eq!(merge_history(vec![l(true, "да", 1000)], current).len(), 2);
+    }
+
+    /// A new "yes" sent while the history (with an older "yes" a minute ago) was loading stays on screen.
+    #[test]
+    fn new_message_not_swallowed_by_older_same_text() {
+        let merged = merge_history(vec![l(true, "да", 1000)], vec![l(true, "да", 1060)]);
+        assert_eq!(merged.iter().map(|m| m.time).collect::<Vec<_>>(), vec![1000, 1060]);
     }
 }
