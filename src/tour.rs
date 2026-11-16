@@ -30,6 +30,7 @@ impl Tour {
 /// Шаги обхода: имя и сколько секунд ждать загрузки раздела.
 const STEPS: &[(&str, f64)] = &[
     ("library_grid", 4.0),
+    ("library_games", 20.0),
     ("library_list", 3.0),
     ("game_page", 6.0),
     ("downloads", 3.0),
@@ -159,12 +160,15 @@ impl LauncherApp {
             }
         };
         match name {
-            "library_grid" | "library_list" => {
+            "library_grid" | "library_list" | "library_games" => {
+                if name == "library_games" {
+                    crate::libview::TOUR_GRID_ROW.store(1000, std::sync::atomic::Ordering::Relaxed);
+                }
                 self.close_extras(View::Library);
                 self.view = View::Library;
                 self.lib_page = None;
                 self.settings.view =
-                    if name == "library_grid" { crate::settings::View::Grid } else { crate::settings::View::List };
+                    if name != "library_list" { crate::settings::View::Grid } else { crate::settings::View::List };
             }
             "game_page" => {
                 self.settings.view = crate::settings::View::Grid;

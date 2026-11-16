@@ -208,7 +208,14 @@ pub fn grid(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, recent: &
     // Под полкой - разделительная линия: полка и общий список - разные разделы.
     let shelf_h = if recent.is_empty() { 0.0 } else { label_h + row_h + label_h };
     let n_rows = rows.len().div_ceil(cols);
-    egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt("lib_grid").show_viewport(ui, |ui, vp| {
+    // Обход со снимками (tour.rs) может попросить открыть сетку с N-го ряда (хранится N + 1;
+    // большое число - до самого низа, egui ограничит прокрутку концом списка).
+    let tour_row = TOUR_GRID_ROW.swap(0, std::sync::atomic::Ordering::Relaxed);
+    let mut area = egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt("lib_grid");
+    if tour_row > 0 {
+        area = area.vertical_scroll_offset(shelf_h + (tour_row - 1) as f32 * row_h);
+    }
+    area.show_viewport(ui, |ui, vp| {
         let total = shelf_h + n_rows as f32 * row_h;
         ui.set_min_height(total);
         let origin = ui.min_rect().min;
@@ -937,3 +944,6 @@ fn family_text(r: &Row, c: &Ctx) -> String {
         None => "Семейная библиотека Steam".to_string(),
     }
 }
+
+/// Для обхода со снимками: открыть сетку с ряда N (значение N + 1, 0 - не трогать).
+pub static TOUR_GRID_ROW: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
