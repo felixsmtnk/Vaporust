@@ -1158,10 +1158,12 @@ fn game_page(
                 ui.weak(tr!("Отзывов пока мало.", "Not many reviews yet."));
             }
             let rv = ex.and_then(|e| e.reviews.as_ref());
-            let (sort, lang) = rv.map(|r| (r.sort, r.lang)).unwrap_or((0, 0));
+            // Language is a Steam code: a language switch of the interface keeps the chosen reviews.
+            let (sort, lang) = rv.map(|r| (r.sort, r.lang)).unwrap_or((0, crate::lang::steam()));
             if rv.is_none() {
-                // The section was opened - the first page (most helpful of all time, in Russian), as on the site.
-                cmds.push(Cmd::Store(StoreCmd::Reviews { appid, sort: 0, lang: 0, page: 1 }));
+                // The section was opened - the first page (most helpful of all time, in the
+                // interface language), as on the site.
+                cmds.push(Cmd::Store(StoreCmd::Reviews { appid, sort: 0, lang, page: 1 }));
             }
             // Type (all / positive / negative) - a filter over the already loaded ones.
             let type_key = egui::Id::new(("rev_type", appid));
@@ -1176,11 +1178,11 @@ fn game_page(
                         }
                     });
                 egui::ComboBox::from_id_salt(("rev_lang", appid))
-                    .selected_text(store::REVIEW_LANGS()[l2 as usize].1)
+                    .selected_text(store::REVIEW_LANGS().iter().find(|l| l.0 == l2).map_or(l2, |l| l.1))
                     .height(320.0)
                     .show_ui(ui, |ui| {
-                        for (i, (_, label)) in store::REVIEW_LANGS().iter().enumerate() {
-                            ui.selectable_value(&mut l2, i as u8, *label);
+                        for (code, label) in store::REVIEW_LANGS() {
+                            ui.selectable_value(&mut l2, code, label);
                         }
                     });
                 if (r2, l2) != (sort, lang) {

@@ -536,6 +536,7 @@ pub struct SteamClient {
 mod anticheat;
 mod chat;
 mod vaporust_chat; // vaporust: emoticons/stickers and images in chat
+pub use vaporust_chat::{RawChatEvent, RawChatKind, SentChatMessage}; // vaporust
 mod vaporust_media; // vaporust: screenshots in the Steam cloud
 pub use vaporust_media::CloudScreenshot; // vaporust
 mod vaporust_store; // vaporust: store discovery queue

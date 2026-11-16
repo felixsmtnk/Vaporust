@@ -77,3 +77,7 @@
 - `steam_client/market.rs`: `WalletBalance.fee_rules` и `MarketFeeRules` (минимальная цена, шаг цены и комиссии из
   `g_rgWalletInfo`: `wallet_market_minimum`, `wallet_currency_increment`, `wallet_fee_percent`,
   `wallet_publisher_fee_percent_default`), вынесено в `pub use` - для расчета цен площадки как на сайте Steam.
+- `steam_client/vaporust_chat.rs`: `chat_events` (входящие сообщения чата вместе с номером сообщения `ordinal`,
+  который steam-vent-chat отбрасывает) и `send_chat_message_ordered` (отправка с возвратом `ordinal`);
+  наружу - `RawChatEvent`, `RawChatKind`, `SentChatMessage`. Нужно, чтобы различать два одинаковых сообщения,
+  отправленных подряд.

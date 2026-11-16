@@ -154,8 +154,9 @@ impl ChatWin {
         let mut send_image: Option<std::path::PathBuf> = None;
 
         // Bottom part: status, emoticon panel, input field.
-        egui::TopBottomPanel::bottom("chat_input").show(ctx, |ui| {
-            ui.add_space(4.0);
+        egui::TopBottomPanel::bottom("chat_input")
+            .frame(egui::Frame::none().fill(crate::theme::TOP).inner_margin(egui::Margin::symmetric(10.0, 8.0)))
+            .show(ctx, |ui| {
             if conv
                 .typing_at
                 .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(6))
@@ -183,57 +184,103 @@ impl ChatWin {
                 let _ = tx.send(Cmd::LoadChatEffects);
             }
             if self.picker_open {
-                if let Some(msg) = self.picker(ui, net) {
-                    send = Some(msg);
-                }
-                ui.separator();
+                egui::Frame::none().fill(crate::theme::SIDEBAR).rounding(6.0).inner_margin(egui::Margin::same(8.0)).show(ui, |ui| {
+                    if let Some(msg) = self.picker(ui, net) {
+                        send = Some(msg);
+                    }
+                });
+                ui.add_space(6.0);
             }
             // Reply to a message: above the input field - who we reply to (sent as a quote).
             if let Some((who, text)) = self.reply.clone() {
                 ui.horizontal(|ui| {
+                    let (bar, _) = ui.allocate_exact_size(egui::vec2(3.0, 18.0), egui::Sense::hover());
+                    ui.painter().rect_filled(bar, 1.0, crate::theme::ACCENT);
                     ui.label(egui::RichText::new(trf!("Ответ {who}:", "Reply to {who}:")).color(crate::theme::WEAK));
                     let short: String = text.chars().take(60).collect();
                     ui.add(egui::Label::new(egui::RichText::new(short).italics()).truncate());
-                    if ui.small_button("✖").on_hover_text(tr!("Не отвечать", "Cancel reply")).clicked() {
+                    if icon_button(ui, egui::vec2(22.0, 22.0), false, tr!("Не отвечать", "Cancel reply"), draw_cross).clicked() {
                         self.reply = None;
                     }
                 });
+                ui.add_space(4.0);
             }
             ui.horizontal(|ui| {
-                let edit = ui.add(
-                    egui::TextEdit::singleline(&mut self.input)
-                        .hint_text(tr!("Сообщение, Enter - отправить", "Message, Enter - send"))
-                        .desired_width(ui.available_width() - 150.0),
-                );
-                if std::mem::take(&mut self.focus_input) {
-                    edit.request_focus();
+                const H: f32 = 34.0;
+                let send_w = H + 6.0;
+                // The field with the emoticon and picture buttons inside, as in Steam.
+                let field_w = ui.available_width() - send_w;
+                let mut enter = false;
+                let mut edit_resp = None;
+                egui::Frame::none()
+                    .fill(crate::theme::CARD)
+                    .rounding(6.0)
+                    .inner_margin(egui::Margin { left: 10.0, right: 4.0, top: 0.0, bottom: 0.0 })
+                    .show(ui, |ui| {
+                        ui.set_width(field_w - 14.0);
+                        ui.set_height(H);
+                        ui.horizontal_centered(|ui| {
+                            let edit = ui.add(
+                                egui::TextEdit::singleline(&mut self.input)
+                                    .frame(false)
+                                    .hint_text(tr!("Сообщение, Enter - отправить", "Message, Enter - send"))
+                                    .desired_width(ui.available_width() - 64.0),
+                            );
+                            if std::mem::take(&mut self.focus_input) {
+                                edit.request_focus();
+                            }
+                            enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.spacing_mut().item_spacing.x = 2.0;
+                                let pic = icon_button(
+                                    ui,
+                                    egui::vec2(28.0, 28.0),
+                                    false,
+                                    tr!("Отправить картинку (или перетащите файл в окно, или Ctrl+V)", "Send an image (or drag a file into the window, or Ctrl+V)"),
+                                    draw_picture,
+                                );
+                                if pic.clicked() {
+                                    if let Some(path) = rfd::FileDialog::new()
+                                        .set_title(tr!("Картинка для отправки", "Image to send"))
+                                        .add_filter(tr!("Картинки", "Images"), &["png", "jpg", "jpeg", "gif", "webp", "bmp"])
+                                        .pick_file()
+                                    {
+                                        send_image = Some(path);
+                                    }
+                                }
+                                let smile = icon_button(
+                                    ui,
+                                    egui::vec2(28.0, 28.0),
+                                    self.picker_open,
+                                    tr!("Смайлики, стикеры и эффекты", "Emoticons, stickers and effects"),
+                                    draw_smiley,
+                                );
+                                if smile.clicked() {
+                                    self.picker_open = !self.picker_open;
+                                    if self.picker_open && net.emoticons.is_none() && !self.emoticons_requested {
+                                        self.emoticons_requested = true;
+                                        let _ = tx.send(Cmd::LoadEmoticons);
+                                    }
+                                }
+                            });
+                            edit_resp = Some(edit);
+                        });
+                    });
+                let has_text = !self.input.trim().is_empty();
+                let (sr, sresp) = ui.allocate_exact_size(egui::vec2(H, H), egui::Sense::click());
+                let sresp = sresp.on_hover_text(tr!("Отправить (Enter)", "Send (Enter)"));
+                let fill = match (has_text, sresp.hovered()) {
+                    (true, true) => egui::Color32::from_rgb(70, 180, 255),
+                    (true, false) => crate::theme::ACCENT,
+                    _ => crate::theme::CARD,
+                };
+                ui.painter().rect_filled(sr, 6.0, fill);
+                draw_send(ui.painter(), sr, if has_text { egui::Color32::WHITE } else { crate::theme::WEAK });
+                if has_text {
+                    sresp.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
                 }
-                let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                if ui
-                    .selectable_label(self.picker_open, ":)")
-                    .on_hover_text(tr!("Смайлики и стикеры", "Emoticons and stickers"))
-                    .clicked()
-                {
-                    self.picker_open = !self.picker_open;
-                    if self.picker_open && net.emoticons.is_none() && !self.emoticons_requested {
-                        self.emoticons_requested = true;
-                        let _ = tx.send(Cmd::LoadEmoticons);
-                    }
-                }
-                if ui
-                    .button("🖼")
-                    .on_hover_text(tr!("Отправить картинку (или перетащите файл в окно, или Ctrl+V)", "Send an image (or drag a file into the window, or Ctrl+V)"))
-                    .clicked()
-                {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .set_title(tr!("Картинка для отправки", "Image to send"))
-                        .add_filter(tr!("Картинки", "Images"), &["png", "jpg", "jpeg", "gif", "webp", "bmp"])
-                        .pick_file()
-                    {
-                        send_image = Some(path);
-                    }
-                }
-                let clicked = ui.button(tr!("Отправить", "Send")).clicked();
+                let clicked = sresp.clicked();
+                let edit = edit_resp.expect("input field drawn");
                 if (enter || clicked) && !self.input.trim().is_empty() {
                     let text = std::mem::take(&mut self.input).trim().to_string();
                     let mut msg = crate::emoticons_to_bbcode(&text, net);
@@ -248,7 +295,6 @@ impl ChatWin {
                     edit.request_focus();
                 }
             });
-            ui.add_space(4.0);
         });
 
         // Header, as in Steam: friend's avatar, name and status; on the right - magnifier (search, Ctrl+F).
@@ -294,7 +340,7 @@ impl ChatWin {
                             if ui.selectable_label(*tid == id, text).clicked() && *tid != id {
                                 switch = Some((*tid, tname.clone()));
                             }
-                            if ui.small_button("✖").on_hover_text(tr!("Закрыть беседу", "Close conversation")).clicked() {
+                            if icon_button(ui, egui::vec2(18.0, 18.0), false, tr!("Закрыть беседу", "Close conversation"), draw_cross).clicked() {
                                 close_tab = Some(*tid);
                             }
                             ui.add_space(6.0);
@@ -317,10 +363,11 @@ impl ChatWin {
                 }
             }
         }
-        egui::TopBottomPanel::top("chat_head").show(ctx, |ui| {
-            ui.add_space(4.0);
+        egui::TopBottomPanel::top("chat_head")
+            .frame(egui::Frame::none().fill(crate::theme::TOP).inner_margin(egui::Margin::symmetric(10.0, 8.0)))
+            .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                let (ar, _) = ui.allocate_exact_size(egui::vec2(36.0, 36.0), egui::Sense::hover());
+                let (ar, _) = ui.allocate_exact_size(egui::vec2(38.0, 38.0), egui::Sense::hover());
                 match &friend_avatar {
                     Some(u) => {
                         egui::Image::new(u.as_str()).rounding(3.0).paint_at(ui, ar);
@@ -336,10 +383,13 @@ impl ChatWin {
                     ui.add(egui::Label::new(egui::RichText::new(&status).size(12.0).color(status_color)).truncate());
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let r = ui
-                        .add(egui::Button::new("").frame(self.search_open).min_size(egui::vec2(30.0, 26.0)))
-                        .on_hover_text(tr!("Поиск в переписке (Ctrl+F)", "Search the conversation (Ctrl+F)"));
-                    draw_magnifier(ui.painter(), r.rect, if r.hovered() { egui::Color32::WHITE } else { crate::theme::TEXT });
+                    let r = icon_button(
+                        ui,
+                        egui::vec2(32.0, 30.0),
+                        self.search_open,
+                        tr!("Поиск в переписке (Ctrl+F)", "Search the conversation (Ctrl+F)"),
+                        |p, r, c| draw_magnifier(p, r, c),
+                    );
                     if r.clicked() {
                         self.search_open = !self.search_open;
                         if self.search_open {
@@ -353,23 +403,25 @@ impl ChatWin {
                     }
                 });
             });
+            // Search: closed by the magnifier or Esc, so no separate close button.
             if self.search_open {
-                ui.horizontal(|ui| {
-                    let edit = ui.add(
-                        egui::TextEdit::singleline(&mut self.search)
-                            .hint_text(tr!("Поиск в переписке, Esc - закрыть", "Search the conversation, Esc - close"))
-                            .desired_width(ui.available_width() - 30.0),
-                    );
-                    if std::mem::take(&mut self.focus_search) {
-                        edit.request_focus();
-                    }
-                    if ui.small_button("✖").on_hover_text(tr!("Закрыть поиск", "Close search")).clicked() {
-                        self.search_open = false;
-                        self.search.clear();
-                    }
+                ui.add_space(6.0);
+                egui::Frame::none().fill(crate::theme::CARD).rounding(6.0).inner_margin(egui::Margin::symmetric(8.0, 5.0)).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        let (ir, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
+                        draw_magnifier(ui.painter(), ir.translate(egui::vec2(-1.0, -1.0)), crate::theme::WEAK);
+                        let edit = ui.add(
+                            egui::TextEdit::singleline(&mut self.search)
+                                .frame(false)
+                                .hint_text(tr!("Поиск в переписке, Esc - закрыть", "Search the conversation, Esc - close"))
+                                .desired_width(ui.available_width()),
+                        );
+                        if std::mem::take(&mut self.focus_search) {
+                            edit.request_focus();
+                        }
+                    });
                 });
             }
-            ui.add_space(4.0);
         });
         let query = self.search.trim().to_lowercase();
         // Conversation: messages grouped by sender (avatar, name, time), a separator between days.
@@ -582,11 +634,23 @@ impl ChatWin {
     /// a sticker is sent right away (returns the message text).
     fn picker(&mut self, ui: &mut egui::Ui, net: &NetState) -> Option<String> {
         let mut send = None;
+        // Tabs as in the program's top bar: text, the chosen one in white with an accent underline.
         ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.picker_tab, 0, tr!("Смайлики", "Emoticons"));
-            ui.selectable_value(&mut self.picker_tab, 1, tr!("Стикеры", "Stickers"));
-            ui.selectable_value(&mut self.picker_tab, 2, tr!("Эффекты", "Effects"));
+            ui.spacing_mut().item_spacing.x = 16.0;
+            for (i, label) in [tr!("Смайлики", "Emoticons"), tr!("Стикеры", "Stickers"), tr!("Эффекты", "Effects")].into_iter().enumerate() {
+                let on = self.picker_tab == i as u8;
+                let text = egui::RichText::new(label.to_uppercase()).size(12.0).strong().color(if on { egui::Color32::WHITE } else { crate::theme::WEAK });
+                let r = ui.add(egui::Label::new(text).sense(egui::Sense::click())).on_hover_cursor(egui::CursorIcon::PointingHand);
+                if on {
+                    let y = r.rect.bottom() + 3.0;
+                    ui.painter().line_segment([egui::pos2(r.rect.left(), y), egui::pos2(r.rect.right(), y)], egui::Stroke::new(2.0, crate::theme::ACCENT));
+                }
+                if r.clicked() {
+                    self.picker_tab = i as u8;
+                }
+            }
         });
+        ui.add_space(8.0);
         let Some((emoticons, stickers)) = &net.emoticons else {
             ui.horizontal(|ui| {
                 crate::spin::spinner(ui);
@@ -624,12 +688,8 @@ impl ChatWin {
                             }
                         }
                         for name in &list {
-                            let img = egui::Image::new(crate::effects::icon_url(name))
-                                .fit_to_exact_size(egui::vec2(48.0, 48.0));
-                            if ui
-                                .add(egui::ImageButton::new(img))
-                                .on_hover_text(trf!("{} - отправить", "{} - send", crate::effects::short_name(name)))
-                                .clicked()
+                            let tip = trf!("{} - отправить", "{} - send", crate::effects::short_name(name));
+                            if picker_tile(ui, crate::effects::icon_url(name), 48.0, &tip).clicked()
                             {
                                 // As in the Steam client: the /roomeffect command, the server turns it into [roomeffect].
                                 send = Some(format!("/roomeffect {name}"));
@@ -641,12 +701,7 @@ impl ChatWin {
                             ui.weak(tr!("У вас нет смайликов Steam.", "You have no Steam emoticons."));
                         }
                         for name in emoticons {
-                            let img = egui::Image::new(chatfmt::emoticon_url(name))
-                                .fit_to_exact_size(egui::vec2(32.0, 32.0));
-                            if ui
-                                .add(egui::ImageButton::new(img))
-                                .on_hover_text(format!(":{name}:"))
-                                .clicked()
+                            if picker_tile(ui, chatfmt::emoticon_url(name), 30.0, &format!(":{name}:")).clicked()
                             {
                                 if !self.input.is_empty() && !self.input.ends_with(' ') {
                                     self.input.push(' ');
@@ -660,12 +715,7 @@ impl ChatWin {
                             ui.weak(tr!("У вас нет стикеров (или инвентарь Steam недоступен).", "You have no stickers (or the Steam inventory is unavailable)."));
                         }
                         for name in stickers {
-                            let img = egui::Image::new(chatfmt::sticker_url(name))
-                                .fit_to_exact_size(egui::vec2(72.0, 72.0));
-                            if ui
-                                .add(egui::ImageButton::new(img))
-                                .on_hover_text(trf!("{name} - отправить", "{name} - send"))
-                                .clicked()
+                            if picker_tile(ui, chatfmt::sticker_url(name), 72.0, &trf!("{name} - отправить", "{name} - send")).clicked()
                             {
                                 // A sticker is sent with the /sticker command: the server turns it into [sticker type=...].
                                 // The server strips a ready-made [sticker] tag (the recipient sees an empty message).
@@ -714,4 +764,89 @@ fn draw_magnifier(p: &egui::Painter, r: egui::Rect, color: egui::Color32) {
     let s = egui::Stroke::new(1.6, color);
     p.circle_stroke(c, 5.0, s);
     p.line_segment([c + egui::vec2(3.6, 3.6), c + egui::vec2(8.0, 8.0)], egui::Stroke::new(2.0, color));
+}
+
+/// Flat icon button of the chat: no frame, a soft background on hover, accent background when active.
+fn icon_button(
+    ui: &mut egui::Ui,
+    size: egui::Vec2,
+    active: bool,
+    tip: &str,
+    draw: impl FnOnce(&egui::Painter, egui::Rect, egui::Color32),
+) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tip);
+    let p = ui.painter();
+    if active {
+        p.rect_filled(r, 4.0, egui::Color32::from_rgb(38, 72, 104));
+    } else if resp.hovered() {
+        p.rect_filled(r, 4.0, egui::Color32::from_rgb(52, 60, 72));
+    }
+    let color = if active || resp.hovered() { egui::Color32::WHITE } else { crate::theme::WEAK };
+    draw(p, r, color);
+    resp
+}
+
+/// Smiley icon: a circle, two eyes and a smile.
+fn draw_smiley(p: &egui::Painter, r: egui::Rect, color: egui::Color32) {
+    let c = r.center();
+    let s = egui::Stroke::new(1.5, color);
+    p.circle_stroke(c, 7.5, s);
+    p.circle_filled(c + egui::vec2(-2.6, -2.0), 1.1, color);
+    p.circle_filled(c + egui::vec2(2.6, -2.0), 1.1, color);
+    let smile: Vec<egui::Pos2> = (0..=8)
+        .map(|i| {
+            let a = std::f32::consts::PI * (0.15 + 0.7 * i as f32 / 8.0);
+            c + egui::vec2(a.cos() * 4.2, a.sin() * 4.2)
+        })
+        .collect();
+    p.add(egui::Shape::line(smile, s));
+}
+
+/// Picture icon: a frame with a sun and a mountain.
+fn draw_picture(p: &egui::Painter, r: egui::Rect, color: egui::Color32) {
+    let b = egui::Rect::from_center_size(r.center(), egui::vec2(16.0, 13.0));
+    let s = egui::Stroke::new(1.5, color);
+    p.rect_stroke(b, 2.0, s);
+    p.circle_filled(b.left_top() + egui::vec2(5.0, 4.5), 1.6, color);
+    p.add(egui::Shape::line(
+        vec![
+            b.left_bottom() + egui::vec2(2.0, -2.0),
+            b.left_bottom() + egui::vec2(6.5, -6.5),
+            b.left_bottom() + egui::vec2(9.5, -3.5),
+            b.left_bottom() + egui::vec2(11.5, -5.5),
+            b.left_bottom() + egui::vec2(14.0, -2.0),
+        ],
+        s,
+    ));
+}
+
+/// Send icon: a paper plane pointing right.
+fn draw_send(p: &egui::Painter, r: egui::Rect, color: egui::Color32) {
+    let c = r.center();
+    let pts = vec![c + egui::vec2(-7.0, -6.5), c + egui::vec2(8.0, 0.0), c + egui::vec2(-7.0, 6.5), c + egui::vec2(-4.0, 0.0)];
+    p.add(egui::Shape::convex_polygon(pts, color, egui::Stroke::NONE));
+}
+
+/// Cross icon (close, cancel).
+fn draw_cross(p: &egui::Painter, r: egui::Rect, color: egui::Color32) {
+    let c = r.center();
+    let s = egui::Stroke::new(1.5, color);
+    let d = 3.5;
+    p.line_segment([c + egui::vec2(-d, -d), c + egui::vec2(d, d)], s);
+    p.line_segment([c + egui::vec2(-d, d), c + egui::vec2(d, -d)], s);
+}
+
+/// A picker tile: the picture with a soft background on hover, no button frame.
+fn picker_tile(ui: &mut egui::Ui, url: String, size: f32, tip: &str) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(egui::vec2(size + 8.0, size + 8.0), egui::Sense::click());
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tip);
+    let fill = if resp.hovered() { egui::Color32::from_rgb(58, 68, 82) } else { crate::theme::CARD };
+    ui.painter().rect_filled(r, 5.0, fill);
+    // The chat window redraws only on input: while the picture is still loading, look again soon.
+    if matches!(ui.ctx().try_load_image(&url, Default::default()), Ok(egui::load::ImagePoll::Pending { .. })) {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(300));
+    }
+    egui::Image::new(url).fit_to_exact_size(egui::vec2(size, size)).paint_at(ui, egui::Rect::from_center_size(r.center(), egui::vec2(size, size)));
+    resp
 }

@@ -304,7 +304,7 @@ impl crate::LauncherApp {
                         ui.ctx().open_url(egui::OpenUrl::new_tab(&r.page));
                     }
                     if r.asset_url.is_some() {
-                        if ui.button(tr!("Обновить", "Refresh")).on_hover_text(tr!("Скачать и установить, затем перезапустить Vaporust", "Download and install, then restart Vaporust")).clicked() {
+                        if ui.button(tr!("Обновить", "Update")).on_hover_text(tr!("Скачать и установить, затем перезапустить Vaporust", "Download and install, then restart Vaporust")).clicked() {
                             install(r.clone(), &self.upd, ui.ctx());
                         }
                     } else {

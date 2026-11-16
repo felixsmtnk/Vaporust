@@ -217,3 +217,95 @@ impl SteamClient {
         Ok((v, more))
     }
 }
+
+/// vaporust: what a raw chat notification is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RawChatKind {
+    /// A message from the friend.
+    Message,
+    /// Our own message sent from another device.
+    Echo,
+    /// The friend is typing.
+    Typing,
+    /// The friend sent a game invite.
+    GameInvite,
+}
+
+/// vaporust: a chat notification that keeps the server ordinal of the message.
+/// steam-vent-chat drops the ordinal, and without it two equal messages sent in the same
+/// second cannot be told apart from one message seen twice.
+#[derive(Debug, Clone)]
+pub struct RawChatEvent {
+    pub friend: u64,
+    pub kind: RawChatKind,
+    pub message: String,
+    /// Server time (unix seconds); 0 if Steam did not send one.
+    pub timestamp: u64,
+    /// Message number within that second; together with the time it identifies the message.
+    pub ordinal: u32,
+}
+
+/// vaporust: result of sending a message, with its server ordinal.
+#[derive(Debug, Clone)]
+pub struct SentChatMessage {
+    pub server_timestamp: u64,
+    pub ordinal: u32,
+    pub modified_message: Option<String>,
+}
+
+impl SteamClient {
+    /// vaporust: incoming chat notifications with ordinals. The stream does not borrow the client.
+    pub fn chat_events(&self) -> Result<impl tokio_stream::Stream<Item = RawChatEvent> + 'static> {
+        use steam_vent_proto::steammessages_friendmessages_steamclient::CFriendMessages_IncomingMessage_Notification;
+        use tokio_stream::StreamExt;
+        let connection = self.require_connection_owned()?;
+        // The notification stream borrows the connection, so a task owns both and forwards the
+        // events; it ends with the first event after the receiver is dropped.
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let mut events = std::pin::pin!(connection.on_notification::<CFriendMessages_IncomingMessage_Notification>());
+            while let Some(n) = events.next().await {
+                let Ok(n) = n else { continue }; // missed notifications - keep listening
+                // chat_entry_type: 1 chat message, 2 typing, 3 game invite (EChatEntryType).
+                let kind = match (n.chat_entry_type(), n.local_echo()) {
+                    (1, false) => RawChatKind::Message,
+                    (1, true) => RawChatKind::Echo,
+                    (2, false) => RawChatKind::Typing,
+                    (3, false) => RawChatKind::GameInvite,
+                    _ => continue,
+                };
+                let ev = RawChatEvent {
+                    friend: n.steamid_friend(),
+                    kind,
+                    timestamp: n.rtime32_server_timestamp() as u64,
+                    ordinal: n.ordinal(),
+                    message: n.message.unwrap_or_default(),
+                };
+                if tx.send(ev).is_err() {
+                    break;
+                }
+            }
+        });
+        Ok(tokio_stream::wrappers::UnboundedReceiverStream::new(rx))
+    }
+
+    /// vaporust: send a chat message (BBCode, like Steam) and return its server ordinal.
+    pub async fn send_chat_message_ordered(&self, target: u64, message: String) -> Result<SentChatMessage> {
+        use steam_vent_proto::steammessages_friendmessages_steamclient::{
+            CFriendMessages_SendMessage_Request, CFriendMessages_SendMessage_Response,
+        };
+        let connection = self.require_connection()?;
+        let mut req = CFriendMessages_SendMessage_Request::new();
+        req.set_steamid(target);
+        req.set_message(message);
+        req.set_chat_entry_type(1);
+        req.set_contains_bbcode(true);
+        let resp: CFriendMessages_SendMessage_Response =
+            connection.service_method(req).await.map_err(|e| anyhow!("failed to send chat message: {e}"))?;
+        Ok(SentChatMessage {
+            server_timestamp: resp.server_timestamp() as u64,
+            ordinal: resp.ordinal(),
+            modified_message: resp.modified_message,
+        })
+    }
+}

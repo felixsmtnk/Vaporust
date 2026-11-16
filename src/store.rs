@@ -53,8 +53,11 @@ pub struct Extras {
 pub struct Reviews {
     /// Order (index in REVIEW_SORTS()).
     pub sort: u8,
-    /// false - in Russian, true - in all languages.
-    pub lang: u8,
+    /// Review language: Steam code from REVIEW_LANGS() ("russian", "all"...). A code, not a list
+    /// position: the list order follows the interface language.
+    pub lang: &'static str,
+    /// Number of the latest request: an answer to an older one is dropped.
+    pub seq: u32,
     pub pages: u32,
     pub list: Vec<Review>,
     pub more: bool,
@@ -62,6 +65,27 @@ pub struct Reviews {
     pub cursor: Option<String>,
     pub loading: bool,
     pub error: Option<String>,
+}
+
+impl Reviews {
+    /// Start a request for (order, language, page). Returns the page to fetch and the request
+    /// number, or None if the same order and language is already loading.
+    /// A changed order or language starts over from page 1 with no cursor: a Steam cursor belongs
+    /// to one order and language, and the loaded list must not mix languages.
+    pub fn begin(&mut self, sort: u8, lang: &'static str, mut page: u32) -> Option<(u32, u32)> {
+        let same = self.sort == sort && self.lang == lang;
+        if self.loading && same {
+            return None;
+        }
+        if !same || page <= 1 {
+            page = 1;
+            let seq = self.seq;
+            *self = Reviews { sort, lang, seq, ..Default::default() };
+        }
+        self.seq = self.seq.wrapping_add(1);
+        self.loading = true;
+        Some((page, self.seq))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -151,8 +175,8 @@ pub enum StoreCmd {
     WishlistSales,
     /// A friend's wishlist (if their privacy settings allow it).
     FriendWishlist(u64),
-    /// Game reviews: order (REVIEW_SORTS()), all languages?, page (from 1).
-    Reviews { appid: u32, sort: u8, lang: u8, page: u32 },
+    /// Game reviews: order (REVIEW_SORTS()), language code (REVIEW_LANGS()), page (from 1).
+    Reviews { appid: u32, sort: u8, lang: &'static str, page: u32 },
     /// Full review text (by its URL) and a review vote (0 helpful, 1 not helpful, 2 funny).
     ReviewFull(String),
     ReviewVote { url: String, kind: u8 },
@@ -415,27 +439,22 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                 }
                 ctx.request_repaint();
             }
-            StoreCmd::Reviews { appid, sort, lang, page } => {
-                {
+            StoreCmd::Reviews { appid, sort, lang, mut page } => {
+                let (seq, cursor) = {
                     let mut s = st.lock().unwrap();
                     let r = s.extras.entry(appid).or_default().reviews.get_or_insert_with(Default::default);
-                    // The same request is already running (the section is open, no answer yet) - do not repeat.
-                    if r.loading && r.sort == sort && r.lang == lang {
+                    let Some((p, seq)) = r.begin(sort, lang, page) else {
                         return;
-                    }
-                    // The order or language changed - start over.
-                    if page == 1 || r.sort != sort || r.lang != lang {
-                        *r = Reviews { sort, lang, ..Default::default() };
-                    }
-                    r.loading = true;
-                }
+                    };
+                    page = p;
+                    (seq, r.cursor.clone())
+                };
                 ctx.request_repaint();
-                let cursor = st.lock().unwrap().extras.get(&appid).and_then(|e| e.reviews.as_ref()).and_then(|r| r.cursor.clone());
                 let res = fetch_reviews(appid, sort, lang, page, cursor).await;
                 let mut s = st.lock().unwrap();
                 let r = s.extras.entry(appid).or_default().reviews.get_or_insert_with(Default::default);
-                if r.sort != sort || r.lang != lang {
-                    return; // another order or language was chosen while loading
+                if r.seq != seq {
+                    return; // another order, language or page was asked for while loading
                 }
                 r.loading = false;
                 match res {
@@ -806,13 +825,14 @@ pub fn REVIEW_LANGS() -> [(&'static str, &'static str); 13] {
 async fn fetch_reviews(
     appid: u32,
     sort: u8,
-    lang: u8,
+    lang: &str,
     page: u32,
     cursor: Option<String>,
 ) -> Result<(Vec<Review>, Option<String>), String> {
     let http = aurelia::core::net::steam_web_client().map_err(err)?;
     let filter = REVIEW_SORTS().get(sort as usize).map_or("toprated", |s| s.0);
-    let lang = REVIEW_LANGS().get(lang as usize).map_or(crate::lang::steam(), |l| l.0);
+    // Only a code from the list goes into the address.
+    let lang = REVIEW_LANGS().iter().find(|l| l.0 == lang).map_or(crate::lang::steam(), |l| l.0);
     let p = page.max(1);
     let cursor = match (p, cursor) {
         (1, _) => String::new(),
@@ -983,7 +1003,7 @@ mod reviews_live {
             let mut cursor = None;
             let mut seen = std::collections::HashSet::new();
             for page in 1..=3 {
-                let (v, next) = super::fetch_reviews(70, 1, 0, page, cursor.clone()).await.unwrap();
+                let (v, next) = super::fetch_reviews(70, 1, "russian", page, cursor.clone()).await.unwrap();
                 println!("стр. {page}: {} отзывов, первый - {}", v.len(), v.first().map(|r| r.author.clone()).unwrap_or_default());
                 for r in &v {
                     assert!(seen.insert(r.url.clone()), "повтор: {}", r.url);
@@ -1156,7 +1176,7 @@ mod reviews_rich_live {
     fn reviews_rich_live() {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            let (v, _) = super::fetch_reviews(550, 0, 0, 1, None).await.unwrap();
+            let (v, _) = super::fetch_reviews(550, 0, "russian", 1, None).await.unwrap();
             println!(
                 "отзывов {}, с аватаром {}, с наградами {}, полезно у первого {}, забавно {}",
                 v.len(),
@@ -1170,7 +1190,7 @@ mod reviews_rich_live {
             let (text, id, at) = super::review_page(&c, &v[0].url).await.unwrap();
             println!("часы на момент отзыва: {at}");
             println!("полный текст {} знаков (в списке {}), номер есть: {}", text.chars().count(), v[0].text.chars().count(), id > 0);
-            let (en, _) = super::fetch_reviews(550, 7, 2, 1, None).await.unwrap();
+            let (en, _) = super::fetch_reviews(550, 7, "english", 1, None).await.unwrap();
             println!("забавные на английском: {}", en.len());
         });
     }
@@ -1296,4 +1316,63 @@ pub async fn wishlist_ranked(c: &SteamClient, me: u64) -> Result<Vec<u32>, Strin
         .collect();
     items.sort_by_key(|(p, d, _)| (*p == 0, *p, *d));
     Ok(items.into_iter().map(|(_, _, a)| a).collect())
+}
+
+#[cfg(test)]
+mod review_paging_tests {
+    use super::{Review, Reviews};
+
+    fn review(text: &str) -> Review {
+        Review {
+            positive: true,
+            hours: String::new(),
+            date: String::new(),
+            author: String::new(),
+            text: text.into(),
+            url: String::new(),
+            avatar: String::new(),
+            helpful_n: 0,
+            funny_n: 0,
+            awards: Vec::new(),
+            products: String::new(),
+        }
+    }
+
+    /// A language change starts over: no old cursor, no old reviews, older answers dropped.
+    #[test]
+    fn language_change_resets_paging() {
+        let mut r = Reviews::default();
+        let (p, first) = r.begin(0, "russian", 1).unwrap();
+        assert_eq!(p, 1);
+        // The Russian page arrived.
+        r.loading = false;
+        r.pages = 1;
+        r.cursor = Some("ru-cursor".into());
+        r.list.push(review("по-русски"));
+        // "Show more" while English is now chosen: page 2 becomes page 1 of English, without the cursor.
+        let (p, second) = r.begin(0, "english", 2).unwrap();
+        assert_eq!(p, 1);
+        assert!(r.cursor.is_none() && r.list.is_empty());
+        assert_eq!(r.lang, "english");
+        assert_ne!(first, second, "an answer to the Russian request is dropped");
+        // While English loads, the same request is not repeated, but a switch back is a new one.
+        assert!(r.begin(0, "english", 1).is_none());
+        let (_, third) = r.begin(0, "russian", 1).unwrap();
+        assert_ne!(third, second);
+    }
+
+    /// The next page of the same order and language keeps the list and the cursor.
+    #[test]
+    fn next_page_keeps_cursor() {
+        let mut r = Reviews::default();
+        r.begin(1, "all", 1).unwrap();
+        r.loading = false;
+        r.pages = 1;
+        r.cursor = Some("c".into());
+        r.list.push(review("a"));
+        let (p, _) = r.begin(1, "all", 2).unwrap();
+        assert_eq!(p, 2);
+        assert_eq!(r.cursor.as_deref(), Some("c"));
+        assert_eq!(r.list.len(), 1);
+    }
 }

@@ -221,8 +221,11 @@ pub struct ChatLine {
     pub text: String,
     /// Unix time, seconds.
     pub time: u64,
-    /// Message number within the second (for reactions); 0 - unknown (a live message before a reread).
+    /// Message number within the second (for reactions and for telling messages apart).
     pub ordinal: u32,
+    /// time and ordinal come from the Steam server, so (time, ordinal) identifies the message.
+    /// false - a local fallback time; such a line is matched by text and time only.
+    pub exact: bool,
     /// Reactions: (type 1 emoticon / 2 sticker, name, who reacted - account numbers).
     pub reactions: Vec<(i32, String, Vec<u32>)>,
 }
@@ -760,6 +763,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                                 text: m.message,
                                 time: m.timestamp as u64,
                                 ordinal: m.ordinal,
+                                exact: true,
                                 reactions: m.reactions,
                             })
                             .collect();
@@ -806,7 +810,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::SendChat { to, text } => {
             let orig = text.clone();
-            let res = client.send_chat_message(to, text.clone()).await;
+            let res = client.send_chat_message_ordered(to, text.clone()).await;
             upd(st, ctx, |s| {
                 let conv = Arc::make_mut(&mut s.chats).entry(to).or_default();
                 match res {
@@ -823,6 +827,8 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                             from_self: true,
                             text: sent.modified_message.unwrap_or(text),
                             time,
+                            ordinal: sent.ordinal,
+                            exact: sent.server_timestamp > 0,
                             ..Default::default()
                         });
                         conv.error = None;
@@ -1554,7 +1560,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                             let older: Vec<ChatLine> = msgs
                                 .into_iter()
                                 .rev()
-                                .map(|m| ChatLine { from_self: m.from_self, text: m.message, time: m.timestamp as u64, ordinal: m.ordinal, reactions: m.reactions })
+                                .map(|m| ChatLine { from_self: m.from_self, text: m.message, time: m.timestamp as u64, ordinal: m.ordinal, exact: true, reactions: m.reactions })
                                 .collect();
                             conv.lines.splice(0..0, older);
                         }
@@ -1861,12 +1867,11 @@ async fn secure_session() -> anyhow::Result<bool> {
 
 /// Merge the loaded chat history with what is already on screen: the history is the base, and
 /// lines missing from it that are not older than its last message (received or sent
-/// while the history loaded) are appended. A duplicate is a history line with the same direction,
-/// text and time within 2 minutes; each history line covers only one on-screen
-/// line (two identical "yes" in a row are two messages, not a duplicate).
-/// A history line and a line on screen are the same message only if their times are this close.
-/// Times come from the Steam server (equal for one message); a small margin covers a local fallback
-/// time. A wider window would swallow a new "yes" sent while an older "yes" sits in the history.
+/// while the history loaded) are appended.
+/// A line with a server identity (exact) is a duplicate only of the history line with the same
+/// direction, time and ordinal: two separate "yes" are two messages even within one second.
+/// Only a line with a local fallback time (Steam sent no time) is matched by direction, text and
+/// a time within SAME_MESSAGE_SECS. Each history line covers at most one on-screen line.
 const SAME_MESSAGE_SECS: u64 = 2;
 
 pub(crate) fn merge_history(history: Vec<ChatLine>, current: Vec<ChatLine>) -> Vec<ChatLine> {
@@ -1879,14 +1884,21 @@ pub(crate) fn merge_history(history: Vec<ChatLine>, current: Vec<ChatLine>) -> V
             continue; // old - already in the history
         }
         let m = (0..hist_len).find(|&i| {
-            !used[i] && out[i].from_self == l.from_self && out[i].text == l.text && out[i].time.abs_diff(l.time) <= SAME_MESSAGE_SECS
+            let h = &out[i];
+            !used[i]
+                && h.from_self == l.from_self
+                && if l.exact && h.exact {
+                    h.time == l.time && h.ordinal == l.ordinal
+                } else {
+                    h.text == l.text && h.time.abs_diff(l.time) <= SAME_MESSAGE_SECS
+                }
         });
         match m {
             Some(i) => used[i] = true,
             None => out.push(l),
         }
     }
-    out.sort_by_key(|l| l.time);
+    out.sort_by_key(|l| (l.time, l.ordinal));
     out
 }
 
@@ -2173,6 +2185,7 @@ async fn reload_history(client: &SteamClient, friend: u64, st: &Shared, ctx: &eg
                     text: m.message,
                     time: m.timestamp as u64,
                     ordinal: m.ordinal,
+                    exact: true,
                     reactions: m.reactions,
                 })
                 .collect();
@@ -2239,43 +2252,39 @@ fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st: &Shared, 
         });
     }
     // Incoming messages.
-    let Ok(chat) = client.chat_client() else {
+    // Our own listener keeps the server ordinal of each message (steam-vent-chat drops it).
+    let Ok(events) = client.chat_events() else {
         return;
     };
     let gen = SESSION_GEN.load(Ordering::Relaxed); // the login number is set by logged_in
     let (st, ctx) = (st.clone(), ctx.clone());
     tokio::spawn(async move {
-        use steam_vent_chat::ChatEvent;
+        use aurelia::steam_client::RawChatKind;
         use tokio_stream::StreamExt;
-        let mut events = std::pin::pin!(chat.listen());
-        while let Some(ev) = events.next().await {
+        let mut events = std::pin::pin!(events);
+        while let Some(m) = events.next().await {
             if SESSION_GEN.load(Ordering::Relaxed) != gen {
                 break;
             }
-            let Ok(ev) = ev else { continue }; // missed notifications - keep listening
-            let (from_self, m) = match ev {
-                ChatEvent::Message(m) => (false, m),
+            let friend = m.friend;
+            let (from_self, text) = match m.kind {
+                RawChatKind::Message => (false, m.message), // with BBCode: parsed by chatfmt
                 // Own message sent from another device (for example from Steam on a phone).
-                ChatEvent::EchoMessage(m) => (true, m),
-                ChatEvent::GameInvite(mut m) => {
-                    m.message = tr!("[приглашение в игру]", "[game invite]").into();
-                    m.message_no_bbcode = None;
-                    (false, m)
-                }
-                ChatEvent::Typing(t) => {
-                    let friend = u64::from(t.source);
+                RawChatKind::Echo => (true, m.message),
+                RawChatKind::GameInvite => (false, tr!("[приглашение в игру]", "[game invite]").to_string()),
+                RawChatKind::Typing => {
                     upd(&st, &ctx, |s| {
                         Arc::make_mut(&mut s.chats).entry(friend).or_default().typing_at = Some(Instant::now());
                     });
                     continue;
                 }
-                _ => continue,
             };
-            let friend = u64::from(m.source);
             let line = ChatLine {
                 from_self,
-                text: m.message, // with BBCode: parsed by chatfmt
-                time: if m.server_timestamp > 0 { m.server_timestamp } else { now_unix() },
+                text,
+                time: if m.timestamp > 0 { m.timestamp } else { now_unix() },
+                ordinal: m.ordinal,
+                exact: m.timestamp > 0,
                 ..Default::default()
             };
             upd(&st, &ctx, |s| {
@@ -3722,5 +3731,30 @@ mod merge_tests {
     fn new_message_not_swallowed_by_older_same_text() {
         let merged = merge_history(vec![l(true, "да", 1000)], vec![l(true, "да", 1060)]);
         assert_eq!(merged.iter().map(|m| m.time).collect::<Vec<_>>(), vec![1000, 1060]);
+    }
+
+    fn x(from_self: bool, text: &str, time: u64, ordinal: u32) -> ChatLine {
+        ChatLine { from_self, text: text.into(), time, ordinal, exact: true, ..Default::default() }
+    }
+
+    /// Lines with a server identity: two separate "yes" one second (or zero seconds) apart are
+    /// two messages, even when the history arrives late and holds only the first one.
+    #[test]
+    fn quick_repeats_with_server_ids() {
+        for from_self in [true, false] {
+            // History has "yes" at 1000; on screen only the new "yes" at 1001 (arrived after the request).
+            let m = merge_history(vec![x(from_self, "да", 1000, 0)], vec![x(from_self, "да", 1001, 0)]);
+            assert_eq!(m.len(), 2, "через секунду");
+            // Same second, next ordinal.
+            let m = merge_history(vec![x(from_self, "да", 1000, 0)], vec![x(from_self, "да", 1000, 1)]);
+            assert_eq!(m.len(), 2, "в ту же секунду");
+            assert_eq!(m.iter().map(|l| l.ordinal).collect::<Vec<_>>(), vec![0, 1]);
+            // The same message seen twice is one line.
+            let m = merge_history(vec![x(from_self, "да", 1000, 1)], vec![x(from_self, "да", 1000, 1)]);
+            assert_eq!(m.len(), 1, "то же сообщение");
+            // Server rewrote the text (sticker command): still one message by its identity.
+            let m = merge_history(vec![x(from_self, "[sticker]", 1000, 0)], vec![x(from_self, "/sticker A", 1000, 0)]);
+            assert_eq!(m.len(), 1, "текст изменен сервером");
+        }
     }
 }
