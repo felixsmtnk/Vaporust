@@ -24,6 +24,9 @@ All other files are unchanged. Every change in the code is marked with a `vaporu
 - `src/steam_client/chat.rs` - `recent_chat_messages` asks for the history with
   `bbcode_format = true`: without it stickers drop out of the history, and emoticons and images
   come simplified.
+- `src/core/config.rs` - `save_session` fails closed: when encryption is required and the OS keyring is
+  unavailable, the session is not written at all (the old encrypted file stays) instead of being saved
+  as plain text.
 - `src/steam_client/content.rs`:
   - `fetch_achievements` moved to `fetch_achievements_for(appid, language, steam_id)`: achievements
     of any user (comparison with a friend);

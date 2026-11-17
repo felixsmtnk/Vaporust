@@ -31,6 +31,8 @@ pub struct Accounts {
 
 /// steam_pending of the running session (read once at start, so the file is not read every frame).
 static STEAM_PENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// The "could not switch Steam" message was shown (once per run; the switch is retried).
+static STEAM_ERR_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Vaporust data folder (%APPDATA%\Vaporust or VaporustData next to the exe).
 fn base() -> Option<PathBuf> {
@@ -53,13 +55,13 @@ pub fn load() -> Accounts {
     a
 }
 
-pub fn save(a: &Accounts) {
-    if let Some(f) = file() {
-        if let Some(p) = f.parent() {
-            let _ = std::fs::create_dir_all(p);
-        }
-        let _ = crate::util::write_atomic(&f, serde_json::to_string_pretty(a).unwrap_or_default().as_bytes());
+pub fn save(a: &Accounts) -> Result<(), String> {
+    let f = file().ok_or_else(|| tr!("нет папки данных Vaporust", "no Vaporust data folder").to_string())?;
+    if let Some(p) = f.parent() {
+        let _ = std::fs::create_dir_all(p);
     }
+    let body = serde_json::to_string_pretty(a).map_err(|e| e.to_string())?;
+    crate::util::write_atomic(&f, body.as_bytes()).map_err(|e| trf!("список аккаунтов не записан: {e}", "the account list was not written: {e}"))
 }
 
 /// At the very start of main (after portable::init): point Aurelia to the selected account's folder.
@@ -101,7 +103,9 @@ pub fn note_current(login: &str, name: &str) {
         if !name.is_empty() {
             e.name = name.to_string();
         }
-        save(&a);
+        if let Err(e) = save(&a) {
+            crate::errlog::write(tr!("аккаунты", "accounts"), &e);
+        }
     }
 }
 
@@ -277,6 +281,13 @@ fn write_atomic(path: &std::path::Path, body: &str) -> Result<(), String> {
 fn switch_steam_login(steam_dir: &std::path::Path, points: &std::path::Path, login: &str) -> Result<(), String> {
     let path = steam_dir.join("config").join("loginusers.vdf");
     let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    if !vdf_well_formed(&text) {
+        return Err(tr!(
+            "файл входа Steam (loginusers.vdf) поврежден - ничего не изменено. Войдите в Steam один раз сами, он перепишет файл.",
+            "Steam's login file (loginusers.vdf) is damaged - nothing was changed. Sign into Steam once yourself, it rewrites the file."
+        )
+        .into());
+    }
     let Some(new) = flag_login(&text, login) else {
         return Err(tr!("Steam не помнит вход в этот аккаунт", "Steam does not remember a login for this account").into());
     };
@@ -284,7 +295,47 @@ fn switch_steam_login(steam_dir: &std::path::Path, points: &std::path::Path, log
     if new != text {
         write_atomic(&path, &new)?;
     }
-    set_steam_autologin(login)
+    // Both or neither: if the registry refuses, the file goes back as it was.
+    if let Err(e) = set_steam_autologin(login) {
+        if new != text {
+            let _ = write_atomic(&path, &text);
+        }
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// loginusers.vdf looks whole: the root block "users", braces balanced and never below zero,
+/// account blocks one level deep. A damaged file is not edited.
+pub(crate) fn vdf_well_formed(text: &str) -> bool {
+    let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty());
+    if !lines.next().is_some_and(|l| l.eq_ignore_ascii_case("\"users\"")) {
+        return false;
+    }
+    let mut depth = 0i32;
+    let mut closed_root = false;
+    for l in lines {
+        if closed_root {
+            return false; // something after the root block
+        }
+        match l {
+            "{" => {
+                depth += 1;
+                if depth > 2 {
+                    return false;
+                }
+            }
+            "}" => {
+                depth -= 1;
+                if depth < 0 {
+                    return false;
+                }
+                closed_root = depth == 0;
+            }
+            _ => {}
+        }
+    }
+    closed_root
 }
 
 /// Put back Steam's login choice from the newest restore point (and remove that point).
@@ -303,29 +354,33 @@ fn restore_last_point(steam_dir: &std::path::Path, points: &std::path::Path) -> 
 impl LauncherApp {
     /// Switch to an account (folder) and restart Vaporust.
     pub(crate) fn switch_account(&mut self, ctx: &egui::Context, dir: String) {
-        let mut a = load();
-        let login = a.list.iter().find(|e| e.dir == dir).map(|e| e.login.clone()).unwrap_or_default();
+        // One step at a time, each undone if the next one fails:
+        //  1. the new choice is written (pending Steam switch included); a write error - nothing changed;
+        //  2. Vaporust restarts; if it cannot - the old choice is written back;
+        //  3. Steam itself is switched by the NEW process after its login, when Steam is closed
+        //     (steam_pending): so Steam never points at an account Vaporust did not open.
+        let old = load();
+        let mut a = old.clone();
         a.active = dir;
-        // Steam: switch to the same account now if it is closed and knows this login; otherwise
-        // (Steam open, or a new account whose login is not known yet) after the next login.
-        let mut done = false;
-        if !login.is_empty() && !crate::local::steam_running() {
-            if let (Some(s), Some(points)) = (&self.steam, points_dir()) {
-                match switch_steam_login(&s.dir, &points, &login) {
-                    Ok(()) => done = true,
-                    Err(e) => crate::errlog::write(tr!("аккаунты", "accounts"), &e),
-                }
-            }
+        a.steam_pending = true;
+        if let Err(e) = save(&a) {
+            crate::popup::push(crate::popup::Kind::Info, tr!("Аккаунты", "Accounts"), trf!("Аккаунт не переключен: {e}", "The account was not switched: {e}"));
+            return;
         }
-        a.steam_pending = !done;
-        save(&a);
         match crate::portable::restart() {
             Ok(()) => {
                 // Exit for real (not to the tray): the new process is already starting.
                 crate::tray::request_exit();
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
-            Err(e) => crate::popup::push(crate::popup::Kind::Info, tr!("Аккаунты", "Accounts"), e),
+            Err(e) => {
+                let back = save(&old);
+                let note = match back {
+                    Ok(()) => trf!("Аккаунт не переключен: {e}", "The account was not switched: {e}"),
+                    Err(b) => trf!("Аккаунт не переключен: {e}. Выбор аккаунта не удалось вернуть ({b}) - выберите аккаунт снова.", "The account was not switched: {e}. The account choice could not be put back ({b}) - choose the account again."),
+                };
+                crate::popup::push(crate::popup::Kind::Info, tr!("Аккаунты", "Accounts"), note);
+            }
         }
     }
 
@@ -341,13 +396,25 @@ impl LauncherApp {
                 self.accounts_noted = Some(noted);
             }
             // A pending Steam switch: the login is known now; wait until Steam is closed.
-            if STEAM_PENDING.load(std::sync::atomic::Ordering::Relaxed) && !self.steam_running() {
-                STEAM_PENDING.store(false, std::sync::atomic::Ordering::Relaxed);
-                let mut a = load();
-                a.steam_pending = false;
-                save(&a);
+            // Tried at most once a minute; the flag is cleared only when the switch is done (or cannot
+            // be done until the user signs into Steam), so a passing error is retried later.
+            static LAST_TRY: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+            let due = LAST_TRY.lock().map(|t| t.is_none_or(|t| t.elapsed() >= std::time::Duration::from_secs(60))).unwrap_or(true);
+            if due && STEAM_PENDING.load(std::sync::atomic::Ordering::Relaxed) && !self.steam_running() {
+                if let Ok(mut t) = LAST_TRY.lock() {
+                    *t = Some(std::time::Instant::now());
+                }
+                let clear = || {
+                    STEAM_PENDING.store(false, std::sync::atomic::Ordering::Relaxed);
+                    let mut a = load();
+                    a.steam_pending = false;
+                    if let Err(e) = save(&a) {
+                        crate::errlog::write(tr!("аккаунты", "accounts"), &e);
+                    }
+                };
                 if let (Some(s), Some(points)) = (&self.steam, points_dir()) {
                     let text = if !steam_knows(&s.dir, login) {
+                        clear();
                         Some(tr!(
                             "Steam не помнит вход в этот аккаунт. Войдите в него в Steam один раз сами (с галочкой «Запомнить меня») - потом переключение будет работать.",
                             "Steam does not remember a login for this account. Sign into it in Steam once yourself (with \"Remember me\" checked) - then switching will work."
@@ -355,10 +422,15 @@ impl LauncherApp {
                         .to_string())
                     } else {
                         match switch_steam_login(&s.dir, &points, login) {
-                            Ok(()) => Some(tr!("Steam тоже переключен: при следующем запуске он войдет в этот аккаунт.", "Steam is switched too: it signs into this account at the next start.").to_string()),
+                            Ok(()) => {
+                                clear();
+                                Some(tr!("Steam тоже переключен: при следующем запуске он войдет в этот аккаунт.", "Steam is switched too: it signs into this account at the next start.").to_string())
+                            }
                             Err(e) => {
                                 crate::errlog::write(tr!("аккаунты", "accounts"), &e);
-                                Some(trf!("Steam не удалось переключить: {e}", "Could not switch Steam: {e}"))
+                                // Shown once; the switch is tried again in a minute.
+                                let first = !STEAM_ERR_SHOWN.swap(true, std::sync::atomic::Ordering::Relaxed);
+                                first.then(|| trf!("Steam не удалось переключить, повторю позже: {e}", "Could not switch Steam, will retry later: {e}"))
                             }
                         }
                     };
@@ -410,8 +482,10 @@ impl LauncherApp {
                     let dir = format!("{}", chrono::Utc::now().timestamp());
                     let mut a2 = load();
                     a2.list.push(Entry { dir: dir.clone(), ..Default::default() });
-                    save(&a2);
-                    switch = Some(dir);
+                    match save(&a2) {
+                        Ok(()) => switch = Some(dir),
+                        Err(e) => crate::popup::push(crate::popup::Kind::Info, tr!("Аккаунты", "Accounts"), e),
+                    }
                 }
                 ui.weak(tr!("Если Steam закрыт и в нем сохранен вход того же аккаунта, Steam тоже переключится на него.", "If Steam is closed and remembers the login of the same account, Steam switches to it too."));
                 // Roll back Steam's login choice to the state before the last switch.
@@ -451,8 +525,10 @@ impl LauncherApp {
         if let Some(d) = remove {
             let mut a2 = load();
             a2.list.retain(|e| e.dir != d);
-            save(&a2);
-            if let Some(b) = base() {
+            // The login folder is removed only when the list without it is written.
+            if let Err(e) = save(&a2) {
+                crate::popup::push(crate::popup::Kind::Info, tr!("Аккаунты", "Accounts"), e);
+            } else if let Some(b) = base() {
                 let p = b.join("accounts").join(&d);
                 // Login folder of the account being removed - only inside accounts\ and only a numbered one.
                 if d.chars().all(|c| c.is_ascii_digit()) && p.starts_with(b.join("accounts")) {
@@ -469,7 +545,7 @@ impl LauncherApp {
 
 #[cfg(test)]
 mod tests {
-    use super::{flag_login, list_points, save_point, KEEP_POINTS};
+    use super::{flag_login, list_points, save_point, vdf_well_formed, KEEP_POINTS};
 
     fn block<'a>(t: &'a str, name: &str) -> &'a str {
         let i = t.find(&format!("\"{name}\"\n")).or_else(|| t.find(&format!("\"{name}\"\r\n"))).unwrap();
@@ -509,6 +585,17 @@ mod tests {
     fn unknown_login() {
         assert!(flag_login("\"users\"\n{\n\t\"1\"\n\t{\n\t\t\"AccountName\"\t\t\"a\"\n\t}\n}\n", "zzz").is_none());
         assert!(flag_login("garbage", "a").is_none());
+    }
+
+    /// A damaged loginusers.vdf is recognized (and then not edited).
+    #[test]
+    fn damaged_loginusers() {
+        let good = "\"users\"\n{\n\t\"765\"\n\t{\n\t\t\"AccountName\"\t\t\"a\"\n\t}\n}\n";
+        assert!(vdf_well_formed(good));
+        assert!(!vdf_well_formed("\"other\"\n{\n}\n"), "wrong root");
+        assert!(!vdf_well_formed("\"users\"\n{\n\t\"765\"\n\t{\n\t}\n"), "root not closed");
+        assert!(!vdf_well_formed("\"users\"\n{\n}\n}\n"), "extra closing brace");
+        assert!(!vdf_well_formed(""), "empty");
     }
 
     /// Restore points: the same state is not saved twice, only the newest KEEP_POINTS stay.

@@ -112,6 +112,7 @@ impl LauncherApp {
         s.charts.clear();
         s.curators.clear();
         s.review_full.clear();
+        crate::store::CACHE_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
     /// Interface scale: setting -> egui; Ctrl+plus/minus (egui changes it itself) -> setting.
     pub(crate) fn zoom_tick(&mut self, ctx: &egui::Context) {
@@ -1139,3 +1140,40 @@ fn hour_box(ui: &mut egui::Ui, id: &str, h: &mut u8) -> bool {
 
 /// Interface scale steps (settings, wizard, Ctrl+plus/minus).
 pub const SCALES: [f32; 7] = [0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0];
+
+impl LauncherApp {
+    /// The signed-in account changed (another login, "Sign in again" into another account): the
+    /// interface forgets what it loaded or asked for the old one (purchase history, profile, badges,
+    /// family, inventory, store pages...). A sign-in into the same account after a lost connection
+    /// keeps everything.
+    pub(crate) fn account_tick(&mut self, net: &crate::net::NetState) {
+        let Some(id) = net.my_id else { return };
+        let old = self.account_seen.replace(id);
+        if old.is_none_or(|o| o == id) {
+            return;
+        }
+        self.own_profile_asked = false;
+        self.wallet_asked = false;
+        self.account_asked = false;
+        self.licenses_asked = false;
+        self.genre_asked = false;
+        self.page_loaded = None;
+        self.news_ui = Default::default();
+        self.badges_ui = Default::default();
+        self.points_ui = Default::default();
+        self.family_ui = Default::default();
+        self.group_ui = Default::default();
+        self.edit_ui = Default::default();
+        self.cart_ui = Default::default();
+        self.activity_ui = Default::default();
+        self.stats_ui = Default::default();
+        self.community_ui = Default::default();
+        self.groups_ui = Default::default();
+        self.social_ui = Default::default();
+        self.shots_win = None;
+        self.storage_win = None;
+        self.store_win = None;
+        self.inv_win = None;
+        self.accounts_noted = None;
+    }
+}

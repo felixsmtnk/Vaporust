@@ -124,7 +124,9 @@ fn target_for(dest: &Path, allowed: &[PathBuf]) -> Option<PathBuf> {
     let dc = comps(&d);
     let score = |a: &PathBuf| comps(&low(a)).iter().rev().zip(dc.iter().rev()).take_while(|(x, y)| x == y).count();
     let best = allowed.iter().map(score).max().unwrap_or(0);
-    if best == 0 {
+    // The file name alone is not enough: "slotA\save.dat" must not land in "slotB\save.dat".
+    // At least the folder above it has to match too (unless the path is just a file name).
+    if best == 0 || (best < 2 && dc.len() >= 2) {
         return None;
     }
     let mut hits = allowed.iter().filter(|a| score(a) == best);
@@ -146,9 +148,20 @@ pub fn restore(zip_path: &Path, allowed: &[PathBuf]) -> Result<usize, String> {
         .read_to_string(&mut manifest)
         .map_err(|e| e.to_string())?;
     // 1. Read all files of the backup. An error here - saves are untouched.
+    // Limits: a strange archive (thousands of files, gigabytes unpacked) is refused before reading.
+    const MAX_FILES: usize = 5000;
+    const MAX_TOTAL: u64 = 2 * 1024 * 1024 * 1024;
+    let mut total: u64 = 0;
     let mut items: Vec<(PathBuf, Vec<u8>)> = Vec::new();
     for line in manifest.lines() {
         let Some((name, dest)) = line.split_once('\t') else { continue };
+        if items.len() >= MAX_FILES {
+            return Err(tr!("Ничего не восстановлено: в копии слишком много файлов.", "Nothing restored: the backup has too many files.").into());
+        }
+        total = total.saturating_add(z.by_name(&format!("files/{name}")).map(|f| f.size()).unwrap_or(0));
+        if total > MAX_TOTAL {
+            return Err(tr!("Ничего не восстановлено: копия слишком большая.", "Nothing restored: the backup is too large.").into());
+        }
         let mut data = Vec::new();
         z.by_name(&format!("files/{name}"))
             .map_err(|e| trf!("Копия повреждена, ничего не восстановлено: в архиве нет {name} ({e}).", "The backup is damaged, nothing restored: the archive has no {name} ({e})."))?
@@ -159,6 +172,14 @@ pub fn restore(zip_path: &Path, allowed: &[PathBuf]) -> Result<usize, String> {
                 "Ничего не восстановлено: файл {dest} из копии не относится к сохранениям этой игры.", "Nothing restored: file {dest} from the backup is not one of this game's saves."
             ));
         };
+        // Each target once: two files of the backup going to one place would overwrite each other silently.
+        if items.iter().any(|(t, _)| *t == target) {
+            return Err(trf!(
+                "Ничего не восстановлено: два файла копии подходят к одному месту ({}). Восстановите сохранения вручную из архива.",
+                "Nothing restored: two files of the backup fit the same place ({}). Restore the saves by hand from the archive.",
+                target.display()
+            ));
+        }
         items.push((target, data));
     }
     if items.is_empty() {
@@ -215,13 +236,7 @@ pub fn restore(zip_path: &Path, allowed: &[PathBuf]) -> Result<usize, String> {
 
 /// Write a file via a temporary neighbor and rename: the file is never left truncated.
 fn write_replace(dest: &Path, data: &[u8]) -> std::io::Result<()> {
-    let mut tmp = dest.as_os_str().to_owned();
-    tmp.push(".vaporust-tmp");
-    let tmp = PathBuf::from(tmp);
-    fs::write(&tmp, data)?;
-    fs::rename(&tmp, dest).inspect_err(|_| {
-        let _ = fs::remove_file(&tmp);
-    })
+    crate::util::write_atomic(dest, data)
 }
 
 #[cfg(test)]
@@ -250,6 +265,28 @@ mod tests {
         // A path outside the save list is refused.
         assert!(restore(&zip, &[a.clone()]).is_err());
         assert_eq!(safe("A: B/C?"), "A_ B_C_");
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// Two slots with the same file name: when the game lists only one of them now, the other slot's
+    /// file must not be written over it (it used to be, with "restored: 2").
+    #[test]
+    fn slots_do_not_overwrite_each_other() {
+        let base = std::env::temp_dir().join(format!("vaporust_bk_slots_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let a = base.join("saves").join("slotA").join("save.dat");
+        let b = base.join("saves").join("slotB").join("save.dat");
+        fs::create_dir_all(a.parent().unwrap()).unwrap();
+        fs::create_dir_all(b.parent().unwrap()).unwrap();
+        fs::write(&a, "A").unwrap();
+        fs::write(&b, "B").unwrap();
+        let (zip, _) = backup_to(&base.join("copies"), &[a.clone(), b.clone()]).unwrap();
+        fs::write(&b, "B-now").unwrap();
+        assert!(restore(&zip, &[b.clone()]).is_err());
+        assert_eq!(fs::read_to_string(&b).unwrap(), "B-now", "nothing was written");
+        // The same backup under another Windows user name still fits by the common ending.
+        let other = base.join("Users").join("Other").join("saves").join("slotB").join("save.dat");
+        assert_eq!(target_for(&b, std::slice::from_ref(&other)), Some(other.clone()));
         let _ = fs::remove_dir_all(&base);
     }
 }

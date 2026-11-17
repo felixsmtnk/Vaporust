@@ -134,14 +134,26 @@ pub fn html_unescape(s: &str) -> String {
 
 /// Write a file via a temporary neighbor and rename: a crash or a power cut never leaves
 /// a half-written file (Steam would stop seeing the game, settings would be lost).
+/// The temporary name is unique (process number + counter, created only new), so two writers
+/// never share it, and the data is flushed to the disk before the rename.
 pub fn write_atomic(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut tmp = path.as_os_str().to_owned();
-    tmp.push(".vaporust-tmp");
+    tmp.push(format!(".vaporust-tmp-{}-{n}", std::process::id()));
     let tmp = PathBuf::from(tmp);
-    std::fs::write(&tmp, data)?;
-    std::fs::rename(&tmp, path).inspect_err(|_| {
+    let res = (|| {
+        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        f.write_all(data)?;
+        f.sync_all()?;
+        drop(f);
+        std::fs::rename(&tmp, path)
+    })();
+    if res.is_err() {
         let _ = std::fs::remove_file(&tmp);
-    })
+    }
+    res
 }
 
 #[cfg(test)]

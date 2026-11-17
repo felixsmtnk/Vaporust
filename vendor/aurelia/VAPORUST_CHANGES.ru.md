@@ -23,6 +23,8 @@ Vaporust использует ее как библиотеку и внес пе�
 - `src/steam_client/chat.rs` - `recent_chat_messages` запрашивает историю с
   `bbcode_format = true`: без этого стикеры выпадают из истории, а смайлики и картинки приходят
   упрощенными.
+- `src/core/config.rs` - `save_session` не сохраняет открытым текстом: если шифрование включено, а хранилище
+  ключей Windows недоступно, сессия не записывается вовсе (остается прежний зашифрованный файл).
 - `src/steam_client/content.rs`:
   - `fetch_achievements` вынесена в `fetch_achievements_for(appid, язык, steam_id)`: достижения
     любого пользователя (сравнение с другом);

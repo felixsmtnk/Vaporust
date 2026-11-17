@@ -85,9 +85,17 @@ fn decode(ctx: &egui::Context, url: &str, bytes: &[u8]) -> Option<Anim> {
     if !dec.is_apng().ok()? {
         return None;
     }
+    // Stickers are a few hundred pixels: a huge animation is not decoded at all, and the frames kept
+    // in memory before thinning stay within about 128 MB.
+    let (w, h) = image::ImageDecoder::dimensions(&dec);
+    let frame_bytes = (w as usize).saturating_mul(h as usize).saturating_mul(4);
+    if w == 0 || h == 0 || w > 1024 || h > 1024 {
+        return None;
+    }
+    let max_frames = (128 * 1024 * 1024 / frame_bytes).clamp(2, MAX_FRAMES);
     // First all frames (ApngDecoder already composes full images), then thinning.
     let mut raw = Vec::new();
-    for f in dec.apng().ok()?.into_frames().take(MAX_FRAMES) {
+    for f in dec.apng().ok()?.into_frames().take(max_frames) {
         let f = f.ok()?;
         let (n, d) = f.delay().numer_denom_ms();
         // Browsers show zero-delay frames for ~0.1 s.

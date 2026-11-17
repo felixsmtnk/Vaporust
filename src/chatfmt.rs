@@ -45,17 +45,23 @@ pub fn thumbnail_url(url: &str) -> String {
 }
 
 /// Host of an http(s) URL in lower case ("" for anything else).
+/// Parsed by the standard URL parser - the same rules the browser and the downloader use
+/// (a hand-made split read "https://other.site\@steamcommunity.com" as a Steam address).
+/// An address with a user name or password inside is not accepted at all.
 pub fn host_of(url: &str) -> String {
-    let u = url.trim();
-    let rest = match u.split_once("://") {
-        Some((scheme, rest)) if scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https") => rest,
-        _ => return String::new(),
-    };
-    let auth = rest.split(['/', '?', '#']).next().unwrap_or("");
-    // "user@host:port" -> "host"
-    let host = auth.rsplit('@').next().unwrap_or("");
-    let host = host.split(':').next().unwrap_or("");
-    host.trim_end_matches('.').to_ascii_lowercase()
+    match parsed(url) {
+        Some(u) => u.host_str().unwrap_or("").trim_end_matches('.').to_ascii_lowercase(),
+        None => String::new(),
+    }
+}
+
+/// http(s) address without "user:password@"; None for anything else.
+pub fn parsed(url: &str) -> Option<url::Url> {
+    let u = url::Url::parse(url.trim()).ok()?;
+    if !matches!(u.scheme(), "http" | "https") || !u.username().is_empty() || u.password().is_some() {
+        return None;
+    }
+    Some(u)
 }
 
 /// Sites that belong to Valve (Steam store, community, CDN).
@@ -82,7 +88,7 @@ pub fn is_steam_host(host: &str) -> bool {
 /// An image from a chat message may be loaded by itself only from a Steam site over https:
 /// a request to any other server would show the sender our IP address and the time we read it.
 pub fn trusted_image(url: &str) -> bool {
-    url.trim().get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://")) && is_steam_host(&host_of(url))
+    parsed(url).is_some_and(|u| u.scheme() == "https" && is_steam_host(&host_of(url)))
 }
 
 /// The label of a link looks like an address of another site than the real one
@@ -150,10 +156,24 @@ const FORMAT_TAGS: &[&str] = &[
     "olist", "*", "hr", "table", "tr", "td", "th",
 ];
 
+/// Longest message that is parsed (Steam itself limits chat messages to a few thousand characters).
+const MAX_LEN: usize = 20_000;
+/// Nesting limit of spoilers, quotes and "/me" inside each other: deeper levels stay as plain text
+/// (a crafted message of thousands of nested "/me" crashed the program with a stack overflow).
+const MAX_DEPTH: u32 = 4;
+
 pub fn parse(msg: &str) -> Vec<Seg> {
+    let msg = match msg.char_indices().nth(MAX_LEN) {
+        Some((cut, _)) => &msg[..cut],
+        None => msg,
+    };
+    parse_at(msg, 0)
+}
+
+fn parse_at(msg: &str, depth: u32) -> Vec<Seg> {
     // "/me text" - third-person action (as in Steam chat).
     if let Some(rest) = msg.strip_prefix("/me ") {
-        return vec![Seg::Me(plain(rest))];
+        return vec![Seg::Me(plain_at(rest, depth + 1))];
     }
     let mut segs: Vec<Seg> = Vec::new();
     let mut text = String::new();
@@ -195,9 +215,9 @@ pub fn parse(msg: &str) -> Vec<Seg> {
                     if let Some((b, tail)) = inner(&name) {
                         flush(&mut text, &mut segs);
                         segs.push(match name.as_str() {
-                            "spoiler" => Seg::Spoiler(plain(b)),
+                            "spoiler" => Seg::Spoiler(plain_at(b, depth + 1)),
                             "code" => Seg::Code(b.trim_matches(['\n', '\r']).to_string()),
-                            _ => Seg::Quote { author: attr(tag, "author").filter(|a| !a.is_empty()), text: plain(b) },
+                            _ => Seg::Quote { author: attr(tag, "author").filter(|a| !a.is_empty()), text: plain_at(b, depth + 1) },
                         });
                         rest = tail;
                         continue;
@@ -277,7 +297,14 @@ pub fn parse(msg: &str) -> Vec<Seg> {
 
 /// BBCode text without formatting (for spoilers, quotes, "/me").
 fn plain(s: &str) -> String {
-    parse(s)
+    plain_at(s, 0)
+}
+
+fn plain_at(s: &str, depth: u32) -> String {
+    if depth > MAX_DEPTH {
+        return s.to_string();
+    }
+    parse_at(s, depth)
         .into_iter()
         .map(|seg| match seg {
             Seg::Text(t) | Seg::Spoiler(t) | Seg::Code(t) | Seg::Me(t) => t,
@@ -514,7 +541,25 @@ mod safety_tests {
         assert!(!trusted_image("https://user@evil.example/steamcommunity.com/a.png"));
         assert!(!trusted_image(r"file://\\server\share\a.png"));
         assert!(!trusted_image("file:///C:/a.png"));
-        assert_eq!(host_of("https://User:pw@Store.SteamPowered.com:443/app/1"), "store.steampowered.com");
+        assert_eq!(host_of("https://Store.SteamPowered.com:443/app/1"), "store.steampowered.com");
+        // A user name or password inside the address - not accepted at all.
+        assert_eq!(host_of("https://User:pw@Store.SteamPowered.com/app/1"), "");
+        // A backslash ends the host for the browser: these lead to outside.invalid, not to Steam.
+        assert!(!trusted_image(r"https://outside.invalid\@steamcommunity.com/a.png"));
+        assert!(!trusted_image(r"https://outside.invalid\.steamcommunity.com/a.png"));
+        assert_ne!(host_of(r"https://outside.invalid\@steamcommunity.com/"), "steamcommunity.com");
+    }
+
+    #[test]
+    fn deep_nesting_does_not_crash() {
+        // Thousands of nested "/me" and spoilers: parsed without running out of stack.
+        let me = "/me ".repeat(5000) + "x";
+        let _ = parse(&me);
+        let _ = preview(&me);
+        let sp = "[spoiler]".repeat(3000) + "x" + &"[/spoiler]".repeat(3000);
+        let _ = parse(&sp);
+        let q = "[quote]".repeat(3000);
+        let _ = copy_text(&q);
     }
 
     #[test]

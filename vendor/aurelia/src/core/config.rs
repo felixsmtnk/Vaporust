@@ -456,11 +456,10 @@ pub async fn save_session(session: &SessionState) -> Result<()> {
                 write_json_private(&session_path, &envelope).await?;
             }
             None => {
-                tracing::warn!(
-                    "no OS keyring available; session.json stays plaintext \
-                     (owner-only permissions)"
-                );
-                write_json_private(&session_path, session).await?;
+                // vaporust: fail closed. Encryption is required here, and a keyring that is briefly
+                // unavailable must not turn the saved login into plain text for good: the old
+                // (encrypted) file stays as it was and the caller gets an error.
+                anyhow::bail!("the OS keyring is unavailable; the session was not saved to keep it encrypted");
             }
         }
     } else {

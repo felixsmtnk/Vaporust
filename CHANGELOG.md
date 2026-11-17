@@ -5,6 +5,49 @@
 What went into each released version, newest first. Plans for the future are in
 [ROADMAP.md](ROADMAP.md), archives and full release notes are on the [Releases](../../releases) page.
 
+## ✅ 0.8.6-alpha: fixes from the QA report
+
+*Released 2026-11-17.*
+
+Fixes from the Codex QA report on 0.8.5.
+
+**Files and saves**
+- "Storage" no longer offers an installed game's folder as a leftover when its appmanifest is
+  truncated (a game file without a whole record or a folder name stops the leftover search), and it
+  checks the folder again right before deleting.
+- Restoring a save backup never writes two files into one place and no longer matches a file by its
+  name alone ("slotA\save.dat" does not land in "slotB\save.dat"); very large or strange archives
+  are refused before anything is read.
+- Files are written through a unique temporary file that is flushed to the disk.
+
+**Chat and safety**
+- A message with thousands of nested "/me", spoilers or quotes no longer crashes Vaporust.
+- Addresses are checked by the standard URL parser: a backslash trick can no longer make another
+  site look like Steam; addresses with a user name inside are not opened or loaded.
+- The saved login stays encrypted: if the Windows key storage is briefly unavailable, it is not
+  saved again rather than written as plain text.
+- Huge animated stickers are not decoded; the frames kept in memory are limited.
+
+**Accounts**
+- Switching accounts is done step by step with a way back: a failed write changes nothing, a failed
+  restart puts the old choice back; Steam is switched by the new window after its login.
+- A pending Steam switch is retried after an error instead of being forgotten; a damaged
+  loginusers.vdf is not edited, and when the registry refuses, the file goes back as it was.
+- Signing into another account (for example "Sign in again" after a lost connection) drops
+  everything of the previous one: purchase history, profile settings, store and inventory pages.
+- A chat message of the previous account can no longer appear after the account changed.
+
+**Interface and updates**
+- The dark style always: with a light Windows theme some panels used to turn white with dark text.
+- Reviews: after a language switch they load again (they used to spin forever), an old answer can
+  not get into the new language, and changing the order or language is not undone by the next page.
+  One "helpful" vote on a Russian review is counted.
+- The update check accepts only a whole Windows program that is Vaporust; an error of an update
+  started from the top bar is shown, not hidden.
+- Unfreezing checks the process start time too, so a process that got the same number is not touched;
+  only Steam's own processes with a known path are finished off.
+- A shortcut of a portable copy no longer hands its game to the normal copy.
+
 ## ✅ 0.8.5-alpha: fixes from code reviews
 
 *Released 2026-11-17.*

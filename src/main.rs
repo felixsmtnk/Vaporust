@@ -276,6 +276,9 @@ struct LauncherApp {
     genre_asked: bool,
     /// Interface language of the previous frame (true - English): on a change the cached Steam texts are dropped.
     lang_seen: Option<bool>,
+    /// SteamID seen on the previous frame: when it changes, everything loaded for the old account in
+    /// the interface is dropped and asked for again.
+    account_seen: Option<u64>,
     only_installed: bool,
     login_user: String,
     login_pass: String,
@@ -523,6 +526,7 @@ impl LauncherApp {
             genre: None,
             genre_asked: false,
             lang_seen: None,
+            account_seen: None,
             only_installed: saved.only_installed,
             login_user: String::new(),
             login_pass: String::new(),
@@ -2492,6 +2496,7 @@ impl eframe::App for LauncherApp {
         }
         let mut net = std::mem::take(&mut self.net_snap);
         let net_gen = std::mem::replace(&mut self.net_gen, u64::MAX);
+        self.account_tick(&net);
         self.tour_tick(ctx, &net);
 
         // Unread messages: a count in the window title; when everything is read - remove the tray dot.

@@ -331,7 +331,8 @@ fn restore_is_all_or_nothing() {
     assert!(e.contains("возвращены как были"), "{e}");
     assert_eq!(fs::read(&a).unwrap(), b"A-now", "the first file is rolled back");
     assert_eq!(fs::read(&ro).unwrap(), b"RO-now");
-    assert!(!t.0.join("save").join("a.sav.vaporust-tmp").exists(), "no temporary files left");
+    let leftovers = fs::read_dir(t.0.join("save")).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().contains("vaporust-tmp")).count();
+    assert_eq!(leftovers, 0, "no temporary files left");
     // A new file that did not exist before is deleted on rollback.
     let fresh = t.0.join("save").join("new.sav");
     let manifest = format!("0_n.sav\t{}\n1_r.sav\t{}\n", fresh.display(), ro.display());

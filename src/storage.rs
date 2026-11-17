@@ -120,6 +120,14 @@ fn manifests(lib: &Path) -> (HashMap<u32, (String, String, u32, u64)>, bool) {
                 _ => {}
             }
         }
+        // A whole record: the root block, balanced braces and a usable folder name. A truncated
+        // file (appid present, installdir cut off) would make the game's folder look like a leftover.
+        let opens = text.matches('{').count();
+        let whole = text.trim_start().starts_with("\"AppState\"") && opens > 0 && opens == text.matches('}').count();
+        let dir_ok = !dir.trim().is_empty() && !dir.contains(['\\', '/']) && dir != "." && dir != "..";
+        if !whole || !dir_ok {
+            unreadable = true;
+        }
         match appid {
             Some(a) => {
                 out.insert(a, (name, dir, flags, size));
@@ -128,6 +136,18 @@ fn manifests(lib: &Path) -> (HashMap<u32, (String, String, u32, u64)>, bool) {
         }
     }
     (out, unreadable)
+}
+
+/// Right before deleting: the folder is still nobody's. The list may be minutes old, and a game
+/// could have been installed or its manifest fixed since; any doubt - not deleted.
+fn still_leftover(l: &Leftover) -> bool {
+    if l.kind != Kind::Folder {
+        return true;
+    }
+    let Some(lib) = l.path.parent().and_then(Path::parent).and_then(Path::parent) else { return false };
+    let Some(name) = l.path.file_name().map(|n| n.to_string_lossy().to_lowercase()) else { return false };
+    let (m, unsure) = manifests(lib);
+    !unsure && !m.values().any(|v| v.1.to_lowercase() == name)
 }
 
 /// Steam folders in common that do not belong to games directly - not touched.
@@ -389,7 +409,7 @@ impl LauncherApp {
                                         if let Some(x) = &l.extra {
                                             paths.push(x);
                                         }
-                                        w.note = Some(match to_recycle_bin(&paths) {
+                                        w.note = Some(match if still_leftover(l) { to_recycle_bin(&paths) } else { Err(tr!("папка снова принадлежит игре или файл игры не прочитался - ничего не удалено", "the folder belongs to a game again or a game file could not be read - nothing deleted").into()) } {
                                             Ok(()) => trf!("«{name}» в Корзине ({}).", "\"{name}\" is in the Recycle Bin ({}).", net::fmt_bytes(l.size)),
                                             Err(e) => trf!("«{name}» не удален: {e}", "\"{name}\" not deleted: {e}"),
                                         });
@@ -425,6 +445,45 @@ impl LauncherApp {
         if let Some(a) = open_game {
             self.lib_page = Some(a);
             self.view = crate::View::Library;
+        }
+    }
+}
+
+#[cfg(test)]
+mod truncated_manifest_tests {
+    use super::*;
+
+    /// A truncated appmanifest (appid kept, installdir cut off or empty) stops the leftover search:
+    /// the game's own folder must never be offered for deletion.
+    #[test]
+    fn truncated_manifest_protects_game() {
+        for (i, body) in [
+            "\"AppState\"
+{
+	\"appid\"		\"123\"
+",
+            "\"AppState\"
+{
+	\"appid\"		\"123\"
+	\"installdir\"		\"\"
+}
+",
+            "\"AppState\"
+{
+	\"appid\"		\"123\"
+	\"installdir\"		\"Ga",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let root = std::env::temp_dir().join(format!("vaporust_trunc_{}_{i}", std::process::id()));
+            let _ = fs::remove_dir_all(&root);
+            let apps = root.join("steamapps");
+            fs::create_dir_all(apps.join("common").join("Game")).unwrap();
+            fs::write(apps.join("appmanifest_123.acf"), body).unwrap();
+            let (_, unsure) = manifests(&root);
+            assert!(unsure, "case {i}");
+            let _ = fs::remove_dir_all(&root);
         }
     }
 }

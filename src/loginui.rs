@@ -110,8 +110,8 @@ impl LauncherApp {
                     ui.add_space(sz(16.0, 6.0));
                     ui.label(
                         egui::RichText::new(tr!(
-                            "Пароль уходит только на серверы Steam. Vaporust его не хранит: на диске остается только зашифрованный ключ входа.",
-                            "The password goes only to Steam servers. Vaporust does not keep it: only an encrypted login key stays on disk."
+                            "Пароль уходит только на серверы Steam. Vaporust его не хранит: на диске остается только ключ входа, зашифрованный ключом Windows.",
+                            "The password goes only to Steam servers. Vaporust does not keep it: only a login key encrypted with a Windows key stays on disk."
                         ))
                         .size(11.5)
                         .color(theme::WEAK),

@@ -158,14 +158,15 @@ pub fn reveal_image(url: &str) {
 /// Open a link from a message: Steam sites at once, others after a warning
 /// (a fake "Steam" link is the most common way accounts are stolen).
 pub fn open_link(ctx: &egui::Context, url: &str) {
+    // The browser gets the address as the parser normalized it - the same one that was checked.
+    let Some(u) = chatfmt::parsed(url) else {
+        return; // not http(s), or with a user name inside: file://, steam://... from a message are not opened
+    };
     let host = chatfmt::host_of(url);
-    if host.is_empty() {
-        return; // not http(s): file://, steam://... from a message are not opened
-    }
-    if url.trim().to_ascii_lowercase().starts_with("https://") && chatfmt::is_steam_host(&host) {
-        ctx.open_url(egui::OpenUrl::new_tab(url));
+    if u.scheme() == "https" && chatfmt::is_steam_host(&host) {
+        ctx.open_url(egui::OpenUrl::new_tab(u.as_str()));
     } else if let Ok(mut p) = PENDING_LINK.lock() {
-        *p = Some(url.to_string());
+        *p = Some(u.to_string());
     }
 }
 

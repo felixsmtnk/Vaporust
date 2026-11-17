@@ -713,8 +713,9 @@ impl Procs {
         let mut n = 0;
         for name in names {
             for p in self.named(name) {
-                // Path unknown (no access) - it is still Steam's process by name, as before.
-                if p.exe().is_some_and(|e| !norm(e).starts_with(&root)) {
+                // Only processes whose exe is known to be in the Steam folder: an unknown path (no access,
+                // another user's or an elevated process) is left alone.
+                if !p.exe().is_some_and(|e| norm(e).starts_with(&root)) {
                     continue;
                 }
                 if p.kill() {
@@ -907,13 +908,18 @@ impl Frozen {
 
     fn freeze_new(&mut self, pids: Vec<u32>) {
         for pid in pids {
-            if self.list.iter().any(|(p, _, _)| *p == pid) {
-                if self.soft {
-                    freeze::trim(pid);
-                }
-                continue;
-            }
             let t = freeze::started(pid);
+            // The same process = the same number AND start time; a new process with a reused number
+            // is a different one (the old record is dropped: that process is gone).
+            if let Some(i) = self.list.iter().position(|(p, _, _)| *p == pid) {
+                if self.list[i].1 == t && t != 0 {
+                    if self.soft {
+                        freeze::trim(pid);
+                    }
+                    continue;
+                }
+                self.list.remove(i);
+            }
             // The file first: even if Vaporust dies right after freezing, the next start knows about it.
             self.list.push((pid, t, self.soft));
             write_frozen(&self.list);
@@ -926,7 +932,11 @@ impl Frozen {
     }
 
     fn resume_all(&mut self) {
-        for (pid, _, soft) in self.list.drain(..) {
+        for (pid, t, soft) in self.list.drain(..) {
+            // Only the process that was frozen: its number may belong to another one by now.
+            if t == 0 || freeze::started(pid) != t {
+                continue;
+            }
             if soft {
                 freeze::unsoften(pid);
             } else {

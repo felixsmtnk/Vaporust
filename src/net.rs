@@ -1813,6 +1813,17 @@ async fn logged_in(client: &mut SteamClient, session: SessionState, st: &Shared,
     // New login: tasks of the previous login no longer write anything (spawn_session, chat listener).
     SESSION_GEN.fetch_add(1, Ordering::Relaxed);
     upd(st, ctx, |s| {
+        // Another account than before (for example "Sign in again" after a lost connection): nothing
+        // of the previous one may stay - purchase history, profile settings, inventory, store state.
+        // Only what does not belong to an account is kept: a running download and game names.
+        if s.my_id.is_some() && s.my_id != my_id {
+            let fresh = NetState {
+                install: s.install.take(),
+                app_names: s.app_names.clone(),
+                ..Default::default()
+            };
+            *s = fresh;
+        }
         s.account = Some(name);
         s.need_login = false;
         s.offline = false;
@@ -2278,7 +2289,9 @@ fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st: &Shared, 
     };
     let gen = SESSION_GEN.load(Ordering::Relaxed); // the login number is set by logged_in
     let (st, ctx) = (st.clone(), ctx.clone());
-    tokio::spawn(async move {
+    // Bound to this login (TASK_SESSION): a message that arrives while the account changes is checked
+    // under the state lock and dropped, not only by the check at the top of the loop.
+    tokio::spawn(TASK_SESSION.scope(gen, async move {
         use aurelia::steam_client::RawChatKind;
         use tokio_stream::StreamExt;
         let mut events = std::pin::pin!(events);
@@ -2321,6 +2334,10 @@ fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st: &Shared, 
                     conv.unread += 1;
                 }
             });
+            // The account changed while the message was being written: no notification for the old one.
+            if stale_task() {
+                break;
+            }
             if !from_self {
                 // Sound, taskbar flashing, tray dot and a popup notification.
                 let (name, accent) = names
@@ -2339,7 +2356,7 @@ fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st: &Shared, 
                 }
             }
         }
-    });
+    }));
 }
 
 /// Own game list cache - a separate file per account (Aurelia has one for everybody).

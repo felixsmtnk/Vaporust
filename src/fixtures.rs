@@ -232,6 +232,10 @@ mod tests {
         let r = crate::store::parse_reviews(&page("reviews.html"));
         assert!(r.len() >= 5, "reviews: {}", r.len());
         assert!(r.iter().all(|x| !x.author.is_empty() && !x.text.is_empty() && x.url.contains("/recommended/")));
+        // Every card that says "1 пользователь посчитал..." has one helpful vote (it used to read 0).
+        let html = page("reviews.html");
+        let single = html.matches("1 пользователь посчитал этот обзор полезным").count();
+        assert!(r.iter().filter(|x| x.helpful_n == 1).count() >= single, "{:?}", r.iter().map(|x| x.helpful_n).collect::<Vec<_>>());
         let (text, id, _hours) = crate::store::parse_review_page(&page("review_page.html")).unwrap();
         assert!(!text.is_empty());
         assert!(id > 0);

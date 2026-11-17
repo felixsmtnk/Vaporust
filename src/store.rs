@@ -48,6 +48,13 @@ pub struct Extras {
     pub reviews: Option<Reviews>,
 }
 
+/// Review request numbers, unique for the run.
+static REVIEW_SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Grows when the store cache is dropped (language change): the "already asked" marks of the
+/// interface include it, so the pages are asked for again.
+pub static CACHE_GEN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 /// Game reviews: the chosen order and language, loaded pages.
 #[derive(Default, Clone)]
 pub struct Reviews {
@@ -77,12 +84,19 @@ impl Reviews {
         if self.loading && same {
             return None;
         }
+        // "Next page" of other criteria than the current ones: a request left over from the frame in
+        // which the user changed the order or language - it must not switch the choice back.
+        if !same && page > 1 {
+            return None;
+        }
         if !same || page <= 1 {
             page = 1;
             let seq = self.seq;
             *self = Reviews { sort, lang, seq, ..Default::default() };
         }
-        self.seq = self.seq.wrapping_add(1);
+        // The number is unique for the whole run (not per object): after the cache is dropped (language
+        // change) a new object would start from 1 again and accept an old answer as its own.
+        self.seq = REVIEW_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
         self.loading = true;
         Some((page, self.seq))
     }
@@ -946,14 +960,16 @@ pub fn parse_reviews(html: &str) -> Vec<Review> {
                 let digits: String = head.chars().rev().take_while(|c| c.is_ascii_digit() || *c == ',').collect();
                 digits.chars().rev().filter(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(0)
             };
-            let helpful_n = match num_after("полезным:") {
-                0 => num_before("found this review helpful"),
-                n => n,
-            };
-            let funny_n = match num_after("забавным:") {
-                0 => num_before("found this review funny"),
-                n => n,
-            };
+            // Russian has two forms: "Пользователей, посчитавших обзор полезным: 2" and for one vote
+            // "1 пользователь посчитал этот обзор полезным" (the number before the words, as in English).
+            let helpful_n = [num_after("полезным:"), num_before("посчитал этот обзор полезным"), num_before("found this review helpful")]
+                .into_iter()
+                .find(|n| *n > 0)
+                .unwrap_or(0);
+            let funny_n = [num_after("забавным:"), num_before("посчитал этот обзор забавным"), num_before("found this review funny")]
+                .into_iter()
+                .find(|n| *n > 0)
+                .unwrap_or(0);
             let mut awards = Vec::new();
             for part in card.split("data-reaction=&quot;").skip(1) {
                 let id: u32 = part.split('&').next().and_then(|n| n.parse().ok()).unwrap_or(0);
@@ -1342,8 +1358,12 @@ mod review_paging_tests {
         r.pages = 1;
         r.cursor = Some("ru-cursor".into());
         r.list.push(review("in Russian"));
-        // "Show more" while English is now chosen: page 2 becomes page 1 of English, without the cursor.
-        let (p, second) = r.begin(0, "english", 2).unwrap();
+        // A "next page" of other criteria (left over from the frame where English was chosen) is
+        // dropped: it must not switch the choice back.
+        assert!(r.begin(0, "english", 2).is_none());
+        assert_eq!(r.lang, "russian");
+        // English chosen: page 1 of English, without the old cursor.
+        let (p, second) = r.begin(0, "english", 1).unwrap();
         assert_eq!(p, 1);
         assert!(r.cursor.is_none() && r.list.is_empty());
         assert_eq!(r.lang, "english");
@@ -1352,6 +1372,17 @@ mod review_paging_tests {
         assert!(r.begin(0, "english", 1).is_none());
         let (_, third) = r.begin(0, "russian", 1).unwrap();
         assert_ne!(third, second);
+    }
+
+    /// Request numbers are unique for the run: after the cache is dropped (a language change), a new
+    /// object does not start from 1 again and cannot take an old answer for its own.
+    #[test]
+    fn numbers_survive_cache_drop() {
+        let mut old = Reviews::default();
+        let (_, a) = old.begin(0, "russian", 1).unwrap();
+        let mut fresh = Reviews::default();
+        let (_, b) = fresh.begin(0, "english", 1).unwrap();
+        assert_ne!(a, b);
     }
 
     /// The next page of the same order and language keeps the list and the cursor.

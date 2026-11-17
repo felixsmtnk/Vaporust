@@ -54,6 +54,9 @@ pub fn apply(ctx: &egui::Context) {
         s.rounding = egui::Rounding::same(4.0);
         s.bg_stroke = egui::Stroke::NONE;
     }
+    // The dark theme always: with ThemePreference::System and a light Windows theme egui switched to
+    // its light style after the first frame, and our dark panels got dark text and white buttons.
+    ctx.set_theme(egui::Theme::Dark);
     ctx.set_visuals(v);
     ctx.style_mut(|s| {
         s.spacing.button_padding = egui::vec2(10.0, 4.0);

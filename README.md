@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="../../releases/tag/v0.8.5-alpha"><b>Download for Windows</b></a> ·
+  <a href="../../releases/tag/v0.8.6-alpha"><b>Download for Windows</b></a> ·
   <a href="#password-and-security">Password and security</a> ·
   <a href="#features">Features</a> ·
   <a href="#faq">FAQ</a> ·
@@ -57,7 +57,7 @@ the time you play.
 
 |   | Regular Steam | **Vaporust** |
 |---|---|---|
-| Memory when idle* | hundreds of MB | **30-80 MB** for Vaporust itself; Steam is not running |
+| Memory when idle* | hundreds of MB | **30-80 MB** for Vaporust itself on the author's PCs (more while many images are open); Steam is not running |
 | While playing | client + steamwebhelper | Steam in the background: steamwebhelper is frozen and paged out, the rest is 10-20 MB |
 | Installing and updating games | through the client | **without starting Steam** |
 | Changing language and beta | through the client | **without starting Steam** |
@@ -114,7 +114,7 @@ The name comes from *vapor* + *Rust*.
 
 1. You need **Windows 10 or 11** and an installed **Steam** that you have logged in to at least
    once with "Remember password" checked.
-2. Download `Vaporust-0.8.5-alpha-windows-x64.zip` from the [latest release](../../releases/tag/v0.8.5-alpha)
+2. Download `Vaporust-0.8.6-alpha-windows-x64.zip` from the [latest release](../../releases/tag/v0.8.6-alpha)
    page (for 32-bit Windows - `windows-x86`).
 3. Unpack it into any folder and run `vaporust.exe`. No installation needed.
 4. Log in to your Steam account: password and Steam Guard code, or a QR code from the Steam app.
@@ -127,9 +127,11 @@ After that Vaporust updates itself: "A new version is available" appears at the 
 - **The password is not stored.** It only goes to Steam servers at login, as in the normal client.
   You may not enter it at all: log in with a QR code from the Steam app, or use "Without login".
 - **The saved login** (a session key, not the password) is encrypted, the key is kept in the
-  Windows Credential Manager. Its state is shown in "Settings -> Account".
+  Windows Credential Manager. Its state is shown in "Settings -> Account". If the key storage is
+  unavailable later, the login is not saved again rather than saved unencrypted.
 - **No telemetry.** Vaporust talks only to Steam servers and to GitHub (update check, can be
-  turned off in the settings).
+  turned off in the settings). Other sites only when you ask: an image from another site in chat is
+  loaded after "Show", a link opens after a warning.
 - **Revoking access:** "Log out" in the "Vaporust" menu deletes the saved login; all logins at
   once - on the [Steam devices page](https://store.steampowered.com/account/authorizeddevices).
 - **Uninstalling:** first "Settings -> About -> Remove Vaporust changes in Steam" (unfinished games

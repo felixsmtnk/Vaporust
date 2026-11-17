@@ -219,19 +219,51 @@ fn verify_sha(data: &[u8], expected: &str) -> Result<(), String> {
 }
 
 /// Exe bitness from the PE header: Some(true) - 64 bit (x64), Some(false) - 32 bit (x86).
+/// Only for a whole executable: an executable image (not a DLL), an optional header that matches
+/// the machine, sections that lie inside the file. 70 bytes with the right start are not a program.
 fn pe_is_64(data: &[u8]) -> Option<bool> {
+    let u16_at = |o: usize| data.get(o..o.checked_add(2)?).map(|b| u16::from_le_bytes([b[0], b[1]]));
+    let u32_at = |o: usize| data.get(o..o.checked_add(4)?).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
     if data.get(..2)? != b"MZ" {
         return None;
     }
-    let pe = u32::from_le_bytes(data.get(0x3c..0x40)?.try_into().ok()?) as usize;
-    if data.get(pe..pe + 4)? != b"PE\0\0" {
+    let pe = u32_at(0x3c)? as usize;
+    if data.get(pe..pe.checked_add(4)?)? != b"PE\0\0" {
         return None;
     }
-    match u16::from_le_bytes(data.get(pe + 4..pe + 6)?.try_into().ok()?) {
-        0x8664 => Some(true),
-        0x014c => Some(false),
-        _ => None,
+    let is64 = match u16_at(pe + 4)? {
+        0x8664 => true,
+        0x014c => false,
+        _ => return None,
+    };
+    let sections = u16_at(pe + 6)? as usize;
+    let opt_size = u16_at(pe + 20)? as usize;
+    let characteristics = u16_at(pe + 22)?;
+    // IMAGE_FILE_EXECUTABLE_IMAGE set, IMAGE_FILE_DLL not.
+    if characteristics & 0x0002 == 0 || characteristics & 0x2000 != 0 || sections == 0 || sections > 96 {
+        return None;
     }
+    let opt = pe + 24;
+    let magic = u16_at(opt)?;
+    if (is64 && magic != 0x20b) || (!is64 && magic != 0x10b) || opt_size < if is64 { 240 } else { 224 } {
+        return None;
+    }
+    let table = opt + opt_size;
+    for i in 0..sections {
+        let s = table + i * 40;
+        let raw_size = u32_at(s + 16)? as usize;
+        let raw_ptr = u32_at(s + 20)? as usize;
+        if raw_size > 0 && raw_ptr.checked_add(raw_size)? > data.len() {
+            return None;
+        }
+    }
+    Some(is64)
+}
+
+/// The program is Vaporust: its version resource names the product (UTF-16 "Vaporust").
+fn is_vaporust(data: &[u8]) -> bool {
+    let needle: Vec<u8> = "Vaporust".encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
+    data.windows(needle.len()).any(|w| w == needle.as_slice())
 }
 
 /// Unpack the archive and replace the exe (the running file is renamed to .old).
@@ -252,6 +284,9 @@ pub fn replace_exe(exe: &Path, zip: &[u8]) -> Result<(), String> {
         Some(is64) if is64 == cfg!(target_pointer_width = "64") => {}
         Some(_) => return Err(tr!("в архиве программа другой разрядности (x64/x86), обновление не установлено", "the archive has a program of a different bitness (x64/x86), the update was not installed").into()),
         None => return Err(tr!("в архиве не программа Windows, обновление не установлено", "the archive has no Windows program, the update was not installed").into()),
+    }
+    if !is_vaporust(&data) {
+        return Err(tr!("программа в архиве - не Vaporust, обновление не установлено", "the program in the archive is not Vaporust, the update was not installed").into());
     }
     let tmp =std::env::temp_dir().join(format!("vaporust-update-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
@@ -318,6 +353,8 @@ impl crate::LauncherApp {
                         }
                         if r.asset_url.is_some() {
                             if primary(ui, tr!("Обновить", "Update")).on_hover_text(tr!("Скачать и установить, затем перезапустить Vaporust", "Download and install, then restart Vaporust")).clicked() {
+                                // Started by the user: its result (an error too) is always shown.
+                                self.upd_manual = true;
                                 install(r.clone(), &self.upd, ui.ctx());
                             }
                         } else {
@@ -419,6 +456,14 @@ mod tests {
         let me = std::fs::read(std::env::current_exe().unwrap()).unwrap();
         assert_eq!(pe_is_64(&me), Some(cfg!(target_pointer_width = "64")));
         assert_eq!(pe_is_64(b"old exe"), None);
+        // Only the first bytes right ("MZ", "PE", x64): not a program.
+        let mut fake = vec![0u8; 70];
+        fake[..2].copy_from_slice(b"MZ");
+        fake[0x3c] = 0x40;
+        fake[0x40..0x44].copy_from_slice(b"PE\0\0");
+        fake[0x44..0x46].copy_from_slice(&0x8664u16.to_le_bytes());
+        assert_eq!(pe_is_64(&fake), None);
+        assert!(is_vaporust(&me), "the test program carries the Vaporust version resource");
     }
 
     /// Live test: a request to GitHub (read only).

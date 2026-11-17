@@ -37,7 +37,17 @@ pub fn hand_over_run() -> bool {
 fn another_instance() -> bool {
     use windows_sys::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
     use windows_sys::Win32::System::Threading::CreateMutexW;
-    let name: Vec<u16> = "Local\\Vaporust-running".encode_utf16().chain(Some(0)).collect();
+    // One name per data folder: a portable copy has its own run_request.txt, so it must not hand a
+    // shortcut request to a normal copy that reads another folder (and the other way round).
+    let tag = crate::errlog::path()
+        .map(|p| {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            p.to_string_lossy().to_lowercase().hash(&mut h);
+            format!("{:x}", h.finish())
+        })
+        .unwrap_or_default();
+    let name: Vec<u16> = format!("Local\\Vaporust-running-{tag}").encode_utf16().chain(Some(0)).collect();
     // The mutex lives until the process exits: we do not close it.
     let h = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
     !h.is_null() && unsafe { GetLastError() } == ERROR_ALREADY_EXISTS

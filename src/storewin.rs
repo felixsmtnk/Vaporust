@@ -1179,7 +1179,7 @@ fn game_page(
             let rv = ex.and_then(|e| e.reviews.as_ref());
             // Language is a Steam code: a language switch of the interface keeps the chosen reviews.
             let (sort, lang) = rv.map(|r| (r.sort, r.lang)).unwrap_or((0, crate::lang::steam()));
-            let asked_key = egui::Id::new(("rev_asked", appid));
+            let asked_key = egui::Id::new(("rev_asked", appid, crate::store::CACHE_GEN.load(std::sync::atomic::Ordering::Relaxed)));
             if rv.is_none() && !ui.data(|d| d.get_temp::<bool>(asked_key).unwrap_or(false)) {
                 // The section was opened - the first page (most helpful of all time, in the
                 // interface language), as on the site. Asked once: the answer comes a few frames later.
