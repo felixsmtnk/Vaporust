@@ -4,7 +4,7 @@
 
 use crate::net::{Cmd, NetState};
 use crate::profile_extra::{parse_comments, Comment};
-use crate::{webapi, LauncherApp};
+use crate::{theme, webapi, LauncherApp};
 use aurelia::steam_client::SteamClient;
 use eframe::egui;
 
@@ -328,7 +328,7 @@ impl LauncherApp {
                     Ok(t) => {
                         let mut send = None;
                         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                            ui.label(egui::RichText::new(crate::richtext::fix(ui, &t.title)).size(18.0).strong());
+                            ui.label(egui::RichText::new(crate::richtext::fix(ui, &t.title)).font(crate::theme::semibold(18.0)).color(egui::Color32::WHITE));
                             ui.horizontal(|ui| {
                                 ui.strong(crate::richtext::fix(ui, &t.author));
                                 if t.time > 0 {
@@ -404,26 +404,41 @@ impl LauncherApp {
             match &net.comm_topics {
                 Some(Ok((a, p, list))) if *a == appid && *p == st.page => {
                     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = 2.0;
                         for t in list {
-                            ui.horizontal(|ui| {
-                                if t.sticky {
-                                    ui.colored_label(egui::Color32::from_rgb(230, 170, 60), tr!("закреплено", "pinned"));
-                                }
-                                if ui.link(egui::RichText::new(crate::richtext::fix(ui, &t.title)).strong()).clicked() {
-                                    open_topic = Some(t.url.clone());
-                                }
+                            // A topic row as on the Steam forum: title (pinned ones with a mark), author, replies
+                            // and the last post on the right; the whole row is clickable.
+                            let row = egui::Frame::none().fill(if t.sticky { egui::Color32::from_rgb(39, 50, 64) } else { theme::CARD }).rounding(2.0).inner_margin(egui::Margin::symmetric(10.0, 6.0)).show(ui, |ui| {
+                                ui.set_width(ui.available_width());
+                                ui.horizontal(|ui| {
+                                    ui.vertical(|ui| {
+                                        ui.set_width((ui.available_width() - 150.0).max(120.0));
+                                        ui.horizontal(|ui| {
+                                            if t.sticky {
+                                                ui.label(egui::RichText::new(tr!("Закреплено", "Pinned")).size(11.0).color(egui::Color32::from_rgb(230, 190, 80)));
+                                            }
+                                            if t.locked {
+                                                ui.label(egui::RichText::new(tr!("Закрыта", "Locked")).size(11.0).color(theme::DIM));
+                                            }
+                                            ui.add(egui::Label::new(egui::RichText::new(crate::richtext::fix(ui, &t.title)).size(13.5).color(theme::LIGHT_BLUE)).truncate());
+                                        });
+                                        ui.label(egui::RichText::new(crate::richtext::fix(ui, &t.author)).size(11.5).color(theme::DIM));
+                                    });
+                                    ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
+                                        ui.label(egui::RichText::new(trf!("ответов: {}", "{} replies", t.replies)).size(11.5).color(theme::TEXT2));
+                                        if t.last > 0 {
+                                            ui.label(egui::RichText::new(crate::socialwin::fmt_date(t.last)).size(11.0).color(theme::DIM));
+                                        }
+                                    });
+                                });
                             });
-                            ui.horizontal(|ui| {
-                                ui.weak(crate::richtext::fix(ui, &t.author));
-                                ui.weak(trf!("ответов: {}", "replies: {}", t.replies));
-                                if t.last > 0 {
-                                    ui.weak(trf!("последний {}", "last {}", crate::socialwin::fmt_date(t.last)));
-                                }
-                                if t.locked {
-                                    ui.weak(tr!("закрыта", "locked"));
-                                }
-                            });
-                            ui.add_space(4.0);
+                            let r = ui.interact(row.response.rect, ui.id().with(("topic", &t.url)), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+                            if r.hovered() {
+                                ui.painter().rect_stroke(row.response.rect, 2.0, egui::Stroke::new(1.0, theme::BUTTON_HOVER));
+                            }
+                            if r.clicked() {
+                                open_topic = Some(t.url.clone());
+                            }
                         }
                         if list.is_empty() {
                             ui.weak(tr!("Тем нет.", "No topics."));
@@ -458,7 +473,7 @@ impl LauncherApp {
                 Ok(g) => {
                     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                         ui.set_max_width(860.0);
-                        ui.label(egui::RichText::new(crate::richtext::fix(ui, &g.title)).size(20.0).strong());
+                        ui.label(egui::RichText::new(crate::richtext::fix(ui, &g.title)).font(crate::theme::semibold(20.0)).color(egui::Color32::WHITE));
                         ui.add_space(6.0);
                         crate::richtext::show(ui, &g.intro);
                         // Table of contents.
@@ -472,7 +487,7 @@ impl LauncherApp {
                         for (name, items) in &g.sections {
                             ui.add_space(10.0);
                             ui.separator();
-                            ui.label(egui::RichText::new(crate::richtext::fix(ui, name)).size(18.0).strong());
+                            ui.label(egui::RichText::new(crate::richtext::fix(ui, name)).font(crate::theme::semibold(18.0)).color(egui::Color32::WHITE));
                             ui.add_space(4.0);
                             crate::richtext::show(ui, items);
                         }

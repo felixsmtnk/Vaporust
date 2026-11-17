@@ -135,8 +135,8 @@ impl LauncherApp {
                 .read()
                 .unwrap()
                 .values()
-                .filter(|f| (f.relationship == 3 && (f.steam_id >> 52) & 0xF == 1))
-                .map(|f| (f.steam_id, f.persona_name.clone().unwrap_or_else(|| f.steam_id.to_string())))
+                .filter(|f| f.relationship == 3 && (f.steam_id >> 52) & 0xF == 1)
+                .map(|f| (f.steam_id, f.persona_name.clone().unwrap_or_else(crate::social::unknown_name)))
                 .collect();
             friends.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
             window(tr!("Новый групповой чат", "New group chat")).show(ctx, |ui| {

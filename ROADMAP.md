@@ -10,7 +10,7 @@ Icons: 📋 planned · ⏸ postponed · ⛔ not possible for now · 💭 idea fo
 Much here relies on [Aurelia](https://github.com/Drackrath/Aurelia), which Vaporust is built on.
 
 **Contents**
-- [Plans](#plans): [measurements](#-next-measurements-on-a-weak-laptop), [new design](#-then-new-design)
+- [Plans](#plans): [measurements](#-next-measurements-on-a-weak-laptop), [new design](#-now-new-design)
 - [Postponed](#-postponed), [Not possible for now](#-not-possible-for-now), [Ideas for the future](#-ideas-for-the-future)
 
 ---
@@ -25,11 +25,17 @@ benefit with numbers.
 - A "regular Steam vs Vaporust" table on a ThinkPad E330: memory of all Vaporust and Steam
   processes, time until the game starts, CPU load; with the counter and the PC named.
 - The light mode goal is 25-35 MB of memory on a laptop with Intel graphics.
+- Compare the modes the same way: normal Steam, full Vaporust, light mode, soft and full
+  freezing; cold and repeated start; several runs of the same game.
+- A launch check on real games: a game with its own launcher, a slow update, cancelling, a lost
+  connection, closing Vaporust during a game. After each case Steam must be unfrozen and usable.
 
-## 📋 Then: new design
+## 🚧 Now: new design
 
 A redesign of the interface: buttons and sections in the same places as in the Steam client, but
-compact. We start with concrete problems that are already visible:
+compact. The first part is ready (see the CHANGELOG): the window frame and menus, the library, the
+game page, the store, the friends list, settings, game properties, downloads. Still to do: the chat
+window, inventory and market, Workshop, community pages, achievements, and these problems:
 
 - Readability at 1366x768 and 125-150% scale: cut-off names in the left game list, small pale
   secondary text.

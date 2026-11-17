@@ -145,28 +145,23 @@ pub fn restore(zip_path: &Path, allowed: &[PathBuf]) -> Result<usize, String> {
     let mut manifest = String::new();
     z.by_name(MANIFEST)
         .map_err(|_| tr!("В архиве нет списка файлов - это не копия Vaporust.", "The archive has no file list - this is not a Vaporust backup.").to_string())?
+        .take(1 << 20)
         .read_to_string(&mut manifest)
         .map_err(|e| e.to_string())?;
-    // 1. Read all files of the backup. An error here - saves are untouched.
-    // Limits: a strange archive (thousands of files, gigabytes unpacked) is refused before reading.
+    // Everything is unpacked into a temporary folder on the disk, not into memory: a large
+    // backup does not fill the RAM. The folder is removed at the end whatever happens.
+    let stage = Stage::new().map_err(|e| trf!("Ничего не восстановлено: нет временной папки ({e}).", "Nothing restored: no temporary folder ({e})."))?;
+    // 1. Unpack all files of the backup. An error here - saves are untouched.
+    // Limits: a strange archive (thousands of files, gigabytes unpacked, a "zip bomb") is refused.
     const MAX_FILES: usize = 5000;
     const MAX_TOTAL: u64 = 2 * 1024 * 1024 * 1024;
     let mut total: u64 = 0;
-    let mut items: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+    let mut items: Vec<(PathBuf, PathBuf)> = Vec::new(); // (target, unpacked file)
     for line in manifest.lines() {
         let Some((name, dest)) = line.split_once('\t') else { continue };
         if items.len() >= MAX_FILES {
             return Err(tr!("Ничего не восстановлено: в копии слишком много файлов.", "Nothing restored: the backup has too many files.").into());
         }
-        total = total.saturating_add(z.by_name(&format!("files/{name}")).map(|f| f.size()).unwrap_or(0));
-        if total > MAX_TOTAL {
-            return Err(tr!("Ничего не восстановлено: копия слишком большая.", "Nothing restored: the backup is too large.").into());
-        }
-        let mut data = Vec::new();
-        z.by_name(&format!("files/{name}"))
-            .map_err(|e| trf!("Копия повреждена, ничего не восстановлено: в архиве нет {name} ({e}).", "The backup is damaged, nothing restored: the archive has no {name} ({e})."))?
-            .read_to_end(&mut data)
-            .map_err(|e| trf!("Копия повреждена, ничего не восстановлено: {e}.", "The backup is damaged, nothing restored: {e}."))?;
         let Some(target) = target_for(Path::new(dest), allowed) else {
             return Err(trf!(
                 "Ничего не восстановлено: файл {dest} из копии не относится к сохранениям этой игры.", "Nothing restored: file {dest} from the backup is not one of this game's saves."
@@ -180,18 +175,44 @@ pub fn restore(zip_path: &Path, allowed: &[PathBuf]) -> Result<usize, String> {
                 target.display()
             ));
         }
-        items.push((target, data));
+        let mut entry = z
+            .by_name(&format!("files/{name}"))
+            .map_err(|e| trf!("Копия повреждена, ничего не восстановлено: в архиве нет {name} ({e}).", "The backup is damaged, nothing restored: the archive has no {name} ({e})."))?;
+        if suspicious_ratio(entry.size(), entry.compressed_size()) {
+            return Err(tr!("Ничего не восстановлено: архив выглядит странно (слишком сильно сжат).", "Nothing restored: the archive looks strange (compressed far too much).").into());
+        }
+        let left = MAX_TOTAL - total;
+        let staged = stage.path(items.len(), "new");
+        let mut out = fs::File::create(&staged).map_err(|e| trf!("Ничего не восстановлено: {e}.", "Nothing restored: {e}."))?;
+        // Read at most what is left of the budget: the size in the archive header can lie.
+        let n = std::io::copy(&mut (&mut entry).take(left + 1), &mut out)
+            .map_err(|e| trf!("Копия повреждена, ничего не восстановлено: {e}.", "The backup is damaged, nothing restored: {e}."))?;
+        total += n;
+        if total > MAX_TOTAL {
+            return Err(tr!("Ничего не восстановлено: копия слишком большая.", "Nothing restored: the backup is too large.").into());
+        }
+        items.push((target, staged));
     }
     if items.is_empty() {
         return Err(tr!("В копии нет файлов.", "The backup has no files.").into());
     }
-    // 2. Read the previous contents of ALL targets before the first write. "File did not exist" only when
-    // it really does not exist; a file that cannot be read (locked by the game, no access) stops
-    // the restore before replacing: otherwise rollback would delete it as "never existed".
-    let mut olds: Vec<Option<Vec<u8>>> = Vec::with_capacity(items.len());
-    for (dest, _) in &items {
-        match fs::read(dest) {
-            Ok(d) => olds.push(Some(d)),
+    // 2. Copy the previous contents of ALL targets aside before the first write. "File did not exist"
+    // only when it really does not exist; a file that cannot be read (locked by the game, no access)
+    // stops the restore before replacing: otherwise rollback would delete it as "never existed".
+    let mut olds: Vec<Option<PathBuf>> = Vec::with_capacity(items.len());
+    for (i, (dest, _)) in items.iter().enumerate() {
+        match fs::File::open(dest) {
+            Ok(mut f) => {
+                let keep = stage.path(i, "old");
+                let res = fs::File::create(&keep).and_then(|mut o| std::io::copy(&mut f, &mut o));
+                if let Err(e) = res {
+                    return Err(trf!(
+                        "Ничего не восстановлено: файл {} не удалось прочитать ({e}).", "Nothing restored: file {} could not be read ({e}).",
+                        dest.display()
+                    ));
+                }
+                olds.push(Some(keep));
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => olds.push(None),
             Err(e) => {
                 return Err(trf!(
@@ -202,13 +223,13 @@ pub fn restore(zip_path: &Path, allowed: &[PathBuf]) -> Result<usize, String> {
         }
     }
     // 3. Replace, remembering what is already replaced.
-    let mut done: Vec<(PathBuf, Option<Vec<u8>>)> = Vec::new();
+    let mut done: Vec<(PathBuf, Option<PathBuf>)> = Vec::new();
     let res = (|| -> Result<(), String> {
-        for ((dest, data), old) in items.iter().zip(olds) {
+        for ((dest, staged), old) in items.iter().zip(olds) {
             if let Some(parent) = dest.parent() {
                 fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
-            write_replace(dest, data).map_err(|e| trf!("Не восстановлен {}: {e}", "Not restored {}: {e}", dest.display()))?;
+            crate::util::copy_atomic(staged, dest).map_err(|e| trf!("Не восстановлен {}: {e}", "Not restored {}: {e}", dest.display()))?;
             done.push((dest.clone(), old));
         }
         Ok(())
@@ -218,7 +239,7 @@ pub fn restore(zip_path: &Path, allowed: &[PathBuf]) -> Result<usize, String> {
         let mut lost = Vec::new();
         for (dest, old) in done.into_iter().rev() {
             let ok = match old {
-                Some(data) => write_replace(&dest, &data).is_ok(),
+                Some(keep) => crate::util::copy_atomic(&keep, &dest).is_ok(),
                 None => fs::remove_file(&dest).is_ok(),
             };
             if !ok {
@@ -234,14 +255,53 @@ pub fn restore(zip_path: &Path, allowed: &[PathBuf]) -> Result<usize, String> {
     Ok(items.len())
 }
 
-/// Write a file via a temporary neighbor and rename: the file is never left truncated.
-fn write_replace(dest: &Path, data: &[u8]) -> std::io::Result<()> {
-    crate::util::write_atomic(dest, data)
+/// A "zip bomb": a small packed file that unpacks into something enormous. Real saves
+/// compress maybe 10-50 times; more than 200 times on a large file is not a save.
+fn suspicious_ratio(size: u64, compressed: u64) -> bool {
+    size > (8 << 20) && size / compressed.max(1) > 200
+}
+
+/// A temporary folder for unpacking, removed when dropped.
+struct Stage(PathBuf);
+
+impl Stage {
+    fn new() -> std::io::Result<Self> {
+        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let p = std::env::temp_dir().join(format!("vaporust-restore-{}-{t}", std::process::id()));
+        fs::create_dir_all(&p)?;
+        Ok(Stage(p))
+    }
+    fn path(&self, i: usize, kind: &str) -> PathBuf {
+        self.0.join(format!("{i}.{kind}"))
+    }
+}
+
+impl Drop for Stage {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zip_bomb_ratio() {
+        assert!(!suspicious_ratio(1000, 1)); // tiny files are fine whatever the ratio
+        assert!(!suspicious_ratio(50 << 20, 5 << 20)); // 10x is a normal save
+        assert!(suspicious_ratio(1 << 30, 1 << 20)); // 1 GB from 1 MB is not
+    }
+
+    #[test]
+    fn stage_folder_is_removed() {
+        let p = {
+            let s = Stage::new().unwrap();
+            std::fs::write(s.path(0, "new"), b"x").unwrap();
+            s.0.clone()
+        };
+        assert!(!p.exists());
+    }
 
     #[test]
     fn backup_and_restore() {

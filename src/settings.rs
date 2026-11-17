@@ -155,6 +155,10 @@ pub struct Settings {
     pub language: String,
     /// Light mode: less background work (see lite.rs).
     pub light_mode: bool,
+    /// "Games only": the store, community, profile and friends are hidden; only the library and settings.
+    pub games_only: bool,
+    /// The friends list as a separate window (as in Steam) instead of the right side of the main window.
+    pub friends_window: bool,
     pub window: Option<crate::winpos::WinPos>,
     /// Performance: animations (stickers, GIFs, chat effects, loading icons).
     pub animations: bool,
@@ -287,6 +291,8 @@ impl Default for Settings {
             local_mode: false,
             experimental: false,
             light_mode: false,
+            games_only: false,
+            friends_window: false,
             language: String::new(),
             window: None,
             animations: true,

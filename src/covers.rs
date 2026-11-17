@@ -30,6 +30,8 @@ enum Kind {
     Hero,
     /// Small game icon for the list on the left (32x32 in the Steam cache).
     Icon,
+    /// The game logo with transparency, drawn over the background of the game page (as in Steam).
+    Logo,
 }
 
 pub struct Covers {
@@ -95,6 +97,11 @@ impl Covers {
         self.get_kind(Kind::Hero, appid)
     }
 
+    /// Game logo (logo.png) for the game page.
+    pub fn logo(&self, appid: u32) -> Cover {
+        self.get_kind(Kind::Logo, appid)
+    }
+
     /// Game icon for the list (only from the Steam cache, no internet).
     pub fn icon(&self, appid: u32) -> Cover {
         self.get_kind(Kind::Icon, appid)
@@ -126,8 +133,8 @@ fn local_file(steam_dir: &Path, appid: u32, file: &str) -> Option<Vec<u8>> {
 
 fn cdn_file(appid: u32, file: &str) -> Option<Vec<u8>> {
     let url = format!("https://shared.steamstatic.com/store_item_assets/steam/apps/{appid}/{file}");
-    let resp = ehttp::fetch_blocking(&ehttp::Request::get(url)).ok()?;
-    (resp.ok && !resp.bytes.is_empty()).then_some(resp.bytes)
+    let (bytes, _) = crate::util::http_get_limited(&url, 8 << 20, &|| true).ok()?;
+    (!bytes.is_empty()).then_some(bytes)
 }
 
 /// Game icon in the Steam cache: a file named by hash (40 hex characters).jpg.
@@ -173,6 +180,7 @@ fn load(ctx: &egui::Context, steam_dir: Option<&Path>, kind: Kind, appid: u32) -
     }
     let file = match kind {
         Kind::Cover => "library_600x900.jpg",
+        Kind::Logo => "logo.png",
         _ => "library_hero.jpg",
     };
     let bytes = steam_dir.and_then(|d| local_file(d, appid, file)).or_else(|| cdn_file(appid, file));
@@ -180,6 +188,10 @@ fn load(ctx: &egui::Context, steam_dir: Option<&Path>, kind: Kind, appid: u32) -
     let Ok(img) = image::load_from_memory(&bytes) else { return Cover::Missing };
     let rgba = img.to_rgba8();
     let (w, h) = match kind {
+        Kind::Logo => {
+            let w = 480.min(rgba.width());
+            (w, (rgba.height() as f32 * w as f32 / rgba.width() as f32) as u32)
+        }
         Kind::Cover => {
             // The tile stretches with the window (up to ~200 points): cover 180x270, 140x210 in economy mode.
             if crate::imgload::ECONOMY.load(std::sync::atomic::Ordering::Relaxed) { (W, H) } else { (180, 270) }
@@ -192,6 +204,6 @@ fn load(ctx: &egui::Context, steam_dir: Option<&Path>, kind: Kind, appid: u32) -
     };
     let small = image::imageops::resize(&rgba, w, h.max(1), image::imageops::FilterType::Triangle);
     let color = egui::ColorImage::from_rgba_unmultiplied([w as usize, h.max(1) as usize], small.as_raw());
-    let name = format!("{}{appid}", if kind == Kind::Cover { "cover" } else { "hero" });
+    let name = format!("{}{appid}", match kind { Kind::Cover => "cover", Kind::Logo => "logo", _ => "hero" });
     Cover::Ready(ctx.load_texture(name, color, egui::TextureOptions::LINEAR))
 }

@@ -5,6 +5,90 @@
 What went into each released version, newest first. Plans for the future are in
 [ROADMAP.md](ROADMAP.md), archives and full release notes are on the [Releases](../../releases) page.
 
+## ✅ 0.9.0-alpha: new design, as the Steam client
+
+*Released 2026-11-17.*
+
+**New design: the Steam client, compact**
+- The whole window follows the Steam desktop client: the same palette (taken from the Steam
+  client's own stylesheet), Segoe UI with a semibold font for titles, the same places for
+  everything, but smaller paddings and buttons.
+- Top of the window, as in Steam: a row of menus (Vaporust, View, Friends, Games, Help) with
+  notifications, the account (avatar, name, wallet) and the window buttons on the right; below it
+  back / forward arrows and STORE, LIBRARY, COMMUNITY, profile. The pages of a section open in a
+  drop-down on hover, as in Steam, instead of a separate row.
+- Library: the left column as in Steam ("Home" with the collections button, the list choice with
+  "recent first" and "ready to play" buttons, the search with a filter button, "- ALL GAMES (n/m)",
+  a dense list with 16 px icons). The home page has "What's New", "Recent Games" and "ALL GAMES"
+  shelves. New collections page ("Your collections", create a collection).
+- Game page as in Steam: the background with the game logo, the play bar (PLAY with an icon, last
+  played, play time, achievements with a small bar, size, buttons for properties, store page and
+  favorites), the band of links, then two columns: news and DLC on the left; friends who play,
+  achievements, information, collections and notes on the right.
+- Store: the blue Steam store bar with the sections, the search, Wishlist and Cart; the game page
+  with large screenshots on the left and the game capsule on the right (description, reviews,
+  dates, developer, tags) and a purchase box.
+- Friends list colors and groups as in Steam (In-Game, Online Friends, Offline), the "FRIENDS" bar
+  with the search.
+- Settings and game properties as in Steam: a dark list of sections, rows with thin lines, switches
+  instead of check boxes.
+- Downloads: the graph with network, peak and free space is shown even when nothing downloads;
+  "Up Next" and "Completed" titles as in Steam.
+- Bottom bar: "Add a Game", "Manage Downloads", "Friends & Chat" without plates, as in Steam.
+- The friends list can be a separate window, as in Steam (Settings -> Window); the chat window got
+  Steam's strip of conversation tabs. Achievements page, the forum topic list and progress bars in
+  the new style; the store bar moves its search to a second row in a narrow window.
+
+**Code**
+- main.rs (3300 lines) and net.rs (3800 lines) are split by meaning: launching, the download
+  queue, the library rows, the friends panel, the library column, achievements; network files,
+  chat, library and connection, smaller actions, live tests.
+
+**Fixes**
+- Without signing in, the library column showed no list choice; the game page news spun forever.
+- A friend whose name was not loaded yet was shown by the account number in several places; now
+  "loading...". The wallet next to the account name is loaded right after signing in.
+- The friends activity feed showed page code ("$J( function() { InitializeCommentThread...") and
+  "Rate up / View all comments" in event texts.
+
+Also the rest of the Codex QA report on 0.8.5.
+
+**Safety and reliability**
+- Pictures, covers, screenshots and updates are downloaded in pieces and stop at a size limit,
+  instead of being read whole into memory first. Slow servers time out; a redirect to this PC or
+  the home network is refused.
+- Restoring a save backup unpacks the files into a temporary folder on the disk instead of memory,
+  and refuses a "zip bomb" (a tiny archive that unpacks into gigabytes).
+- An update that fails to start twice in a row is rolled back by itself to the previous version,
+  and that version is not offered again automatically. "Settings -> About" has "Go back to the
+  previous version" while it is kept.
+- Answers that arrive after a language switch (store pages, charts, achievements, download
+  regions) are dropped instead of mixing the old language into the new one.
+- steamwebhelper is frozen only when it lies in the Steam folder: a process of another program
+  with the same name is never touched.
+
+**Interface**
+- An empty library says why: Steam not found, filters hide everything, the list is loading, no
+  connection, or really no games; with buttons "Rescan", "Add a library folder", "Add a non-Steam
+  game", "Reset filters".
+- Explanations in the settings are larger and easier to read; warnings and errors have one look.
+- The program icon is simplified for small sizes (taskbar, Explorer list).
+
+**For weak PCs**
+- "Games only" (Settings -> Performance): the store, community, profile and friends are hidden,
+  only the library, launching, downloads and settings stay, and light mode turns on.
+- "Together with Steam -> Measure" in Performance adds up the memory of Vaporust, steam.exe, the
+  Steam browser and the overlay, as Task Manager counts it.
+- After a game with freezing, Settings -> Launching games shows what the Steam browser took
+  before freezing and while frozen on this PC.
+
+**Tests and documents**
+- New failure tests: a read-only file, an update rollback, an endless download, a redirect to a
+  local address, a "zip bomb".
+- README screenshots no longer show other people's names: the friends panel is hidden.
+- TESTING.md says exactly what is checked and what is not measured yet; ROADMAP has the plan of
+  measurements and launch checks on real games.
+
 ## ✅ 0.8.6-alpha: fixes from the QA report
 
 *Released 2026-11-17.*

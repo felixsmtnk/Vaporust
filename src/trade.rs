@@ -41,6 +41,7 @@ pub struct Offer {
     pub incoming: bool,
     /// ETradeOfferState: 2 active, 9 awaiting mobile confirmation, 11 in escrow.
     pub state: u32,
+    #[allow(dead_code)] // kept from the Steam answer, not shown yet
     pub expires: u64,
 }
 

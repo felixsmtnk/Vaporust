@@ -171,6 +171,7 @@ pub struct CartLine {
     pub line_id: u64,
     pub packageid: u32,
     pub bundleid: u32,
+    #[allow(dead_code)] // the cart shows the package name from the store instead
     pub name: String,
     pub price: String,
 }

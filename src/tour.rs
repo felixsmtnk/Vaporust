@@ -32,10 +32,13 @@ const STEPS: &[(&str, f64)] = &[
     ("library_grid", 4.0),
     ("library_games", 20.0),
     ("library_list", 3.0),
+    ("library_empty", 2.0),
     ("game_page", 6.0),
     ("downloads", 3.0),
     ("profile", 8.0),
     ("friends", 5.0),
+    ("chat", 8.0),
+    ("friends_window", 25.0),
     ("store_home", 10.0),
     ("cart", 5.0),
     ("store_search", 8.0),
@@ -83,6 +86,11 @@ impl LauncherApp {
         let Some(t) = self.tour.as_mut() else { return };
         // Screenshots do not need tooltips from a mouse that happens to be over the window.
         ctx.style_mut(|s| s.interaction.tooltip_delay = 1.0e6);
+        // VAPORUST_TOUR_PRIVATE=1 (screenshots for the README): no friends panel - other people's
+        // names and avatars do not belong in public pictures.
+        if std::env::var_os("VAPORUST_TOUR_PRIVATE").is_some() {
+            self.show_friends = false;
+        }
         let now = ctx.input(|i| i.time);
         // Finished screenshots.
         let shots: Vec<std::sync::Arc<egui::ColorImage>> = ctx.input(|i| {
@@ -141,10 +149,10 @@ impl LauncherApp {
         t.step += 1;
         t.shown = Some(format!("{:02}_{name}", idx + 1));
         t.next_at = now + wait;
-        self.tour_apply(name, net);
+        self.tour_apply(ctx, name, net);
     }
 
-    fn tour_apply(&mut self, name: &str, net: &NetState) {
+    fn tour_apply(&mut self, ctx: &egui::Context, name: &str, net: &NetState) {
         use crate::storewin::Tab;
         let game = self
             .games
@@ -160,7 +168,15 @@ impl LauncherApp {
             }
         };
         match name {
+            "library_empty" => {
+                // A search that finds nothing: the "Nothing found" screen with its buttons.
+                self.close_extras(View::Library);
+                self.view = View::Library;
+                self.lib_page = None;
+                self.filter = "zzzz-no-such-game".into();
+            }
             "library_grid" | "library_list" | "library_games" => {
+                self.filter.clear();
                 if name == "library_games" {
                     // VAPORUST_TOUR_ROW=N: row N at the bottom of the window; otherwise - the very bottom.
                     let row = std::env::var("VAPORUST_TOUR_ROW").ok().and_then(|v| v.parse::<usize>().ok()).map_or(1000, |r| 2000 + r);
@@ -173,6 +189,7 @@ impl LauncherApp {
                     if name != "library_list" { crate::settings::View::Grid } else { crate::settings::View::List };
             }
             "game_page" => {
+                self.filter.clear();
                 self.settings.view = crate::settings::View::Grid;
                 self.view = View::Library;
                 self.lib_page = game.as_ref().map(|g| g.0);
@@ -189,6 +206,26 @@ impl LauncherApp {
                 self.points_ui.class = 11;
             }
             "friends" => self.open_friends_page(1),
+            "friends_window" => {
+                // The friends list as a separate window (not saved: the tour does not write settings).
+                self.settings.friends_window = true;
+                self.show_friends = true;
+                self.view = View::Library;
+            }
+            "chat" => {
+                // The chat with a friend (its window is not in the screenshot: it shows the friends list).
+                self.show_friends = true;
+                self.view = View::Library;
+                let pick = {
+                    let roster = net.roster.read().unwrap();
+                    let mut friends: Vec<_> = roster.values().filter(|f| f.relationship == 3 && (f.steam_id >> 52) & 0xF == 1).collect();
+                    friends.sort_by_key(|f| std::cmp::Reverse(net.chats.get(&f.steam_id).map_or(0, |c| c.lines.len())));
+                    friends.first().map(|f| (f.steam_id, f.persona_name.clone().unwrap_or_default()))
+                };
+                if let Some((id, name)) = pick {
+                    self.open_chat(ctx, id, name, net);
+                }
+            }
             "downloads" => {
                 self.close_extras(View::Downloads);
                 self.view = View::Downloads;

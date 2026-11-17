@@ -107,6 +107,7 @@ pub fn show(ctx: &egui::Context, chat: &SharedChat, net: &Shared, tx: &Unbounded
         Some(c) => trf!("Чат: {}", "Chat: {}", c.name),
         None => return,
     };
+    crate::notify::set_chat_window(true);
     let (chat, net, tx) = (chat.clone(), net.clone(), tx.clone());
     ctx.show_viewport_deferred(
         viewport_id(),
@@ -127,11 +128,12 @@ pub fn show(ctx: &egui::Context, chat: &SharedChat, net: &Shared, tx: &Unbounded
                 win.snap_gen = gen;
             }
             let snapshot = win.snap.take().unwrap_or_default();
-            win.frame(ctx, &snapshot, &net, &tx);
+            egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| win.frame(ui, &snapshot, &net, &tx));
             win.snap = Some(snapshot);
             if ctx.input(|i| i.viewport().close_requested()) {
                 *guard = None;
                 crate::notify::set_open_chat(0);
+                crate::notify::set_chat_window(false);
                 // Large chat images are no longer needed (avatars stay for the main window).
                 crate::imgload::forget_large(ctx);
                 ctx.request_repaint_of(egui::ViewportId::ROOT);
@@ -207,7 +209,10 @@ pub(crate) fn link_warning(ctx: &egui::Context) {
 }
 
 impl ChatWin {
-    fn frame(&mut self, ctx: &egui::Context, net: &NetState, shared: &Shared, tx: &UnboundedSender<Cmd>) {
+    /// The whole chat drawn inside `ui`: a separate window or the right side of the main window.
+    pub fn frame(&mut self, ui: &mut egui::Ui, net: &NetState, shared: &Shared, tx: &UnboundedSender<Cmd>) {
+        let ctx_owned = ui.ctx().clone();
+        let ctx = &ctx_owned;
         link_warning(ctx);
         let id = self.id;
         // For notifications: no sound if the chat with this very friend is active.
@@ -228,7 +233,7 @@ impl ChatWin {
         // Bottom part: status, emoticon panel, input field.
         egui::TopBottomPanel::bottom("chat_input")
             .frame(egui::Frame::none().fill(crate::theme::TOP).inner_margin(egui::Margin::symmetric(10.0, 8.0)))
-            .show(ctx, |ui| {
+            .show_inside(ui, |ui| {
             if conv
                 .typing_at
                 .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(6))
@@ -401,24 +406,37 @@ impl ChatWin {
         // Conversation tabs (if more than one is open): name, unread, close cross.
         let mut switch: Option<(u64, String)> = None;
         let mut close_tab: Option<u64> = None;
-        if self.tabs.len() > 1 {
-            egui::TopBottomPanel::top("chat_tabs").frame(egui::Frame::none().fill(crate::theme::TOP).inner_margin(egui::Margin::symmetric(4.0, 3.0))).show(ctx, |ui| {
+        // As in the Steam chat window: a strip of conversation tabs is always on top.
+        {
+            egui::TopBottomPanel::top("chat_tabs").frame(egui::Frame::none().fill(crate::theme::TOP).inner_margin(egui::Margin { left: 4.0, right: 4.0, top: 4.0, bottom: 0.0 })).show_inside(ui, |ui| {
                 egui::ScrollArea::horizontal().id_salt("chat_tabs_scroll").show(ui, |ui| {
                     ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 2.0;
                         for (tid, tname) in &self.tabs {
                             let unread = net.chats.get(tid).map_or(0, |c| c.unread);
-                            let label = if unread > 0 && *tid != id { format!("{tname} ({unread})") } else { tname.clone() };
-                            let mut text = egui::RichText::new(crate::richtext::fix(ui, &label));
-                            if unread > 0 && *tid != id {
-                                text = text.color(egui::Color32::from_rgb(240, 200, 80));
-                            }
-                            if ui.selectable_label(*tid == id, text).clicked() && *tid != id {
+                            let on = *tid == id;
+                            let label = if unread > 0 && !on { format!("{tname} ({unread})") } else { tname.clone() };
+                            let color = if unread > 0 && !on { egui::Color32::from_rgb(240, 200, 80) } else if on { crate::theme::TEXT } else { crate::theme::WEAK };
+                            let galley = ui.painter().layout_no_wrap(crate::richtext::fix(ui, &label), egui::FontId::proportional(12.5), color);
+                            let w = (galley.size().x + 40.0).clamp(90.0, 220.0);
+                            let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 28.0), egui::Sense::click());
+                            let fill = if on { crate::theme::BG } else if resp.hovered() { egui::Color32::from_rgb(37, 43, 52) } else { crate::theme::TOP };
+                            ui.painter().rect_filled(rect, egui::Rounding { nw: 3.0, ne: 3.0, sw: 0.0, se: 0.0 }, fill);
+                            ui.painter().with_clip_rect(rect.shrink2(egui::vec2(8.0, 0.0))).galley(egui::pos2(rect.left() + 10.0, rect.center().y - galley.size().y / 2.0), galley, color);
+                            if resp.clicked() && !on {
                                 switch = Some((*tid, tname.clone()));
                             }
-                            if icon_button(ui, egui::vec2(18.0, 18.0), false, tr!("Закрыть беседу", "Close conversation"), draw_cross).clicked() {
-                                close_tab = Some(*tid);
+                            // The close cross of a tab, on the right inside it (only when there are several).
+                            if self.tabs.len() > 1 {
+                                let x = egui::Rect::from_center_size(egui::pos2(rect.right() - 13.0, rect.center().y), egui::vec2(16.0, 16.0));
+                                let xr = ui.interact(x, ui.id().with(("tab_x", *tid)), egui::Sense::click()).on_hover_text(tr!("Закрыть беседу", "Close conversation"));
+                                if resp.hovered() || xr.hovered() || on {
+                                    draw_cross(ui.painter(), x.shrink(3.0), if xr.hovered() { egui::Color32::WHITE } else { crate::theme::WEAK });
+                                }
+                                if xr.clicked() {
+                                    close_tab = Some(*tid);
+                                }
                             }
-                            ui.add_space(6.0);
                         }
                     });
                 });
@@ -442,7 +460,7 @@ impl ChatWin {
         }
         egui::TopBottomPanel::top("chat_head")
             .frame(egui::Frame::none().fill(crate::theme::TOP).inner_margin(egui::Margin::symmetric(10.0, 8.0)))
-            .show(ctx, |ui| {
+            .show_inside(ui, |ui| {
             ui.horizontal(|ui| {
                 let (ar, _) = ui.allocate_exact_size(egui::vec2(38.0, 38.0), egui::Sense::hover());
                 match &friend_avatar {
@@ -502,7 +520,7 @@ impl ChatWin {
         });
         let query = self.search.trim().to_lowercase();
         // Conversation: messages grouped by sender (avatar, name, time), a separator between days.
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             egui::ScrollArea::vertical()
                 .stick_to_bottom(true)
                 .auto_shrink([false, false])
@@ -822,7 +840,7 @@ mod history_live {
             let mut c = aurelia::steam_client::SteamClient::new().unwrap();
             c.restore_session().await.unwrap();
             let friends = c.collect_friends(std::time::Duration::from_secs(5)).await.unwrap();
-            for f in friends.iter().filter(|f| (f.relationship == 3 && (f.steam_id >> 52) & 0xF == 1)) {
+            for f in friends.iter().filter(|f| f.relationship == 3 && (f.steam_id >> 52) & 0xF == 1) {
                 let (first, more) = c.chat_history(f.steam_id, 50, None).await.unwrap();
                 if first.len() < 50 || !more {
                     continue;

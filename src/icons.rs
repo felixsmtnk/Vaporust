@@ -71,7 +71,8 @@ pub fn icon_sized(kind: Kind, n: usize) -> Arc<egui::IconData> {
                     for sx in 0..4 {
                         let px = (x as f32 + (sx as f32 + 0.5) / 4.0) * s;
                         let py = (y as f32 + (sy as f32 + 0.5) / 4.0) * s;
-                        if let Some(col) = crate::logo::mark(px, py, style) {
+                        let point = if n <= 24 { crate::logo::mark_small(px, py) } else { crate::logo::mark(px, py, style) };
+                        if let Some(col) = point {
                             for c in 0..3 {
                                 acc[c] += col[c] / 16.0;
                             }
@@ -151,6 +152,40 @@ mod tests {
 
 #[cfg(test)]
 mod ico {
+    /// Small sizes side by side, enlarged 8x, on dark and light backgrounds:
+    /// VAPORUST_SMALL=<png> cargo test small_preview -- --ignored
+    #[test]
+    #[ignore]
+    fn small_preview() {
+        let out = std::env::var("VAPORUST_SMALL").unwrap();
+        let sizes = [16usize, 24, 32];
+        let k = 8;
+        let w: usize = sizes.iter().map(|n| n * k + 16).sum();
+        let mut img = image::RgbaImage::new(w as u32, (32 * k * 2 + 48) as u32);
+        for (row, bg) in [[32u8, 36, 44], [240, 240, 240]].iter().enumerate() {
+            let y0 = 16 + row * (32 * k + 16);
+            for p in img.pixels_mut().skip(y0 * w).take((32 * k) * w) {
+                *p = image::Rgba([bg[0], bg[1], bg[2], 255]);
+            }
+            let mut x0 = 8;
+            for n in sizes {
+                let i = super::icon_sized(super::Kind::Launcher, n);
+                for y in 0..n * k {
+                    for x in 0..n * k {
+                        let j = ((y / k) * n + x / k) * 4;
+                        let a = i.rgba[j + 3] as f32 / 255.0;
+                        let px = img.get_pixel_mut((x0 + x) as u32, (y0 + y) as u32);
+                        for c in 0..3 {
+                            px[c] = (i.rgba[j + c] as f32 * a + px[c] as f32 * (1.0 - a)) as u8;
+                        }
+                    }
+                }
+                x0 += n * k + 16;
+            }
+        }
+        img.save(out).unwrap();
+    }
+
     /// Build assets/vaporust.ico (exe icon): PNG frames 16..256 in an ICO container.
     /// VAPORUST_WRITE_ICO=1 cargo test write_ico -- --ignored
     #[test]
@@ -373,11 +408,6 @@ mod variants {
         fn polar(cx: f32, cy: f32, r: f32, deg: f32) -> (f32, f32) {
             let a = deg.to_radians();
             (cx + r * a.cos(), cy - r * a.sin())
-        }
-        /// Steam wisp: a wavy line from (x0, y0) up and to the right.
-        fn steam(x: f32, y: f32, x0: f32, y0: f32, len: f32, w0: f32) -> bool {
-            let pts = curve(|t| (x0 + len * 0.55 * t + 2.2 * (t * TAU * 1.3).sin(), y0 - len * t, w0 - (w0 - 0.9) * t), 30);
-            stroke(x, y, &pts)
         }
         fn seg2(x: f32, y: f32, a: (f32, f32), b: (f32, f32), w: f32) -> bool {
             stroke(x, y, &[(a.0, a.1, w), (b.0, b.1, w)])

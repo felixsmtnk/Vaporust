@@ -447,21 +447,20 @@ fn download(
         let file = dir.join(format!("{}_{}.jpg", s.appid, s.id));
         // A thumbnail for the grid - into the Vaporust data folder.
         if let Some(td) = thumbs_dir() {
-            if let Ok(r) = ehttp::fetch_blocking(&ehttp::Request::get(&s.preview_url)) {
-                if r.ok && std::fs::create_dir_all(&td).is_ok() {
-                    let _ = std::fs::write(td.join(format!("{}.jpg", s.id)), &r.bytes);
+            if let Ok((bytes, _)) = crate::util::http_get_limited(&s.preview_url, 8 << 20, &|| true) {
+                if std::fs::create_dir_all(&td).is_ok() {
+                    let _ = std::fs::write(td.join(format!("{}.jpg", s.id)), &bytes);
                 }
             }
         }
-        let msg = match ehttp::fetch_blocking(&ehttp::Request::get(&s.file_url)) {
-            Ok(r) if r.ok => match std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&file, &r.bytes)) {
+        let msg = match crate::util::http_get_limited(&s.file_url, 100 << 20, &|| true) {
+            Ok((bytes, _)) => match std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&file, &bytes)) {
                 Ok(()) => {
                     show_in_folder(&file);
                     trf!("Сохранено: {}", "Saved: {}", file.display())
                 }
                 Err(e) => trf!("Не удалось сохранить: {e}", "Could not save: {e}"),
             },
-            Ok(r) => trf!("Не удалось скачать: {} {}", "Could not download: {} {}", r.status, r.status_text),
             Err(e) => trf!("Не удалось скачать: {e}", "Could not download: {e}"),
         };
         *status.lock().unwrap() = msg;

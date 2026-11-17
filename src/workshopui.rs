@@ -529,7 +529,7 @@ pub fn detail_page(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &m
         }
     }
     let subscribed = ws.sub_ids.get(&appid).is_some_and(|s| s.contains(&id));
-    ui.label(egui::RichText::new(crate::richtext::fix(ui, &d.title)).size(22.0).strong());
+    ui.label(egui::RichText::new(crate::richtext::fix(ui, &d.title)).font(crate::theme::semibold(22.0)).color(egui::Color32::WHITE));
     ui.add_space(6.0);
     ui.horizontal_top(|ui| {
         // On the left - a large image and a row of small ones, as in the Steam Workshop.

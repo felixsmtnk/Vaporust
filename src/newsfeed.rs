@@ -203,7 +203,7 @@ impl LauncherApp {
                         open_game = Some(n.appid);
                     }
                 });
-                ui.label(egui::RichText::new(&n.title).size(20.0).strong());
+                ui.label(egui::RichText::new(&n.title).font(crate::theme::semibold(20.0)).color(egui::Color32::WHITE));
                 ui.add_space(8.0);
                 for b in crate::store::description_blocks(&n.body) {
                     match b {
@@ -309,7 +309,7 @@ impl LauncherApp {
             return;
         }
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(tr!("ЧТО НОВОГО", "WHAT'S NEW")).size(13.0).color(crate::theme::TEXT));
+            ui.add(egui::Label::new(egui::RichText::new(tr!("Что нового", "What's New")).font(crate::theme::semibold(15.0)).color(crate::theme::SECTION)).selectable(false));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.small_button(tr!("Скрыть", "Hide")).on_hover_text(tr!("Вернуть - Настройки, раздел «Библиотека»", "Bring it back - Settings, \"Library\" section")).clicked() {
                     self.settings.whats_new = false;

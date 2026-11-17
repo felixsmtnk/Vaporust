@@ -176,8 +176,8 @@ pub fn scan_drm(dir: &Path) -> DrmReport {
 /// Store notes about protection: (third-party DRM, third-party account). Public store API.
 pub fn store_drm_notes(appid: u32) -> (Option<String>, Option<String>) {
     let url = format!("https://store.steampowered.com/api/appdetails?appids={appid}&l={lang}&filters=basic", lang = crate::lang::steam());
-    let Ok(resp) = ehttp::fetch_blocking(&ehttp::Request::get(url)) else { return (None, None) };
-    let Ok(v) = serde_json::from_slice::<serde_json::Value>(&resp.bytes) else { return (None, None) };
+    let Ok((body, _)) = crate::util::http_get_limited(&url, 4 << 20, &|| true) else { return (None, None) };
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(&body) else { return (None, None) };
     let data = v.get(appid.to_string()).and_then(|x| x.get("data"));
     let get = |k: &str| {
         data.and_then(|d| d.get(k)).and_then(|x| x.as_str()).map(crate::store::plain_text).filter(|s| !s.trim().is_empty())

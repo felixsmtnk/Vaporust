@@ -166,11 +166,12 @@ impl LauncherApp {
             let span = (b.xp + b.xp_to_next).saturating_sub(b.xp_level_start).max(1);
             let done = b.xp.saturating_sub(b.xp_level_start);
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(trf!("Уровень Steam {}", "Steam level {}", b.level)).size(18.0).strong());
-                ui.add(
-                    egui::ProgressBar::new(done as f32 / span as f32)
-                        .desired_width(260.0)
-                        .text(trf!("{} XP, до уровня {} еще {} XP", "{} XP, to level {}: {} XP more", b.xp, b.level + 1, b.xp_to_next)),
+                ui.label(egui::RichText::new(trf!("Уровень Steam {}", "Steam level {}", b.level)).font(crate::theme::semibold(18.0)).color(egui::Color32::WHITE));
+                crate::theme::progress(
+                    ui,
+                    done as f32 / span as f32,
+                    220.0,
+                    Some(trf!("{} XP, до уровня {} еще {} XP", "{} XP, to level {}: {} XP more", b.xp, b.level + 1, b.xp_to_next)),
                 );
             });
             ui.weak(trf!("Значков: {}", "Badges: {}", b.badges_count));
@@ -234,11 +235,7 @@ impl LauncherApp {
                         open_url = Some(format!("https://steamcommunity.com/profiles/{me}/gamecards/{}/", g.appid));
                     }
                     let total = g.total.max(1);
-                    ui.add(
-                        egui::ProgressBar::new(g.owned as f32 / total as f32)
-                            .desired_width(140.0)
-                            .text(trf!("{} из {}", "{} of {}", g.owned, g.total)),
-                    );
+                    crate::theme::progress(ui, g.owned as f32 / total as f32, 120.0, Some(trf!("{} из {}", "{} of {}", g.owned, g.total)));
                     ui.weak(if g.ready { tr!("готов", "ready") } else { "" });
                     ui.end_row();
                 }

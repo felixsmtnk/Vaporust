@@ -162,7 +162,7 @@ impl LauncherApp {
         });
         let names: Vec<String> = msgs.iter().map(|m| self.group_sender(m.sender, net)).collect();
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            if net.group_messages.get(&(gid, cid)).is_none() {
+            if !net.group_messages.contains_key(&(gid, cid)) {
                 crate::spin::spinner(ui);
             } else if msgs.is_empty() {
                 ui.add_space(20.0);

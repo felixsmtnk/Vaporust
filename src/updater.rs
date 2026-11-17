@@ -95,16 +95,15 @@ pub fn compare(a: &str, b: &str) -> Ordering {
 }
 
 fn get(url: &str) -> Result<Vec<u8>, String> {
-    let mut req = ehttp::Request::get(url);
-    req.headers = ehttp::Headers::new(&[
-        ("User-Agent", "Vaporust-updater"),
-        ("Accept", "application/vnd.github+json"),
-    ]);
-    let resp = ehttp::fetch_blocking(&req).map_err(|e| trf!("нет связи с GitHub: {e}", "no connection to GitHub: {e}"))?;
-    if !resp.ok {
-        return Err(trf!("GitHub ответил {} {}", "GitHub answered {} {}", resp.status, resp.status_text));
-    }
-    Ok(resp.bytes)
+    // An archive of Vaporust is ~10 MB; anything far larger is not ours.
+    let headers = [("User-Agent", "Vaporust-updater"), ("Accept", "application/vnd.github+json")];
+    crate::util::http_get_with(url, &headers, 200 << 20, &|| true).map(|(b, _)| b).map_err(|e| {
+        if e.starts_with("HTTP ") {
+            trf!("GitHub ответил {}", "GitHub answered {}", e)
+        } else {
+            trf!("нет связи с GitHub: {e}", "no connection to GitHub: {e}")
+        }
+    })
 }
 
 /// The newest release newer than the current version (drafts are skipped).
@@ -157,6 +156,11 @@ pub fn check(state: &Shared, ctx: &eframe::egui::Context) {
     std::thread::spawn(move || {
         let res = get(API).and_then(|b| parse_latest(&b, CURRENT));
         *state.lock().unwrap() = match res {
+            Ok(Some(r)) if failed_version().as_deref() == Some(r.version.as_str()) => State::Failed(trf!(
+                "Версия {} не запустилась на этом ПК, и Vaporust вернул прошлую. Ее можно скачать вручную со страницы релиза.",
+                "Version {} did not start on this PC, and Vaporust put the previous one back. It can be downloaded by hand from the release page.",
+                r.version
+            )),
             Ok(Some(r)) => State::Available(r),
             Ok(None) => State::UpToDate,
             Err(e) => State::Failed(trf!("Не удалось проверить обновления: {e}", "Could not check for updates: {e}")),
@@ -185,7 +189,10 @@ pub fn install(release: Release, state: &Shared, ctx: &eframe::egui::Context) {
             verify_sha(&bytes, &expected)?;
             set(State::Downloading(tr!("Устанавливаю...", "Installing...").into()));
             let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-            replace_exe(&exe, &bytes)
+            replace_exe(&exe, &bytes)?;
+            // The new version starts "on trial": if it cannot start, the previous one comes back.
+            let _ = std::fs::write(trial_marker(&exe), format!("0 {}", release.version));
+            Ok(())
         })();
         set(match res {
             Ok(()) => State::Ready,
@@ -305,11 +312,87 @@ pub fn replace_exe(exe: &Path, zip: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-/// At startup: remove the old version file left after an update.
-pub fn cleanup_old() {
-    if let Ok(exe) = std::env::current_exe() {
-        let _ = std::fs::remove_file(exe.with_extension("exe.old"));
+/// File next to the exe while a fresh update is on trial: "<starts> <version>".
+fn trial_marker(exe: &Path) -> std::path::PathBuf {
+    exe.with_extension("exe.update")
+}
+
+/// Called first thing in main(). After an update the new version is "on trial" until it has
+/// run for a while (confirm_update). If it was started twice and never got that far (it crashes
+/// at start, the window does not open), the previous version is put back and started instead.
+pub fn startup_guard() {
+    let Ok(exe) = std::env::current_exe() else { return };
+    let marker = trial_marker(&exe);
+    let old = exe.with_extension("exe.old");
+    let Ok(text) = std::fs::read_to_string(&marker) else {
+        // No update on trial: the old version file is not needed.
+        let _ = std::fs::remove_file(&old);
+        return;
+    };
+    let mut parts = text.split_whitespace();
+    let starts: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let version = parts.next().unwrap_or(CURRENT).to_string();
+    if starts < 2 || !old.exists() {
+        let _ = std::fs::write(&marker, format!("{} {version}", starts + 1));
+        return;
     }
+    match rollback(&exe, &old) {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&marker);
+            let _ = std::fs::write(exe.with_extension("exe.failed-version"), &version);
+            crate::errlog::write("обновление", &format!("version {version} did not start twice, the previous version is back"));
+            let mut args: Vec<String> = std::env::args().skip(1).collect();
+            if let Some(i) = args.iter().position(|a| a == "--wait-pid") {
+                args.drain(i..(i + 2).min(args.len()));
+            }
+            let _ = std::process::Command::new(&exe).arg("--wait-pid").arg(std::process::id().to_string()).args(args).spawn();
+            std::process::exit(0);
+        }
+        Err(e) => crate::errlog::write("обновление", &format!("rollback failed: {e}")),
+    }
+}
+
+/// Put the previous version back: the current exe goes aside as .exe.failed.
+pub(crate) fn rollback(exe: &Path, old: &Path) -> std::io::Result<()> {
+    let failed = exe.with_extension("exe.failed");
+    let _ = std::fs::remove_file(&failed);
+    std::fs::rename(exe, &failed)?;
+    if let Err(e) = std::fs::rename(old, exe) {
+        let _ = std::fs::rename(&failed, exe);
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// The new version has worked for a while (or was closed normally): the update is kept.
+pub fn confirm_update() {
+    let Ok(exe) = std::env::current_exe() else { return };
+    let marker = trial_marker(&exe);
+    if marker.exists() {
+        let _ = std::fs::remove_file(&marker);
+        let _ = std::fs::remove_file(exe.with_extension("exe.old"));
+        let _ = std::fs::remove_file(exe.with_extension("exe.failed"));
+        let _ = std::fs::remove_file(exe.with_extension("exe.failed-version"));
+    }
+}
+
+/// A version that was installed and rolled back: not offered again automatically.
+fn failed_version() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    std::fs::read_to_string(exe.with_extension("exe.failed-version")).ok().map(|s| s.trim().to_string())
+}
+
+/// Manual "go back to the previous version" (Settings -> About): only while it is still kept.
+pub fn previous_kept() -> bool {
+    std::env::current_exe().is_ok_and(|e| e.with_extension("exe.old").exists())
+}
+
+pub fn restore_previous() -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    rollback(&exe, &exe.with_extension("exe.old")).map_err(|e| trf!("не удалось вернуть прошлую версию: {e}", "could not restore the previous version: {e}"))?;
+    let _ = std::fs::remove_file(trial_marker(&exe));
+    let _ = std::fs::write(exe.with_extension("exe.failed-version"), CURRENT);
+    Ok(())
 }
 
 impl crate::LauncherApp {

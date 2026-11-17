@@ -55,6 +55,12 @@ static REVIEW_SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::
 /// interface include it, so the pages are asked for again.
 pub static CACHE_GEN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
+/// The current cache generation. A background answer is stored only if the generation did not
+/// change while it was loading: otherwise it is in the old language (or for the old region).
+pub fn gen() -> u32 {
+    CACHE_GEN.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Game reviews: the chosen order and language, loaded pages.
 #[derive(Default, Clone)]
 pub struct Reviews {
@@ -273,7 +279,11 @@ async fn load_details(client: &SteamClient, ids: Vec<u32>, st: &SharedStore, ctx
         need
     };
     for chunk in need.chunks(50) {
+        let g = gen();
         if let Ok(apps) = client.fetch_store_apps(chunk, lang(), &cc).await {
+            if gen() != g {
+                return; // the language or region changed meanwhile: these are old
+            }
             let mut s = st.lock().unwrap();
             for a in apps {
                 s.apps.insert(a.app_id, a);
@@ -320,11 +330,14 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
             }
             StoreCmd::Charts(kind) => {
                 let cc = country(&c, &st).await;
+                let g = gen();
                 let res = fetch_chart(kind, &cc).await;
                 if let Ok(v) = &res {
                     load_details(&c, v.iter().take(20).map(|e| e.0).collect(), &st, &ctx).await;
                 }
-                st.lock().unwrap().charts.insert(kind, res);
+                if gen() == g {
+                    st.lock().unwrap().charts.insert(kind, res);
+                }
             }
             StoreCmd::Discovery { rebuild, skip } => {
                 let cc = country(&c, &st).await;
@@ -418,6 +431,7 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                 }
             }
             StoreCmd::Page(appid) => {
+                let g = gen();
                 st.lock().unwrap().extras.entry(appid).or_default();
                 ctx.request_repaint();
                 load_details(&c, vec![appid], &st, &ctx).await;
@@ -441,9 +455,12 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                     Ok(http) => aurelia::web::discovery::fetch_news(&http, appid, 5, 600).await.map_err(err),
                     Err(e) => Err(err(e)),
                 };
+                if gen() != g {
+                    return; // the language changed: the page is asked again in the new one
+                }
                 st.lock().unwrap().extras.entry(appid).or_default().news = Some(news);
                 // System requirements - from the public store API (api/appdetails), in Russian.
-                if let Some(d) = fetch_appdetails(appid).await {
+                if let Some(d) = fetch_appdetails(appid).await.filter(|_| gen() == g) {
                     let mut s = st.lock().unwrap();
                     let e = s.extras.entry(appid).or_default();
                     e.requirements = d.requirements;
@@ -483,8 +500,11 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                 }
             }
             StoreCmd::ReviewFull(url) => {
+                let g = gen();
                 let r = review_page(&c, &url).await;
-                st.lock().unwrap().review_full.insert(url, r);
+                if gen() == g {
+                    st.lock().unwrap().review_full.insert(url, r);
+                }
             }
             StoreCmd::ReviewVote { url, kind } => {
                 let known = st.lock().unwrap().review_full.get(&url).and_then(|r| r.as_ref().ok().map(|x| x.1));

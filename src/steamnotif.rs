@@ -244,7 +244,7 @@ impl LauncherApp {
         }
         // The bell, as in Steam: the unread count in a red circle.
         // A cell like the window buttons next to it (46x34), a thin line, highlight on hover.
-        let bell = egui::Button::new("").frame(false).min_size(egui::vec2(46.0, 34.0));
+        let bell = egui::Button::new("").frame(false).min_size(egui::vec2(36.0, 28.0));
         let bell_resp = egui::menu::menu_custom_button(ui, bell, |ui| {
             ui.set_min_width(340.0);
             ui.horizontal(|ui| {

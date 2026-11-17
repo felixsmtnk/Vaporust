@@ -253,7 +253,7 @@ impl LauncherApp {
         let mut cmd = None;
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(tr!("Редактирование профиля", "Edit profile")).size(20.0).strong());
+            ui.label(egui::RichText::new(tr!("Редактирование профиля", "Edit profile")).font(crate::theme::semibold(20.0)).color(egui::Color32::WHITE));
             ui.add_space(12.0);
             for (i, t) in [tr!("Основное", "General"), tr!("Аватар", "Avatar"), tr!("Приватность", "Privacy")].into_iter().enumerate() {
                 if ui.selectable_label(self.edit_ui.tab == i as u8, t).clicked() {

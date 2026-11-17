@@ -143,7 +143,7 @@ impl LauncherApp {
         if self.family_ui.asked_names.insert(id) {
             let _ = self.tx.send(Cmd::Social(crate::social::SocialCmd::Profile(id)));
         }
-        id.to_string()
+        crate::social::unknown_name()
     }
 
     pub(crate) fn family_contents(&mut self, ui: &mut egui::Ui, net: &NetState) {
@@ -175,7 +175,7 @@ impl LauncherApp {
         }
         let mut open_profile = None;
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            ui.label(egui::RichText::new(&fam.name).size(18.0).strong());
+            ui.label(egui::RichText::new(&fam.name).font(crate::theme::semibold(18.0)).color(egui::Color32::WHITE));
             ui.weak(trf!("Свободных мест: {}", "Free slots: {}", fam.free_spots));
             invite_block(ui, &fam, net, &self.tx, &mut self.family_ui.invite);
             ui.add_space(6.0);
@@ -264,7 +264,7 @@ fn invite_block(
     inv: &mut (u64, u32, bool),
 ) {
     let name_of = |id: u64| {
-        net.roster.read().unwrap().get(&id).and_then(|f| f.persona_name.clone()).unwrap_or_else(|| id.to_string())
+        net.roster.read().unwrap().get(&id).and_then(|f| f.persona_name.clone()).unwrap_or_else(crate::social::unknown_name)
     };
     if !fam.pending.is_empty() {
         ui.add_space(4.0);
@@ -288,7 +288,7 @@ fn invite_block(
         .unwrap()
         .values()
         .filter(|f| (f.relationship == 3 && (f.steam_id >> 52) & 0xF == 1) && !fam.members.iter().any(|m| m.steamid == f.steam_id))
-        .map(|f| (f.steam_id, f.persona_name.clone().unwrap_or_else(|| f.steam_id.to_string())))
+        .map(|f| (f.steam_id, f.persona_name.clone().unwrap_or_else(crate::social::unknown_name)))
         .collect();
     friends.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
     ui.horizontal(|ui| {

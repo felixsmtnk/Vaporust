@@ -352,7 +352,7 @@ impl LauncherApp {
             }
             Some(Ok(p)) => p.clone(),
         };
-        let name = p.persona_name.clone().unwrap_or_else(|| id.to_string());
+        let name = p.persona_name.clone().unwrap_or_else(crate::social::unknown_name);
         let page = extra.as_ref().map(|x| x.page.clone()).unwrap_or_default();
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             // Full-width profile background, smoothly fading into the window color at the bottom.
@@ -483,7 +483,7 @@ impl LauncherApp {
                                 ui.set_width(left_w);
                                 match &extra {
                                     Some(x) => profile_left(ui, x, &page, is_me, is_friend || p.is_public, my_avatar.as_deref(), &mut self.social_ui, net.comment_msg.as_ref(), id, &mut act),
-                                    None if net.profile_extra.get(&id).is_none() => {
+                                    None if !net.profile_extra.contains_key(&id) => {
                                         crate::spin::spinner(ui);
                                     }
                                     None => {}
@@ -542,7 +542,7 @@ impl LauncherApp {
                     self.close_extras(crate::View::Library);
                     self.view = crate::View::Library;
                     self.lib_page = None;
-                } else if (l.starts_with("скриншоты") || l.starts_with("screenshots")) {
+                } else if l.starts_with("скриншоты") || l.starts_with("screenshots") {
                     if is_me {
                         self.open_shots(None);
                     } else {
@@ -672,7 +672,7 @@ impl LauncherApp {
                                     if let Some(a) = &p.avatar_url {
                                         ui.add(egui::Image::new(a).fit_to_exact_size(egui::vec2(40.0, 40.0)));
                                     }
-                                    ui.strong(p.persona_name.clone().unwrap_or_else(|| id.to_string()));
+                                    ui.strong(p.persona_name.clone().unwrap_or_else(crate::social::unknown_name));
                                     // Already friends / request already sent / it is you - no button.
                                     let rel = net.roster.read().unwrap().get(&id).map(|f| f.relationship);
                                     if Some(id) == net.my_id {
@@ -710,7 +710,7 @@ impl LauncherApp {
                 .unwrap()
                 .get(&id)
                 .and_then(|f| f.persona_name.clone())
-                .unwrap_or_else(|| id.to_string());
+                .unwrap_or_else(crate::social::unknown_name);
             let mut close = false;
             egui::Window::new(tr!("Удалить из друзей?", "Remove friend?"))
                 .id(egui::Id::new("confirm_remove"))
@@ -742,7 +742,7 @@ impl LauncherApp {
                 .get(&id)
                 .and_then(|f| f.persona_name.clone())
                 .or_else(|| net.profiles.get(&id).and_then(|p| p.as_ref().ok()).and_then(|p| p.persona_name.clone()))
-                .unwrap_or_else(|| id.to_string());
+                .unwrap_or_else(crate::social::unknown_name);
             let mut close = false;
             egui::Window::new(if block { tr!("Заблокировать?", "Block?") } else { tr!("Разблокировать?", "Unblock?") })
                 .id(egui::Id::new("confirm_block"))

@@ -129,11 +129,11 @@ fn pump(st: &Arc<Mutex<HttpState>>, ctx: &egui::Context) {
         s.running += 1;
         let fetch = strip_markers(&uri).to_string();
         let (st2, ctx2) = (st.clone(), ctx.clone());
-        ehttp::fetch(ehttp::Request::get(fetch), move |r| {
-            let entry = match r {
-                Ok(r) if r.ok && r.bytes.len() > MAX_DOWNLOAD => Http::Failed("file too large".into()),
-                Ok(r) if r.ok => Http::Ready(r.bytes.clone().into(), r.content_type().map(str::to_owned)),
-                Ok(r) => Http::Failed(format!("{} {}", r.status, r.status_text)),
+        std::thread::spawn(move || {
+            // Stop early when the section was closed and the picture is no longer wanted.
+            let alive = || matches!(st2.lock().cache.get(&uri), Some(Http::Running));
+            let entry = match crate::util::http_get_limited(&fetch, MAX_DOWNLOAD, &alive) {
+                Ok((bytes, mime)) => Http::Ready(bytes.into(), mime),
                 Err(e) => Http::Failed(e),
             };
             {

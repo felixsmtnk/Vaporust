@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="../../releases/tag/v0.8.6-alpha"><b>Download for Windows</b></a> ·
+  <a href="../../releases/tag/v0.9.0-alpha"><b>Download for Windows</b></a> ·
   <a href="#password-and-security">Password and security</a> ·
   <a href="#features">Features</a> ·
   <a href="#faq">FAQ</a> ·
@@ -28,13 +28,13 @@
 <table>
   <tr>
     <td width="33%"><img src="assets/screenshots/en/game.jpg" alt="Game page"></td>
-    <td width="33%"><img src="assets/screenshots/en/store.jpg" alt="Store"></td>
-    <td width="33%"><img src="assets/screenshots/en/profile.jpg" alt="Profile"></td>
+    <td width="33%"><img src="assets/screenshots/en/table.jpg" alt="Compact table view"></td>
+    <td width="33%"><img src="assets/screenshots/en/settings.jpg" alt="Performance settings"></td>
   </tr>
   <tr>
     <td align="center">Game page</td>
-    <td align="center">Store</td>
-    <td align="center">Profile</td>
+    <td align="center">Compact table view</td>
+    <td align="center">Settings for weak PCs</td>
   </tr>
 </table>
 
@@ -114,7 +114,7 @@ The name comes from *vapor* + *Rust*.
 
 1. You need **Windows 10 or 11** and an installed **Steam** that you have logged in to at least
    once with "Remember password" checked.
-2. Download `Vaporust-0.8.6-alpha-windows-x64.zip` from the [latest release](../../releases/tag/v0.8.6-alpha)
+2. Download `Vaporust-0.9.0-alpha-windows-x64.zip` from the [latest release](../../releases/tag/v0.9.0-alpha)
    page (for 32-bit Windows - `windows-x86`).
 3. Unpack it into any folder and run `vaporust.exe`. No installation needed.
 4. Log in to your Steam account: password and Steam Guard code, or a QR code from the Steam app.

@@ -43,31 +43,54 @@ fn card(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
         return;
     }
     if first {
-        ui.label(egui::RichText::new(title).size(22.0).strong().color(egui::Color32::WHITE));
-        ui.add_space(12.0);
+        ui.label(egui::RichText::new(title).font(crate::theme::semibold(20.0)).color(egui::Color32::WHITE));
+        ui.add_space(10.0);
     }
-    // Each group of settings is a plate, like the cards of the sign-in page.
-    egui::Frame::none().fill(crate::theme::SIDEBAR).rounding(6.0).inner_margin(egui::Margin::same(14.0)).show(ui, |ui| {
+    // As in Steam settings: no plates, rows one under another with thin lines between them.
+    ui.vertical(|ui| {
         ui.set_width(ui.available_width());
         add(ui);
     });
-    ui.add_space(10.0);
+    ui.add_space(6.0);
 }
 
 /// A "name - value" row.
 pub(crate) fn row(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui)) {
     let lw = label_w(ui);
+    // A line above each row (a note under a row stays with its row).
+    rule(ui);
     // Values (scale buttons and the like) that do not fit wrap to the next line.
     ui.horizontal(|ui| {
         // The name on the left of its column, quieter than the value (add_sized would center it).
         ui.allocate_ui_with_layout(egui::vec2(lw, 22.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
             ui.set_width(lw);
-            ui.add(egui::Label::new(egui::RichText::new(label).color(crate::theme::WEAK)).wrap());
+            ui.add(egui::Label::new(egui::RichText::new(label).size(13.5).color(crate::theme::TEXT)).wrap());
         });
         // Wrapping happens inside the values column, not under the name.
         ui.horizontal_wrapped(|ui| add(ui));
     });
     ui.add_space(6.0);
+}
+
+/// The thin line between settings rows (Steam #3d4450 at low opacity).
+fn rule(ui: &mut egui::Ui) {
+    let r = ui.available_rect_before_wrap();
+    ui.painter().hline(r.x_range(), r.top(), egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(61, 68, 80, 140)));
+    ui.add_space(8.0);
+}
+
+/// An on/off setting: the Steam switch and its caption (a click on the caption switches too).
+fn check(ui: &mut egui::Ui, on: &mut bool, text: impl Into<egui::WidgetText>) -> egui::Response {
+    ui.horizontal(|ui| {
+        let mut r = crate::theme::toggle(ui, on);
+        let l = ui.add(egui::Label::new(text).sense(egui::Sense::click())).on_hover_cursor(egui::CursorIcon::PointingHand);
+        if l.clicked() {
+            *on = !*on;
+            r.mark_changed();
+        }
+        r
+    })
+    .inner
 }
 
 /// Explanation under a row, indented by the names column width.
@@ -78,11 +101,15 @@ fn note(ui: &mut egui::Ui, text: &str) {
         // A separate column: in a horizontal row long text does not wrap and gets cut off.
         ui.vertical(|ui| {
             ui.set_max_width(ui.available_width());
-            ui.add(egui::Label::new(egui::RichText::new(text).weak().small()).wrap());
+            // Not "small": at 100% the small font was hard to read on the dark panel.
+            ui.add(egui::Label::new(egui::RichText::new(text).size(12.0).color(crate::theme::WEAK)).wrap());
         });
     });
-    ui.add_space(10.0);
+    ui.add_space(8.0);
 }
+
+/// The last "Measure" result in "Performance".
+static STEAM_MEM: std::sync::Mutex<Option<crate::local::SteamMem>> = std::sync::Mutex::new(None);
 
 /// Download regions were requested (once per session and again after a language change: city names).
 static REGIONS_ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -182,10 +209,10 @@ impl LauncherApp {
         let current = SECTIONS().get(self.settings_section as usize).copied().unwrap_or(SECTIONS()[0]);
         CURRENT.with(|c| *c.borrow_mut() = (current.to_string(), Vec::new()));
         // The section list - like the library's left column: a side panel with plates and a blue marker.
-        let side = egui::Frame::none().fill(crate::theme::SIDEBAR).inner_margin(egui::Margin::symmetric(8.0, 10.0));
+        let side = egui::Frame::none().fill(crate::theme::TOP).inner_margin(egui::Margin::symmetric(8.0, 12.0));
         egui::SidePanel::left("settings_sections").resizable(false).exact_width(190.0).frame(side).show_inside(ui, |ui| {
             ui.add_space(4.0);
-            ui.label(egui::RichText::new(tr!("Настройки", "Settings")).size(20.0).strong().color(egui::Color32::WHITE));
+            ui.add(egui::Label::new(crate::theme::spaced(&tr!("Настройки", "Settings").to_uppercase(), crate::theme::semibold(15.0), crate::theme::ACCENT, 1.2)).selectable(false));
             ui.add_space(12.0);
             ui.spacing_mut().item_spacing.y = 2.0;
             for (i, s) in SECTIONS().iter().enumerate() {
@@ -201,7 +228,7 @@ impl LauncherApp {
             // Not wider than the visible area: otherwise explanations wrap at 820 px and get cut off on the right.
             ui.set_max_width(ui.available_width().min(820.0));
             if self.settings_section == 0 && net.account.is_none() {
-                ui.label(egui::RichText::new(tr!("Аккаунт", "Account")).size(20.0).strong());
+                ui.label(egui::RichText::new(tr!("Аккаунт", "Account")).font(crate::theme::semibold(20.0)).color(egui::Color32::WHITE));
                 ui.weak(tr!("Войдите в аккаунт Steam, чтобы увидеть сведения о нем.", "Log in to your Steam account to see its details."));
             }
 
@@ -283,7 +310,7 @@ impl LauncherApp {
                         }
                     });
                     row(ui, tr!("Экспериментальные функции", "Experimental features"), |ui| {
-                        ui.checkbox(&mut self.settings.experimental, tr!("Включены", "On"));
+                        check(ui, &mut self.settings.experimental, tr!("Включены", "On"));
                     });
                     note(
                         ui,
@@ -449,12 +476,12 @@ impl LauncherApp {
                 note(ui, tr!("Плитка - обложки игр, список - компактные строки.", "Grid - game covers, list - compact rows."));
 
                 row(ui, tr!("Сторонние игры", "Non-Steam games"), |ui| {
-                    ui.checkbox(&mut self.settings.custom_to_steam, tr!("Добавлять и в Steam", "Add to Steam too"));
+                    check(ui, &mut self.settings.custom_to_steam, tr!("Добавлять и в Steam", "Add to Steam too"));
                 });
                 note(ui, tr!("Новая сторонняя игра появится и в настоящем Steam (если Steam открыт - после его закрытия).", "A new non-Steam game also appears in the real Steam (if Steam is open - after it closes)."));
                 row(ui, tr!("Главная библиотеки", "Library home"), |ui| {
-                    ui.checkbox(&mut self.settings.random_button, tr!("Показывать «Во что поиграть?» над библиотекой", "Show \"What to play?\" above the library"));
-                    ui.checkbox(&mut self.settings.whats_new, tr!("Показывать «Что нового» (новости своих игр) на главной", "Show \"What's new\" (news of your games) on the home page"));
+                    check(ui, &mut self.settings.random_button, tr!("Показывать «Во что поиграть?» над библиотекой", "Show \"What to play?\" above the library"));
+                    check(ui, &mut self.settings.whats_new, tr!("Показывать «Что нового» (новости своих игр) на главной", "Show \"What's new\" (news of your games) on the home page"));
                 });
 
                 row(ui, tr!("Устанавливать новые игры в", "Install new games to"), |ui| {
@@ -555,7 +582,7 @@ impl LauncherApp {
                 );
 
                 row(ui, tr!("Прерванные загрузки", "Interrupted downloads"), |ui| {
-                    ui.checkbox(&mut self.settings.resume_downloads, tr!("Продолжать сами", "Resume by themselves"));
+                    check(ui, &mut self.settings.resume_downloads, tr!("Продолжать сами", "Resume by themselves"));
                 });
                 note(
                     ui,
@@ -565,7 +592,7 @@ impl LauncherApp {
                 );
 
                 row(ui, tr!("Когда Steam открыт", "When Steam is open"), |ui| {
-                    ui.checkbox(&mut self.settings.download_with_steam, tr!("Все равно качать новые игры", "Download new games anyway"));
+                    check(ui, &mut self.settings.download_with_steam, tr!("Все равно качать новые игры", "Download new games anyway"));
                 });
                 note(ui, tr!("Игра качается во временную папку VaporustStaging внутри библиотеки (Steam ее не видит) и переносится в библиотеку, когда докачается. Начатые раньше в самой библиотеке ждут закрытия Steam.", "The game downloads into a temporary VaporustStaging folder inside the library (Steam does not see it) and is moved to the library when finished. Downloads started earlier in the library itself wait for Steam to close."));
                 row(ui, tr!("Кэш загрузок Steam", "Steam download cache"), |ui| {
@@ -596,10 +623,10 @@ impl LauncherApp {
                     }
                 });
                 row(ui, "", |ui| {
-                    ui.checkbox(&mut self.settings.sched_only, tr!("Качать только в эти часы", "Download only during these hours"));
+                    check(ui, &mut self.settings.sched_only, tr!("Качать только в эти часы", "Download only during these hours"));
                 });
                 row(ui, "", |ui| {
-                    apply |= ui.checkbox(&mut self.settings.sched_limit_on, tr!("В эти часы скорость до", "During these hours speed up to")).changed();
+                    apply |= check(ui, &mut self.settings.sched_limit_on, tr!("В эти часы скорость до", "During these hours speed up to")).changed();
                     ui.add_enabled_ui(self.settings.sched_limit_on, |ui| {
                         apply |= limit_field(ui, &mut self.sched_text, &mut self.settings.sched_limit_kb);
                     });
@@ -670,7 +697,7 @@ impl LauncherApp {
                 }
 
                 row(ui, tr!("Семейная библиотека", "Family library"), |ui| {
-                    ui.checkbox(&mut self.settings.show_family, tr!("Показывать игры семьи в «Все игры»", "Show family games in \"All games\""));
+                    check(ui, &mut self.settings.show_family, tr!("Показывать игры семьи в «Все игры»", "Show family games in \"All games\""));
                     let n = net.family.len();
                     if n > 0 {
                         ui.weak(trf!("доступно игр: {n}", "games available: {n}"));
@@ -738,6 +765,20 @@ impl LauncherApp {
                     tr!("Через 20 с после старта игры или обновления приостанавливает встроенный браузер Steam \
                      и сбрасывает его память на диск, потом размораживает. Пока он заморожен, оверлей Steam (Shift+Tab), настройка геймпада через Steam Input и покупки внутри игры могут не открыться - тогда выключите.", "20 s after a game or update starts, it suspends the Steam built-in browser and moves its memory to disk, then unfreezes it afterwards. While it is frozen, the Steam overlay (Shift+Tab), gamepad setup via Steam Input and in-game purchases may not open - then turn this off."),
                 );
+                // What freezing really gave in the last game on this PC, not a promise.
+                if let Some(r) = *local::LAST_FREEZE.lock().unwrap() {
+                    let mb = |b: u64| b as f64 / 1048576.0;
+                    row(ui, tr!("В последней игре", "In the last game"), |ui| {
+                        ui.label(trf!(
+                            "браузер Steam занимал {:.0} МБ, замороженный - {:.0} МБ ({}, процессов: {})",
+                            "the Steam browser took {:.0} MB, frozen - {:.0} MB ({}, processes: {})",
+                            mb(r.before),
+                            mb(r.during),
+                            if r.soft { tr!("мягко", "softly") } else { tr!("полностью", "fully") },
+                            r.processes
+                        ));
+                    });
+                }
 
                 row(ui, tr!("Флаги скрытого Steam", "Hidden Steam flags"), |ui| {
                     ui.add(egui::TextEdit::singleline(&mut self.settings.steam_args).desired_width(330.0));
@@ -755,8 +796,29 @@ impl LauncherApp {
 
             // ---------- Performance ----------
             card(ui, tr!("Производительность", "Performance"), |ui| {
+                row(ui, tr!("Только игры", "Games only"), |ui| {
+                    if check(
+                        ui, &mut self.settings.games_only, tr!("Скрыть магазин, сообщество, профиль и друзей", "Hide the store, community, profile and friends"))
+                        .changed()
+                        && self.settings.games_only
+                    {
+                        // A weak PC: less background work together with the simpler interface.
+                        self.settings.light_mode = true;
+                        self.settings.animations = false;
+                        self.settings.economy = true;
+                        self.settings.trim_memory = true;
+                        self.close_extras(crate::View::Library);
+                    }
+                });
+                note(
+                    ui,
+                    tr!(
+                        "Для слабого ПК: остаются библиотека, запуск, загрузки и настройки, включается легкий режим. Сообщения друзей по-прежнему приходят уведомлениями. Настройки - в меню «Vaporust».",
+                        "For a weak PC: the library, launching, downloads and settings stay, light mode turns on. Friends' messages still arrive as notifications. Settings are in the \"Vaporust\" menu."
+                    ),
+                );
                 row(ui, tr!("Легкий режим", "Light mode"), |ui| {
-                    if ui.checkbox(&mut self.settings.light_mode, tr!("Меньше фоновой работы (для слабых ПК)", "Less background work (for weak PCs)")).changed()
+                    if check(ui, &mut self.settings.light_mode, tr!("Меньше фоновой работы (для слабых ПК)", "Less background work (for weak PCs)")).changed()
                         && self.settings.light_mode
                     {
                         self.settings.animations = false;
@@ -774,17 +836,17 @@ impl LauncherApp {
                 );
 
                 row(ui, tr!("Анимации", "Animations"), |ui| {
-                    ui.checkbox(&mut self.settings.animations, tr!("Стикеры, GIF, эффекты в чате, значки загрузки", "Stickers, GIFs, chat effects, loading icons"));
+                    check(ui, &mut self.settings.animations, tr!("Стикеры, GIF, эффекты в чате, значки загрузки", "Stickers, GIFs, chat effects, loading icons"));
                 });
                 note(ui, tr!("Без анимаций стикеры и GIF показываются первым кадром, эффекты чата сами не запускаются. Меньше работы видеокарте.", "Without animations stickers and GIFs show their first frame, chat effects do not start by themselves. Less work for the graphics card."));
 
                 row(ui, tr!("Обложки игр", "Game covers"), |ui| {
-                    ui.checkbox(&mut self.settings.covers, tr!("Обложки, фоны и значки игр в библиотеке", "Covers, backgrounds and game icons in the library"));
+                    check(ui, &mut self.settings.covers, tr!("Обложки, фоны и значки игр в библиотеке", "Covers, backgrounds and game icons in the library"));
                 });
                 note(ui, tr!("Без обложек библиотека - простой список, а у страницы игры нет большого фона. Так меньше всего памяти.", "Without covers the library is a simple list, and the game page has no big background. This uses the least memory."));
 
                 row(ui, tr!("Экономия памяти", "Memory saving"), |ui| {
-                    if ui.checkbox(&mut self.settings.economy, tr!("Картинки мельче, кэш картинок меньше", "Smaller images, smaller image cache")).changed() {
+                    if check(ui, &mut self.settings.economy, tr!("Картинки мельче, кэш картинок меньше", "Smaller images, smaller image cache")).changed() {
                         ui.ctx().forget_all_images();
                         self.covers.clear();
                     }
@@ -792,7 +854,7 @@ impl LauncherApp {
                 note(ui, tr!("Картинки в магазине, Мастерской и профилях хранятся уменьшенными и чаще выгружаются из памяти.", "Images in the store, Workshop and profiles are kept smaller and unloaded from memory more often."));
 
                 row(ui, tr!("Память в фоне", "Memory in the background"), |ui| {
-                    ui.checkbox(&mut self.settings.trim_memory, tr!("Отдавать память системе в трее и во время игры", "Give memory back to the system in the tray and during games"));
+                    check(ui, &mut self.settings.trim_memory, tr!("Отдавать память системе в трее и во время игры", "Give memory back to the system in the tray and during games"));
                 });
                 note(ui, tr!("Когда Vaporust свернут в трей или идет игра, он выгружает картинки и отдает свою память Windows: \
                      ее получит игра. При возврате в окно картинки загрузятся снова.", "When Vaporust is in the tray or a game runs, it unloads images and gives its memory back to Windows: the game gets it. When you return to the window, images load again."));
@@ -811,10 +873,47 @@ impl LauncherApp {
                     }
                 });
                 note(ui, tr!("Часть памяти занимает сам драйвер видеокарты (на ПК с видеокартой NVIDIA до 30-40 МБ даже у пустого окна).", "Part of the memory is taken by the graphics driver itself (on PCs with an NVIDIA card up to 30-40 MB even for an empty window)."));
+                if let Some(steam) = &self.steam {
+                    row(ui, tr!("Вместе со Steam", "Together with Steam"), |ui| {
+                        if ui.button(tr!("Замерить", "Measure")).on_hover_text(tr!("Сложить память Vaporust и всех процессов Steam", "Add up the memory of Vaporust and all Steam processes")).clicked() {
+                            *STEAM_MEM.lock().unwrap() = Some(crate::local::steam_memory(&steam.dir));
+                        }
+                    });
+                    if let Some(m) = *STEAM_MEM.lock().unwrap() {
+                        let mb = |b: u64| b as f64 / 1048576.0;
+                        let own = crate::stats::memory().0;
+                        let text = if m.steam == 0 && m.web.0 == 0 {
+                            trf!("Steam не запущен. Vaporust: {:.0} МБ.", "Steam is not running. Vaporust: {:.0} MB.", mb(own))
+                        } else {
+                            trf!(
+                                "Vaporust {:.0} МБ + steam.exe {:.0} МБ + браузер Steam {:.0} МБ (процессов: {}) + оверлей {:.0} МБ = {:.0} МБ.",
+                                "Vaporust {:.0} MB + steam.exe {:.0} MB + Steam browser {:.0} MB ({} processes) + overlay {:.0} MB = {:.0} MB.",
+                                mb(own),
+                                mb(m.steam),
+                                mb(m.web.1),
+                                m.web.0,
+                                mb(m.overlay),
+                                mb(own + m.steam + m.web.1 + m.overlay)
+                            )
+                        };
+                        note(ui, &text);
+                    }
+                }
             });
 
             // ---------- Window ----------
             card(ui, tr!("Окно", "Window"), |ui| {
+                row(ui, tr!("Список друзей", "Friends list"), |ui| {
+                    ui.radio_value(&mut self.settings.friends_window, false, tr!("Справа в главном окне", "On the right of the main window"));
+                    ui.radio_value(&mut self.settings.friends_window, true, tr!("Отдельным окном", "In a separate window"));
+                });
+                note(
+                    ui,
+                    tr!(
+                        "Отдельное окно друзей, как в Steam, можно двигать и держать на другом мониторе; справа список занимает часть главного окна. Чат всегда открывается отдельным окном.",
+                        "A separate friends window, as in Steam, can be moved and kept on another monitor; on the right the list takes part of the main window. The chat always opens in its own window."
+                    ),
+                );
                 row(ui, tr!("При запуске открывать", "Open at startup"), |ui| {
                     ui.radio_value(&mut self.settings.start_view, 0, tr!("Библиотеку", "Library"));
                     ui.radio_value(&mut self.settings.start_view, 1, tr!("Магазин", "Store"));
@@ -835,13 +934,13 @@ impl LauncherApp {
                 note(ui, tr!("Своя рамка - темный заголовок в стиле программы. Обычная - стандартная рамка Windows. Меняется сразу.", "Own frame - a dark title bar in the program's style. Normal - the standard Windows frame. Changes right away."));
 
                 row(ui, tr!("Размер и положение", "Size and position"), |ui| {
-                    ui.checkbox(&mut self.settings.remember_window, tr!("Запоминать", "Remember"));
+                    check(ui, &mut self.settings.remember_window, tr!("Запоминать", "Remember"));
                 });
                 note(ui, tr!("Окно откроется там же и такого же размера, как при закрытии. Если тот монитор отключен или окно не помещается, - обычное окно посередине экрана.", "The window opens in the same place and size as when it was closed. If that monitor is disconnected or the window does not fit - a normal window in the middle of the screen."));
 
                 row(ui, tr!("Крестик окна", "Window close button"), |ui| {
                     let mut tray_on = tray::close_to_tray();
-                    if ui.checkbox(&mut tray_on, tr!("Сворачивает Vaporust в трей", "Minimizes Vaporust to the tray")).changed() {
+                    if check(ui, &mut tray_on, tr!("Сворачивает Vaporust в трей", "Minimizes Vaporust to the tray")).changed() {
                         tray::set_close_to_tray(tray_on);
                     }
                 });
@@ -849,7 +948,7 @@ impl LauncherApp {
 
                 row(ui, tr!("Автозапуск", "Autostart"), |ui| {
                     let mut on = *self.autostart_on.get_or_insert_with(crate::autostart::enabled);
-                    if ui.checkbox(&mut on, tr!("Запускать вместе с Windows (сразу в трей)", "Start with Windows (straight to the tray)")).changed() {
+                    if check(ui, &mut on, tr!("Запускать вместе с Windows (сразу в трей)", "Start with Windows (straight to the tray)")).changed() {
                         match crate::autostart::set(on) {
                             Ok(()) => self.autostart_on = Some(on),
                             Err(e) => {
@@ -894,7 +993,7 @@ impl LauncherApp {
             // ---------- Notifications ----------
             card(ui, tr!("Уведомления", "Notifications"), |ui| {
                 row(ui, tr!("Уведомления", "Notifications"), |ui| {
-                    ui.checkbox(&mut self.settings.notify_on, tr!("Включены", "On"));
+                    check(ui, &mut self.settings.notify_on, tr!("Включены", "On"));
                     ui.add_enabled(self.settings.notify_on, egui::Checkbox::new(&mut self.settings.notify_sound, tr!("Со звуком", "With sound")));
                     if ui.small_button(tr!("Проверить", "Test")).on_hover_text(tr!("Показать пробное уведомление", "Show a test notification")).clicked() {
                         crate::popup::push(crate::popup::Kind::Info, "Vaporust", tr!("Так будут выглядеть уведомления.", "This is how notifications will look."));
@@ -909,18 +1008,18 @@ impl LauncherApp {
                 let s = &mut self.settings;
                 ui.add_enabled_ui(s.notify_on, |ui| {
                     row(ui, tr!("Сообщения от друзей", "Messages from friends"), |ui| {
-                        ui.checkbox(&mut s.notify_msg, tr!("Новое сообщение", "New message"));
+                        check(ui, &mut s.notify_msg, tr!("Новое сообщение", "New message"));
                     });
                     row(ui, tr!("Друзья", "Friends"), |ui| {
-                        ui.checkbox(&mut s.notify_friend_game, tr!("Друг зашел в игру", "A friend started a game"));
-                        ui.checkbox(&mut s.notify_friend_online, tr!("Друг появился в сети", "A friend came online"));
+                        check(ui, &mut s.notify_friend_game, tr!("Друг зашел в игру", "A friend started a game"));
+                        check(ui, &mut s.notify_friend_online, tr!("Друг появился в сети", "A friend came online"));
                     });
                     row(ui, tr!("Магазин", "Store"), |ui| {
-                        ui.checkbox(&mut s.notify_wishlist, tr!("Скидка на игру из списка желаемого", "A discount on a wishlist game"));
+                        check(ui, &mut s.notify_wishlist, tr!("Скидка на игру из списка желаемого", "A discount on a wishlist game"));
                     });
                     row(ui, tr!("Загрузки", "Downloads"), |ui| {
-                        ui.checkbox(&mut s.notify_download, tr!("Игра скачана", "Game downloaded"));
-                        ui.checkbox(&mut s.notify_steam, tr!("Уведомления Steam (подарки, предметы, обмены)", "Steam notifications (gifts, items, trades)"));
+                        check(ui, &mut s.notify_download, tr!("Игра скачана", "Game downloaded"));
+                        check(ui, &mut s.notify_steam, tr!("Уведомления Steam (подарки, предметы, обмены)", "Steam notifications (gifts, items, trades)"));
                     });
                 });
                 note(
@@ -962,7 +1061,7 @@ impl LauncherApp {
                     ui.hyperlink_to("GitHub", GITHUB);
                 });
                 row(ui, tr!("Обновления", "Updates"), |ui| {
-                    ui.checkbox(&mut self.settings.check_updates, tr!("Проверять при запуске", "Check at startup"));
+                    check(ui, &mut self.settings.check_updates, tr!("Проверять при запуске", "Check at startup"));
                     let checking = matches!(*self.upd.lock().unwrap(), crate::updater::State::Checking);
                     if ui.add_enabled(!checking, egui::Button::new(tr!("Проверить сейчас", "Check now"))).clicked() {
                         self.check_updates_now(ui.ctx());
@@ -971,7 +1070,24 @@ impl LauncherApp {
                         crate::spin::spinner(ui);
                     }
                 });
-                note(ui, tr!("Новые версии берутся со страницы Releases на GitHub; установка - одной кнопкой с перезапуском.", "New versions come from the Releases page on GitHub; installing is one button with a restart."));
+                note(ui, tr!("Новые версии берутся со страницы Releases на GitHub; установка - одной кнопкой с перезапуском. Если новая версия дважды не запустится, Vaporust сам вернет прошлую.", "New versions come from the Releases page on GitHub; installing is one button with a restart. If a new version fails to start twice, Vaporust puts the previous one back by itself."));
+                if crate::updater::previous_kept() {
+                    row(ui, tr!("Прошлая версия", "Previous version"), |ui| {
+                        if ui
+                            .button(tr!("Вернуть прошлую версию", "Go back to the previous version"))
+                            .on_hover_text(tr!("Хранится до следующего запуска после обновления. Vaporust перезапустится.", "Kept until the next start after an update. Vaporust restarts."))
+                            .clicked()
+                        {
+                            match crate::updater::restore_previous().and_then(|_| crate::portable::restart()) {
+                                Ok(()) => {
+                                    crate::tray::request_exit();
+                                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                                }
+                                Err(e) => crate::popup::push(crate::popup::Kind::Info, "Vaporust", e),
+                            }
+                        }
+                    });
+                }
                 row(ui, tr!("Папки", "Folders"), |ui| {
                     if let Some(s) = &self.steam {
                         if ui.button("Steam").clicked() {

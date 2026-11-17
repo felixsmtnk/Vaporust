@@ -654,6 +654,46 @@ fn norm(p: &Path) -> String {
     p.to_string_lossy().to_lowercase().replace('/', "\\")
 }
 
+/// A normalized folder path ending with a backslash, for "is inside" checks.
+fn with_slash(p: &Path) -> String {
+    let mut s = norm(p);
+    if !s.ends_with('\\') {
+        s.push('\\');
+    }
+    s
+}
+
+/// Memory of the Steam processes right now (Task Manager numbers), bytes: steam.exe,
+/// steamwebhelper (process count and total), the overlay. Only processes from the Steam folder.
+#[derive(Clone, Copy, Default, Debug)]
+pub struct SteamMem {
+    pub steam: u64,
+    pub web: (usize, u64),
+    pub overlay: u64,
+}
+
+/// What freezing gave during the last game (shown in "Settings -> Launching games").
+#[derive(Clone, Copy, Debug)]
+pub struct FreezeResult {
+    pub before: u64,
+    pub during: u64,
+    pub processes: usize,
+    pub soft: bool,
+}
+
+pub static LAST_FREEZE: std::sync::Mutex<Option<FreezeResult>> = std::sync::Mutex::new(None);
+
+pub fn steam_memory(steam_dir: &Path) -> SteamMem {
+    let mut procs = Procs::new();
+    let sum = |pids: &[u32]| pids.iter().filter_map(|p| crate::stats::memory_of(*p)).sum::<u64>();
+    let web = procs.pids_in("steamwebhelper.exe", steam_dir);
+    SteamMem {
+        steam: sum(&procs.pids_in("steam.exe", steam_dir)),
+        web: (web.len(), sum(&web)),
+        overlay: sum(&procs.pids_in("gameoverlayui.exe", steam_dir)),
+    }
+}
+
 struct Procs {
     sys: System,
 }
@@ -697,19 +737,19 @@ impl Procs {
             .any(|p| p.exe().is_some_and(|e| norm(e).starts_with(game_dir)))
     }
 
-    fn pids(&mut self, name: &str) -> Vec<u32> {
+    /// Processes with this name whose exe is known to lie in `root` (the Steam folder). A process
+    /// of another program with the same name, or one whose path cannot be read, is never chosen.
+    fn pids_in(&mut self, name: &str, root: &Path) -> Vec<u32> {
         self.refresh();
-        self.named(name).map(|p| p.pid().as_u32()).collect()
+        let root = with_slash(root);
+        self.named(name).filter(|p| p.exe().is_some_and(|e| norm(e).starts_with(&root))).map(|p| p.pid().as_u32()).collect()
     }
 
     /// Kills all processes with these names whose exe lies in `root` (the Steam folder: another
     /// program's "steam.exe" elsewhere is not touched). Returns how many were killed.
     fn kill_all(&mut self, names: &[&str], root: &Path) -> usize {
         self.refresh();
-        let mut root = norm(root);
-        if !root.ends_with('\\') {
-            root.push('\\');
-        }
+        let root = with_slash(root);
         let mut n = 0;
         for name in names {
             for p in self.named(name) {
@@ -1132,7 +1172,7 @@ pub fn update_via_steam(
             && last_freeze.map_or(true, |t| t.elapsed() >= Duration::from_secs(10))
         {
             last_freeze = Some(Instant::now());
-            frozen.freeze_new(procs.pids("steamwebhelper.exe"));
+            frozen.freeze_new(procs.pids_in("steamwebhelper.exe", &steam.dir));
         }
     };
     frozen.resume_all();
@@ -1236,6 +1276,7 @@ pub fn run_chain(
     let mut gone_since: Option<Instant> = None;
     let mut frozen = Frozen::new(opts.freeze_soft);
     let mut last_freeze: Option<Instant> = None;
+    let mut web_before: u64 = 0;
     loop {
         thread::sleep(Duration::from_secs(1));
         if cancelled() {
@@ -1254,7 +1295,11 @@ pub fn run_chain(
         {
             last_freeze = Some(Instant::now());
             let before = frozen.len();
-            frozen.freeze_new(procs.pids("steamwebhelper.exe"));
+            let pids = procs.pids_in("steamwebhelper.exe", &steam.dir);
+            // Memory of the processes that are about to be frozen for the first time: the "before" number.
+            let fresh: Vec<u32> = pids.iter().copied().filter(|p| !frozen.list.iter().any(|(q, _, _)| q == p)).collect();
+            web_before += fresh.iter().filter_map(|p| crate::stats::memory_of(*p)).sum::<u64>();
+            frozen.freeze_new(pids);
             if frozen.len() != before {
                 set(&trf!(
                     "Игра запущена, жду выхода... (steamwebhelper заморожен, процессов: {})", "The game is running, waiting for it to exit... (steamwebhelper frozen, processes: {})",
@@ -1262,6 +1307,11 @@ pub fn run_chain(
                 ));
             }
         }
+    }
+    // The result of freezing for "Settings": what the browser took before and while frozen.
+    if web_before > 0 {
+        let during = frozen.list.iter().filter_map(|(p, _, _)| crate::stats::memory_of(*p)).sum::<u64>();
+        *LAST_FREEZE.lock().unwrap() = Some(FreezeResult { before: web_before, during, processes: frozen.len(), soft: opts.freeze_soft });
     }
     // Unfreeze before closing Steam, otherwise it cannot shut down properly.
     frozen.resume_all();

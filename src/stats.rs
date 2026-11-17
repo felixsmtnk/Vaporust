@@ -73,3 +73,23 @@ pub fn memory() -> (u64, u64) {
     }
     (c.WorkingSetSize as u64, c.PrivateUsage as u64)
 }
+
+/// Private working set of another process (what Task Manager shows in "Memory"), bytes.
+/// None when the process is gone or not accessible.
+pub fn memory_of(pid: u32) -> Option<u64> {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX2};
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ};
+    // SAFETY: the handle is checked and closed; the counters struct is local and sized.
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, 0, pid);
+        if h.is_null() {
+            return None;
+        }
+        let mut c: PROCESS_MEMORY_COUNTERS_EX2 = std::mem::zeroed();
+        c.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX2>() as u32;
+        let ok = K32GetProcessMemoryInfo(h, &mut c as *mut _ as *mut PROCESS_MEMORY_COUNTERS, c.cb);
+        CloseHandle(h);
+        (ok != 0).then_some(c.PrivateWorkingSetSize as u64)
+    }
+}

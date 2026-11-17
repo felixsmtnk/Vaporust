@@ -84,7 +84,7 @@ impl LauncherApp {
 
         ui.add_space(6.0);
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(tr!("Друзья", "Friends")).size(20.0).strong());
+            ui.label(egui::RichText::new(tr!("Друзья", "Friends")).font(crate::theme::semibold(20.0)).color(egui::Color32::WHITE));
             ui.add_space(12.0);
             for (i, label) in [
                 trf!("Мои друзья ({})", "My friends ({})", lists[0].len()),

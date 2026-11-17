@@ -145,7 +145,7 @@ impl LauncherApp {
                 // The same look as the sign-in page: a title, blue captions, a dark field and a big blue button.
                 let frame = egui::Frame::none().fill(crate::theme::SIDEBAR).inner_margin(egui::Margin::symmetric(24.0, 18.0));
                 egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
-                    ui.label(egui::RichText::new(tr!("Активировать продукт", "Activate a product")).size(22.0).strong().color(egui::Color32::WHITE));
+                    ui.label(egui::RichText::new(tr!("Активировать продукт", "Activate a product")).font(crate::theme::semibold(22.0)).color(egui::Color32::WHITE).color(egui::Color32::WHITE));
                     ui.label(
                         egui::RichText::new(tr!(
                             "Ключ добавит игру или дополнение в вашу библиотеку Steam. Подойдет ключ с коробки, из магазина или бандла.",

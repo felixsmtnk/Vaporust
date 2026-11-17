@@ -29,7 +29,7 @@ impl LauncherApp {
         }
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(tr!("Корзина", "Cart")).size(20.0).strong());
+            ui.label(egui::RichText::new(tr!("Корзина", "Cart")).font(crate::theme::semibold(20.0)).color(egui::Color32::WHITE));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button(tr!("Обновить", "Refresh")).clicked() {
                     let _ = self.tx.send(Cmd::CartLoad);

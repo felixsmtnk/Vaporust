@@ -129,7 +129,7 @@ pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx
             }
             SocialCmd::Block(id, block) => {
                 let res = crate::social::block_user(&c, id, block).await;
-                let Some(mut cur) = crate::net::lock_current(&st) else { return }; // a response of the previous login - not written
+                let Some(cur) = crate::net::lock_current(&st) else { return }; // a response of the previous login - not written
                 let mut s = cur;
                 s.friend_msg = Some(match &res {
                     Ok(()) if block => tr!("Пользователь заблокирован.", "User blocked.").into(),
@@ -146,7 +146,7 @@ pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx
             }
             SocialCmd::RemoveFriend(id) => {
                 let res = c.remove_friend(id).await;
-                let Some(mut cur) = crate::net::lock_current(&st) else { return }; // a response of the previous login - not written
+                let Some(cur) = crate::net::lock_current(&st) else { return }; // a response of the previous login - not written
                 let mut s = cur;
                 s.friend_msg = Some(match res {
                     Ok(()) => tr!("Готово.", "Done.").into(),
@@ -230,7 +230,7 @@ pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx
             }
         }
         ctx.request_repaint();
-        if crate::notify::chat_open() {
+        if crate::notify::chat_window_open() {
             ctx.request_repaint_of(crate::chatwin::viewport_id());
         }
     });
@@ -304,4 +304,10 @@ pub async fn block_user(c: &SteamClient, id: u64, block: bool) -> Result<(), Str
     } else {
         Err(trf!("Steam отказал (код {})", "Steam refused (code {})", v["success"]))
     }
+}
+
+/// Shown while a friend's name is not known yet. Never the account number: a SteamID is private
+/// and looks like a broken name.
+pub fn unknown_name() -> String {
+    tr!("загружается...", "loading...").to_string()
 }

@@ -28,6 +28,15 @@ use crate::util::between;
 
 /// Text without tags and with &amp; and the like decoded.
 fn text(s: &str) -> String {
+    // Scripts and styles are code, not text (they leaked as "$J( function() { InitializeCommentThread...").
+    let mut s = s.to_string();
+    for tag in ["script", "style"] {
+        while let Some(a) = s.find(&format!("<{tag}")) {
+            let end = s[a..].find(&format!("</{tag}>")).map(|e| a + e + tag.len() + 3).unwrap_or(s.len());
+            s.replace_range(a..end, " ");
+        }
+    }
+    let s = s.as_str();
     let mut out = String::new();
     let mut in_tag = false;
     for ch in s.chars() {
@@ -107,6 +116,9 @@ pub fn parse(html: &str) -> Vec<Entry> {
                 continue;
             }
             let block = block.split("class=\"blotter_block\"").next().unwrap_or(block);
+            // The rate and comment controls under an event are not part of its text ("Rate up", "View all 0 comments").
+            let block = block.split("blotter_control_container").next().unwrap_or(block);
+            let block = block.split("commentthread_").next().unwrap_or(block);
             if block.contains("blotter_daily_rollup") {
                 continue;
             }
@@ -162,6 +174,12 @@ pub async fn load_days(client: &SteamClient, me: u64, start: u64, min_entries: u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scripts_are_not_text() {
+        assert_eq!(super::text("<b>Hi</b><script>$J( function() { InitializeCommentThread(1); } );</script> there"), "Hi there");
+        assert_eq!(super::text("a<style>.x{color:red}</style>b"), "a b");
+    }
 
     #[test]
     fn parse_rollup() {

@@ -138,6 +138,17 @@ pub fn html_unescape(s: &str) -> String {
 /// never share it, and the data is flushed to the disk before the rename.
 pub fn write_atomic(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
+    write_atomic_with(path, |f| f.write_all(data))
+}
+
+/// Copy `src` over `path` the same safe way as [`write_atomic`], without loading it into memory.
+pub fn copy_atomic(src: &std::path::Path, path: &std::path::Path) -> std::io::Result<()> {
+    let mut from = std::fs::File::open(src)?;
+    write_atomic_with(path, |f| std::io::copy(&mut from, f).map(|_| ()))
+}
+
+/// The common part: a unique temporary neighbor, filled by `fill`, flushed to the disk, renamed.
+fn write_atomic_with(path: &std::path::Path, fill: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>) -> std::io::Result<()> {
     static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut tmp = path.as_os_str().to_owned();
@@ -145,7 +156,7 @@ pub fn write_atomic(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> 
     let tmp = PathBuf::from(tmp);
     let res = (|| {
         let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
-        f.write_all(data)?;
+        fill(&mut f)?;
         f.sync_all()?;
         drop(f);
         std::fs::rename(&tmp, path)
@@ -171,5 +182,141 @@ mod tests {
         assert_eq!(html_unescape("&жжжжжжжжжжжж; ж&amp;"), "&жжжжжжжжжжжж; ж&");
         assert!(system_exe("cmd.exe").ends_with(r"System32\cmd.exe"));
         assert!(documents().is_absolute());
+    }
+}
+
+/// Is this host safe to fetch from after a redirect: not this computer and not the
+/// local network (a page on the internet must not make Vaporust poke the router).
+pub fn public_host(u: &url::Url) -> bool {
+    match u.host() {
+        Some(url::Host::Domain(d)) => {
+            let d = d.to_ascii_lowercase();
+            !(d == "localhost" || d.ends_with(".localhost") || d.ends_with(".local") || d.ends_with(".lan") || !d.contains('.'))
+        }
+        Some(url::Host::Ipv4(ip)) => !(ip.is_private() || ip.is_loopback() || ip.is_link_local() || ip.is_unspecified() || ip.is_broadcast()),
+        Some(url::Host::Ipv6(ip)) => !(ip.is_loopback() || ip.is_unspecified() || (ip.segments()[0] & 0xfe00) == 0xfc00 || (ip.segments()[0] & 0xffc0) == 0xfe80),
+        None => false,
+    }
+}
+
+/// A GET that never keeps more than `max` bytes in memory: the body is read in pieces and
+/// the download stops as soon as it grows past the limit, or when `keep_going` says no.
+/// Redirects are followed by hand (at most 4), and only to public http(s) addresses.
+/// Returns the body and its content type.
+pub fn http_get_limited(url: &str, max: usize, keep_going: &dyn Fn() -> bool) -> Result<(Vec<u8>, Option<String>), String> {
+    http_get_with(url, &[], max, keep_going)
+}
+
+/// [`http_get_limited`] with extra request headers.
+pub fn http_get_with(url: &str, headers: &[(&str, &str)], max: usize, keep_going: &dyn Fn() -> bool) -> Result<(Vec<u8>, Option<String>), String> {
+    use std::io::Read;
+    let agent = ureq::AgentBuilder::new()
+        .redirects(0)
+        .timeout_connect(std::time::Duration::from_secs(10))
+        .timeout_read(std::time::Duration::from_secs(20))
+        .user_agent(concat!("Vaporust/", env!("CARGO_PKG_VERSION")))
+        .build();
+    let mut cur = url::Url::parse(url).map_err(|e| e.to_string())?;
+    for _ in 0..5 {
+        if !matches!(cur.scheme(), "http" | "https") || !cur.username().is_empty() || cur.password().is_some() {
+            return Err("unsupported address".into());
+        }
+        let mut req = agent.request_url("GET", &cur);
+        for (k, v) in headers {
+            req = req.set(k, v);
+        }
+        let resp = match req.call() {
+            Ok(r) => r,
+            Err(ureq::Error::Status(code, _)) => return Err(format!("HTTP {code}")),
+            Err(e) => return Err(e.to_string()),
+        };
+        if (300..400).contains(&resp.status()) {
+            let loc = resp.header("location").ok_or("redirect without an address")?;
+            let next = cur.join(loc).map_err(|e| e.to_string())?;
+            if !public_host(&next) {
+                return Err("redirect to a local address".into());
+            }
+            cur = next;
+            continue;
+        }
+        if let Some(len) = resp.header("content-length").and_then(|v| v.trim().parse::<u64>().ok()) {
+            if len > max as u64 {
+                return Err("file too large".into());
+            }
+        }
+        let mime = resp.header("content-type").map(str::to_owned);
+        let mut body = Vec::new();
+        let mut reader = resp.into_reader().take(max as u64 + 1);
+        let mut buf = [0u8; 64 * 1024];
+        loop {
+            if !keep_going() {
+                return Err("cancelled".into());
+            }
+            let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
+            if n == 0 {
+                break;
+            }
+            body.extend_from_slice(&buf[..n]);
+            if body.len() > max {
+                return Err("file too large".into());
+            }
+        }
+        return Ok((body, mime));
+    }
+    Err("too many redirects".into())
+}
+
+#[cfg(test)]
+mod http_tests {
+    use super::*;
+
+    #[test]
+    fn local_hosts_are_not_public() {
+        for u in ["http://localhost/", "http://127.0.0.1/", "http://192.168.1.1/", "http://10.0.0.5/", "http://router/", "http://[::1]/", "http://nas.local/", "http://169.254.1.1/"] {
+            assert!(!public_host(&url::Url::parse(u).unwrap()), "{u}");
+        }
+        for u in ["https://cdn.fastly.steamstatic.com/a.png", "https://8.8.8.8/"] {
+            assert!(public_host(&url::Url::parse(u).unwrap()), "{u}");
+        }
+    }
+
+    /// A tiny local server that answers with an endless body: the download must stop at
+    /// the limit instead of reading everything.
+    #[test]
+    fn endless_body_stops_at_limit() {
+        use std::io::{Read, Write};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            if let Ok((mut s, _)) = l.accept() {
+                let mut b = [0u8; 1024];
+                let _ = s.read(&mut b);
+                let _ = s.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n\r\n");
+                let chunk = [0u8; 8192];
+                for _ in 0..10_000 {
+                    if s.write_all(&chunk).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        let r = http_get_limited(&format!("http://127.0.0.1:{port}/x.png"), 100_000, &|| true);
+        assert_eq!(r.unwrap_err(), "file too large");
+    }
+
+    #[test]
+    fn redirect_to_local_is_refused() {
+        use std::io::{Read, Write};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            if let Ok((mut s, _)) = l.accept() {
+                let mut b = [0u8; 1024];
+                let _ = s.read(&mut b);
+                let _ = s.write_all(b"HTTP/1.1 302 Found\r\nLocation: http://192.168.0.1/admin\r\nContent-Length: 0\r\n\r\n");
+            }
+        });
+        let r = http_get_limited(&format!("http://127.0.0.1:{port}/x.png"), 100_000, &|| true);
+        assert_eq!(r.unwrap_err(), "redirect to a local address");
     }
 }

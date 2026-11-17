@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="../../releases/tag/v0.8.6-alpha"><b>Скачать для Windows</b></a> ·
+  <a href="../../releases/tag/v0.9.0-alpha"><b>Скачать для Windows</b></a> ·
   <a href="#пароль-и-безопасность">Пароль и безопасность</a> ·
   <a href="#что-умеет">Возможности</a> ·
   <a href="#вопросы">Вопросы</a> ·
@@ -28,13 +28,13 @@
 <table>
   <tr>
     <td width="33%"><img src="assets/screenshots/game.jpg" alt="Страница игры"></td>
-    <td width="33%"><img src="assets/screenshots/store.jpg" alt="Магазин"></td>
-    <td width="33%"><img src="assets/screenshots/profile.jpg" alt="Профиль"></td>
+    <td width="33%"><img src="assets/screenshots/table.jpg" alt="Компактная таблица"></td>
+    <td width="33%"><img src="assets/screenshots/settings.jpg" alt="Настройки производительности"></td>
   </tr>
   <tr>
     <td align="center">Страница игры</td>
-    <td align="center">Магазин</td>
-    <td align="center">Профиль</td>
+    <td align="center">Компактная таблица</td>
+    <td align="center">Настройки для слабых ПК</td>
   </tr>
 </table>
 
@@ -113,8 +113,8 @@
 
 1. Нужен **Windows 10 или 11** и установленный **Steam**, в который хоть раз входили с галочкой
    «Запомнить пароль».
-2. Скачайте со страницы [последнего выпуска](../../releases/tag/v0.8.6-alpha) файл
-   `Vaporust-0.8.6-alpha-windows-x64.zip` (для 32-битной Windows - `windows-x86`).
+2. Скачайте со страницы [последнего выпуска](../../releases/tag/v0.9.0-alpha) файл
+   `Vaporust-0.9.0-alpha-windows-x64.zip` (для 32-битной Windows - `windows-x86`).
 3. Распакуйте в любую папку и запустите `vaporust.exe`. Установка не нужна.
 4. Войдите в аккаунт Steam: пароль и код Steam Guard или QR-код из приложения Steam. Или нажмите
    «Без входа»: тогда видны только установленные игры, а запускаются они через Steam как обычно.

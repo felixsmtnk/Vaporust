@@ -118,7 +118,7 @@ fn sample(net: &NetState, queue: &[settings::QueueItem]) {
 fn section(ui: &mut egui::Ui, text: &str, add: impl FnOnce(&mut egui::Ui)) {
     ui.add_space(16.0);
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(text).size(12.5).strong().color(theme::WEAK));
+        ui.label(egui::RichText::new(text).font(theme::semibold(16.0)).color(theme::TEXT));
         add(ui);
         let r = ui.available_rect_before_wrap();
         let y = r.center().y;
@@ -195,7 +195,7 @@ impl LauncherApp {
             return trf!("Загрузки: {}", "Downloads: {}", i.name);
         }
         match self.settings.downloads.len() {
-            0 => tr!("Загрузки", "Downloads").into(),
+            0 => tr!("Управление загрузками", "Manage Downloads").into(),
             n => trf!("Загрузки ({n} в очереди)", "Downloads ({n} queued)"),
         }
     }
@@ -206,7 +206,7 @@ impl LauncherApp {
         let label = self.downloads_label(net);
         let on = self.view == View::Downloads;
         // The same button as "Add a game" and "Friends and chat" (theme::bar_button), without an icon.
-        let resp = theme::bar_button(ui, &label, None, None, on);
+        let resp = theme::bar_button(ui, &label, Some(theme::icon_download), None, on);
         if let Some(i) = net.install.as_ref().filter(|i| i.result.is_none() && i.total > 0) {
             let frac = (i.done as f32 / i.total as f32).clamp(0.0, 1.0);
             let r = resp.rect;
@@ -251,7 +251,8 @@ impl LauncherApp {
                     .find(|g| g.appid == i.appid)
                     .and_then(|g| g.dir.parent()?.parent()?.parent().map(|p| p.to_path_buf()))
                     .or_else(|| self.libraries.get(self.lib_idx).cloned())
-            });
+            })
+            .or_else(|| self.libraries.get(self.lib_idx).cloned());
             // Right-click menu - under the card (area from the previous frame) so the buttons
             // on top of it stay clickable.
             let card_id = ui.id().with("dl_card");
@@ -259,16 +260,23 @@ impl LauncherApp {
             let card = egui::Frame::none().fill(theme::CARD).inner_margin(egui::Margin::same(14.0)).rounding(4.0).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 let Some(inst) = active else {
-                    ui.add_space(18.0);
-                    ui.vertical_centered(|ui| {
-                        ui.label(egui::RichText::new(tr!("Сейчас ничего не загружается", "Nothing is downloading")).size(16.0).color(theme::WEAK));
-                        ui.label(
-                            egui::RichText::new(tr!("Нажмите «Установить» на странице игры - загрузка появится здесь.", "Press \"Install\" on a game page - the download appears here."))
-                                .size(12.0)
-                                .color(theme::WEAK),
-                        );
+                    // Idle, as in Steam: the empty graph with the network, peak and disk numbers.
+                    ui.horizontal(|ui| {
+                        ui.vertical(|ui| {
+                            ui.set_width((ui.available_width() - 162.0).max(120.0));
+                            graph(ui, 70.0);
+                        });
+                        ui.add_space(12.0);
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = 5.0;
+                            let peak = GRAPH.lock().unwrap().peak;
+                            stat(ui, tr!("СЕТЬ", "NETWORK"), trf!("{}/с", "{}/s", net::fmt_bytes(0)));
+                            stat(ui, tr!("ПИКОВАЯ", "PEAK"), trf!("{}/с", "{}/s", net::fmt_bytes(peak as u64)));
+                            if let Some(free) = library.as_deref().and_then(local::free_space) {
+                                stat(ui, tr!("СВОБОДНО НА ДИСКЕ", "FREE ON DISK"), net::fmt_bytes(free));
+                            }
+                        });
                     });
-                    ui.add_space(18.0);
                     return;
                 };
                 let is_install = inst.download;
@@ -279,7 +287,7 @@ impl LauncherApp {
                     }
                     ui.add_space(6.0);
                     ui.vertical(|ui| {
-                        ui.label(egui::RichText::new(&inst.name).size(19.0).strong());
+                        ui.label(egui::RichText::new(&inst.name).font(crate::theme::semibold(19.0)).color(egui::Color32::WHITE));
                         let what = if is_install { tr!("ЗАГРУЗКА", "DOWNLOADING") } else { tr!("РАБОТА С ФАЙЛАМИ", "WORKING WITH FILES") };
                         let head = if inst.total > 0 { format!("{what} - {:.0}%", frac * 100.0) } else { what.to_string() };
                         ui.label(egui::RichText::new(head).size(12.0).strong().color(theme::ACCENT));
@@ -351,7 +359,7 @@ impl LauncherApp {
             // Up next: the queue.
             let n = self.settings.downloads.len();
             let queue_paused = self.settings.queue_paused;
-            section(ui, &trf!("ДАЛЕЕ ({n})", "UP NEXT ({n})"), |ui| {
+            section(ui, &trf!("Далее ({n})", "Up Next ({n})"), |ui| {
                 if n > 0 {
                     let (label, hint) = if queue_paused {
                         (tr!("Продолжить очередь", "Resume queue"), tr!("Снова качать игры из очереди по порядку.", "Download the queued games in order again."))
@@ -437,7 +445,7 @@ impl LauncherApp {
                 .filter(|g| !g.ready && !queued.contains(&g.appid) && Some(g.appid) != active_id)
                 .collect();
             if !partials.is_empty() {
-                section(ui, &trf!("НЕ ДОКАЧАНЫ ({})", "NOT FINISHED ({})", partials.len()), |_| {});
+                section(ui, &trf!("Не докачаны ({})", "Not finished ({})", partials.len()), |_| {});
                 for g in partials {
                     let state = trf!("Скачано {} · файлы лежат на диске", "Downloaded {} · the files are on disk", net::fmt_bytes(partial_size(g)));
                     row(
@@ -475,7 +483,7 @@ impl LauncherApp {
             // Completed during this session.
             let done = DONE.lock().unwrap().1.clone();
             if !done.is_empty() {
-                section(ui, &trf!("ЗАВЕРШЕНО ({})", "COMPLETED ({})", done.len()), |ui| {
+                section(ui, &trf!("Завершено ({})", "Completed ({})", done.len()), |ui| {
                     if ui.small_button(tr!("Очистить", "Clear")).clicked() {
                         acts.push(Act::ClearDone);
                     }

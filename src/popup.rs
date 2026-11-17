@@ -443,7 +443,7 @@ impl LauncherApp {
                         .read()
                         .ok()
                         .and_then(|r| r.get(&id).and_then(|f| f.persona_name.clone()))
-                        .unwrap_or_else(|| id.to_string());
+                        .unwrap_or_else(crate::social::unknown_name);
                     self.open_chat(ctx, id, name, net);
                 }
                 Kind::Sale(0) => self.open_wishlist(),

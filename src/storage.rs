@@ -335,15 +335,17 @@ impl LauncherApp {
                     let left_total: u64 = lib.leftovers.iter().map(|l| l.size).sum();
                     if let (Some(free), Some(total)) = (lib.free, lib.total) {
                         let used = total.saturating_sub(free);
-                        ui.add(
-                            egui::ProgressBar::new(used as f32 / total.max(1) as f32)
-                                .desired_width(ui.available_width().min(560.0))
-                                .text(trf!(
-                                    "занято {} из {}, свободно {}", "{} of {} used, {} free",
-                                    net::fmt_bytes(used),
-                                    net::fmt_bytes(total),
-                                    net::fmt_bytes(free)
-                                )),
+                        let w = (ui.available_width() - 260.0).clamp(120.0, 420.0);
+                        crate::theme::progress(
+                            ui,
+                            used as f32 / total.max(1) as f32,
+                            w,
+                            Some(trf!(
+                                "занято {} из {}, свободно {}", "{} of {} used, {} free",
+                                net::fmt_bytes(used),
+                                net::fmt_bytes(total),
+                                net::fmt_bytes(free)
+                            )),
                         );
                     }
                     ui.label(trf!(
@@ -362,7 +364,7 @@ impl LauncherApp {
                             }
                             ui.label(net::fmt_bytes(g.size));
                             let share = g.size as f32 / games_total.max(1) as f32;
-                            ui.add(egui::ProgressBar::new(share).desired_width(120.0));
+                            crate::theme::progress(ui, share, 120.0, None);
                             ui.end_row();
                         }
                     });

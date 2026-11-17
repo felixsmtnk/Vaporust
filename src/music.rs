@@ -151,7 +151,7 @@ impl LauncherApp {
         let albums = m.albums.clone().unwrap_or_default();
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(tr!("Саундтреки", "Soundtracks")).size(20.0).strong());
+            ui.label(egui::RichText::new(tr!("Саундтреки", "Soundtracks")).font(crate::theme::semibold(20.0)).color(egui::Color32::WHITE));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button(tr!("Найти заново", "Search again")).clicked() {
                     m.albums = None;

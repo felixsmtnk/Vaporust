@@ -386,3 +386,41 @@ fn backups_in_one_second_do_not_overwrite() {
     crate::backup::restore_any(&z2).unwrap();
     assert_eq!(fs::read(&save).unwrap(), b"second");
 }
+
+/// A read-only file (for example an appmanifest protected by the user): the change fails with
+/// an error, the file stays exactly as it was and no temporary file is left behind.
+#[test]
+fn read_only_file_is_not_damaged() {
+    let t = TempDir::new("readonly");
+    let acf = t.file("appmanifest_70.acf", ACF.as_bytes());
+    let mut perm = fs::metadata(&acf).unwrap().permissions();
+    perm.set_readonly(true);
+    fs::set_permissions(&acf, perm.clone()).unwrap();
+    let res = crate::local::set_user_config(&acf, "language", "russian");
+    let res2 = crate::util::write_atomic(&acf, b"new");
+    perm.set_readonly(false);
+    fs::set_permissions(&acf, perm).unwrap();
+    assert!(res.is_err() || fs::read_to_string(&acf).unwrap().contains("russian"), "a success must really change the file");
+    assert!(res2.is_err(), "replacing a read-only file must fail");
+    if res.is_err() {
+        assert_eq!(fs::read_to_string(&acf).unwrap(), ACF);
+    }
+    let left: Vec<_> = fs::read_dir(&t.0).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().contains("vaporust-tmp")).collect();
+    assert!(left.is_empty(), "temporary files left: {left:?}");
+}
+
+/// Update rollback: the failed version goes aside, the previous one is back in place; when the
+/// previous one is missing, nothing changes.
+#[test]
+fn update_rollback() {
+    let t = TempDir::new("rollback");
+    let exe = t.file("vaporust.exe", b"new version");
+    let old = t.file("vaporust.exe.old", b"old version");
+    crate::updater::rollback(&exe, &old).unwrap();
+    assert_eq!(fs::read(&exe).unwrap(), b"old version");
+    assert_eq!(fs::read(exe.with_extension("exe.failed")).unwrap(), b"new version");
+    assert!(!old.exists());
+    // No previous version: the exe stays where it is.
+    assert!(crate::updater::rollback(&exe, &old).is_err());
+    assert_eq!(fs::read(&exe).unwrap(), b"old version");
+}

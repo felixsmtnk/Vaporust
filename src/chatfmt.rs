@@ -293,13 +293,7 @@ fn parse_at(msg: &str, depth: u32) -> Vec<Seg> {
     segs
 }
 
-/// Plain text: pick out ːnameː emoticons and bare http(s):// links.
-
-/// BBCode text without formatting (for spoilers, quotes, "/me").
-fn plain(s: &str) -> String {
-    plain_at(s, 0)
-}
-
+/// BBCode text without formatting (for spoilers, quotes, "/me"); `depth` stops deep nesting.
 fn plain_at(s: &str, depth: u32) -> String {
     if depth > MAX_DEPTH {
         return s.to_string();

@@ -138,6 +138,43 @@ pub fn mark(x: f32, y: f32, st: Style) -> Option<[f32; 4]> {
     Some([col[0], col[1], col[2], 1.0])
 }
 
+/// The same mark simplified for 16-24 px (taskbar, Explorer list, window corner): at that size
+/// the piston rings, light bands and the hole in the eye turn into noise. Thicker levers, a plain
+/// gear and hub, almost no margin around the background. Same 64x64 field.
+pub fn mark_small(x: f32, y: f32) -> Option<[f32; 4]> {
+    let (x0, y0, x1, y1, r) = (1.0, 1.0, 63.0, 63.0, 13.0);
+    let cx = x.clamp(x0 + r, x1 - r);
+    let cy = y.clamp(y0 + r, y1 - r);
+    if dist(x, y, (cx, cy)) > r {
+        return None;
+    }
+    let mut col = mix([36.0, 48.0, 68.0], [14.0, 19.0, 28.0], ((x - 4.0) * 0.35 + (y - 4.0)) / 76.0);
+    let pivot = (32.0, 45.0);
+    let d = dist(x, y, pivot);
+    let ang = (y - pivot.1).atan2(x - pivot.0);
+    let tooth = ((ang * 8.0 / TAU).rem_euclid(1.0) - 0.5).abs() < 0.2;
+    if d <= if tooth { 14.5 } else { 11.5 } {
+        col = COPPER;
+    }
+    let top = (15.0, 13.0);
+    let (s, w, len) = local(x, y, pivot, top);
+    if s >= 0.0 && s <= len && w.abs() <= 4.6 {
+        col = SLATE_LIGHT;
+    }
+    if s >= len - 9.0 && s <= len + 1.0 && w.abs() <= 8.0 {
+        col = SLATE_LIGHT;
+    }
+    let tip = (49.0, 12.0);
+    let (s2, w2, len2) = local(x, y, pivot, tip);
+    if (s2 >= 0.0 && s2 <= len2 && w2.abs() <= 4.2) || dist(x, y, tip) <= 6.0 {
+        col = CYAN;
+    }
+    if d <= 5.5 {
+        col = COPPER_LIGHT;
+    }
+    Some([col[0], col[1], col[2], 1.0])
+}
+
 /// White silhouette of the mark for the tray (like Windows and other programs' icons): no background,
 /// details are transparent cuts. Returns point coverage: 1 - white, 0 - transparent.
 pub fn silhouette(x: f32, y: f32) -> f32 {

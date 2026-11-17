@@ -65,6 +65,18 @@ pub fn chat_open() -> bool {
     OPEN_CHAT.load(Ordering::Relaxed) != 0
 }
 
+/// The chat is a separate window right now (not docked in the main one): only then it can be woken
+/// or focused by its viewport id.
+static CHAT_WINDOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_chat_window(open: bool) {
+    CHAT_WINDOW.store(open, Ordering::Relaxed);
+}
+
+pub fn chat_window_open() -> bool {
+    CHAT_WINDOW.load(Ordering::Relaxed) && chat_open()
+}
+
 /// A new incoming message from `friend` arrived.
 /// Notification with sound - unless the chat with exactly this friend is active (as in Steam);
 /// taskbar flashing and the tray dot - if no Vaporust window is active.

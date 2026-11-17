@@ -105,7 +105,7 @@ fn segment(ui: &mut egui::Ui, selected: bool, text: &str) -> egui::Response {
 }
 
 fn title(ui: &mut egui::Ui, text: &str, sub: &str) {
-    ui.label(egui::RichText::new(text).size(22.0).strong().color(egui::Color32::WHITE));
+    ui.label(egui::RichText::new(text).font(crate::theme::semibold(22.0)).color(egui::Color32::WHITE).color(egui::Color32::WHITE));
     if !sub.is_empty() {
         ui.label(egui::RichText::new(sub).color(theme::WEAK));
     }

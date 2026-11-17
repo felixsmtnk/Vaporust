@@ -180,11 +180,8 @@ impl Assets {
                 .and_then(|f| image::open(f).ok())
                 .map(|i| i.to_rgba8())
                 .or_else(|| {
-                    let resp = ehttp::fetch_blocking(&ehttp::Request::get(format!("{CDN}{rel}"))).ok()?;
-                    if !resp.ok {
-                        return None;
-                    }
-                    let mut img = image::load_from_memory(&resp.bytes).ok()?.to_rgba8();
+                    let (bytes, _) = crate::util::http_get_limited(&format!("{CDN}{rel}"), 16 << 20, &|| true).ok()?;
+                    let mut img = crate::imgload::decode_limited(&bytes).ok()?.to_rgba8();
                     if scale > 1.0 {
                         let (w, h) = ((img.width() as f32 / scale) as u32, (img.height() as f32 / scale) as u32);
                         img = image::imageops::resize(&img, w.max(1), h.max(1), image::imageops::FilterType::Triangle);

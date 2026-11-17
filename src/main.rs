@@ -11,6 +11,13 @@ mod badges;
 mod chatfmt;
 mod chatwin;
 mod colls;
+mod collview;
+mod achview;
+mod friendslist;
+mod launch;
+mod libside;
+mod queue;
+mod rows;
 mod community;
 #[cfg(all(windows, target_arch = "x86"))]
 mod compat32;
@@ -237,6 +244,12 @@ struct LauncherApp {
     net_snap_at: std::time::Instant,
     /// Own profile requested (name for the top bar).
     own_profile_asked: bool,
+    /// Back / forward history of pages (view, game page, collections page), as in Steam.
+    nav_back: Vec<(View, Option<u32>, bool)>,
+    nav_fwd: Vec<(View, Option<u32>, bool)>,
+    nav_last: (View, Option<u32>, bool),
+    /// Library: the collections page instead of the home page.
+    collections_page: bool,
     /// Memory was already given back to the system (window in the tray or a game is running) and when last.
     trimmed: bool,
     /// Window for adding or editing a non-Steam game.
@@ -505,6 +518,10 @@ impl LauncherApp {
             row_cache: std::cell::RefCell::new((u64::MAX, Default::default(), u64::MAX, Default::default())),
             net_snap_at: std::time::Instant::now(),
             own_profile_asked: false,
+            nav_back: Vec::new(),
+            nav_fwd: Vec::new(),
+            nav_last: (View::Library, None, false),
+            collections_page: false,
             trimmed: false,
             custom_edit: None,
             uninstall_ask: None,
@@ -601,8 +618,7 @@ impl LauncherApp {
         };
         // A previous run was closed or crashed during a game: unfreeze the steamwebhelper it froze.
         local::thaw_leftovers();
-        // Updates: remove the old version file and check GitHub (if enabled).
-        updater::cleanup_old();
+        // Updates: check GitHub (if enabled).
         if app.settings.check_updates {
             updater::check(&app.upd, ctx);
         }
@@ -674,953 +690,6 @@ impl LauncherApp {
         }
     }
 
-    /// An unfinished game started in Vaporust (Steam does not consider it its own): its library.
-    fn movable_partial(&self, appid: u32) -> Option<std::path::PathBuf> {
-        if !self.settings.holding.contains(&appid) {
-            return None;
-        }
-        self.games
-            .iter()
-            .find(|g| g.appid == appid && !g.ready)
-            .and_then(|g| g.dir.parent()?.parent()?.parent().map(|p| p.to_path_buf()))
-    }
-
-    fn install(&mut self, appid: u32, name: String) {
-        self.install_note.clear();
-        let steam_open = local::steam_running();
-        // Started in the temporary library (while Steam was open) - continue there.
-        if let Some(real) = self.settings.staged.get(&appid).cloned() {
-            if !self.settings.holding.contains(&appid) {
-                self.settings.holding.push(appid);
-            }
-            self.settings.current_download = Some(settings::QueueItem { appid, name: name.clone(), paused: false });
-            let staging = local::staging_dir(std::path::Path::new(&real));
-            let _ = std::fs::create_dir_all(staging.join("steamapps").join("common"));
-            let _ = self.tx.send(Cmd::Install { appid, name, library: staging });
-            return;
-        }
-        // Steam is open: an unfinished game in the real library must not be touched (Steam could
-        // start downloading it itself), and a new one goes to the temporary library Steam does not see.
-        let partial_real = self.games.iter().any(|g| g.appid == appid);
-        // Own unfinished one (started in Vaporust) - move it to the temporary folder and finish it there.
-        if steam_open && self.settings.download_with_steam && partial_real {
-            if let Some(lib) = self.movable_partial(appid) {
-                match local::to_staging(&lib, appid) {
-                    Ok(()) => {
-                        self.settings.staged.insert(appid, lib.to_string_lossy().into_owned());
-                        self.rescan();
-                        return self.install(appid, name);
-                    }
-                    Err(e) => {
-                        self.install_note = trf!("Не удалось продолжить при открытом Steam: {e}. Закройте Steam.", "Could not continue with Steam open: {e}. Close Steam.");
-                        return;
-                    }
-                }
-            }
-        }
-        if steam_open && (!self.settings.download_with_steam || partial_real) {
-            self.install_note = tr!("Сначала закройте Steam (и игру, если она запущена), потом нажмите «Установить» еще раз.", "Close Steam first (and the game if it is running), then press \"Install\" again.").into();
-            return;
-        }
-        // An unfinished game is resumed in the same library where it lies.
-        let library = self
-            .games
-            .iter()
-            .find(|g| g.appid == appid)
-            .and_then(|g| g.dir.parent()?.parent()?.parent().map(|p| p.to_path_buf()))
-            .or_else(|| self.libraries.get(self.lib_idx).cloned());
-        let Some(library) = library else {
-            self.install_note = tr!("Не найдена папка библиотеки Steam.", "Steam library folder not found.").into();
-            return;
-        };
-        // While the game is unfinished it is "ours": when paused, its appmanifest is hidden from Steam.
-        if !self.settings.holding.contains(&appid) {
-            self.settings.holding.push(appid);
-        }
-        // If Vaporust is closed mid-download, it resumes on the next run.
-        self.settings.current_download = Some(settings::QueueItem { appid, name: name.clone(), paused: false });
-        let library = if steam_open {
-            self.settings.staged.insert(appid, library.to_string_lossy().into_owned());
-            let staging = local::staging_dir(&library);
-            let _ = std::fs::create_dir_all(staging.join("steamapps").join("common"));
-            staging
-        } else {
-            library
-        };
-        let _ = self.tx.send(Cmd::Install {
-            appid,
-            name,
-            library,
-        });
-    }
-
-    /// Hide unfinished Vaporust downloads from Steam (paused, cancelled, interrupted),
-    /// otherwise the Steam started for a game would begin downloading them itself. Checked every 3 s.
-    fn guard_partials(&mut self, net: &NetState) {
-        // Finished ones are no longer "ours", Steam takes care of them from now on.
-        self.settings.holding.retain(|a| !self.games.iter().any(|g| g.appid == *a && g.ready));
-        if self.settings.holding.is_empty()
-            || self.stash_check.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(3))
-        {
-            return;
-        }
-        self.stash_check = Some(std::time::Instant::now());
-        if self.launching.load(Ordering::Relaxed) || self.closing.load(Ordering::Relaxed) || self.steam_running() {
-            return; // with Steam open, the files must not be touched
-        }
-        let active = net.install.as_ref().filter(|i| i.active()).map(|i| i.appid);
-        let mut changed = false;
-        for &appid in &self.settings.holding {
-            if Some(appid) == active {
-                continue;
-            }
-            let lib = self
-                .games
-                .iter()
-                .find(|g| g.appid == appid && !g.ready && !g.stashed)
-                .and_then(|g| g.dir.parent()?.parent()?.parent().map(|p| p.to_path_buf()));
-            if let Some(lib) = lib {
-                changed |= local::stash_manifest(&lib, appid);
-            }
-        }
-        if changed {
-            self.rescan();
-        }
-    }
-
-    /// Put a game into the install queue (or start right away if nothing is downloading).
-    fn enqueue(&mut self, appid: u32, name: String, net: &NetState) {
-        if let Some(q) = self.settings.downloads.iter_mut().find(|q| q.appid == appid) {
-            q.paused = false; // already queued and paused - "Resume" unpauses it
-            return;
-        }
-        // While Steam is open, Vaporust does not download (Steam could start downloading the same game):
-        // the game is queued and starts by itself as soon as Steam is closed. Previously clicking
-        // "Install" in this case did nothing visible.
-        let partial_real = self.games.iter().any(|g| g.appid == appid) && !self.settings.staged.contains_key(&appid) && self.movable_partial(appid).is_none();
-        if self.steam_running() && !self.launching.load(Ordering::Relaxed) && (!self.settings.download_with_steam || partial_real) {
-            self.settings.downloads.push(settings::QueueItem { appid, name: name.clone(), paused: false });
-            popup::push(
-                popup::Kind::Game(appid),
-                tr!("Загрузка ждет закрытия Steam", "The download waits for Steam to close"),
-                trf!("«{name}» в очереди: начнется сама, когда вы закроете Steam (меню «Vaporust» - «Закрыть Steam»).", "\"{name}\" is queued: it starts by itself when you close Steam (\"Vaporust\" menu - \"Close Steam\")."),
-            );
-            return;
-        }
-        let busy = net.install.as_ref().is_some_and(|i| i.active());
-        let waiting = self.settings.downloads.iter().any(|q| !q.paused);
-        let allowed = schedule::may_download(&self.settings);
-        if !allowed {
-            self.install_note = trf!(
-                "«{name}» в очереди: по расписанию загрузки идут с {} до {}.", "\"{name}\" is queued: by schedule, downloads run from {} to {}.",
-                schedule::hh(self.settings.sched_from),
-                schedule::hh(self.settings.sched_to)
-            );
-        }
-        if !busy && !waiting && !self.settings.queue_paused && allowed {
-            self.install(appid, name);
-            self.queue_started = Some(std::time::Instant::now());
-        } else {
-            self.settings.downloads.push(settings::QueueItem { appid, name, paused: false });
-        }
-    }
-
-    /// The download is over: no longer "current". If the network broke it (not "Cancel" or
-    /// "Pause"), it goes first in the queue and resumes when the connection is back (up to 3 times in a row).
-    fn finish_tick(&mut self, net: &NetState) {
-        let Some(cur) = self.settings.current_download.clone() else { return };
-        let Some(inst) = net.install.as_ref().filter(|i| i.appid == cur.appid) else { return };
-        let Some(res) = &inst.result else { return };
-        self.settings.current_download = None;
-        let user_stop = inst.abort.load(Ordering::Relaxed);
-        if let (Err(e), false) = (res, user_stop) {
-            crate::errlog::write(tr!("загрузка", "download"), &format!("{}: {e}", cur.name));
-        }
-        match res {
-            Err(e) if should_resume(e, user_stop, self.resume_tries) => {
-                self.resume_tries += 1;
-                if !self.settings.downloads.iter().any(|q| q.appid == cur.appid) {
-                    self.settings.downloads.insert(0, cur.clone());
-                }
-                self.install_note = trf!(
-                    "Загрузка «{}» прервалась из-за связи: продолжится сама, когда Steam снова будет доступен.", "The download of \"{}\" was interrupted by the connection: it continues by itself when Steam is available again.",
-                    cur.name
-                );
-                // Not right away: give the network time to come back.
-                self.queue_started = Some(std::time::Instant::now() + std::time::Duration::from_secs(27));
-            }
-            Ok(()) => {
-                self.resume_tries = 0;
-                if let Some(real) = self.settings.staged.remove(&cur.appid) {
-                    match local::unstage(std::path::Path::new(&real), cur.appid) {
-                        Ok(()) => {
-                            self.rescan();
-                        }
-                        Err(e) => {
-                            crate::errlog::write(tr!("загрузка", "download"), &trf!("перенос из временной папки: {e}", "moving from the temporary folder: {e}"));
-                            popup::push(popup::Kind::Info, tr!("Загрузка", "Download"), trf!("«{}» скачана, но не перенесена в библиотеку: {e}", "\"{}\" is downloaded but not moved to the library: {e}", cur.name));
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    /// Start the next game from the queue when the downloader is free.
-    fn run_queue(&mut self, net: &NetState) {
-        let busy = net.install.as_ref().is_some_and(|i| i.active());
-        // The install command does not reach the network thread instantly: a 3 s pause between starts.
-        let cooling = self.queue_started.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(3));
-        // The first game in the queue that is not paused.
-        let next = self.settings.downloads.iter().position(|q| !q.paused);
-        if busy
-            || cooling
-            || self.settings.queue_paused
-            || !schedule::may_download(&self.settings)
-            || next.is_none()
-            || net.account.is_none()
-            || self.launching.load(Ordering::Relaxed)
-        {
-            return;
-        }
-        if self.steam_running() {
-            let q = &self.settings.downloads[next.unwrap()];
-            let real_partial = self.games.iter().any(|g| g.appid == q.appid) && !self.settings.staged.contains_key(&q.appid) && self.movable_partial(q.appid).is_none();
-            if !self.settings.download_with_steam || real_partial {
-                return;
-            }
-        }
-        let q = self.settings.downloads.remove(next.unwrap());
-        self.install(q.appid, q.name);
-        self.queue_started = Some(std::time::Instant::now());
-    }
-
-    /// Result messages (uninstalled, closed, launch error) - as a popup notification:
-    /// the status bar at the bottom is gone, and launch progress is shown on the game page.
-    fn status_popup(&mut self) {
-        let st = self.launch_status.lock().unwrap().clone();
-        if st == self.status_seen {
-            return;
-        }
-        let busy = self.launching.load(Ordering::Relaxed) || self.closing.load(Ordering::Relaxed);
-        // "Удаляю...", "Прошу закрыться..." are progress, not a result: not shown.
-        let in_progress = st.ends_with("...") || st.ends_with('…');
-        if !busy && !in_progress && !st.is_empty() && st != tr!("Готово.", "Done.") {
-            // The game in quotes - its image on the left, a click opens its page.
-            // Russian texts use «», English ones "".
-            let game = st
-                .split_once('«')
-                .and_then(|(_, rest)| rest.split_once('»'))
-                .or_else(|| st.split_once('"').and_then(|(_, rest)| rest.split_once('"')))
-                .map(|(name, _)| name)
-                .and_then(|name| {
-                    self.games
-                        .iter()
-                        .find(|g| g.name == name)
-                        .map(|g| g.appid)
-                });
-            let kind = game.map_or(popup::Kind::Info, popup::Kind::Game);
-            popup::push(kind, "Vaporust", st.clone());
-        }
-        self.status_seen = st;
-    }
-
-    /// Close the running game: gently (like the window's close button) or forcefully.
-    fn stop_running(&mut self, appid: u32, force: bool) {
-        let Some((id, name, dir)) = local::RUNNING.lock().unwrap().clone() else { return };
-        if id != appid {
-            return;
-        }
-        let n = local::stop_game(&dir, force);
-        if !force {
-            self.stop_asked = Some((appid, std::time::Instant::now()));
-        }
-        *self.launch_status.lock().unwrap() = match (force, n > 0) {
-            (true, _) => trf!("«{name}» закрыта принудительно.", "\"{name}\" was force-closed."),
-            (false, true) => trf!("Прошу «{name}» закрыться...", "Asking \"{name}\" to close..."),
-            (false, false) => tr!("Процессы игры не найдены.", "Game processes not found.").into(),
-        };
-    }
-
-    fn steam_running(&mut self) -> bool {
-        let now = std::time::Instant::now();
-        match self.steam_check {
-            // A process snapshot costs ~5-7 ms - at most once per 5 s (when idle this is the main load).
-            Some((t, v)) if now.duration_since(t) < std::time::Duration::from_secs(5) => v,
-            _ => {
-                let v = local::steam_running();
-                self.steam_check = Some((now, v));
-                v
-            }
-        }
-    }
-
-    /// Offline mode: clear Steam's offline flag when Steam is closed; without a connection -
-    /// try to log in again once a minute.
-    fn offline_tick(&mut self, net: &NetState) {
-        if self.settings.steam_offline_set
-            && !self.launching.load(Ordering::Relaxed)
-            && !self.closing.load(Ordering::Relaxed)
-            && !self.steam_running()
-        {
-            if let Some(s) = self.steam.clone() {
-                if local::set_steam_offline(&s.dir, false).is_ok() {
-                    self.settings.steam_offline_set = false;
-                }
-            }
-        }
-        if net.offline && net.account.is_none() && !net.busy && !self.settings.local_mode {
-            let due = self.offline_retry.is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(60));
-            if due {
-                self.offline_retry = Some(std::time::Instant::now());
-                let _ = self.tx.send(Cmd::Restore);
-            }
-        }
-    }
-
-    fn close_steam(&mut self, ctx: &egui::Context) {
-        let Some(steam) = self.steam.clone() else {
-            return;
-        };
-        self.closing.store(true, Ordering::Relaxed);
-        let (status, closing, ctx) = (self.launch_status.clone(), self.closing.clone(), ctx.clone());
-        thread::spawn(move || {
-            let set = |s: &str| {
-                *status.lock().unwrap() = s.to_string();
-                ctx.request_repaint();
-            };
-            local::close_steam(&steam, &set);
-            set(tr!("Steam закрыт.", "Steam closed."));
-            closing.store(false, Ordering::Relaxed);
-        });
-        self.steam_check = None;
-    }
-
-    fn start(&mut self, appid: u32, ctx: &egui::Context) {
-        self.status_app = Some(appid);
-        if custom::is_custom(appid) {
-            self.launch_custom(appid);
-            return;
-        }
-        self.steam_task(appid, ctx, false);
-    }
-
-    /// Update a game via the hidden Steam (without launching the game).
-    /// "Update" in the library: without Steam (Aurelia) when possible; otherwise via the hidden Steam.
-    pub(crate) fn start_update(&mut self, appid: u32, ctx: &egui::Context) {
-        let Some(game) = self.games.iter().find(|g| g.appid == appid).cloned() else { return };
-        let acf = local::appmanifest_path(&game);
-        let info = local::read_acf(&acf);
-        // Waiting for a language change (chosen in "Properties") - Vaporust switches it itself (switch_language).
-        let switching = info.language_pending();
-        // Beta change - without Steam: Aurelia downloads the chosen branch versions for installed depots.
-        let beta = (info.user_beta != info.mounted_beta).then(|| info.user_beta.clone());
-        let logged_in = self.net.lock().unwrap().account.is_some();
-        // The game is in two libraries: Aurelia takes the alphabetically first copy - may update the wrong one.
-        let duplicate = self
-            .steam
-            .as_ref()
-            .is_some_and(|s| local::find_duplicates(&s.dir).iter().any(|(id, _, _)| *id == appid));
-        if self.settings.update_via_steam || duplicate || !logged_in || self.settings.pinned.contains_key(&appid) {
-            self.steam_task(appid, ctx, true);
-            return;
-        }
-        if self.steam_running() {
-            self.install_note = tr!("Сначала закройте Steam (кнопка «Закрыть Steam» внизу), потом нажмите «Обновить» еще раз.", "Close Steam first (the \"Close Steam\" button at the bottom), then press \"Update\" again.").into();
-            return;
-        }
-        if self.net.lock().unwrap().install.as_ref().is_some_and(|i| i.active()) {
-            self.install_note = tr!("Сейчас идет другая загрузка - обновите игру, когда она закончится.", "Another download is running - update the game when it finishes.").into();
-            return;
-        }
-        self.install_note.clear();
-        if switching {
-            // Language first (the beta, if also chosen, on the next "Update" click).
-            let _ = self.tx.send(Cmd::SetLanguage { appid, name: game.name.clone(), acf, lang: info.user_language.clone() });
-            return;
-        }
-        let _ = self.tx.send(Cmd::UpdateDirect { appid, name: game.name.clone(), acf, beta });
-    }
-
-    /// Update via the hidden Steam (as before).
-    pub(crate) fn start_update_steam(&mut self, appid: u32, ctx: &egui::Context) {
-        self.steam_task(appid, ctx, true);
-    }
-
-    /// "Play" or "Update": both tasks start the hidden Steam, so they go one at a time.
-    fn steam_task(&mut self, appid: u32, ctx: &egui::Context, update: bool) {
-        if self.launching.load(Ordering::Relaxed) || self.closing.load(Ordering::Relaxed) {
-            return;
-        }
-        // A game without Steam protection - launch directly (checkbox in "Properties").
-        let family = is_family_only(&self.net.lock().unwrap(), appid);
-        if !update && self.settings.no_steam.contains(&appid) && !family {
-            let net = self.net.lock().unwrap().clone();
-            self.direct_launch(appid, &net);
-            return;
-        }
-        // A pinned version cannot be updated, and it must be prepared before launch.
-        if self.settings.pinned.contains_key(&appid) {
-            if update {
-                *self.launch_status.lock().unwrap() = tr!("Версия игры закреплена - открепите ее в «Свойствах», чтобы обновить.", "The game version is pinned - unpin it in \"Properties\" to update.").into();
-                return;
-            }
-            let net = self.net.lock().unwrap().clone();
-            if !self.pin_gate(appid, &net) {
-                return;
-            }
-        }
-        let Some(steam) = self.steam.clone() else {
-            return;
-        };
-        let Some(game) = self.games.iter().find(|g| g.appid == appid).cloned() else {
-            return;
-        };
-        // No connection to Steam: let the hidden Steam start offline right away (without a question window).
-        // The flag is cleared when Steam is closed again (offline_tick).
-        if self.net.lock().unwrap().offline && !self.steam_running() {
-            match local::set_steam_offline(&steam.dir, true) {
-                Ok(_) => self.settings.steam_offline_set = true,
-                Err(e) => *self.launch_status.lock().unwrap() = trf!("Автономный режим Steam не включен: {e}", "Steam offline mode was not turned on: {e}"),
-            }
-        }
-        let opts = local::LaunchOptions {
-            freeze_webhelper: self.freeze_webhelper,
-            freeze_soft: self.settings.freeze_soft,
-            steam_args: self.settings.steam_args.clone(),
-        };
-        self.launching.store(true, Ordering::Relaxed);
-        self.cancel.store(false, Ordering::Relaxed);
-        let status = self.launch_status.clone();
-        let launching = self.launching.clone();
-        let cancel = self.cancel.clone();
-        let rescan = self.rescan_needed.clone();
-        let script = self.settings.scripts.get(&appid).cloned().unwrap_or_default();
-        let ctx = ctx.clone();
-        thread::spawn(move || {
-            let set = |s: &str| {
-                *status.lock().unwrap() = s.to_string();
-                ctx.request_repaint();
-            };
-            let res = if update {
-                local::update_via_steam(&steam, &game, opts, &cancel, &set)
-            } else {
-                // Launch scripts: a command before launch (we wait for it), after exit (we do not wait).
-                if !script.before.trim().is_empty() {
-                    set(tr!("Выполняю команду перед запуском...", "Running the pre-launch command..."));
-                }
-                let warn = scripts::run_before(&script, game.appid, &game.name, &game.dir);
-                let res = local::run_chain(&steam, &game, opts, &cancel, &set);
-                let after = if res.is_ok() && !cancel.load(Ordering::Relaxed) {
-                    scripts::run_after(&script, game.appid, &game.name, &game.dir)
-                } else {
-                    None
-                };
-                match (warn.or(after), res) {
-                    (Some(w), Ok(msg)) => Ok(format!("{msg} {w}")),
-                    (_, r) => r,
-                }
-            };
-            match res {
-                Ok(msg) => set(&msg),
-                Err(e) => {
-                    crate::errlog::write(if update { tr!("обновление", "update") } else { tr!("запуск", "launch") }, &format!("{}: {e}", game.name));
-                    set(&e)
-                }
-            }
-            launching.store(false, Ordering::Relaxed);
-            // Steam may have updated games - rescan the disk and check for updates again.
-            rescan.store(true, Ordering::Relaxed);
-            ctx.request_repaint();
-        });
-    }
-
-    /// What the full game list depends on besides the network snapshot: installed games, last launch
-    /// times, non-Steam games.
-    fn row_map_key(&self) -> u64 {
-        use std::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        self.snap_count.hash(&mut h);
-        for g in &self.games {
-            (g.appid, g.ready, g.needs_update, g.size, &g.name).hash(&mut h);
-        }
-        let mut lp: Vec<_> = self.last_played.iter().collect();
-        lp.sort();
-        lp.hash(&mut h);
-        for g in &self.settings.custom_games {
-            (g.id, &g.name, &g.exe, g.minutes, g.last_played).hash(&mut h);
-        }
-        h.finish()
-    }
-
-    /// All games (owned and installed) without filters and sorting. Built once per change
-    /// (a few hundred names copied on every frame were a waste on a weak PC).
-    fn row_map(&self, net: &NetState) -> std::sync::Arc<HashMap<u32, Row>> {
-        let key = self.row_map_key();
-        let mut c = self.row_cache.borrow_mut();
-        if c.0 != key {
-            c.0 = key;
-            c.1 = std::sync::Arc::new(self.build_row_map(net));
-            c.2 = u64::MAX;
-        }
-        c.1.clone()
-    }
-
-    fn build_row_map(&self, net: &NetState) -> HashMap<u32, Row> {
-        let mut map: HashMap<u32, Row> = HashMap::new();
-        for g in net.owned.iter() {
-            map.insert(
-                g.app_id,
-                Row {
-                    appid: g.app_id,
-                    name: g.name.clone(),
-                    installed: false,
-                    ready: false,
-                    needs_update: false,
-                    playtime_min: Some(g.playtime_forever_minutes),
-                    size: 0,
-                    last_played: 0,
-                    family: false,
-                    owner: None,
-                },
-            );
-        }
-        for g in &self.games {
-            map.entry(g.appid)
-                .and_modify(|r| {
-                    r.installed = true;
-                    r.ready = g.ready;
-                    r.needs_update = g.needs_update;
-                    r.size = g.size;
-                })
-                .or_insert(Row {
-                    appid: g.appid,
-                    name: g.name.clone(),
-                    installed: true,
-                    ready: g.ready,
-                    needs_update: g.needs_update,
-                    playtime_min: None,
-                    size: g.size,
-                    last_played: 0,
-                    family: false,
-                    owner: None,
-                });
-        }
-        // Family library: other members' games that are not among our own.
-        let own: std::collections::HashSet<u32> = net.owned.iter().map(|g| g.app_id).collect();
-        for f in net.family.iter() {
-            if own.contains(&f.app_id) {
-                continue;
-            }
-            let r = map.entry(f.app_id).or_insert_with(|| Row {
-                appid: f.app_id,
-                name: f.name.clone(),
-                installed: false,
-                ready: false,
-                needs_update: false,
-                playtime_min: None,
-                size: 0,
-                last_played: 0,
-                family: false,
-                owner: None,
-            });
-            r.family = true;
-            r.owner = f.owner_steamid;
-        }
-        for r in map.values_mut() {
-            r.last_played = self.last_played.get(&r.appid).copied().unwrap_or(0);
-        }
-        // Non-Steam games ("Add a game" button).
-        for r in self.custom_rows() {
-            map.insert(r.appid, r);
-        }
-        map
-    }
-
-    /// Library rows with filters (search, "installed only", collection) and sorting.
-    fn rows(&self, net: &NetState) -> std::sync::Arc<Vec<Row>> {
-        use std::hash::{Hash, Hasher};
-        let map = self.row_map(net);
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        (self.row_map_key(), &self.filter, self.only_installed, &self.collection, &self.genre, self.settings.show_family).hash(&mut h);
-        (self.settings.sort as u8).hash(&mut h);
-        net.collections.as_ref().map(|c| c.iter().map(|x| (x.id.clone(), x.apps.len())).collect::<Vec<_>>()).hash(&mut h);
-        net.updates.as_ref().map(|u| u.len()).hash(&mut h);
-        if self.genre.is_some() {
-            net.store.lock().unwrap().apps.len().hash(&mut h);
-        }
-        let key = h.finish();
-        {
-            let c = self.row_cache.borrow();
-            if c.2 == key {
-                return c.3.clone();
-            }
-        }
-        let rows = std::sync::Arc::new(self.build_rows(&map, net));
-        let mut c = self.row_cache.borrow_mut();
-        c.2 = key;
-        c.3 = rows.clone();
-        rows
-    }
-
-    fn build_rows(&self, map: &HashMap<u32, Row>, net: &NetState) -> Vec<Row> {
-        let colls = net.collections.as_deref().unwrap_or(&[]);
-        let hidden: std::collections::HashSet<u32> = colls
-            .iter()
-            .find(|c| c.id == "hidden")
-            .map(|c| c.apps.iter().copied().collect())
-            .unwrap_or_default();
-        let selected = self.collection.as_ref().and_then(|id| colls.iter().find(|c| &c.id == id));
-        let filter = self.filter.to_lowercase();
-        let has_update = |r: &Row| r.needs_update || net.updates.as_ref().is_some_and(|u| u.contains(&r.appid));
-        let mut rows: Vec<Row> = map
-            .values()
-            .cloned()
-            .filter(|r| !self.only_installed || r.installed)
-            // Collection: when selected - only its games; "all games" - without "Hidden", as in Steam.
-            // "Family library" - only family games; in "All games" - by the checkbox in settings.
-            .filter(|r| match (self.collection.as_deref(), selected) {
-                (Some(FAMILY), _) => r.family,
-                (Some(UNPLAYED), _) => !r.family && r.playtime_min == Some(0) && !hidden.contains(&r.appid),
-                (Some(READY), _) => r.ready && !has_update(r) && !hidden.contains(&r.appid),
-                (Some(UPDATES), _) => r.ready && has_update(r),
-                (_, Some(c)) => c.apps.contains(&r.appid),
-                _ => !hidden.contains(&r.appid) && (self.settings.show_family || !r.family),
-            })
-            .filter(|r| r.name.to_lowercase().contains(&filter))
-            .collect();
-        // Genre: the game's first 8 store tags (like the most prominent tags on the Steam page).
-        if let Some(g) = &self.genre {
-            let st = net.store.lock().unwrap();
-            rows.retain(|r| {
-                st.apps.get(&r.appid).is_some_and(|a| a.tags.iter().take(8).any(|t| t.name.as_deref() == Some(g.as_str())))
-            });
-        }
-        // Names in lower case once per row (not two new strings on every comparison).
-        let lower: HashMap<u32, String> = rows.iter().map(|r| (r.appid, r.name.to_lowercase())).collect();
-        let by_name = |a: &Row, b: &Row| lower[&a.appid].cmp(&lower[&b.appid]);
-        match self.settings.sort {
-            // As in Steam: just by name (installed only - by the checkbox).
-            settings::Sort::Name => rows.sort_by(by_name),
-            settings::Sort::LastPlayed => {
-                rows.sort_by(|a, b| b.last_played.cmp(&a.last_played).then(b.installed.cmp(&a.installed)).then(by_name(a, b)))
-            }
-            settings::Sort::Playtime => rows.sort_by(|a, b| {
-                b.playtime_min.unwrap_or(0).cmp(&a.playtime_min.unwrap_or(0)).then(by_name(a, b))
-            }),
-            settings::Sort::Size => rows.sort_by(|a, b| b.size.cmp(&a.size).then(by_name(a, b))),
-        }
-        rows
-    }
-
-    fn friends_panel(&mut self, ui: &mut egui::Ui, net: &NetState) {
-        // Friend list snapshot: (id, name, status, game, unread).
-        let mut unknown_apps: Vec<u32> = Vec::new();
-        let mut list: Vec<(u64, String, u32, Option<String>, u32)> = {
-            let roster = net.roster.read().unwrap();
-            roster
-                .values()
-                // 3 = friend (EFriendRelationship); Steam groups (account type 7) are in the same list - we hide them.
-                .filter(|f| f.relationship == 3 && (f.steam_id >> 52) & 0xF == 1)
-                .map(|f| {
-                    // Game name: from Steam, from our library, from already resolved ones, otherwise the id.
-                    let game = f.game_name.clone().filter(|g| !g.is_empty()).or_else(|| {
-                        let a = f.game_app_id.filter(|a| *a != 0)?;
-                        let known = net
-                            .app_names
-                            .get(&a)
-                            .cloned()
-                            .or_else(|| net.owned.iter().find(|g| g.app_id == a).map(|g| g.name.clone()));
-                        Some(known.unwrap_or_else(|| {
-                            unknown_apps.push(a);
-                            trf!("игра {a}", "game {a}")
-                        }))
-                    });
-                    // Own nickname for the friend (set in Steam) comes first, the Steam name in parentheses, as in Steam.
-                    // The name has not arrived yet (Steam sends it a bit later for offline friends) - do not show the id.
-                    let persona = f.persona_name.clone().filter(|n| !n.is_empty()).unwrap_or_else(|| tr!("загружается...", "loading...").into());
-                    let shown = match &f.nickname {
-                        Some(n) => format!("{n} ({persona})"),
-                        None => persona,
-                    };
-                    // Detailed in-game status (map, score), if the game reports it.
-                    let game = match (game, &f.rich_status) {
-                        (Some(g), Some(rs)) => Some(format!("{g} · {rs}")),
-                        (g, _) => g,
-                    };
-                    (
-                        f.steam_id,
-                        shown,
-                        f.persona_state.unwrap_or(0),
-                        game,
-                        net.chats.get(&f.steam_id).map_or(0, |c| c.unread),
-                    )
-                })
-                .collect()
-        };
-        // Unknown names are requested once.
-        unknown_apps.retain(|a| self.requested_apps.insert(*a));
-        if !unknown_apps.is_empty() {
-            let _ = self.tx.send(Cmd::ResolveApps(unknown_apps));
-        }
-        let online = list.iter().filter(|f| f.2 != 0).count();
-        // Order: with new messages, in game, online, offline; within each - by name.
-        let rank = |f: &(u64, String, u32, Option<String>, u32)| {
-            if f.4 > 0 {
-                0
-            } else if f.3.is_some() {
-                1
-            } else if f.2 != 0 {
-                2
-            } else {
-                3
-            }
-        };
-        // Favorites on top (after friends with new messages).
-        let favs = self.settings.fav_friends.clone();
-        list.sort_by(|a, b| {
-            let fa = a.4 == 0 && favs.contains(&a.0);
-            let fb = b.4 == 0 && favs.contains(&b.0);
-            (a.4 == 0).cmp(&(b.4 == 0)).then(fb.cmp(&fa)).then(rank(a).cmp(&rank(b))).then(a.1.to_lowercase().cmp(&b.1.to_lowercase()))
-        });
-        // Avatars (hash from the friend status): avatars.fastly.steamstatic.com/<hash>.jpg - 32x32.
-        let avatars: HashMap<u64, String> = net
-            .roster
-            .read()
-            .unwrap()
-            .values()
-            .filter_map(|f| f.avatar_hash.as_ref().map(|h| (f.steam_id, format!("https://avatars.fastly.steamstatic.com/{h}.jpg"))))
-            .collect();
-        let notes = self.settings.friend_notes.clone();
-
-        // Header with the menu, friend requests.
-        self.friends_header(ui, net);
-        if list.is_empty() {
-            ui.horizontal(|ui| {
-                crate::spin::spinner(ui);
-                ui.weak(tr!("Загружаю список...", "Loading the list..."));
-            });
-            return;
-        }
-        ui.add_space(4.0);
-        ui.label(egui::RichText::new(trf!("ДРУЗЬЯ В СЕТИ  {online} / {}", "FRIENDS ONLINE  {online} / {}", list.len())).size(11.0).color(theme::WEAK));
-        ui.add(
-            egui::TextEdit::singleline(&mut self.friend_filter)
-                .hint_text(tr!("поиск", "search"))
-                .desired_width(f32::INFINITY),
-        );
-        ui.separator();
-        let filter = self.friend_filter.to_lowercase();
-        let mut open = None;
-        let mut friend_act = None;
-        // Groups, as in Steam: favorites, in game, online, offline (collapsible).
-        let group_of = |f: &(u64, String, u32, Option<String>, u32)| -> u8 {
-            if favs.contains(&f.0) {
-                3
-            } else if f.2 == 0 {
-                2
-            } else if f.3.is_some() {
-                0
-            } else {
-                1
-            }
-        };
-        let mut toggle_group: Option<u8> = None;
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            for (gid, gname) in [(3u8, tr!("ИЗБРАННЫЕ", "FAVORITES")), (0, tr!("В ИГРЕ", "IN GAME")), (1, tr!("В СЕТИ", "ONLINE")), (2, tr!("НЕ В СЕТИ", "OFFLINE"))] {
-            let members: Vec<&(u64, String, u32, Option<String>, u32)> = list
-                .iter()
-                .filter(|f| group_of(f) == gid)
-                .filter(|f| {
-                    let note = notes.get(&f.0).map(|n| n.to_lowercase()).unwrap_or_default();
-                    filter.is_empty() || f.1.to_lowercase().contains(&filter) || note.contains(&filter)
-                })
-                .collect();
-            if members.is_empty() {
-                continue;
-            }
-            // Group header: a click collapses it (all groups are expanded while searching).
-            let closed = filter.is_empty() && self.settings.friend_groups_closed.contains(&gid);
-            let head = ui
-                .horizontal(|ui| {
-                    let (r, _) = ui.allocate_exact_size(egui::vec2(10.0, 14.0), egui::Sense::hover());
-                    let c = r.center();
-                    let pts = if closed {
-                        vec![c + egui::vec2(-2.5, -4.0), c + egui::vec2(3.0, 0.0), c + egui::vec2(-2.5, 4.0)]
-                    } else {
-                        vec![c + egui::vec2(-4.0, -2.0), c + egui::vec2(4.0, -2.0), c + egui::vec2(0.0, 3.0)]
-                    };
-                    ui.painter().add(egui::Shape::convex_polygon(pts, theme::WEAK, egui::Stroke::NONE));
-                    ui.label(egui::RichText::new(format!("{gname}  ({})", members.len())).size(11.0).strong().color(theme::WEAK));
-                })
-                .response;
-            let head = ui.interact(head.rect, ui.id().with(("friend_group", gid)), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
-            if head.clicked() {
-                toggle_group = Some(gid);
-            }
-            ui.add_space(2.0);
-            if closed {
-                ui.add_space(4.0);
-                continue;
-            }
-            for &(id, name, state, game, unread) in members.iter().map(|f| (&f.0, &f.1, &f.2, &f.3, &f.4)).collect::<Vec<_>>().iter() {
-                let note = notes.get(id).cloned().unwrap_or_default();
-                let (color, status) = match (state, game) {
-                    (_, Some(g)) => (egui::Color32::from_rgb(140, 200, 80), g.clone()),
-                    (0, _) => (egui::Color32::GRAY, tr!("не в сети", "offline").into()),
-                    (1, _) => (egui::Color32::from_rgb(90, 170, 230), tr!("в сети", "online").into()),
-                    (2, _) => (egui::Color32::from_rgb(220, 120, 110), tr!("не беспокоить", "do not disturb").into()),
-                    (3 | 4, _) => (egui::Color32::from_rgb(110, 140, 170), tr!("отошел", "away").into()),
-                    _ => (egui::Color32::from_rgb(90, 170, 230), tr!("в сети", "online").into()),
-                };
-                let mut title = egui::RichText::new(crate::richtext::fix(ui, name)).color(if *state == 0 { egui::Color32::GRAY } else { color });
-                if *unread > 0 {
-                    title = title.strong();
-                }
-                // The whole row (avatar, name, status) is one button across the panel width.
-                let block = ui
-                    .horizontal(|ui| {
-                    // Avatar with a status-colored border, as in Steam.
-                    let (ar, _) = ui.allocate_exact_size(egui::vec2(32.0, 32.0), egui::Sense::hover());
-                    match avatars.get(id) {
-                        Some(u) => {
-                            egui::Image::new(u.as_str()).rounding(2.0).paint_at(ui, ar);
-                        }
-                        None => {
-                            ui.painter().rect_filled(ar, 2.0, theme::CARD);
-                        }
-                    }
-                    ui.painter().rect_stroke(ar.expand(1.0), 2.0, egui::Stroke::new(1.5, if *state == 0 { egui::Color32::from_gray(90) } else { color }));
-                    ui.vertical(|ui| {
-                        ui.horizontal(|ui| {
-                            ui.add(egui::Label::new(title).truncate());
-                            if favs.contains(id) {
-                                ui.label(egui::RichText::new(tr!("избранный", "favorite")).small().color(egui::Color32::from_rgb(230, 190, 80)));
-                            }
-                            if *unread > 0 {
-                                ui.colored_label(egui::Color32::from_rgb(240, 200, 80), format!("● {unread}"));
-                            }
-                        });
-                        ui.add(egui::Label::new(egui::RichText::new(&status).small().color(color)).truncate());
-                        if !note.is_empty() {
-                            ui.label(egui::RichText::new(&note).small().italics().weak());
-                        }
-                    });
-                    })
-                    .response;
-                let rect = egui::Rect::from_min_max(
-                    egui::pos2(ui.max_rect().left(), block.rect.top() - 2.0),
-                    egui::pos2(ui.max_rect().right(), block.rect.bottom() + 2.0),
-                );
-                let resp = ui
-                    .interact(rect, ui.id().with(("friend", *id)), egui::Sense::click())
-                    .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    // Mini profile on hover, as in Steam: large avatar, name, status, note.
-                    .on_hover_ui(|ui| {
-                        ui.horizontal(|ui| {
-                            let (ar, _) = ui.allocate_exact_size(egui::vec2(64.0, 64.0), egui::Sense::hover());
-                            match avatars.get(id) {
-                                Some(u) => {
-                                    egui::Image::new(u.replace(".jpg", "_medium.jpg")).rounding(3.0).paint_at(ui, ar);
-                                }
-                                None => {
-                                    ui.painter().rect_filled(ar, 3.0, theme::CARD);
-                                }
-                            }
-                            ui.painter().rect_stroke(ar.expand(1.0), 3.0, egui::Stroke::new(2.0, if *state == 0 { egui::Color32::from_gray(90) } else { color }));
-                            ui.vertical(|ui| {
-                                ui.label(egui::RichText::new(crate::richtext::fix(ui, name)).size(15.0).strong());
-                                ui.label(egui::RichText::new(&status).color(color));
-                                if !note.is_empty() {
-                                    ui.label(egui::RichText::new(&note).italics().weak());
-                                }
-                                ui.weak(tr!("Щелчок - чат, правый щелчок - меню", "Click - chat, right click - menu"));
-                            });
-                        });
-                    });
-                if resp.hovered() {
-                    ui.painter().rect_filled(
-                        rect,
-                        3.0,
-                        egui::Color32::from_rgba_unmultiplied(255, 255, 255, 14),
-                    );
-                }
-                if resp.clicked() {
-                    open = Some((*id, name.clone()));
-                }
-                // Right click: profile, message, remove from friends.
-                socialwin::friend_menu(&resp, *id, name, favs.contains(id), &mut friend_act);
-                ui.add_space(4.0);
-            }
-            ui.add_space(4.0);
-            }
-        });
-        if let Some(g) = toggle_group {
-            if !self.settings.friend_groups_closed.remove(&g) {
-                self.settings.friend_groups_closed.insert(g);
-            }
-        }
-        let ctx = ui.ctx().clone();
-        if let Some((id, name)) = open {
-            self.open_chat(&ctx, id, name, net);
-        }
-        if let Some(a) = friend_act {
-            self.friend_action(a, net, &ctx);
-        }
-    }
-
-    fn open_chat(&mut self, ctx: &egui::Context, id: u64, name: String, net: &NetState) {
-        if !net.chats.get(&id).is_some_and(|c| c.history_loaded) {
-            let _ = self.tx.send(Cmd::OpenChat(id));
-        }
-        // The same friend - just keep the window; another one - switch the window to them.
-        // The window is already open - a new conversation opens as a tab (as in Steam).
-        let mut chat = self.chat.lock().unwrap();
-        match chat.as_mut() {
-            Some(c) => c.switch_to(id, name),
-            None => *chat = Some(chatwin::ChatWin::new(id, name)),
-        }
-        drop(chat);
-        // If the chat window is already open, bring it to the front (a command to a nonexistent window
-        // would create an empty "egui window").
-        if notify::chat_open() {
-            ctx.send_viewport_cmd_to(chatwin::viewport_id(), egui::ViewportCommand::Focus);
-        }
-    }
-
-    /// "Already downloaded...": pick the game folder in steamapps\common and add it to Steam.
-    fn import_game(&mut self, appid: u32, name: String) {
-        if self.steam_running() {
-            *self.launch_status.lock().unwrap() = tr!("Закройте Steam, чтобы добавить игру (кнопка «Закрыть Steam» внизу).", "Close Steam to add the game (the \"Close Steam\" button at the bottom).").into();
-            return;
-        }
-        let Some(dir) = rfd::FileDialog::new()
-            .set_title(trf!("Папка с файлами «{name}» (внутри steamapps\\common)", "Folder with the files of \"{name}\" (inside steamapps\\common)"))
-            .pick_folder()
-        else {
-            return;
-        };
-        // We expect <library>\steamapps\common\<game folder>.
-        let library = dir
-            .parent()
-            .filter(|p| p.file_name().is_some_and(|n| n.eq_ignore_ascii_case("common")))
-            .and_then(|p| p.parent())
-            .filter(|p| p.file_name().is_some_and(|n| n.eq_ignore_ascii_case("steamapps")))
-            .and_then(|p| p.parent())
-            .map(|p| p.to_path_buf());
-        match library {
-            Some(library) => {
-                let _ = self.tx.send(Cmd::Import { appid, name, library });
-            }
-            None => {
-                *self.launch_status.lock().unwrap() = tr!("Папка игры должна лежать в библиотеке Steam: …\\steamapps\\common\\<папка игры>. \
-                     Перенесите ее туда и попробуйте снова.", "The game folder must be in a Steam library: …\\steamapps\\common\\<game folder>. Move it there and try again.")
-                    .into();
-            }
-        }
-    }
-
     /// A section instead of the library: store, inventory or Workshop.
     fn section_view(&mut self, ui: &mut egui::Ui, net: &NetState) {
         // The section is open in a separate window - only a hint here.
@@ -1682,207 +751,6 @@ impl LauncherApp {
         }
     }
 
-    /// Library left column, as in Steam: "Home", search, collection, filters and the game list.
-    /// Library search and filters: in the left column or (toolbar) as a row above the table.
-    fn library_filters(&mut self, ui: &mut egui::Ui, net: &NetState, toolbar: bool) {
-        // No count: the search covers all library games (own, family, non-Steam), and the count
-        // of "own" ones (228) next to the "All games (345)" title was confusing.
-        let hint = tr!("Поиск по названию", "Search by name");
-        let w = if toolbar { 220.0 } else { ui.available_width() };
-        theme::search_field(ui, &mut self.filter, hint, w);
-                    // Steam collections (right click on a game - add to a collection).
-                    if let Some(colls) = net.collections.as_ref() {
-                        let current = self
-                            .collection
-                            .as_ref()
-                            .and_then(|id| colls.iter().find(|c| &c.id == id))
-                            .map(|c| c.name.clone())
-                            .or_else(|| (self.collection.as_deref() == Some(FAMILY)).then(|| tr!("Семейная библиотека", "Family library").to_string()))
-                            .or_else(|| (self.collection.as_deref() == Some(UNPLAYED)).then(|| tr!("Ни разу не запускались", "Never launched").to_string()))
-                            .or_else(|| (self.collection.as_deref() == Some(READY)).then(|| tr!("Готово к игре", "Ready to play").to_string()))
-                            .or_else(|| (self.collection.as_deref() == Some(UPDATES)).then(|| tr!("Есть обновление", "Update available").to_string()))
-                            .unwrap_or_else(|| tr!("Все игры", "All games").into());
-                        let family_n = self.row_map(&net).values().filter(|r| r.family).count();
-                        // Own collection (not built-in and not filter-based): rename, delete.
-                        let own = self
-                            .collection
-                            .as_ref()
-                            .and_then(|id| colls.iter().find(|c| &c.id == id && c.id.starts_with("uc-") && !c.dynamic))
-                            .cloned();
-                        let own_coll = own.is_some();
-                        ui.horizontal(|ui| {
-                        egui::ComboBox::from_id_salt("collection")
-                            .width(if toolbar { 190.0 } else { ui.available_width() - if own_coll { 34.0 } else { 4.0 } })
-                            .truncate()
-                            .selected_text(current)
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.collection, None, tr!("Все игры", "All games"));
-                                if family_n > 0 {
-                                    ui.selectable_value(
-                                        &mut self.collection,
-                                        Some(FAMILY.to_string()),
-                                        trf!("Семейная библиотека ({family_n})", "Family library ({family_n})"),
-                                    )
-                                    .on_hover_text(tr!("Игры, которыми с вами делятся члены семьи Steam", "Games shared with you by Steam Family members"));
-                                }
-                                let unplayed_n = net.owned.iter().filter(|g| g.playtime_forever_minutes == 0).count();
-                                if unplayed_n > 0 {
-                                    ui.selectable_value(
-                                        &mut self.collection,
-                                        Some(UNPLAYED.to_string()),
-                                        trf!("Ни разу не запускались ({unplayed_n})", "Never launched ({unplayed_n})"),
-                                    )
-                                    .on_hover_text(tr!("Купленные игры, в которых 0 минут", "Owned games with 0 minutes played"));
-                                }
-                                ui.selectable_value(&mut self.collection, Some(READY.to_string()), tr!("Готово к игре", "Ready to play"))
-                                    .on_hover_text(tr!("Установленные игры, которым не нужно обновление", "Installed games that need no update"));
-                                ui.selectable_value(&mut self.collection, Some(UPDATES.to_string()), tr!("Есть обновление", "Update available"))
-                                    .on_hover_text(tr!("Установленные игры, для которых вышло обновление", "Installed games with an update available"));
-                                ui.separator();
-                                for c in colls {
-                                    ui.selectable_value(
-                                        &mut self.collection,
-                                        Some(c.id.clone()),
-                                        format!("{} ({})", c.name, c.apps.len()),
-                                    );
-                                }
-                            })
-                            .response
-                            .on_hover_text(tr!("Коллекции из Steam. Добавить игру - правый щелчок по ней. «Скрытые» в «Все игры» не показываются.", "Collections from Steam. To add a game, right-click it. \"Hidden\" are not shown in \"All games\"."));
-                        if let Some(c) = own {
-                            ui.menu_button("...", |ui| {
-                                let key = egui::Id::new("coll_rename");
-                                let mut name: String =
-                                    ui.data_mut(|d| d.get_temp(key)).unwrap_or_else(|| c.name.clone());
-                                ui.horizontal(|ui| {
-                                    ui.add(egui::TextEdit::singleline(&mut name).desired_width(150.0));
-                                    let ok = !name.trim().is_empty() && name.trim() != c.name;
-                                    if ui.add_enabled(ok, egui::Button::new(tr!("Переименовать", "Rename"))).clicked() {
-                                        let _ = self.tx.send(Cmd::Coll(colls::CollCmd::Rename {
-                                            id: c.id.clone(),
-                                            name: name.trim().to_string(),
-                                        }));
-                                        ui.data_mut(|d| d.remove::<String>(key));
-                                        ui.close_menu();
-                                    }
-                                });
-                                ui.data_mut(|d| d.insert_temp(key, name));
-                                ui.separator();
-                                let confirm = egui::Id::new("coll_delete_confirm");
-                                let asked = ui.data(|d| d.get_temp::<String>(confirm)) == Some(c.id.clone());
-                                if !asked {
-                                    if ui.button(tr!("Удалить коллекцию...", "Delete collection...")).clicked() {
-                                        ui.data_mut(|d| d.insert_temp(confirm, c.id.clone()));
-                                    }
-                                } else {
-                                    ui.label(trf!("Удалить «{}»? Игры останутся в библиотеке.", "Delete \"{}\"? The games stay in the library.", c.name));
-                                    ui.horizontal(|ui| {
-                                        if ui.button(tr!("Удалить", "Delete")).clicked() {
-                                            let _ = self.tx.send(Cmd::Coll(colls::CollCmd::Delete { id: c.id.clone() }));
-                                            self.collection = None;
-                                            ui.data_mut(|d| d.remove::<String>(confirm));
-                                            ui.close_menu();
-                                        }
-                                        if ui.button(tr!("Нет", "No")).clicked() {
-                                            ui.data_mut(|d| d.remove::<String>(confirm));
-                                        }
-                                    });
-                                }
-                            })
-                            .response
-                            .on_hover_text(tr!("Переименовать или удалить эту коллекцию (изменится и в Steam)", "Rename or delete this collection (it changes in Steam too)"));
-                        }
-                        });
-                    }
-        if !toolbar {
-        egui::ComboBox::from_id_salt("sort")
-            .width(ui.available_width() - 4.0)
-            .truncate()
-            .selected_text(trf!("Сортировка: {}", "Sort: {}", self.settings.sort.label()))
-            .show_ui(ui, |ui| {
-                for s in settings::Sort::ALL {
-                    ui.selectable_value(&mut self.settings.sort, s, s.label());
-                }
-            });
-        }
-        self.genre_combo(ui, net, toolbar);
-        ui.checkbox(&mut self.only_installed, tr!("Только установленные", "Installed only"));
-        if let Some(e) = &net.collections_error {
-            ui.colored_label(egui::Color32::from_rgb(230, 110, 110), e);
-        }
-    }
-
-    /// Genre choice. Tags come from the store: the first time the list is opened, details of
-    /// all library games are requested (50 per request).
-    fn genre_combo(&mut self, ui: &mut egui::Ui, net: &NetState, toolbar: bool) {
-        let ids: Vec<u32> = self.row_map(net).keys().copied().filter(|id| *id < crate::custom::BASE).collect();
-        let (genres, loaded) = {
-            let st = net.store.lock().unwrap();
-            let mut count: std::collections::HashMap<String, usize> = Default::default();
-            let mut loaded = 0;
-            for id in &ids {
-                if let Some(a) = st.apps.get(id) {
-                    loaded += 1;
-                    for t in a.tags.iter().take(8) {
-                        if let Some(n) = &t.name {
-                            *count.entry(n.clone()).or_default() += 1;
-                        }
-                    }
-                }
-            }
-            let mut v: Vec<(String, usize)> = count.into_iter().filter(|(_, n)| *n >= 2).collect();
-            v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-            v.truncate(40);
-            (v, loaded)
-        };
-        let text = match &self.genre {
-            Some(g) => trf!("Жанр: {g}", "Genre: {g}"),
-            None => tr!("Жанр: любой", "Genre: any").to_string(),
-        };
-        let resp = egui::ComboBox::from_id_salt("genre")
-            .width(if toolbar { 170.0 } else { ui.available_width() - 4.0 })
-            .truncate()
-            .selected_text(text)
-            .show_ui(ui, |ui| {
-                ui.selectable_value(&mut self.genre, None, tr!("Любой", "Any"));
-                if loaded < ids.len() {
-                    ui.horizontal(|ui| {
-                        crate::spin::spinner(ui);
-                        ui.weak(trf!("загружаю метки: {loaded} из {}", "loading tags: {loaded} of {}", ids.len()));
-                    });
-                }
-                for (g, n) in &genres {
-                    ui.selectable_value(&mut self.genre, Some(g.clone()), format!("{g} ({n})"));
-                }
-            });
-        if (resp.response.clicked() || self.genre.is_some()) && !self.genre_asked {
-            self.genre_asked = true;
-            let _ = self.tx.send(Cmd::Store(store::StoreCmd::Details(ids)));
-        }
-        resp.response.on_hover_text(tr!("Метки игр из магазина Steam", "Game tags from the Steam store"));
-    }
-
-    fn library_sidebar(&mut self, ui: &mut egui::Ui, net: &NetState, rows: &[Row], vc: &libview::Ctx) -> Option<libview::Action> {
-        let mut out = None;
-        let home = self.lib_page.is_none();
-        if theme::side_item(ui, home, tr!("Главная", "Home"), Some(theme::icon_home)).clicked() {
-            self.lib_page = None;
-        }
-        ui.add_space(4.0);
-        self.library_filters(ui, net, false);
-        ui.add_space(2.0);
-        // In the table view games are already shown as the table on the right - a second list is not needed.
-        let table = self.settings.view == settings::View::List || !self.settings.covers;
-        if table {
-            return out;
-        }
-        ui.add_space(2.0);
-        if let Some(a) = libview::sidebar(ui, rows, vc, &self.covers, self.lib_page, self.settings.covers) {
-            out = Some(a);
-        }
-        out
-    }
-
     /// In the background (window in the tray or a game running, and Vaporust not active) - unload images
     /// and give memory back to the system: the game needs it more. Repeated once a minute while in the background.
     fn memory_tick(&mut self, ctx: &egui::Context) {
@@ -1904,17 +772,19 @@ impl LauncherApp {
         }
     }
 
-    fn account_panel(&mut self, ui: &mut egui::Ui, net: &NetState) {
+    pub(crate) fn account_panel(&mut self, ui: &mut egui::Ui, net: &NetState) {
         if net.account.is_some() {
-            self.top_nav(ui, net);
+            // Signed in: the sections are drawn by nav::sections.
         } else if self.settings.local_mode {
             // No-login mode: only installed games and launching via Steam. The same top bar as with
             // a login, with the sections that work without it and a sign-in button.
             ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 18.0;
-                ui.label(egui::RichText::new("VAPORUST").size(14.0).strong().color(theme::TEXT));
-                if nav::top_item(ui, self.view == View::Library, tr!("БИБЛИОТЕКА", "LIBRARY")).clicked() {
+                let lib = nav::top_item(ui, self.view == View::Library, tr!("БИБЛИОТЕКА", "LIBRARY"));
+                self.drop_down(ui, &lib, nav::Section::Library, net);
+                if lib.clicked() {
                     self.view = View::Library;
+                    self.lib_page = None;
+                    self.collections_page = false;
                 }
                 if nav::top_item(ui, self.view == View::Settings, tr!("НАСТРОЙКИ", "SETTINGS")).clicked() {
                     self.view = View::Settings;
@@ -2019,176 +889,6 @@ impl LauncherApp {
         }
     }
 
-    /// Game achievements - a page of the main window ("Library" section).
-    fn achievements_contents(&mut self, ui: &mut egui::Ui, net: &NetState) {
-        let Some((appid, name)) = self.ach_open.clone() else {
-            return;
-        };
-        let mut open = true;
-        let mut ask_friend: Option<u64> = None;
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            if ui.button(tr!("< К игре", "< Back to game")).clicked() {
-                open = false;
-            }
-            ui.label(egui::RichText::new(trf!("Достижения: {name}", "Achievements: {name}")).size(19.0).strong());
-        });
-        ui.separator();
-        let st = &mut self.ach_state;
-        egui::Frame::none()
-            .show(ui, |ui| match net.achievements.get(&appid) {
-                None => {
-                    crate::spin::spinner(ui);
-                }
-                Some(Err(e)) => {
-                    ui.label(trf!("Ошибка: {e}", "Error: {e}"));
-                }
-                Some(Ok(list)) if list.is_empty() => {
-                    ui.label(tr!("У этой игры нет достижений.", "This game has no achievements."));
-                }
-                Some(Ok(list)) => {
-                    let done = list.iter().filter(|a| a.unlocked).count();
-                    ui.horizontal(|ui| {
-                        ui.label(trf!("Получено {done} из {}", "Unlocked {done} of {}", list.len()));
-                        ui.add(
-                            egui::ProgressBar::new(done as f32 / list.len().max(1) as f32)
-                                .desired_width(160.0)
-                                .text(format!("{}%", done * 100 / list.len().max(1))),
-                        );
-                    });
-                    // Order, filter, comparison with a friend.
-                    ui.horizontal_wrapped(|ui| {
-                        egui::ComboBox::from_id_salt("ach_sort")
-                            .selected_text(ACH_SORTS()[st.sort as usize])
-                            .show_ui(ui, |ui| {
-                                for (i, s) in ACH_SORTS().iter().enumerate() {
-                                    ui.selectable_value(&mut st.sort, i as u8, *s);
-                                }
-                            });
-                        egui::ComboBox::from_id_salt("ach_filter")
-                            .selected_text(ACH_FILTERS()[st.filter as usize])
-                            .show_ui(ui, |ui| {
-                                for (i, s) in ACH_FILTERS().iter().enumerate() {
-                                    ui.selectable_value(&mut st.filter, i as u8, *s);
-                                }
-                            });
-                        let roster = net.roster.read().unwrap();
-                        let mut friends: Vec<(u64, String)> = roster
-                            .values()
-                            .filter(|f| (f.relationship == 3 && (f.steam_id >> 52) & 0xF == 1))
-                            .map(|f| (f.steam_id, f.persona_name.clone().unwrap_or_else(|| f.steam_id.to_string())))
-                            .collect();
-                        drop(roster);
-                        friends.sort_by_key(|f| f.1.to_lowercase());
-                        let current = st
-                            .friend
-                            .and_then(|id| friends.iter().find(|f| f.0 == id))
-                            .map(|f| trf!("Сравнить с: {}", "Compare with: {}", f.1))
-                            .unwrap_or_else(|| tr!("Сравнить с другом", "Compare with a friend").into());
-                        egui::ComboBox::from_id_salt("ach_friend").selected_text(current).height(320.0).show_ui(ui, |ui| {
-                            if ui.selectable_label(st.friend.is_none(), tr!("Без сравнения", "No comparison")).clicked() {
-                                st.friend = None;
-                            }
-                            for (id, n) in &friends {
-                                if ui.selectable_label(st.friend == Some(*id), n).clicked() {
-                                    st.friend = Some(*id);
-                                    ask_friend = Some(*id);
-                                }
-                            }
-                        });
-                    });
-                    // Friend achievements: ✔/✖ by API name.
-                    let friend_map: Option<HashMap<&str, bool>> = match st.friend.map(|f| net.friend_achievements.get(&(appid, f))) {
-                        Some(Some(Ok(v))) => {
-                            let got = v.iter().filter(|a| a.unlocked).count();
-                            if got == 0 {
-                                ui.weak(tr!("У друга нет полученных достижений (не играл или скрыл данные об играх).", "The friend has no unlocked achievements (did not play or hides game details)."));
-                            } else {
-                                ui.label(trf!("У друга {got} из {}", "The friend has {got} of {}", v.len()));
-                            }
-                            Some(v.iter().map(|a| (a.api_name.as_str(), a.unlocked)).collect())
-                        }
-                        Some(Some(Err(e))) => {
-                            ui.weak(trf!("Достижения друга не получены: {e}", "Could not get the friend's achievements: {e}"));
-                            None
-                        }
-                        Some(None) => {
-                            crate::spin::spinner(ui);
-                            None
-                        }
-                        None => None,
-                    };
-                    ui.separator();
-                    let mut rows: Vec<&aurelia::steam_client::GameAchievement> = list
-                        .iter()
-                        .filter(|a| match st.filter {
-                            1 => a.unlocked,
-                            2 => !a.unlocked,
-                            _ => true,
-                        })
-                        .collect();
-                    match st.sort {
-                        1 => rows.sort_by(|a, b| a.global_percent.total_cmp(&b.global_percent)),
-                        2 => rows.sort_by(|a, b| b.global_percent.total_cmp(&a.global_percent)),
-                        3 => rows.sort_by_key(|a| std::cmp::Reverse(a.unlock_time.unwrap_or(0))),
-                        _ => {}
-                    }
-                    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                        for a in rows {
-                            ui.horizontal(|ui| {
-                                let icon = if a.unlocked { &a.icon_unlocked } else { &a.icon_locked };
-                                if !icon.is_empty() {
-                                    ui.add(egui::Image::new(icon.as_str()).fit_to_exact_size(egui::vec2(40.0, 40.0)));
-                                } else {
-                                    ui.label(if a.unlocked { "✔" } else { "✖" });
-                                }
-                                ui.vertical(|ui| {
-                                    ui.horizontal(|ui| {
-                                        if a.unlocked {
-                                            ui.strong(&a.name);
-                                        } else {
-                                            ui.label(&a.name);
-                                        }
-                                        if a.global_percent > 0.0 && a.global_percent < 10.0 {
-                                            ui.colored_label(egui::Color32::from_rgb(230, 170, 60), tr!("редкое", "rare"));
-                                        }
-                                    });
-                                    if a.hidden && !a.unlocked && a.description.is_empty() {
-                                        ui.weak(tr!("Скрытое достижение", "Hidden achievement"));
-                                    } else if !a.description.is_empty() {
-                                        ui.weak(&a.description);
-                                    }
-                                    let mut line = trf!("Есть у {:.1}% игроков", "{:.1}% of players have it", a.global_percent);
-                                    if let Some(t) = a.unlock_time.filter(|_| a.unlocked) {
-                                        line.push_str(&trf!(" · получено {}", " · unlocked {}", crate::socialwin::fmt_date(t as u64)));
-                                    }
-                                    if let Some(m) = &friend_map {
-                                        match m.get(a.api_name.as_str()) {
-                                            Some(true) => line.push_str(tr!(" · у друга есть", " · the friend has it")),
-                                            Some(false) => line.push_str(tr!(" · у друга нет", " · the friend does not have it")),
-                                            None => {}
-                                        }
-                                    }
-                                    ui.weak(line);
-                                });
-                            });
-                            ui.add_space(4.0);
-                        }
-                    });
-                }
-            });
-        if let Some(f) = ask_friend {
-            if !net.friend_achievements.contains_key(&(appid, f)) {
-                let _ = self.tx.send(Cmd::FriendAchievements(appid, f));
-            }
-        }
-        if !open {
-            self.ach_open = None;
-            self.ach_state = AchState::default();
-            self.view = View::Library;
-            self.lib_page = Some(appid);
-        }
-    }
 }
 
 /// The login QR code in a white square `size` points wide (cells are whole points, so it stays sharp).
@@ -2445,12 +1145,26 @@ impl eframe::App for LauncherApp {
     }
 
     /// Vaporust closes: the launch thread is cut off, so whatever it froze is unfrozen here.
+    /// Screenshot tour: the real mouse over the window must not leave hover effects and tooltips.
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+        if self.tour.is_some() {
+            raw.events.retain(|e| !matches!(e, egui::Event::PointerMoved(_) | egui::Event::PointerButton { .. } | egui::Event::MouseWheel { .. }));
+            raw.events.push(egui::Event::PointerGone);
+        }
+    }
+
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         local::thaw_leftovers();
+        // Closed normally: a fresh update works.
+        updater::confirm_update();
     }
 
     /// eframe calls this on exit and periodically (every 30 s).
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        // The screenshot tour switches views and options: it must not overwrite the real settings.
+        if std::env::var_os("VAPORUST_TOUR").is_some() {
+            return;
+        }
         self.settings.window = if self.settings.remember_window {
             winpos::read(self.settings.window).or(self.settings.window)
         } else {
@@ -2621,37 +1335,24 @@ impl eframe::App for LauncherApp {
             let drag_id = egui::Id::new("vaporust_top_drag");
             let top = egui::TopBottomPanel::top("account").frame(top_frame).show_separator_line(false).show(ctx, |ui| {
                 winframe::drag_behind(ui, drag_id);
-                ui.horizontal(|ui| {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        // The bell right next to the window buttons, as one group.
-                        ui.spacing_mut().item_spacing.x = 0.0;
-                        winframe::window_buttons(ui, 34.0);
-                        // The bell is in the same cell and on the same line as the window buttons.
-                        self.steam_notifs_button(ui, &net);
-                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                            self.account_panel(ui, &net);
-                        });
-                    });
-                });
+                self.title_rows(ui, &net);
             });
             winframe::remember_drag(ctx, drag_id, top.response.rect);
-            if net.account.is_some() {
-                let sub_frame = egui::Frame::none().fill(theme::TOP).inner_margin(egui::Margin { left: 10.0, right: 10.0, top: 0.0, bottom: 5.0 });
-                egui::TopBottomPanel::top("subnav").frame(sub_frame).show(ctx, |ui| self.sub_nav(ui, &net));
-            }
             self.update_banner(ctx);
 
-            let bottom_frame = egui::Frame::none().fill(theme::TOP).inner_margin(egui::Margin::symmetric(8.0, 3.0));
+            let bottom_frame = egui::Frame::none().fill(theme::TOP).inner_margin(egui::Margin::symmetric(8.0, 4.0));
             // No bottom bar on the login page and in the first-run wizard: only the card is there.
             let bottom_bar = !(self.login_screen(&net) || self.wizard_active(&net));
             egui::TopBottomPanel::bottom("status").frame(bottom_frame).show_animated(ctx, bottom_bar, |ui| {
-                ui.add_space(2.0);
+                // A thin light line on top, as the inset border of the Steam bottom bar.
+                let top_y = ui.max_rect().top() - 4.0;
+                ui.painter().hline(ui.max_rect().x_range().expand(8.0), top_y, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(61, 68, 80, 166)));
                 let full = ui.max_rect();
                 let row = ui.horizontal(|ui| {
                     // On the left, as in Steam - "Add a game" (a menu that opens upwards).
                     let add_id = ui.make_persistent_id("add_game_menu");
                     let open = ui.memory(|m| m.is_popup_open(add_id));
-                    let add = theme::bar_button(ui, tr!("Добавить игру", "Add a game"), Some(theme::icon_plus), None, open);
+                    let add = theme::bar_button(ui, tr!("Добавить игру", "Add a Game"), Some(theme::icon_plus), None, open);
                     if add.clicked() {
                         ui.memory_mut(|m| m.toggle_popup(add_id));
                     }
@@ -2677,9 +1378,9 @@ impl eframe::App for LauncherApp {
                         }
                     });
                     // On the right, as in Steam - "Friends and chat".
-                    if net.account.is_some() {
+                    if net.account.is_some() && !self.settings.games_only {
                         let unread: u32 = net.chats.values().map(|c| c.unread).sum();
-                        let label = if unread > 0 { trf!("Друзья и чат ({unread})", "Friends and chat ({unread})") } else { tr!("Друзья и чат", "Friends and chat").to_string() };
+                        let label = if unread > 0 { trf!("Друзья и чат ({unread})", "Friends & Chat ({unread})") } else { tr!("Друзья и чат", "Friends & Chat").to_string() };
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if theme::bar_button(ui, &label, None, Some(theme::icon_friends), self.show_friends).clicked() {
                                 self.show_friends = !self.show_friends;
@@ -2696,7 +1397,7 @@ impl eframe::App for LauncherApp {
                 ui.add_space(2.0);
             });
 
-            if net.account.is_some() && self.show_friends {
+            if net.account.is_some() && self.show_friends && !self.settings.games_only && !self.settings.friends_window {
                 egui::SidePanel::right("friends")
                     .resizable(true)
                     .default_width(230.0)
@@ -2733,7 +1434,7 @@ impl eframe::App for LauncherApp {
             let login_screen = self.login_screen(&net);
             let wizard = !login_screen && self.wizard_active(&net);
             if self.view == View::Library && !table_mode && !login_screen && !wizard {
-                let side = egui::Frame::none().fill(theme::SIDEBAR).inner_margin(egui::Margin::symmetric(6.0, 6.0));
+                let side = egui::Frame::none().fill(theme::SIDEBAR).inner_margin(egui::Margin::ZERO);
                 egui::SidePanel::left("games")
                     .frame(side)
                     .resizable(true)
@@ -2788,6 +1489,9 @@ impl eframe::App for LauncherApp {
                         note: &note,
                     };
                     libview::page(ui, r, &vc, &self.covers, &data, self.settings.covers)
+                } else if self.collections_page {
+                    self.collections_view(ui, &net);
+                    None
                 } else {
                     // "Home": title, view, "What to play?", then the grid or the list.
                     ui.add_space(4.0);
@@ -2809,7 +1513,10 @@ impl eframe::App for LauncherApp {
                             Some(g) => format!("{title} · {g}"),
                             None => title,
                         };
-                        ui.label(egui::RichText::new(format!("{title} ({})", rows.len())).size(17.0).strong());
+                        // In the grid the count is in the "ALL GAMES (n)" header; the table keeps the title here.
+                        if table_mode || self.genre.is_some() {
+                            ui.label(egui::RichText::new(format!("{title} ({})", rows.len())).font(theme::semibold(16.0)).color(theme::TEXT));
+                        }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if self.settings.covers {
                                 ui.selectable_value(&mut self.settings.view, settings::View::List, tr!("Таблица", "Table"))
@@ -2837,8 +1544,12 @@ impl eframe::App for LauncherApp {
                         ui.horizontal_wrapped(|ui| self.library_filters(ui, &net, true)); // in a narrow window the filters wrap
                         ui.add_space(4.0);
                     }
-                    // Without covers ("Performance" setting) - always the list.
-                    if self.settings.view == settings::View::List || !self.settings.covers {
+                    // Nothing to show: say why and what to do, instead of an empty background.
+                    if rows.is_empty() {
+                        self.empty_library(ui, &net);
+                        None
+                    } else if self.settings.view == settings::View::List || !self.settings.covers {
+                        // Without covers ("Performance" setting) - always the list.
                         libview::list(ui, &rows, &vc, &self.covers, &mut self.settings.sort, self.settings.covers)
                     } else {
                         if self.collection.is_none() && self.filter.trim().is_empty() && self.genre.is_none() {
@@ -2958,7 +1669,7 @@ impl eframe::App for LauncherApp {
         if !self.start_applied {
             self.start_applied = true;
             // The store needs a login: in the no-login mode the library opens.
-            if self.settings.start_view == 1 && !self.settings.local_mode {
+            if self.settings.start_view == 1 && !self.settings.local_mode && !self.settings.games_only {
                 self.open_store(None, false);
             }
         }
@@ -2968,6 +1679,7 @@ impl eframe::App for LauncherApp {
         self.store_window(ctx, &net);
         self.inventory_window(ctx, &net);
         self.social_windows(ctx, &net);
+        self.friends_window(ctx, &net);
         self.accounts_window(ctx, &net);
         self.install_ask_dialog(ctx, &net);
         self.key_window(ctx, &net);
@@ -2996,6 +1708,14 @@ fn main() -> eframe::Result<()> {
     let persistence_path = portable::init();
     accounts::init();
     errlog::install_panic_hook();
+    // A fresh update that could not start twice is rolled back here (before any window).
+    updater::startup_guard();
+    // Running for 15 s with the window open: a fresh update works. If the window fails to start,
+    // the process ends earlier and the update stays "on trial".
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(15));
+        updater::confirm_update();
+    });
     let options = eframe::NativeOptions {
         persistence_path,
         viewport: egui::ViewportBuilder::default()

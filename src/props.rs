@@ -185,15 +185,17 @@ impl LauncherApp {
         let steam_dir = self.steam.as_ref().map(|s| s.dir.clone());
         let mut back = false;
 
+        // As the Steam game properties: a dark column of sections on the left.
         egui::SidePanel::left("props_tabs")
             .resizable(false)
-            .exact_width(150.0)
+            .exact_width(180.0)
+            .frame(egui::Frame::none().fill(crate::theme::TOP).inner_margin(egui::Margin::symmetric(8.0, 10.0)))
             .show_inside(ui, |ui| {
-                ui.add_space(6.0);
-                if ui.button(tr!("< К игре", "< Back to game")).clicked() {
+                if ui.add(egui::Button::new(egui::RichText::new(tr!("< К игре", "< Back to game")).size(12.5).color(crate::theme::TEXT2)).frame(false)).clicked() {
                     back = true;
                 }
-                ui.add_space(6.0);
+                ui.add_space(8.0);
+                ui.spacing_mut().item_spacing.y = 2.0;
                 for (tab, label) in [
                     (Tab::General, tr!("Общие", "General")),
                     (Tab::Betas, tr!("Версии и беты", "Versions and betas")),
@@ -202,7 +204,9 @@ impl LauncherApp {
                     (Tab::Cloud, tr!("Облако Steam", "Steam Cloud")),
                     (Tab::Workshop, tr!("Мастерская", "Workshop")),
                 ] {
-                    ui.selectable_value(&mut w.tab, tab, label);
+                    if crate::theme::side_item(ui, w.tab == tab, label, None).clicked() {
+                        w.tab = tab;
+                    }
                 }
             });
 
@@ -213,8 +217,8 @@ impl LauncherApp {
             });
         }
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
-            ui.heading(&w.name);
+        egui::CentralPanel::default().frame(egui::Frame::none().fill(crate::theme::BG).inner_margin(egui::Margin { left: 20.0, right: 14.0, top: 12.0, bottom: 8.0 })).show_inside(ui, |ui| {
+            ui.label(egui::RichText::new(&w.name).font(crate::theme::semibold(20.0)).color(egui::Color32::WHITE));
             if steam_running {
                 ui.horizontal(|ui| {
                     ui.colored_label(

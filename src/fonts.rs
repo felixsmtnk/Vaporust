@@ -12,6 +12,7 @@ pub fn install(ctx: &egui::Context) {
     let mut added = Vec::new();
     for (name, file) in [
         ("segoe_ui", "segoeui.ttf"),
+        ("segoe_semibold", "seguisb.ttf"),
         ("segoe_symbol", "seguisym.ttf"),
         ("segoe_emoji", "seguiemj.ttf"),
         ("yahei", "msyh.ttc"),
@@ -32,15 +33,23 @@ pub fn install(ctx: &egui::Context) {
         fonts.font_data.insert(name.to_string(), data);
         added.push(name.to_string());
     }
-    if added.is_empty() {
-        return;
+    // Segoe UI first, as the Windows look closest to Steam's own font; the egui fonts and the other
+    // system ones after it, for characters Segoe UI lacks. The semibold one is only for titles.
+    let fallbacks: Vec<String> = added.iter().filter(|n| *n != "segoe_semibold").cloned().collect();
+    if let Some(list) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
+        let builtin: Vec<String> = list.clone();
+        let mut l: Vec<String> = fallbacks.iter().filter(|n| *n == "segoe_ui").cloned().collect();
+        l.extend(builtin);
+        l.extend(fallbacks.iter().filter(|n| *n != "segoe_ui").cloned());
+        *list = l;
     }
-    // At the end of the lists: the main font stays the same, system ones only for missing characters.
-    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
-        if let Some(list) = fonts.families.get_mut(&family) {
-            list.extend(added.iter().cloned());
-        }
+    if let Some(list) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
+        list.extend(fallbacks.iter().cloned());
     }
+    // "semibold" always exists (egui panics on an unknown family): Segoe UI Semibold if present.
+    let mut semi: Vec<String> = added.iter().filter(|n| *n == "segoe_semibold").cloned().collect();
+    semi.extend(fonts.families.get(&egui::FontFamily::Proportional).cloned().unwrap_or_default());
+    fonts.families.insert(egui::FontFamily::Name("semibold".into()), semi);
     ctx.set_fonts(fonts);
 }
 
