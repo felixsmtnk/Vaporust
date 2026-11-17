@@ -54,6 +54,8 @@ pub fn persona_label(state: u32) -> &'static str {
 #[serde(default)]
 pub struct Settings {
     pub freeze_webhelper: bool,
+    /// Freeze softly (low priority, efficiency mode) instead of suspending steamwebhelper.
+    pub freeze_soft: bool,
     /// Launch flags of the hidden Steam (local::DEFAULT_STEAM_ARGS by default).
     pub steam_args: String,
     pub only_installed: bool,
@@ -234,6 +236,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             freeze_webhelper: true,
+            freeze_soft: false,
             steam_args: crate::local::DEFAULT_STEAM_ARGS.to_string(),
             only_installed: false,
             show_friends: true,

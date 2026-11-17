@@ -47,7 +47,8 @@ pub fn pick(options: &[aurelia::steam_client::LaunchOptionInfo]) -> Option<Launc
 
 /// Path inside the game folder (Steam writes paths with both \ and /).
 fn join(dir: &Path, rel: &str) -> PathBuf {
-    rel.split(['\\', '/']).filter(|p| !p.is_empty()).fold(dir.to_path_buf(), |p, s| p.join(s))
+    // ".", ".." and drive letters are dropped: a path from the launch table never leaves the game folder.
+    rel.split(['\\', '/']).filter(|p| !p.is_empty() && *p != "." && *p != ".." && !p.contains(':')).fold(dir.to_path_buf(), |p, s| p.join(s))
 }
 
 /// Split an argument string (quotes are respected).
@@ -237,6 +238,8 @@ impl LauncherApp {
         cmd.env("SteamAppId", appid.to_string()).env("SteamGameId", appid.to_string());
         let script = self.settings.scripts.get(&appid).cloned().unwrap_or_default();
         let (status, launching, rescan) = (self.launch_status.clone(), self.launching.clone(), self.rescan_needed.clone());
+        let cancel = self.cancel.clone();
+        cancel.store(false, Ordering::Relaxed);
         launching.store(true, Ordering::Relaxed);
         // In a separate thread: the pre-launch command may take a long time.
         std::thread::spawn(move || {
@@ -249,11 +252,21 @@ impl LauncherApp {
                     *status.lock().unwrap() = trf!("Игра запущена без Steam: {}", "Game started without Steam: {}", game.name);
                     {
                         let _running = crate::local::RunningGuard::set(appid, &game.name, &game.dir);
-                        let _ = child.wait();
+                        // "Stop tracking the game" ends the wait (the game itself keeps running).
+                        let stop = || cancel.load(Ordering::Relaxed);
+                        while !stop() && matches!(child.try_wait(), Ok(None)) {
+                            std::thread::sleep(std::time::Duration::from_millis(500));
+                        }
                         // The exe may be a launcher that starts the game itself: wait until no processes
                         // are left in the game folder.
-                        while crate::local::game_alive(&game.dir) {
+                        while !stop() && crate::local::game_alive(&game.dir) {
                             std::thread::sleep(std::time::Duration::from_secs(2));
+                        }
+                        if stop() {
+                            *status.lock().unwrap() = tr!("Лаунчер больше не следит за игрой.", "The launcher no longer follows the game.").into();
+                            launching.store(false, Ordering::Relaxed);
+                            rescan.store(true, Ordering::Relaxed);
+                            return;
                         }
                     }
                     let after = crate::scripts::run_after(&script, appid, &game.name, &game.dir);

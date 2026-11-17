@@ -147,6 +147,12 @@ fn resize_edges(ctx: &egui::Context) {
     let rect = ctx.screen_rect();
     let Some(p) = ctx.input(|i| i.pointer.hover_pos()) else { return };
     let m = 6.0;
+    // The window buttons (3 x 46 points) sit in the top right corner: there the edge belongs to
+    // them, otherwise a click on "Close" right at the edge started resizing instead.
+    let buttons = p.x > rect.right() - 3.0 * 46.0 && p.y < rect.top() + 40.0;
+    if buttons {
+        return;
+    }
     let (l, r, t, b) = (p.x < rect.left() + m, p.x > rect.right() - m, p.y < rect.top() + m, p.y > rect.bottom() - m);
     let dir = match (l, r, t, b) {
         (true, _, true, _) => Some((D::NorthWest, C::ResizeNwSe)),

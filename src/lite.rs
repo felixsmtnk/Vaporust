@@ -16,12 +16,7 @@ pub fn on() -> bool {
     ON.load(Ordering::Relaxed)
 }
 
-/// `normal` in the usual mode, `light` in light mode.
-pub fn pick(normal: Duration, light: Duration) -> Duration {
-    if on() { light } else { normal }
-}
-
-/// Seconds variant of `pick`.
+/// `normal` seconds in the usual mode, `light` in light mode.
 pub fn secs(normal: u64, light: u64) -> Duration {
     Duration::from_secs(if on() { light } else { normal })
 }

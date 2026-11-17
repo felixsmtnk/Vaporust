@@ -41,7 +41,8 @@ impl LauncherApp {
         let colls = net.collections.as_deref().unwrap_or(&[]);
         let mut rows: Vec<_> = self
             .row_map(net)
-            .into_values()
+            .values()
+            .cloned()
             .map(|r| {
                 let c: Vec<&str> = colls.iter().filter(|c| c.apps.contains(&r.appid)).map(|c| c.name.as_str()).collect();
                 (r.appid, r.name, r.installed, r.size, r.playtime_min, r.family, c.join(", "))

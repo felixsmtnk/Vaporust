@@ -94,7 +94,7 @@ pub fn mark(x: f32, y: f32, st: Style) -> Option<[f32; 4]> {
     let off = (phase - 0.5).abs();
     let tooth_r = if off < 0.16 { 13.0 } else if off < 0.24 { 13.0 - (off - 0.16) / 0.08 * 2.6 } else { 10.4 };
     if d <= tooth_r {
-        col = if d <= 7.6 { mix(COPPER, COPPER_LIGHT, 0.0) } else { COPPER };
+        col = COPPER;
         if d > 6.9 && d < 7.9 {
             col = mix(COPPER, COPPER_LIGHT, 0.6); // light band
         }
@@ -185,6 +185,7 @@ fn silhouette_raw(x: f32, y: f32) -> f32 {
 }
 
 /// RGBA image of the mark, n x n (4x4 samples per pixel).
+#[cfg(test)]
 pub fn render(n: usize, st: Style) -> Vec<u8> {
     let s = 64.0 / n as f32;
     let mut out = vec![0u8; n * n * 4];

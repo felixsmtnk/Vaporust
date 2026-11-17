@@ -35,7 +35,7 @@ pub struct ProfileEdit {
 }
 
 fn unescape_attr(s: &str) -> String {
-    s.replace("&quot;", "\"").replace("&lt;", "<").replace("&gt;", ">").replace("&#39;", "'").replace("&amp;", "&")
+    crate::util::html_unescape(s)
 }
 
 /// Data from the data-profile-edit attribute of the /edit/info page.
@@ -73,7 +73,7 @@ pub fn parse(html: &str) -> Option<ProfileEdit> {
 pub async fn load(c: &SteamClient) -> Result<ProfileEdit, String> {
     let me = c.my_steam_id().ok_or(tr!("нет входа", "not logged in"))?;
     let web = crate::webapi::web_session(c).await?;
-    let t = web.get_text(&format!("https://steamcommunity.com/profiles/{me}/edit/info")).await.map_err(|e| format!("{e:#}"))?;
+    let t = web.get_text(&format!("https://steamcommunity.com/profiles/{me}/edit/info?l={}", crate::lang::steam())).await.map_err(|e| format!("{e:#}"))?;
     parse(&t).ok_or_else(|| tr!("Steam не отдал данные профиля.", "Steam did not return the profile data.").to_string())
 }
 

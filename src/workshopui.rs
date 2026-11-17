@@ -387,9 +387,7 @@ pub struct Detail {
     pub comments: u64,
 }
 
-fn num(v: &serde_json::Value) -> u64 {
-    v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())).unwrap_or(0)
-}
+use crate::util::num;
 
 pub fn parse_detail(d: &serde_json::Value) -> Detail {
     let s = |k: &str| d[k].as_str().unwrap_or("").to_string();
@@ -460,6 +458,36 @@ pub async fn load_detail(_c: &aurelia::steam_client::SteamClient, id: u64) -> Re
         }
     }
     Ok(det)
+}
+
+/// Short details of up to 100 mods in one request (the same public method, without the mod pages).
+pub async fn load_brief(ids: &[u64]) -> Result<std::collections::HashMap<u64, Detail>, String> {
+    let http = aurelia::core::net::steam_web_client().map_err(|e| format!("{e:#}"))?;
+    let mut body = format!("itemcount={}", ids.len());
+    for (i, id) in ids.iter().enumerate() {
+        body.push_str(&format!("&publishedfileids%5B{i}%5D={id}"));
+    }
+    let resp = http
+        .post("https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/")
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| format!("{e:#}"))?;
+    if !resp.status().is_success() {
+        return Err(trf!("Steam ответил кодом {}.", "Steam answered with code {}.", resp.status().as_u16()));
+    }
+    let v: serde_json::Value = resp.json().await.map_err(|e| format!("{e:#}"))?;
+    Ok(v["response"]["publishedfiledetails"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|d| num(&d["result"]) == 1)
+        .map(|d| {
+            let det = parse_detail(d);
+            (det.id, det)
+        })
+        .collect())
 }
 
 /// Screenshot URLs from the mod page (without downscaling parameters).
@@ -748,11 +776,18 @@ fn collections_view(ui: &mut egui::Ui, w: &mut WsUi, net: &net::NetState, ws: &W
                     }
                 });
                 ui.add_space(4.0);
+                // Names of all mods of the collection - in batches of 100 (was two requests per mod).
+                let missing: Vec<u64> = items
+                    .iter()
+                    .take(200)
+                    .copied()
+                    .filter(|id| !ws.details.contains_key(id) && !ws.brief.contains_key(id) && w.items_asked.insert(*id))
+                    .collect();
+                if !missing.is_empty() {
+                    cmds.push(Cmd::Social(SocialCmd::WorkshopBrief(missing)));
+                }
                 for id in items.iter().take(200) {
-                    if !ws.details.contains_key(id) && w.items_asked.insert(*id) {
-                        cmds.push(Cmd::Social(SocialCmd::WorkshopDetail(*id)));
-                    }
-                    let name = match ws.details.get(id) {
+                    let name = match ws.details.get(id).or_else(|| ws.brief.get(id)) {
                         Some(Ok(d)) => d.title.clone(),
                         Some(Err(_)) => trf!("мод {id} (недоступен)", "mod {id} (unavailable)"),
                         None => trf!("мод {id}", "mod {id}"),

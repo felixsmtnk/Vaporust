@@ -20,6 +20,9 @@ Vaporust is an alpha, old versions are not updated.
 - Next to every archive there is a `.sha256` file with its checksum. To check it in PowerShell:
   `Get-FileHash Vaporust-...-windows-x64.zip -Algorithm SHA256` - the number must match.
   The built-in self-update does this check itself and replaces nothing without a match.
+  The checksum lies in the same release as the archive: it protects from a broken download, not
+  from someone who took over the GitHub account and replaced both files. For that check the
+  provenance attestation below (the self-update does not check it yet).
 - The archives are built by GitHub Actions from the code of this repository with a build
   provenance attestation. You can verify it with the GitHub CLI:
   `gh attestation verify Vaporust-...-windows-x64.zip --repo felixsmtnk/Vaporust`.

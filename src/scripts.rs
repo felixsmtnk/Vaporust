@@ -27,7 +27,7 @@ impl GameScripts {
 }
 
 fn command(text: &str, appid: u32, name: &str, dir: &Path) -> Command {
-    let mut c = Command::new("cmd.exe");
+    let mut c = Command::new(crate::util::system_exe("cmd.exe"));
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

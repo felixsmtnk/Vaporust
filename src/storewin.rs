@@ -107,7 +107,26 @@ fn store_url(appid: u32) -> String {
 
 /// "Overwhelmingly Positive (96% positive, 118575 reviews)" -> in Russian.
 fn review_ru(s: &str) -> String {
-    s.replace(" positive", tr!(" положительных", " positive")).replace(" reviews", tr!(" отзывов", " reviews"))
+    if crate::lang::en() {
+        return s.to_string();
+    }
+    // The verdict as in the Russian Steam store (longest names first: "Very Positive" contains "Positive").
+    const VERDICTS: [(&str, &str); 9] = [
+        ("Overwhelmingly Positive", "Крайне положительные"),
+        ("Overwhelmingly Negative", "Крайне отрицательные"),
+        ("Mostly Positive", "В основном положительные"),
+        ("Mostly Negative", "В основном отрицательные"),
+        ("Very Positive", "Очень положительные"),
+        ("Very Negative", "Очень отрицательные"),
+        ("Positive", "Положительные"),
+        ("Negative", "Отрицательные"),
+        ("Mixed", "Смешанные"),
+    ];
+    let mut s = s.to_string();
+    if let Some((en, ru)) = VERDICTS.iter().find(|(en, _)| s.starts_with(en)) {
+        s = format!("{ru}{}", &s[en.len()..]);
+    }
+    s.replace(" positive", " положительных").replace(" reviews", " отзывов")
 }
 
 fn fmt_date(unix: u64) -> String {
@@ -1054,7 +1073,7 @@ fn game_page(
                         .on_hover_cursor(egui::CursorIcon::PointingHand)
                         .on_hover_text(tr!("Игры с этой меткой в магазине Steam", "Games with this tag in the Steam store"));
                     if r.clicked() {
-                        ui.ctx().open_url(egui::OpenUrl::new_tab(format!("https://store.steampowered.com/tags/ru/{}/", t.replace(' ', "%20"))));
+                        ui.ctx().open_url(egui::OpenUrl::new_tab(format!("https://store.steampowered.com/tags/{}/{}/", if crate::lang::en() { "en" } else { "ru" }, t.replace(' ', "%20"))));
                     }
                 }
                 if all_tags.len() > 12 && ui.small_button(if open { tr!("свернуть", "collapse") } else { tr!("все метки", "all tags") }).clicked() {
@@ -1160,9 +1179,11 @@ fn game_page(
             let rv = ex.and_then(|e| e.reviews.as_ref());
             // Language is a Steam code: a language switch of the interface keeps the chosen reviews.
             let (sort, lang) = rv.map(|r| (r.sort, r.lang)).unwrap_or((0, crate::lang::steam()));
-            if rv.is_none() {
+            let asked_key = egui::Id::new(("rev_asked", appid));
+            if rv.is_none() && !ui.data(|d| d.get_temp::<bool>(asked_key).unwrap_or(false)) {
                 // The section was opened - the first page (most helpful of all time, in the
-                // interface language), as on the site.
+                // interface language), as on the site. Asked once: the answer comes a few frames later.
+                ui.data_mut(|d| d.insert_temp(asked_key, true));
                 cmds.push(Cmd::Store(StoreCmd::Reviews { appid, sort: 0, lang, page: 1 }));
             }
             // Type (all / positive / negative) - a filter over the already loaded ones.
@@ -1206,7 +1227,7 @@ fn game_page(
             let shown: Vec<&store::Review> =
                 rv.list.iter().filter(|r| kind == 0 || (kind == 1) == r.positive).collect();
             // There are few negative ones among the first pages - load more ourselves (up to 10 pages).
-            if kind != 0 && shown.len() < 6 && rv.more && !rv.loading && rv.pages < 10 {
+            if kind != 0 && shown.len() < 6 && rv.more && !rv.loading && rv.error.is_none() && rv.pages < 10 {
                 cmds.push(Cmd::Store(StoreCmd::Reviews { appid, sort, lang, page: rv.pages + 1 }));
             }
             if shown.is_empty() && !rv.loading && rv.error.is_none() {

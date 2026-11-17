@@ -69,7 +69,7 @@ jobs:
           if ([int]$open -gt 0) { "An issue is already open"; exit 0 }
           $details = ""
           foreach ($f in "capture_error.txt", "parse_error.txt") {
-            if (Test-Path $f) { $details += "``````n" + (Get-Content $f -Raw) + "``````n" }
+            if (Test-Path $f) { $details += "```````n" + (Get-Content $f -Raw) + "`n```````n" }
           }
           $run = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
           $body = "The weekly check of public Steam pages failed ($run).`n`n" +

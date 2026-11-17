@@ -1,6 +1,6 @@
 [package]
 name = "vaporust"
-version = "0.8.4-alpha"
+version = "0.8.5-alpha"
 edition = "2021"
 description = "A lightweight Steam client and launcher for Windows (Rust + egui), built on Aurelia"
 license = "GPL-3.0-or-later"
@@ -36,7 +36,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_Storage_FileSystem", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_Media_Audio", "Win32_UI_Shell", "Win32_System_Memory", "Win32_Security", "Win32_System_LibraryLoader", "Win32_Graphics_Gdi", "Win32_Media_Multimedia"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_Storage_FileSystem", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_Media_Audio", "Win32_UI_Shell", "Win32_System_Memory", "Win32_Security", "Win32_System_LibraryLoader", "Win32_Graphics_Gdi", "Win32_Media_Multimedia", "Win32_System_Com"] }
 
 [build-dependencies]
 # Exe icon and version info (a Windows resource generated in build.rs).

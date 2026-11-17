@@ -104,6 +104,13 @@ impl LauncherApp {
         if let Some(u) = net.updates.as_mut() {
             let stale: Vec<u32> = u.iter().copied().filter(|a| self.settings.pinned.contains_key(a)).collect();
             u.retain(|a| !self.settings.pinned.contains_key(a));
+            // `net` is this frame's copy: the shared state is cleaned too, otherwise the next copy
+            // (every 2 s) brought the pinned games back as "update needed".
+            if !stale.is_empty() {
+                if let Some(shared) = self.net.lock().unwrap().updates.as_mut() {
+                    shared.retain(|a| !self.settings.pinned.contains_key(a));
+                }
+            }
             let idle = !self.launching.load(Ordering::Relaxed) && !self.steam_running();
             for appid in stale {
                 if idle && self.pin_stale_sent.insert(appid) {

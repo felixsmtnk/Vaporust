@@ -65,6 +65,8 @@ pub struct WorkshopState {
     pub sub_ids: HashMap<u32, HashSet<u64>>,
     /// Mod pages opened inside the program (by mod id).
     pub details: HashMap<u64, Result<crate::workshopui::Detail, String>>,
+    /// Short details of many mods at once (collections): one request per 100 mods, without the mod page.
+    pub brief: HashMap<u64, Result<crate::workshopui::Detail, String>>,
     pub error: Option<String>,
 }
 
@@ -85,6 +87,8 @@ pub enum SocialCmd {
     WorkshopSubscribe { appid: u32, id: u64, on: bool },
     /// Mod details for its page inside the program.
     WorkshopDetail(u64),
+    /// Short details of many mods (names in a collection) - in batches of 100.
+    WorkshopBrief(Vec<u64>),
 }
 
 fn err<E: std::fmt::Display>(e: E) -> String {
@@ -150,6 +154,22 @@ pub fn handle(client: &SteamClient, cmd: SocialCmd, st: &crate::net::Shared, ctx
                 });
                 // Remove from the list right away without waiting for an update from Steam.
                 s.roster.write().unwrap().remove(&id);
+            }
+            SocialCmd::WorkshopBrief(ids) => {
+                let ws = st.lock().unwrap().workshop.clone();
+                for chunk in ids.chunks(100) {
+                    let res = crate::workshopui::load_brief(chunk).await;
+                    let mut w = ws.lock().unwrap();
+                    for id in chunk {
+                        let r = match &res {
+                            Ok(m) => m.get(id).cloned().ok_or_else(|| tr!("мод не найден или скрыт автором", "the mod was not found or is hidden by the author").to_string()),
+                            Err(e) => Err(e.clone()),
+                        };
+                        w.brief.insert(*id, r);
+                    }
+                    drop(w);
+                    ctx.request_repaint();
+                }
             }
             SocialCmd::WorkshopDetail(id) => {
                 let ws = st.lock().unwrap().workshop.clone();

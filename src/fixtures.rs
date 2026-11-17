@@ -140,7 +140,14 @@ pub(crate) mod capture {
                 "market_search.json",
                 &get("https://steamcommunity.com/market/search/render/?norender=1&l=russian&start=0&count=10&query=Mann%20Co".into()).await,
             );
-            save("github_releases.json", &get("https://api.github.com/repos/felixsmtnk/Vaporust/releases?per_page=10".into()).await);
+            // GitHub, not Steam: without a login it allows 60 requests an hour per address, and the build
+            // machine shares its address with others. A refusal there must not look like "Steam changed
+            // its pages" - the saved file simply stays as it was.
+            match http.get("https://api.github.com/repos/felixsmtnk/Vaporust/releases?per_page=10").header("User-Agent", "Vaporust-tests").send().await {
+                Ok(r) if r.status().is_success() => save("github_releases.json", &r.text().await.unwrap_or_default()),
+                Ok(r) => println!("github_releases.json: kept the old one (GitHub answered {})", r.status()),
+                Err(e) => println!("github_releases.json: kept the old one ({e})"),
+            }
         });
     }
 }

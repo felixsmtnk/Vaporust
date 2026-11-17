@@ -42,13 +42,36 @@ pub fn init() -> Option<PathBuf> {
     Some(dir.join("app.ron"))
 }
 
+/// Started by restart(): wait (at most 15 s) until the previous process has exited.
+pub fn wait_for_previous() {
+    let args: Vec<String> = std::env::args().collect();
+    let Some(pid) = args.iter().position(|a| a == "--wait-pid").and_then(|i| args.get(i + 1)).and_then(|s| s.parse::<u32>().ok()) else {
+        return;
+    };
+    #[cfg(windows)]
+    // SAFETY: the handle is checked and closed.
+    unsafe {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE};
+        let h = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
+        if !h.is_null() {
+            WaitForSingleObject(h, 15_000);
+            CloseHandle(h);
+        }
+    }
+}
+
 /// Restart Vaporust (a new process; the caller closes the current window).
 pub fn restart() -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     // The login folder is chosen again at start (portable::init, accounts::init). An inherited
     // AURELIA_CONFIG_DIR would keep the previous account's folder: switching back to the main
     // account then signed into the other one.
+    // --wait-pid: the new process waits until this one has exited and written its settings
+    // (otherwise it could read the settings file first and the last changes would be lost).
     std::process::Command::new(exe)
+        .arg("--wait-pid")
+        .arg(std::process::id().to_string())
         .env_remove("AURELIA_CONFIG_DIR")
         .spawn()
         .map(|_| ())

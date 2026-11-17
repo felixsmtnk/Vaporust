@@ -59,11 +59,37 @@ fn scrub(s: &str) -> String {
         out.push(c);
     }
     out.push_str(if digits.len() >= 15 { "<id>" } else { &digits });
-    match std::env::var("USERNAME") {
-        // Any length: short names (for example "PC") are personal too.
-        Ok(u) if !u.is_empty() => out.replace(&format!(r"\Users\{u}\"), r"\Users\<user>\"),
-        _ => out,
+    // Account number of the Steam folder: userdata\<number>.
+    let out = hide_after(&out, "userdata", |c| c.is_ascii_digit(), "<account>");
+    // User folder in any case and with both slashes (short names like "PC" are personal too).
+    hide_after(&out, "users", |c| c != '\\' && c != '/', "<user>")
+}
+
+/// After "<word>\" or "<word>/" (any case, the word itself starts a path part) replace the
+/// next path part with `with` (the characters for which `keep` holds).
+fn hide_after(s: &str, word: &str, keep: impl Fn(char) -> bool, with: &str) -> String {
+    let low = s.to_ascii_lowercase();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while let Some(p) = low[i..].find(word) {
+        let at = i + p;
+        let sep = at + word.len();
+        let starts_part = at == 0 || matches!(s[..at].chars().last(), Some('\\') | Some('/'));
+        if starts_part && matches!(s[sep..].chars().next(), Some('\\') | Some('/')) {
+            let start = sep + 1;
+            let len: usize = s[start..].chars().take_while(|c| keep(*c)).map(char::len_utf8).sum();
+            out.push_str(&s[i..start]);
+            if len > 0 {
+                out.push_str(with);
+            }
+            i = start + len;
+        } else {
+            out.push_str(&s[i..sep]);
+            i = sep;
+        }
     }
+    out.push_str(&s[i..]);
+    out
 }
 
 /// Write a line: "time [where] text".
@@ -96,6 +122,9 @@ mod tests {
     #[test]
     fn scrub_ids() {
         assert_eq!(super::scrub("steamid 76561198000000000, app 730"), "steamid <id>, app 730");
+        assert_eq!(super::scrub(r"D:\Steam\userdata\1234567\config"), r"D:\Steam\userdata\<account>\config");
+        assert_eq!(super::scrub("c:/USERS/Ivan Petrov/AppData"), "c:/USERS/<user>/AppData");
+        assert_eq!(super::scrub(r"C:\superusers\x"), r"C:\superusers\x");
     }
 }
 

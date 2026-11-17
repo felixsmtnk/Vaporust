@@ -12,12 +12,7 @@ pub enum Item {
 }
 
 fn decode(s: &str) -> String {
-    s.replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&nbsp;", " ")
-        .replace("&amp;", "&")
+    crate::util::html_unescape(s)
 }
 
 /// Remove tags while keeping line breaks (<br>, </div>, </p>, list items).

@@ -644,14 +644,7 @@ pub fn description_blocks(src: &str) -> Vec<Block> {
 }
 
 fn decode_entities(s: &str) -> String {
-    s.replace("&nbsp;", " ")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&apos;", "'")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&amp;", "&")
-        .replace('\u{a0}', " ")
+    crate::util::html_unescape(s).replace('\u{a0}', " ")
 }
 
 /// A description or a news item on one line (for short previews).
@@ -841,9 +834,11 @@ async fn fetch_reviews(
     };
     let url = format!(
         "https://steamcommunity.com/app/{appid}/homecontent/?userreviewsoffset={off}&p={p}{cursor}&numperpage=10\
-         &browsefilter={filter}&appid={appid}&appHubSubSection=10&l=russian&filterLanguage={lang}&searchText=\
+         &browsefilter={filter}&appid={appid}&appHubSubSection=10&l={ui}&filterLanguage={lang}&searchText=\
          &maxInappropriateScore=50",
-        off = (p - 1) * 10
+        off = (p - 1) * 10,
+        // The page in the interface language (hours, dates); the parser knows both.
+        ui = crate::lang::steam()
     );
     let resp = http.get(url).send().await.map_err(err)?;
     if !resp.status().is_success() {
@@ -857,7 +852,7 @@ async fn fetch_reviews(
 /// Review page: full text and review id (for votes).
 pub async fn review_page(client: &SteamClient, url: &str) -> Result<(String, u64, String), String> {
     let web = crate::webapi::web_session(client).await?;
-    let html = web.get_text(&format!("{}?l=russian", url.trim_end_matches('/'))).await.map_err(err)?;
+    let html = web.get_text(&format!("{}?l={}", url.trim_end_matches('/'), crate::lang::steam())).await.map_err(err)?;
     parse_review_page(&html)
 }
 
@@ -870,9 +865,10 @@ pub fn parse_review_page(html: &str) -> Result<(String, u64, String), String> {
     Ok((text, id, hours_at_review(html)))
 }
 
-/// "(42.0 ч. в момент написания)" from the review page -> "42.0 ч. на момент отзыва".
+/// "(42.0 ч. в момент написания)" / "(42.0 hrs at review time)" from the review page
+/// -> "42.0 ч. на момент отзыва" / "42.0 hrs at review time".
 pub fn hours_at_review(html: &str) -> String {
-    let Some(pos) = html.find("в момент написания") else { return String::new() };
+    let Some(pos) = html.find("в момент написания").or_else(|| html.find("at review time")) else { return String::new() };
     let before = &html[..pos];
     let start = before.rfind('(').map(|i| i + 1).unwrap_or(pos);
     let h = before[start..].trim();
@@ -898,23 +894,11 @@ pub async fn vote_review(client: &SteamClient, id: u64, kind: u8) -> Result<(), 
     }
 }
 
-fn urlenc(s: &str) -> String {
-    s.bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' => (b as char).to_string(),
-            _ => format!("%{b:02X}"),
-        })
-        .collect()
-}
+use crate::util::urlencode as urlenc;
 
 /// &quot; &amp; and the like -> characters.
 fn entities(s: &str) -> String {
-    s.replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&nbsp;", " ")
-        .replace("&amp;", "&")
+    crate::util::html_unescape(s)
 }
 
 /// HTML piece -> text: <br> -> line break, tags removed.
@@ -934,11 +918,7 @@ fn strip_html(s: &str) -> String {
     lines.join("\n").trim().to_string()
 }
 
-fn between<'a>(s: &'a str, start: &str, end: &str) -> Option<&'a str> {
-    let i = s.find(start)? + start.len();
-    let j = s[i..].find(end)? + i;
-    Some(&s[i..j])
-}
+use crate::util::between;
 
 /// Parsing review cards (apphub_Card) from the community page.
 pub fn parse_reviews(html: &str) -> Vec<Review> {
@@ -959,8 +939,21 @@ pub fn parse_reviews(html: &str) -> Vec<Review> {
             let num_after = |key: &str| -> u32 {
                 card.split(key).nth(1).map(|s| s.trim_start().chars().take_while(|c| c.is_ascii_digit() || *c == ',').filter(|c| c.is_ascii_digit()).collect::<String>()).and_then(|n| n.parse().ok()).unwrap_or(0)
             };
-            let helpful_n = num_after("полезным:");
-            let funny_n = num_after("забавным:");
+            // English page: "12 people found this review helpful" - the number comes before the words.
+            let num_before = |key: &str| -> u32 {
+                let Some(pos) = card.find(key) else { return 0 };
+                let head = card[..pos].trim_end_matches(|c: char| c.is_alphabetic() || c.is_whitespace());
+                let digits: String = head.chars().rev().take_while(|c| c.is_ascii_digit() || *c == ',').collect();
+                digits.chars().rev().filter(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(0)
+            };
+            let helpful_n = match num_after("полезным:") {
+                0 => num_before("found this review helpful"),
+                n => n,
+            };
+            let funny_n = match num_after("забавным:") {
+                0 => num_before("found this review funny"),
+                n => n,
+            };
             let mut awards = Vec::new();
             for part in card.split("data-reaction=&quot;").skip(1) {
                 let id: u32 = part.split('&').next().and_then(|n| n.parse().ok()).unwrap_or(0);

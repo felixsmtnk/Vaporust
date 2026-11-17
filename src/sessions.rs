@@ -16,9 +16,7 @@ pub struct Session {
     pub first_time: u64,
 }
 
-fn num(v: &serde_json::Value) -> u64 {
-    v.as_u64().or_else(|| v.as_str()?.parse().ok()).unwrap_or(0)
-}
+use crate::util::num;
 
 fn kind(platform: u64) -> &'static str {
     match platform {

@@ -136,20 +136,20 @@ fn file_uri(p: &Path) -> String {
 /// Folder for downloaded screenshots: Pictures\Vaporust\<game>.
 fn download_dir(game: &str) -> PathBuf {
     let safe: String = game.chars().map(|c| if r#"\/:*?"<>|"#.contains(c) { '_' } else { c }).collect();
-    let pics = std::env::var_os("USERPROFILE").map(PathBuf::from).unwrap_or_default().join("Pictures");
+    let pics = crate::util::pictures();
     pics.join("Vaporust").join(safe.trim())
 }
 
 /// Open a file with the default program (photo viewer).
 fn open_file(p: &Path) {
-    let _ = std::process::Command::new("explorer.exe").arg(p).spawn();
+    let _ = std::process::Command::new(crate::util::system_exe("explorer.exe")).arg(p).spawn();
 }
 
 /// Show a file in Explorer (selected).
 fn show_in_folder(p: &Path) {
     // Explorer understands only /select,"path" - with quotes around the path, not the whole argument,
     // so we build the string ourselves (otherwise a path with spaces opens "Documents").
-    let mut cmd = std::process::Command::new("explorer.exe");
+    let mut cmd = std::process::Command::new(crate::util::system_exe("explorer.exe"));
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

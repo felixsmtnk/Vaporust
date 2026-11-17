@@ -719,7 +719,7 @@ impl LauncherApp {
                 .show(ctx, |ui| {
                     ui.label(trf!("Удалить «{name}» из списка друзей?", "Remove \"{name}\" from the friend list?"));
                     ui.horizontal(|ui| {
-                        if ui.button(tr!("Да, удалить", "Yes, uninstall")).clicked() {
+                        if ui.button(tr!("Да, удалить", "Yes, remove")).clicked() {
                             let _ = self.tx.send(Cmd::Social(SocialCmd::RemoveFriend(id)));
                             close = true;
                         }

@@ -30,11 +30,7 @@ pub struct GroupUi {
     pub confirm: Option<bool>,
 }
 
-fn between<'a>(s: &'a str, a: &str, b: &str) -> Option<&'a str> {
-    let i = s.find(a)? + a.len();
-    let j = s[i..].find(b)? + i;
-    Some(&s[i..j])
-}
+use crate::util::between;
 
 fn cdata(s: &str) -> String {
     s.trim().trim_start_matches("<![CDATA[").trim_end_matches("]]>").trim().to_string()

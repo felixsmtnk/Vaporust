@@ -29,11 +29,7 @@ pub async fn load(client: &SteamClient, me: u64) -> Result<Vec<CoplayGame>, Stri
     Ok(parse(&t))
 }
 
-fn between<'a>(s: &'a str, a: &str, b: &str) -> Option<&'a str> {
-    let i = s.find(a)? + a.len();
-    let j = s[i..].find(b)? + i;
-    Some(&s[i..j])
-}
+use crate::util::between;
 
 fn attr(s: &str, name: &str) -> Option<String> {
     let key = format!("{name}=\"");

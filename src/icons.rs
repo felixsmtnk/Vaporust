@@ -8,8 +8,6 @@ pub enum Kind {
     Launcher,
     /// Chat window: speech bubble.
     Chat,
-    /// Tray icon with a red dot: there are unread messages.
-    LauncherUnread,
     /// Tray icon: white silhouette of the logo.
     Tray,
     /// Tray icon with a red dot.
@@ -40,7 +38,7 @@ pub fn icon_sized(kind: Kind, n: usize) -> Arc<egui::IconData> {
             ];
             // White mark on top of the background.
             let mark = match kind {
-                Kind::Launcher | Kind::LauncherUnread | Kind::Tray | Kind::TrayUnread => 0.0,
+                Kind::Launcher | Kind::Tray | Kind::TrayUnread => 0.0,
                 Kind::Chat => {
                     let bubble = rounded_rect(fx, fy, 12.0, 14.0, 52.0, 42.0, 9.0);
                     let tail = triangle(fx, fy, (20.0, 38.0), (32.0, 41.0), (17.0, 52.0));
@@ -63,7 +61,7 @@ pub fn icon_sized(kind: Kind, n: usize) -> Arc<egui::IconData> {
                 rgba[i + 1] = c;
                 rgba[i + 2] = c;
                 rgba[i + 3] = (cov * 255.0) as u8;
-            } else if matches!(kind, Kind::Launcher | Kind::LauncherUnread) {
+            } else if matches!(kind, Kind::Launcher) {
                 // Window and exe - rounded square.
                 let style = crate::logo::DEFAULT;
                 // Vaporust logo (src/logo.rs): a V made of a connecting rod with a piston and a blue lever on a copper gear.
@@ -92,15 +90,20 @@ pub fn icon_sized(kind: Kind, n: usize) -> Arc<egui::IconData> {
                 rgba[i + 3] = (bg * 255.0) as u8;
             }
             // Red dot in the top right corner: there are unread messages.
-            if matches!(kind, Kind::LauncherUnread | Kind::TrayUnread) {
+            if matches!(kind, Kind::TrayUnread) {
                 let d = ((fx - 50.0).powi(2) + (fy - 14.0).powi(2)).sqrt();
                 let dot = (13.5 - d).clamp(0.0, 1.0);
                 if dot > 0.0 {
+                    // "Over" blending with the alpha taken into account: a transparent pixel under
+                    // the dot edge has some color too (white for the tray), and mixing with it left a halo.
                     let red = [230.0, 50.0, 50.0];
+                    let under = rgba[i + 3] as f32 / 255.0;
+                    let out_a = dot + under * (1.0 - dot);
                     for c in 0..3 {
-                        rgba[i + c] = (rgba[i + c] as f32 * (1.0 - dot) + red[c] * dot) as u8;
+                        let mixed = red[c] * dot + rgba[i + c] as f32 * under * (1.0 - dot);
+                        rgba[i + c] = if out_a > 0.0 { (mixed / out_a).min(255.0) as u8 } else { 0 };
                     }
-                    rgba[i + 3] = rgba[i + 3].max((dot * 255.0) as u8);
+                    rgba[i + 3] = (out_a * 255.0).round() as u8;
                 }
             }
         }

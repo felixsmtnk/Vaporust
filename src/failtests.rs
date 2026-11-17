@@ -212,7 +212,7 @@ fn broken_save_backup() {
         ("nomanifest.zip", zip_with(&[("slot1.sav", b"old")])),
     ] {
         let z = t.file(name, &data);
-        assert!(crate::backup::restore(&z).is_err(), "{name}");
+        assert!(crate::backup::restore_any(&z).is_err(), "{name}");
         assert_eq!(fs::read(&save).unwrap(), b"progress", "{name}");
     }
     // Backing up a folder without files - a clear refusal, not an empty archive.
@@ -225,7 +225,7 @@ fn broken_save_backup() {
     let (zip, n) = crate::backup::backup_to(&t.0.join("copies"), &[save.clone()]).unwrap();
     assert_eq!(n, 1);
     fs::write(&save, b"broken").unwrap();
-    assert_eq!(crate::backup::restore(&zip).unwrap(), 1);
+    assert_eq!(crate::backup::restore_any(&zip).unwrap(), 1);
     assert_eq!(fs::read(&save).unwrap(), b"progress");
 }
 
@@ -261,7 +261,7 @@ fn broken_update_archive() {
 
 #[test]
 fn staging_conflict_keeps_files() {
-    // A piece of a previous attempt is left in the temporary folder: the move refuses and loses nothing.
+    // A piece of a previous attempt is left in the temporary folder.
     let t = TempDir::new("staging");
     let lib = t.0.clone();
     let acf = "\"AppState\"\n{\n\t\"installdir\"\t\t\"Game\"\n}\n";
@@ -270,11 +270,20 @@ fn staging_conflict_keeps_files() {
     let st = crate::local::staging_dir(&lib).join("steamapps");
     fs::create_dir_all(st.join("common").join("Game")).unwrap();
     fs::write(st.join("common").join("Game").join("data.bin"), b"old").unwrap();
+    // The piece has no appmanifest - it is moved aside (kept in "old"), the game goes to the temporary folder.
+    crate::local::to_staging(&lib, 60).unwrap();
+    assert_eq!(fs::read(st.join("common/Game/data.bin")).unwrap(), b"new");
+    let kept = fs::read_dir(crate::local::staging_dir(&lib).join("old")).unwrap().flatten().next().unwrap().path();
+    assert_eq!(fs::read(kept.join("data.bin")).unwrap(), b"old");
+    crate::local::unstage(&lib, 60).unwrap();
+    // Again a piece, but now with its appmanifest in the temporary folder: a real copy - refused, nothing lost.
+    fs::create_dir_all(st.join("common").join("Game")).unwrap();
+    fs::write(st.join("common").join("Game").join("data.bin"), b"old").unwrap();
+    fs::write(st.join("appmanifest_60.acf"), acf).unwrap();
     assert!(crate::local::to_staging(&lib, 60).is_err());
     assert_eq!(fs::read(lib.join("steamapps/common/Game/data.bin")).unwrap(), b"new");
     assert!(lib.join("steamapps/appmanifest_60.acf").exists(), "appmanifest is in place");
     // Moving back when the library already has such a folder - also refused without losses.
-    fs::write(st.join("appmanifest_60.acf"), acf).unwrap();
     assert!(crate::local::unstage(&lib, 60).is_err());
     assert_eq!(fs::read(st.join("common/Game/data.bin")).unwrap(), b"old");
     assert_eq!(fs::read(lib.join("steamapps/common/Game/data.bin")).unwrap(), b"new");
@@ -294,7 +303,7 @@ fn restore_is_all_or_nothing() {
         "partial.zip",
         &zip_with(&[("files/0_a.sav", b"A-old"), ("vaporust_backup.txt", manifest.as_bytes())]),
     );
-    assert!(crate::backup::restore(&z).is_err());
+    assert!(crate::backup::restore_any(&z).is_err());
     assert_eq!(fs::read(&a).unwrap(), b"A-now", "the first file is untouched");
     assert_eq!(fs::read(&b).unwrap(), b"B-now");
     // A folder in place of the second file (unreadable): refused BEFORE writing, the first is untouched.
@@ -305,7 +314,7 @@ fn restore_is_all_or_nothing() {
         "blocked.zip",
         &zip_with(&[("files/0_a.sav", b"A-old"), ("files/1_d.sav", b"D-old"), ("vaporust_backup.txt", manifest.as_bytes())]),
     );
-    let e = crate::backup::restore(&z).unwrap_err();
+    let e = crate::backup::restore_any(&z).unwrap_err();
     assert!(e.contains("Ничего не восстановлено"), "{e}");
     assert_eq!(fs::read(&a).unwrap(), b"A-now");
     // Failure writing the second file (read-only): the first is restored as it was.
@@ -318,7 +327,7 @@ fn restore_is_all_or_nothing() {
         "readonly.zip",
         &zip_with(&[("files/0_a.sav", b"A-old"), ("files/1_r.sav", b"RO-old"), ("vaporust_backup.txt", manifest.as_bytes())]),
     );
-    let e = crate::backup::restore(&z).unwrap_err();
+    let e = crate::backup::restore_any(&z).unwrap_err();
     assert!(e.contains("возвращены как были"), "{e}");
     assert_eq!(fs::read(&a).unwrap(), b"A-now", "the first file is rolled back");
     assert_eq!(fs::read(&ro).unwrap(), b"RO-now");
@@ -330,7 +339,7 @@ fn restore_is_all_or_nothing() {
         "fresh.zip",
         &zip_with(&[("files/0_n.sav", b"N"), ("files/1_r.sav", b"R"), ("vaporust_backup.txt", manifest.as_bytes())]),
     );
-    assert!(crate::backup::restore(&z).is_err());
+    assert!(crate::backup::restore_any(&z).is_err());
     assert!(!fresh.exists());
     #[allow(clippy::permissions_set_readonly_false)]
     perm.set_readonly(false);
@@ -354,7 +363,7 @@ fn restore_keeps_unreadable_file() {
     );
     // Reading denied, writing and deleting allowed (FILE_SHARE_WRITE | FILE_SHARE_DELETE).
     let lock = fs::OpenOptions::new().read(true).share_mode(0x2 | 0x4).open(&a).unwrap();
-    let e = crate::backup::restore(&z).unwrap_err();
+    let e = crate::backup::restore_any(&z).unwrap_err();
     drop(lock);
     assert!(e.contains("Ничего не восстановлено"), "{e}");
     assert_eq!(fs::read(&a).unwrap(), b"A-now", "the file is in place and unchanged");
@@ -371,8 +380,8 @@ fn backups_in_one_second_do_not_overwrite() {
     fs::write(&save, b"third").unwrap();
     let (z3, _) = crate::backup::backup_to(&dir, &[save.clone()]).unwrap();
     assert!(z1 != z2 && z2 != z3 && z1 != z3, "{z1:?} {z2:?} {z3:?}");
-    crate::backup::restore(&z1).unwrap();
+    crate::backup::restore_any(&z1).unwrap();
     assert_eq!(fs::read(&save).unwrap(), b"first", "the first copy is not overwritten by the second");
-    crate::backup::restore(&z2).unwrap();
+    crate::backup::restore_any(&z2).unwrap();
     assert_eq!(fs::read(&save).unwrap(), b"second");
 }

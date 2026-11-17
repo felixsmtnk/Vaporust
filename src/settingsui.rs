@@ -84,7 +84,35 @@ fn note(ui: &mut egui::Ui, text: &str) {
     ui.add_space(10.0);
 }
 
+/// Download regions were requested (once per session and again after a language change: city names).
+static REGIONS_ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 impl LauncherApp {
+    /// The interface language changed: Steam texts loaded in the old language (game descriptions,
+    /// achievements, region names, effect captions) are dropped and load again in the new one.
+    pub(crate) fn language_tick(&mut self) {
+        let en = crate::lang::en();
+        if self.lang_seen.replace(en).is_none_or(|old| old == en) {
+            return;
+        }
+        REGIONS_ASKED.store(false, std::sync::atomic::Ordering::Relaxed);
+        self.page_loaded = None;
+        self.genre_asked = false;
+        let mut n = self.net.lock().unwrap();
+        n.achievements = Default::default();
+        n.friend_achievements = Default::default();
+        n.download_regions = None;
+        n.message.clear();
+        let store = n.store.clone();
+        drop(n);
+        let mut s = store.lock().unwrap();
+        s.apps.clear();
+        s.requested.clear();
+        s.extras.clear();
+        s.charts.clear();
+        s.curators.clear();
+        s.review_full.clear();
+    }
     /// Interface scale: setting -> egui; Ctrl+plus/minus (egui changes it itself) -> setting.
     pub(crate) fn zoom_tick(&mut self, ctx: &egui::Context) {
         // Own scale steps instead of egui's (it uses 10% steps without a limit): Ctrl+plus/minus - the next
@@ -483,10 +511,7 @@ impl LauncherApp {
                 // config.vdf (CellIDServerOverride) - it can be taken from there.
                 let steam_cell = self.steam.as_ref().and_then(|s| crate::local::steam_cell_override(&s.dir));
                 // List of cities with Steam servers - once per session (querying the Steam server directory).
-                thread_local! {
-                    static REGIONS_ASKED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-                }
-                if !REGIONS_ASKED.with(|a| a.replace(true)) {
+                if !REGIONS_ASKED.swap(true, std::sync::atomic::Ordering::Relaxed) {
                     let _ = self.tx.send(Cmd::DownloadRegions);
                 }
                 let regions: Vec<(u32, String)> = net.download_regions.as_ref().and_then(|r| r.as_ref().ok()).cloned().unwrap_or_default();
@@ -690,6 +715,23 @@ impl LauncherApp {
                         egui::Checkbox::new(&mut self.freeze_webhelper, tr!("Замораживать steamwebhelper", "Freeze steamwebhelper")),
                     );
                 });
+                if self.freeze_webhelper {
+                    row(ui, tr!("Как замораживать", "How to freeze"), |ui| {
+                        let idle = !self.launching.load(std::sync::atomic::Ordering::Relaxed);
+                        ui.add_enabled_ui(idle, |ui| {
+                            ui.radio_value(&mut self.settings.freeze_soft, false, tr!("Полностью", "Fully"));
+                            ui.radio_value(&mut self.settings.freeze_soft, true, tr!("Мягко", "Softly"));
+                        });
+                    });
+                    note(
+                        ui,
+                        tr!("Полностью - браузер Steam приостановлен, память почти вся освобождается. Мягко - браузер работает \
+                         с низким приоритетом и в режиме эффективности Windows, память выгружается раз в 10 с: оверлей \
+                         Steam открывается, но памяти освобождается меньше (способ из NoSteamWebHelper-Reloaded).", "Fully - the Steam browser is suspended, almost all its memory is freed. Softly - the browser keeps working \
+                         at low priority and in Windows efficiency mode, its memory is moved out every 10 s: the Steam overlay \
+                         opens, but less memory is freed (the way NoSteamWebHelper-Reloaded does it)."),
+                    );
+                }
                 note(
                     ui,
                     tr!("Через 20 с после старта игры или обновления приостанавливает встроенный браузер Steam \
@@ -955,7 +997,7 @@ impl LauncherApp {
                             if !p.exists() {
                                 crate::errlog::write(tr!("журнал", "log"), tr!("журнал создан", "log created"));
                             }
-                            let _ = std::process::Command::new("notepad.exe").arg(&p).spawn();
+                            let _ = std::process::Command::new(crate::util::system_exe("notepad.exe")).arg(&p).spawn();
                         }
                     }
                     if ui

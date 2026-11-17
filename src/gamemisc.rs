@@ -82,7 +82,7 @@ impl LauncherApp {
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
             .show(ctx, |ui| {
-                ui.weak(tr!("Видна только вам: например, где вы остановились, коды или настройки.", "Only you see it: for example where you stopped, codes or settings."));
+                ui.weak(tr!("Видна только вам: например, где вы остановились или настройки. Хранится открытым текстом в файле настроек - не пишите сюда пароли.", "Only you see it: for example where you stopped or settings. Kept as plain text in the settings file - do not put passwords here."));
                 ui.add(egui::TextEdit::multiline(&mut text).desired_rows(4).desired_width(360.0));
                 ui.horizontal(|ui| {
                     if ui.button(tr!("Сохранить", "Save")).clicked() {
@@ -158,7 +158,7 @@ fn create_lnk(target: &std::path::Path, args: &str, icon: &std::path::Path, name
                   $s=(New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $d ($env:VP_NAME + '.lnk'))); \
                   $s.TargetPath=$env:VP_TARGET; $s.Arguments=$env:VP_ARGS; $s.IconLocation=$env:VP_ICON + ',0'; \
                   $s.WorkingDirectory=(Split-Path $env:VP_TARGET); $s.Save()";
-    let out = std::process::Command::new("powershell.exe")
+    let out = std::process::Command::new(crate::util::system_exe("powershell.exe"))
         .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script])
         .env("VP_NAME", name)
         .env("VP_TARGET", target)

@@ -10,8 +10,7 @@ const MANIFEST: &str = "vaporust_backup.txt";
 
 /// Folder with backups of all games.
 pub fn root() -> PathBuf {
-    let home = std::env::var_os("USERPROFILE").map(PathBuf::from).unwrap_or_default();
-    home.join("Documents").join("Vaporust").join("Сохранения")
+    crate::util::documents().join("Vaporust").join("Сохранения")
 }
 
 /// Game folder name without characters forbidden in Windows.
@@ -72,11 +71,26 @@ pub fn backup_to(dir: &Path, files: &[PathBuf]) -> Result<(PathBuf, usize), Stri
 }
 
 pub fn backup(game: &str, files: &[PathBuf]) -> Result<(PathBuf, usize), String> {
-    backup_to(&game_dir(game), files)
+    let r = backup_to(&game_dir(game), files);
+    forget_list(); // the new archive shows in the list at once
+    r
+}
+
+/// The cloud tab draws the list every frame: the folder is read at most every 3 s (and right
+/// after a backup is made, see forget_list).
+static LIST: std::sync::Mutex<Option<(String, std::time::Instant, Vec<(PathBuf, std::time::SystemTime, u64)>)>> = std::sync::Mutex::new(None);
+
+pub fn forget_list() {
+    *LIST.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
 /// Backups of a game: (archive, modification time, size), newest first.
 pub fn list(game: &str) -> Vec<(PathBuf, std::time::SystemTime, u64)> {
+    if let Some((g, t, v)) = LIST.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        if g == game && t.elapsed() < std::time::Duration::from_secs(3) {
+            return v.clone();
+        }
+    }
     let mut v: Vec<_> = fs::read_dir(game_dir(game))
         .into_iter()
         .flatten()
@@ -88,13 +102,41 @@ pub fn list(game: &str) -> Vec<(PathBuf, std::time::SystemTime, u64)> {
         })
         .collect();
     v.sort_by(|a, b| b.1.cmp(&a.1));
+    *LIST.lock().unwrap_or_else(|e| e.into_inner()) = Some((game.to_string(), std::time::Instant::now(), v.clone()));
     v
 }
 
 /// Put files from a backup back in place. All or nothing: the archive is read and checked first
 /// in full (a single file missing - nothing is touched), then files are replaced one by one, and on
 /// an error midway the already replaced ones are restored. Returns the number of files.
-pub fn restore(zip_path: &Path) -> Result<usize, String> {
+/// Where a file from the backup goes: only to one of `allowed` (the save paths of this very game
+/// on this PC). An exact path first; otherwise the allowed path with the longest common ending
+/// (folder names + file name), so a backup made under another Windows user name still fits.
+/// A path that matches nothing is refused: an archive from the internet may list anything
+/// (the Startup folder, for example).
+fn target_for(dest: &Path, allowed: &[PathBuf]) -> Option<PathBuf> {
+    let low = |p: &Path| p.to_string_lossy().replace('/', "\\").to_lowercase();
+    let d = low(dest);
+    if let Some(a) = allowed.iter().find(|a| low(a) == d) {
+        return Some(a.clone());
+    }
+    let comps = |s: &str| s.split('\\').filter(|c| !c.is_empty()).map(str::to_string).collect::<Vec<_>>();
+    let dc = comps(&d);
+    let score = |a: &PathBuf| comps(&low(a)).iter().rev().zip(dc.iter().rev()).take_while(|(x, y)| x == y).count();
+    let best = allowed.iter().map(score).max().unwrap_or(0);
+    if best == 0 {
+        return None;
+    }
+    let mut hits = allowed.iter().filter(|a| score(a) == best);
+    let first = hits.next()?.clone();
+    // Two allowed files fit equally well - it is not clear which one is meant.
+    if hits.next().is_some() {
+        return None;
+    }
+    Some(first)
+}
+
+pub fn restore(zip_path: &Path, allowed: &[PathBuf]) -> Result<usize, String> {
     use std::io::Read;
     let file = fs::File::open(zip_path).map_err(|e| trf!("Архив не открыт: {e}", "Archive not opened: {e}"))?;
     let mut z = zip::ZipArchive::new(file).map_err(|e| trf!("Это не zip-архив: {e}", "This is not a zip archive: {e}"))?;
@@ -112,7 +154,12 @@ pub fn restore(zip_path: &Path) -> Result<usize, String> {
             .map_err(|e| trf!("Копия повреждена, ничего не восстановлено: в архиве нет {name} ({e}).", "The backup is damaged, nothing restored: the archive has no {name} ({e})."))?
             .read_to_end(&mut data)
             .map_err(|e| trf!("Копия повреждена, ничего не восстановлено: {e}.", "The backup is damaged, nothing restored: {e}."))?;
-        items.push((PathBuf::from(dest), data));
+        let Some(target) = target_for(Path::new(dest), allowed) else {
+            return Err(trf!(
+                "Ничего не восстановлено: файл {dest} из копии не относится к сохранениям этой игры.", "Nothing restored: file {dest} from the backup is not one of this game's saves."
+            ));
+        };
+        items.push((target, data));
     }
     if items.is_empty() {
         return Err(tr!("В копии нет файлов.", "The backup has no files.").into());
@@ -196,10 +243,27 @@ mod tests {
         assert!(zip.is_file());
         fs::write(&a, "испорчен").unwrap();
         fs::remove_file(&b).unwrap();
-        assert_eq!(restore(&zip).unwrap(), 2);
+        let allowed = vec![a.clone(), b.clone()];
+        assert_eq!(restore(&zip, &allowed).unwrap(), 2);
         assert_eq!(fs::read_to_string(&a).unwrap(), "первый");
         assert_eq!(fs::read_to_string(&b).unwrap(), "второй");
+        // A path outside the save list is refused.
+        assert!(restore(&zip, &[a.clone()]).is_err());
         assert_eq!(safe("A: B/C?"), "A_ B_C_");
         let _ = fs::remove_dir_all(&base);
     }
+}
+
+/// For tests: restore to the paths the archive itself lists (as if they were the game's save paths).
+#[cfg(test)]
+pub fn restore_any(zip_path: &Path) -> Result<usize, String> {
+    use std::io::Read;
+    let allowed: Vec<PathBuf> = (|| {
+        let mut z = zip::ZipArchive::new(fs::File::open(zip_path).ok()?).ok()?;
+        let mut m = String::new();
+        z.by_name(MANIFEST).ok()?.read_to_string(&mut m).ok()?;
+        Some(m.lines().filter_map(|l| l.split_once('\t')).map(|(_, d)| PathBuf::from(d)).collect())
+    })()
+    .unwrap_or_default();
+    restore(zip_path, &allowed)
 }

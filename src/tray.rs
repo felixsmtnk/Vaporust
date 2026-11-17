@@ -98,6 +98,8 @@ type LongPtr = i32;
 /// Where the window was before hiding to the tray (top left corner, physical pixels).
 #[cfg(windows)]
 static SAVED_POS: Mutex<Option<(i32, i32)>> = Mutex::new(None);
+/// The window had WS_EX_APPWINDOW before going to the tray (it is put back on return).
+static HAD_APPWINDOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Hide the main window to the tray.
 ///
@@ -108,21 +110,33 @@ static SAVED_POS: Mutex<Option<(i32, i32)>> = Mutex::new(None);
 pub fn hide_main() {
     use windows_sys::Win32::Foundation::RECT;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongPtrW, GetWindowRect, SetWindowLongPtrW, SetWindowPos, ShowWindow, GWL_EXSTYLE, SWP_NOACTIVATE,
-        SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_SHOWNOACTIVATE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+        GetWindowLongPtrW, GetWindowPlacement, GetWindowRect, IsIconic, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+        GWL_EXSTYLE, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_SHOWNOACTIVATE, WINDOWPLACEMENT,
+        WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
     };
     let hwnd = crate::notify::main_hwnd();
     if hwnd == 0 || crate::notify::in_tray() {
         return;
     }
     unsafe {
-        let mut r: RECT = std::mem::zeroed();
-        if GetWindowRect(hwnd as _, &mut r) != 0 {
-            *SAVED_POS.lock().unwrap() = Some((r.left, r.top));
+        // A minimized window reports (-32000, -32000): its normal place is taken from the placement.
+        if IsIconic(hwnd as _) != 0 {
+            let mut wp: WINDOWPLACEMENT = std::mem::zeroed();
+            wp.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
+            if GetWindowPlacement(hwnd as _, &mut wp) != 0 {
+                let r = wp.rcNormalPosition;
+                *SAVED_POS.lock().unwrap_or_else(|e| e.into_inner()) = Some((r.left, r.top));
+            }
+        } else {
+            let mut r: RECT = std::mem::zeroed();
+            if GetWindowRect(hwnd as _, &mut r) != 0 {
+                *SAVED_POS.lock().unwrap_or_else(|e| e.into_inner()) = Some((r.left, r.top));
+            }
         }
         // The window style changes only on a hidden window, so: hide -> change -> show off-screen.
         ShowWindow(hwnd as _, SW_HIDE);
         let ex = GetWindowLongPtrW(hwnd as _, GWL_EXSTYLE);
+        HAD_APPWINDOW.store(ex & WS_EX_APPWINDOW as LongPtr != 0, std::sync::atomic::Ordering::Relaxed);
         SetWindowLongPtrW(hwnd as _, GWL_EXSTYLE, (ex | WS_EX_TOOLWINDOW as LongPtr) & !(WS_EX_APPWINDOW as LongPtr));
         SetWindowPos(hwnd as _, std::ptr::null_mut(), -32000, -32000, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         ShowWindow(hwnd as _, SW_SHOWNOACTIVATE);
@@ -135,7 +149,7 @@ pub fn hide_main() {
 pub fn show_main() {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         GetWindowLongPtrW, IsIconic, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, GWL_EXSTYLE,
-        SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_RESTORE, SW_SHOW, WS_EX_TOOLWINDOW,
+        SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_RESTORE, SW_SHOW, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
     };
     let hwnd = crate::notify::main_hwnd();
     if hwnd == 0 {
@@ -145,7 +159,8 @@ pub fn show_main() {
         if crate::notify::in_tray() {
             ShowWindow(hwnd as _, SW_HIDE);
             let ex = GetWindowLongPtrW(hwnd as _, GWL_EXSTYLE);
-            SetWindowLongPtrW(hwnd as _, GWL_EXSTYLE, ex & !(WS_EX_TOOLWINDOW as LongPtr));
+            let app = if HAD_APPWINDOW.load(std::sync::atomic::Ordering::Relaxed) { WS_EX_APPWINDOW as LongPtr } else { 0 };
+            SetWindowLongPtrW(hwnd as _, GWL_EXSTYLE, (ex & !(WS_EX_TOOLWINDOW as LongPtr)) | app);
             if let Some((x, y)) = SAVED_POS.lock().unwrap().take() {
                 SetWindowPos(hwnd as _, std::ptr::null_mut(), x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
             }

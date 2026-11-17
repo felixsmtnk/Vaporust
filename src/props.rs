@@ -389,7 +389,8 @@ impl LauncherApp {
                     ui.weak(
                         tr!("Команды как в cmd.exe, выполняются в папке игры. Игра запускается, когда команда «перед \
                          запуском» закончится (не дольше 2 минут). Есть переменные %VAPORUST_APPID%, \
-                         %VAPORUST_GAME_NAME%, %VAPORUST_GAME_DIR%.", "Commands as in cmd.exe, run in the game folder. The game starts when the \"before launch\" command finishes (at most 2 minutes). Variables: %VAPORUST_APPID%, %VAPORUST_GAME_NAME%, %VAPORUST_GAME_DIR%."),
+                         %VAPORUST_GAME_NAME%, %VAPORUST_GAME_DIR%. Берите их в кавычки: \"%VAPORUST_GAME_NAME%\" \
+                         (знак & в названии игры иначе выполнится как команда).", "Commands as in cmd.exe, run in the game folder. The game starts when the \"before launch\" command finishes (at most 2 minutes). Variables: %VAPORUST_APPID%, %VAPORUST_GAME_NAME%, %VAPORUST_GAME_DIR%. Put them in quotes: \"%VAPORUST_GAME_NAME%\" (otherwise an & in the game name runs as a command)."),
                     );
                     if sc != before {
                         if sc.is_empty() {
@@ -442,10 +443,10 @@ impl LauncherApp {
                                     });
                                 }
                             });
-                            if !acf.mounted_language.is_empty() && acf.user_language != acf.mounted_language && !acf.user_language.is_empty() {
+                            if acf.language_pending() {
                                 ui.colored_label(YELLOW, trf!(
                                     "Сейчас установлен: {}. Переключение ждет загрузки через Steam.", "Installed now: {}. The switch waits for a download through Steam.",
-                                    lang_name(&acf.mounted_language)
+                                    lang_name(acf.installed_language())
                                 ));
                                 if ui
                                     .add_enabled(!locked, egui::Button::new(tr!("Обновить сейчас", "Update now")))
@@ -952,7 +953,7 @@ impl LauncherApp {
                                         let safety = if has_current { crate::backup::backup(&w.name, &paths).map(|_| true) } else { Ok(false) };
                                         w.note = Some(match safety {
                                             Err(e) => trf!("Не восстановлено: не удалось сначала сохранить копию текущих сохранений ({e}). Файлы игры не тронуты.", "Not restored: could not save a backup of the current saves first ({e}). The game files are untouched."),
-                                            Ok(saved) => match crate::backup::restore(&zip) {
+                                            Ok(saved) => match crate::backup::restore(&zip, &paths) {
                                                 Ok(n) if saved => trf!("Восстановлено файлов: {n}. Прежние сохранения - в новой копии сверху.", "Files restored: {n}. The previous saves are in the new backup at the top."),
                                                 Ok(n) => trf!("Восстановлено файлов: {n}.", "Files restored: {n}."),
                                                 Err(e) => e,

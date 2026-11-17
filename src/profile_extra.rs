@@ -3,7 +3,7 @@
 //! GetProfileItemsEquipped, GetRecentlyPlayedGames), profile in XML (groups), comments -
 //! the way the site loads them (comment/Profile/render).
 
-use crate::activity::{parse_recent, Recent};
+
 use crate::webapi;
 use aurelia::steam_client::SteamClient;
 use eframe::egui;
@@ -35,7 +35,6 @@ pub struct ProfileExtra {
     pub frame: Option<String>,
     pub animated_avatar: Option<String>,
     pub background: Option<String>,
-    pub recent: Vec<Recent>,
     pub groups: Vec<Group>,
     pub comments: Vec<Comment>,
     pub comments_total: u32,
@@ -56,11 +55,7 @@ fn item_url(v: &serde_json::Value, key: &str) -> Option<String> {
     Some(if p.starts_with("http") { p.to_string() } else { format!("{ITEMS_CDN}{p}") })
 }
 
-fn between<'a>(s: &'a str, a: &str, b: &str) -> Option<&'a str> {
-    let i = s.find(a)? + a.len();
-    let j = s[i..].find(b)? + i;
-    Some(&s[i..j])
-}
+use crate::util::between;
 
 fn cdata(s: &str) -> String {
     s.trim().trim_start_matches("<![CDATA[").trim_end_matches("]]>").trim().to_string()
@@ -330,14 +325,7 @@ fn stats_and_lines(html: &str) -> (Vec<(String, String)>, String) {
 
 /// HTML entities in text.
 fn decode(t: &str) -> String {
-    t.replace("&nbsp;", " ")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&amp;", "&")
-        .trim()
-        .to_string()
+    crate::util::html_unescape(t).trim().to_string()
 }
 
 pub async fn load(client: &SteamClient, id: u64) -> Result<ProfileExtra, String> {
@@ -351,9 +339,7 @@ pub async fn load(client: &SteamClient, id: u64) -> Result<ProfileExtra, String>
         x.animated_avatar = item_url(&v["animated_avatar"], "image_small");
         x.background = item_url(&v["profile_background"], "image_large");
     }
-    if let Ok(v) = webapi::get(client, "IPlayerService/GetRecentlyPlayedGames/v1", &[("steamid", sid.clone())]).await {
-        x.recent = parse_recent(&v);
-    }
+    // Recent games come from the profile page itself (page.recent): no separate request.
     let web = webapi::web_session(client).await?;
     if let Ok(xml) = web.get_text(&format!("https://steamcommunity.com/profiles/{id}/?xml=1")).await {
         x.groups = parse_groups(&xml);
@@ -363,7 +349,7 @@ pub async fn load(client: &SteamClient, id: u64) -> Result<ProfileExtra, String>
         x.counts = parse_counts(&html);
         x.page = parse_page(&html);
     }
-    if let Ok(t) = web.get_text(&format!("https://steamcommunity.com/comment/Profile/render/{id}/-1/?start=0&count=10")).await {
+    if let Ok(t) = web.get_text(&format!("https://steamcommunity.com/comment/Profile/render/{id}/-1/?start=0&count=10&l={}", crate::lang::steam())).await {
         if let Ok(j) = serde_json::from_str::<serde_json::Value>(&t) {
             x.comments_total = j["total_count"].as_u64().unwrap_or(0) as u32;
             x.comments = parse_comments(j["comments_html"].as_str().unwrap_or(""));
@@ -475,12 +461,11 @@ mod tests {
                 println!("{u} -> {:?}", r.map(|r| (r.status, r.content_type().map(str::to_owned), r.bytes.len())));
             }
             println!(
-                "level {:?}, frame {}, animated avatar {}, background {}, recent {}, groups {}, comments {} of {}, with text {}, with author {}",
+                "level {:?}, frame {}, animated avatar {}, background {}, groups {}, comments {} of {}, with text {}, with author {}",
                 x.level,
                 x.frame.is_some(),
                 x.animated_avatar.is_some(),
                 x.background.is_some(),
-                x.recent.len(),
                 x.groups.len(),
                 x.comments.len(),
                 x.comments_total,
@@ -537,7 +522,7 @@ pub fn parse_counts(html: &str) -> Vec<(String, String, String)> {
 pub async fn load_comments(client: &SteamClient, id: u64, start: u32) -> Result<(u32, Vec<Comment>), String> {
     let web = webapi::web_session(client).await?;
     let t = web
-        .get_text(&format!("https://steamcommunity.com/comment/Profile/render/{id}/-1/?start={start}&count=10"))
+        .get_text(&format!("https://steamcommunity.com/comment/Profile/render/{id}/-1/?start={start}&count=10&l={}", crate::lang::steam()))
         .await
         .map_err(|e| format!("{e:#}"))?;
     let j: serde_json::Value = serde_json::from_str(&t).map_err(|e| e.to_string())?;

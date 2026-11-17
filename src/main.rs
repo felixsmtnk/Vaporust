@@ -2,6 +2,7 @@
 
 #[macro_use]
 mod lang;
+mod util;
 mod activity;
 mod anim;
 mod autostart;
@@ -228,6 +229,11 @@ struct LauncherApp {
     /// Copy of the network state for frames and the change number it was taken at.
     net_snap: NetState,
     net_gen: u64,
+    /// Grows each time the network state snapshot is copied: the library lists are rebuilt only then
+    /// (or when their filters change), not on every frame.
+    snap_count: u64,
+    /// Library rows: (key, all games) and (key, filtered and sorted list).
+    row_cache: std::cell::RefCell<(u64, std::sync::Arc<HashMap<u32, Row>>, u64, std::sync::Arc<Vec<Row>>)>,
     net_snap_at: std::time::Instant,
     /// Own profile requested (name for the top bar).
     own_profile_asked: bool,
@@ -268,6 +274,8 @@ struct LauncherApp {
     /// Genre filter (store tag) and a flag that game details were already requested.
     genre: Option<String>,
     genre_asked: bool,
+    /// Interface language of the previous frame (true - English): on a change the cached Steam texts are dropped.
+    lang_seen: Option<bool>,
     only_installed: bool,
     login_user: String,
     login_pass: String,
@@ -490,6 +498,8 @@ impl LauncherApp {
             net,
             net_snap: NetState::default(),
             net_gen: u64::MAX,
+            snap_count: 0,
+            row_cache: std::cell::RefCell::new((u64::MAX, Default::default(), u64::MAX, Default::default())),
             net_snap_at: std::time::Instant::now(),
             own_profile_asked: false,
             trimmed: false,
@@ -512,6 +522,7 @@ impl LauncherApp {
             filter: String::new(),
             genre: None,
             genre_asked: false,
+            lang_seen: None,
             only_installed: saved.only_installed,
             login_user: String::new(),
             login_pass: String::new(),
@@ -584,6 +595,8 @@ impl LauncherApp {
             settings: saved,
             last_played: HashMap::new(),
         };
+        // A previous run was closed or crashed during a game: unfreeze the steamwebhelper it froze.
+        local::thaw_leftovers();
         // Updates: remove the old version file and check GitHub (if enabled).
         updater::cleanup_old();
         if app.settings.check_updates {
@@ -891,9 +904,11 @@ impl LauncherApp {
         let in_progress = st.ends_with("...") || st.ends_with('…');
         if !busy && !in_progress && !st.is_empty() && st != tr!("Готово.", "Done.") {
             // The game in quotes - its image on the left, a click opens its page.
+            // Russian texts use «», English ones "".
             let game = st
                 .split_once('«')
                 .and_then(|(_, rest)| rest.split_once('»'))
+                .or_else(|| st.split_once('"').and_then(|(_, rest)| rest.split_once('"')))
                 .map(|(name, _)| name)
                 .and_then(|name| {
                     self.games
@@ -994,9 +1009,7 @@ impl LauncherApp {
         let acf = local::appmanifest_path(&game);
         let info = local::read_acf(&acf);
         // Waiting for a language change (chosen in "Properties") - Vaporust switches it itself (switch_language).
-        let switching = !info.user_language.is_empty()
-            && !info.mounted_language.is_empty()
-            && info.user_language != info.mounted_language;
+        let switching = info.language_pending();
         // Beta change - without Steam: Aurelia downloads the chosen branch versions for installed depots.
         let beta = (info.user_beta != info.mounted_beta).then(|| info.user_beta.clone());
         let logged_in = self.net.lock().unwrap().account.is_some();
@@ -1070,6 +1083,7 @@ impl LauncherApp {
         }
         let opts = local::LaunchOptions {
             freeze_webhelper: self.freeze_webhelper,
+            freeze_soft: self.settings.freeze_soft,
             steam_args: self.settings.steam_args.clone(),
         };
         self.launching.store(true, Ordering::Relaxed);
@@ -1118,8 +1132,38 @@ impl LauncherApp {
         });
     }
 
-    /// All games (owned and installed) without filters and sorting.
-    fn row_map(&self, net: &NetState) -> HashMap<u32, Row> {
+    /// What the full game list depends on besides the network snapshot: installed games, last launch
+    /// times, non-Steam games.
+    fn row_map_key(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.snap_count.hash(&mut h);
+        for g in &self.games {
+            (g.appid, g.ready, g.needs_update, g.size, &g.name).hash(&mut h);
+        }
+        let mut lp: Vec<_> = self.last_played.iter().collect();
+        lp.sort();
+        lp.hash(&mut h);
+        for g in &self.settings.custom_games {
+            (g.id, &g.name, &g.exe, g.minutes, g.last_played).hash(&mut h);
+        }
+        h.finish()
+    }
+
+    /// All games (owned and installed) without filters and sorting. Built once per change
+    /// (a few hundred names copied on every frame were a waste on a weak PC).
+    fn row_map(&self, net: &NetState) -> std::sync::Arc<HashMap<u32, Row>> {
+        let key = self.row_map_key();
+        let mut c = self.row_cache.borrow_mut();
+        if c.0 != key {
+            c.0 = key;
+            c.1 = std::sync::Arc::new(self.build_row_map(net));
+            c.2 = u64::MAX;
+        }
+        c.1.clone()
+    }
+
+    fn build_row_map(&self, net: &NetState) -> HashMap<u32, Row> {
         let mut map: HashMap<u32, Row> = HashMap::new();
         for g in net.owned.iter() {
             map.insert(
@@ -1191,8 +1235,32 @@ impl LauncherApp {
     }
 
     /// Library rows with filters (search, "installed only", collection) and sorting.
-    fn rows(&self, net: &NetState) -> Vec<Row> {
+    fn rows(&self, net: &NetState) -> std::sync::Arc<Vec<Row>> {
+        use std::hash::{Hash, Hasher};
         let map = self.row_map(net);
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (self.row_map_key(), &self.filter, self.only_installed, &self.collection, &self.genre, self.settings.show_family).hash(&mut h);
+        (self.settings.sort as u8).hash(&mut h);
+        net.collections.as_ref().map(|c| c.iter().map(|x| (x.id.clone(), x.apps.len())).collect::<Vec<_>>()).hash(&mut h);
+        net.updates.as_ref().map(|u| u.len()).hash(&mut h);
+        if self.genre.is_some() {
+            net.store.lock().unwrap().apps.len().hash(&mut h);
+        }
+        let key = h.finish();
+        {
+            let c = self.row_cache.borrow();
+            if c.2 == key {
+                return c.3.clone();
+            }
+        }
+        let rows = std::sync::Arc::new(self.build_rows(&map, net));
+        let mut c = self.row_cache.borrow_mut();
+        c.2 = key;
+        c.3 = rows.clone();
+        rows
+    }
+
+    fn build_rows(&self, map: &HashMap<u32, Row>, net: &NetState) -> Vec<Row> {
         let colls = net.collections.as_deref().unwrap_or(&[]);
         let hidden: std::collections::HashSet<u32> = colls
             .iter()
@@ -1203,7 +1271,8 @@ impl LauncherApp {
         let filter = self.filter.to_lowercase();
         let has_update = |r: &Row| r.needs_update || net.updates.as_ref().is_some_and(|u| u.contains(&r.appid));
         let mut rows: Vec<Row> = map
-            .into_values()
+            .values()
+            .cloned()
             .filter(|r| !self.only_installed || r.installed)
             // Collection: when selected - only its games; "all games" - without "Hidden", as in Steam.
             // "Family library" - only family games; in "All games" - by the checkbox in settings.
@@ -1224,7 +1293,9 @@ impl LauncherApp {
                 st.apps.get(&r.appid).is_some_and(|a| a.tags.iter().take(8).any(|t| t.name.as_deref() == Some(g.as_str())))
             });
         }
-        let by_name = |a: &Row, b: &Row| a.name.to_lowercase().cmp(&b.name.to_lowercase());
+        // Names in lower case once per row (not two new strings on every comparison).
+        let lower: HashMap<u32, String> = rows.iter().map(|r| (r.appid, r.name.to_lowercase())).collect();
+        let by_name = |a: &Row, b: &Row| lower[&a.appid].cmp(&lower[&b.appid]);
         match self.settings.sort {
             // As in Steam: just by name (installed only - by the checkbox).
             settings::Sort::Name => rows.sort_by(by_name),
@@ -1881,7 +1952,7 @@ impl LauncherApp {
                         if dir == accounts::load().active {
                             let _ = self.tx.send(Cmd::Restore);
                         } else {
-                            self.switch_account(dir);
+                            self.switch_account(ui.ctx(), dir);
                         }
                     }
                     Some(None) => {
@@ -1898,6 +1969,15 @@ impl LauncherApp {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
                 ui.label(egui::RichText::new("VAPORUST").size(14.0).strong().color(theme::TEXT));
+                // The sections that work without a connection: from any other one (downloads, store)
+                // there must be a way back.
+                if nav::top_item(ui, self.view == View::Library, tr!("БИБЛИОТЕКА", "LIBRARY")).clicked() {
+                    self.view = View::Library;
+                    self.lib_page = None;
+                }
+                if nav::top_item(ui, self.view == View::Settings, tr!("НАСТРОЙКИ", "SETTINGS")).clicked() {
+                    self.view = View::Settings;
+                }
                 ui.add_space(8.0);
                 let (dot, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
                 ui.painter().circle_filled(dot.center(), 4.0, egui::Color32::from_rgb(230, 170, 60));
@@ -2202,7 +2282,7 @@ fn clipboard_image_file() -> Result<Option<std::path::PathBuf>, String> {
 
 /// One piece of a chat message: text, link, image, emoticon or sticker.
 /// Images load from Steam servers on first display (egui_extras), a spinner turns while loading.
-fn draw_seg(ui: &mut egui::Ui, seg: chatfmt::Seg, anims: &mut anim::Cache, who: &str) {
+pub(crate) fn draw_seg(ui: &mut egui::Ui, seg: chatfmt::Seg, anims: &mut anim::Cache, who: &str) {
     use chatfmt::Seg;
     match seg {
         Seg::Spoiler(t) => {
@@ -2247,7 +2327,15 @@ fn draw_seg(ui: &mut egui::Ui, seg: chatfmt::Seg, anims: &mut anim::Cache, who: 
             ui.label(t);
         }
         Seg::Link { url, label } => {
-            ui.hyperlink_to(label, &url).on_hover_text(&url);
+            // A label that pretends to be another site's address is replaced with the real address.
+            let shown = if chatfmt::misleading_label(&url, &label) { url.clone() } else { label };
+            let r = ui
+                .add(egui::Label::new(egui::RichText::new(shown).color(ui.visuals().hyperlink_color).underline()).sense(egui::Sense::click()))
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .on_hover_text(&url);
+            if r.clicked() {
+                chatwin::open_link(ui.ctx(), &url);
+            }
         }
         Seg::Emoticon(name) => {
             ui.add(egui::Image::new(chatfmt::emoticon_url(&name)).fit_to_exact_size(egui::vec2(30.0, 30.0)))
@@ -2268,6 +2356,19 @@ fn draw_seg(ui: &mut egui::Ui, seg: chatfmt::Seg, anims: &mut anim::Cache, who: 
                 .show(ui, &chatfmt::sticker_url(&name), egui::vec2(128.0, 128.0))
                 .on_hover_text(trf!("Стикер: {name}", "Sticker: {name}"));
         }
+        Seg::Image { url, .. } if !chatfmt::trusted_image(&url) && !chatwin::image_revealed(&url) => {
+            // Not a Steam site: do not load it by ourselves (the sender would see our IP address).
+            let host = chatfmt::host_of(&url);
+            ui.horizontal_wrapped(|ui| {
+                ui.label(egui::RichText::new(trf!("Картинка с сайта {host}", "Image from {host}")).color(egui::Color32::from_gray(160)));
+                if ui.small_button(tr!("Показать", "Show")).on_hover_text(tr!("Vaporust загрузит картинку с этого сайта: сайт увидит ваш IP-адрес", "Vaporust will load the image from this site: the site will see your IP address")).clicked() {
+                    chatwin::reveal_image(&url);
+                }
+                if ui.small_button(tr!("Открыть ссылку", "Open link")).clicked() {
+                    chatwin::open_link(ui.ctx(), &url);
+                }
+            });
+        }
         Seg::Image { url, size } => {
             // Size known - reserve the space right away so the conversation does not jump while loading.
             let max = egui::vec2(360.0, 280.0);
@@ -2286,7 +2387,7 @@ fn draw_seg(ui: &mut egui::Ui, seg: chatfmt::Seg, anims: &mut anim::Cache, who: 
                 .on_hover_cursor(egui::CursorIcon::PointingHand)
                 .on_hover_text(tr!("Открыть в браузере в полном размере", "Open full size in the browser"));
             if resp.clicked() {
-                ui.ctx().open_url(egui::OpenUrl::new_tab(&url));
+                chatwin::open_link(ui.ctx(), &url);
             }
         }
     }
@@ -2339,6 +2440,11 @@ impl eframe::App for LauncherApp {
         false
     }
 
+    /// Vaporust closes: the launch thread is cut off, so whatever it froze is unfrozen here.
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        local::thaw_leftovers();
+    }
+
     /// eframe calls this on exit and periodically (every 30 s).
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         self.settings.window = if self.settings.remember_window {
@@ -2370,6 +2476,7 @@ impl eframe::App for LauncherApp {
         crate::exp::set(self.settings.experimental);
         crate::lite::set(self.settings.light_mode);
         crate::lang::set_en(crate::lang::resolve(&self.settings.language));
+        self.language_tick();
         imgload::ANIMATIONS.store(self.settings.animations, Ordering::Relaxed);
         imgload::ECONOMY.store(self.settings.economy, Ordering::Relaxed);
         imgload::budget_tick(ctx);
@@ -2380,6 +2487,7 @@ impl eframe::App for LauncherApp {
         if gen != self.net_gen || self.net_snap_at.elapsed() >= std::time::Duration::from_secs(2) {
             self.net_snap = self.net.lock().unwrap().clone();
             self.net_gen = gen;
+            self.snap_count += 1;
             self.net_snap_at = std::time::Instant::now();
         }
         let mut net = std::mem::take(&mut self.net_snap);
@@ -2401,7 +2509,8 @@ impl eframe::App for LauncherApp {
         if !self.window_placed && notify::main_hwnd() != 0 {
             self.window_placed = true;
             if let Some(p) = self.settings.window.filter(|_| self.settings.remember_window) {
-                if winpos::apply(p) {
+                // Started into the tray (--tray): not maximized, or eframe would unfold it on the screen.
+                if winpos::apply(p) && !self.start_hidden {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
                 }
             }
@@ -2495,12 +2604,6 @@ impl eframe::App for LauncherApp {
             ctx.request_repaint_after(std::time::Duration::from_millis(500));
         }
         if !notify::in_tray() {
-            let title = if unread > 0 {
-                format!("({unread}) Vaporust {}", env!("CARGO_PKG_VERSION"))
-            } else {
-                concat!("Vaporust ", env!("CARGO_PKG_VERSION")).to_string()
-            };
-            let _ = &title; // the window name is on the taskbar (ViewportCommand::Title above)
             // As in Steam: there is no separate title bar - window buttons are on the right of the section row,
             // the window is dragged by the empty space of that row.
             winframe::frame_only(ctx);
@@ -2600,7 +2703,7 @@ impl eframe::App for LauncherApp {
             // Library as in Steam: the game list with search and filters on the left, "Home" on the right
             // (grid or list) or the selected game's page.
             let launching = self.launching.load(Ordering::Relaxed) || self.closing.load(Ordering::Relaxed);
-            let rows = if self.view == View::Library { self.rows(&net) } else { Vec::new() };
+            let rows = if self.view == View::Library { self.rows(&net) } else { Default::default() };
             let queued: std::collections::HashSet<u32> =
                 self.settings.downloads.iter().filter(|q| !q.paused).map(|q| q.appid).collect();
             let paused: std::collections::HashSet<u32> =
@@ -2650,7 +2753,7 @@ impl eframe::App for LauncherApp {
                     ui.push_id(page_key, |ui| self.section_view(ui, &net));
                     return;
                 }
-                let page_row = self.lib_page.and_then(|id| self.row_map(&net).remove(&id));
+                let page_row = self.lib_page.and_then(|id| self.row_map(&net).get(&id).cloned());
                 // For the "played in two weeks" line on the game page - load friends activity once.
                 if page_row.is_some() && !crate::lite::on() && !self.activity_ui.asked && net.account.is_some() && !net.roster.read().unwrap().is_empty() {
                     self.activity_ui.asked = true;
@@ -2798,7 +2901,7 @@ impl eframe::App for LauncherApp {
                     Some(libview::Action::Import(appid, name)) => self.import_game(appid, name),
                     Some(libview::Action::Stop(appid)) => self.stop_running(appid, false),
                     Some(libview::Action::Pause(appid)) => {
-                        if let Some(inst) = net.install.as_ref().filter(|i| i.result.is_none() && i.appid == appid) {
+                        if let Some(inst) = net.install.as_ref().filter(|i| i.result.is_none() && i.appid == appid && i.download) {
                             inst.abort.store(true, Ordering::Relaxed);
                             self.settings.downloads.retain(|q| q.appid != appid);
                             self.settings.downloads.insert(0, settings::QueueItem { appid, name: inst.name.clone(), paused: true });
@@ -2849,7 +2952,8 @@ impl eframe::App for LauncherApp {
         // Startup section (the "Open on startup" setting).
         if !self.start_applied {
             self.start_applied = true;
-            if self.settings.start_view == 1 {
+            // The store needs a login: in the no-login mode the library opens.
+            if self.settings.start_view == 1 && !self.settings.local_mode {
                 self.open_store(None, false);
             }
         }
@@ -2865,6 +2969,10 @@ impl eframe::App for LauncherApp {
         self.shot_comments_window(ctx, &net);
         self.workshop_window(ctx, &net);
         chatwin::show(ctx, &self.chat, &self.net, &self.tx);
+        // "Link to another site" from a group chat (the friend chat window draws its own).
+        if !notify::chat_open() {
+            chatwin::link_warning(ctx);
+        }
         stats::frame(frame_start);
         self.net_snap = net;
         self.net_gen = net_gen;
@@ -2876,6 +2984,8 @@ fn main() -> eframe::Result<()> {
     if gamemisc::hand_over_run() {
         return Ok(());
     }
+    // After a restart (account switch, update): the old window first saves its settings.
+    portable::wait_for_previous();
     gamemisc::mark_running();
     // Portable mode (portable.txt next to the exe): data goes into the VaporustData folder.
     let persistence_path = portable::init();

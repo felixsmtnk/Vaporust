@@ -57,6 +57,8 @@ pub struct LibInfo {
     /// Games by size, descending.
     pub games: Vec<GameSize>,
     pub leftovers: Vec<Leftover>,
+    /// Some appmanifest could not be read: leftovers are not searched (a real game could look like one).
+    pub unsure: bool,
 }
 
 /// Size of the whole folder.
@@ -92,15 +94,21 @@ pub fn disk_space(_dir: &Path) -> (Option<u64>, Option<u64>) {
 }
 
 /// Library appmanifest records (and those hidden by Vaporust): appid -> (name, installdir, StateFlags, SizeOnDisk).
-fn manifests(lib: &Path) -> HashMap<u32, (String, String, u32, u64)> {
+/// Manifests of a library and whether some of them could not be read (busy file, odd encoding):
+/// then the folder of that game would look like a "leftover", so leftovers are not searched.
+fn manifests(lib: &Path) -> (HashMap<u32, (String, String, u32, u64)>, bool) {
     let mut out = HashMap::new();
-    let Ok(rd) = fs::read_dir(lib.join("steamapps")) else { return out };
+    let mut unreadable = false;
+    let Ok(rd) = fs::read_dir(lib.join("steamapps")) else { return (out, false) };
     for e in rd.flatten() {
         let f = e.file_name().to_string_lossy().to_string();
         if !(f.starts_with("appmanifest_") && (f.ends_with(".acf") || f.ends_with(local::STASH_EXT))) {
             continue;
         }
-        let Ok(text) = fs::read_to_string(e.path()) else { continue };
+        let Ok(text) = fs::read_to_string(e.path()) else {
+            unreadable = true;
+            continue;
+        };
         let (mut appid, mut name, mut dir, mut flags, mut size) = (None, String::new(), String::new(), 0, 0);
         for (k, v) in text.lines().filter_map(local::kv_pub) {
             match k.as_str() {
@@ -112,11 +120,14 @@ fn manifests(lib: &Path) -> HashMap<u32, (String, String, u32, u64)> {
                 _ => {}
             }
         }
-        if let Some(a) = appid {
-            out.insert(a, (name, dir, flags, size));
+        match appid {
+            Some(a) => {
+                out.insert(a, (name, dir, flags, size));
+            }
+            None => unreadable = true,
         }
     }
-    out
+    (out, unreadable)
 }
 
 /// Steam folders in common that do not belong to games directly - not touched.
@@ -126,7 +137,10 @@ const KEEP: [&str; 2] = ["steamworks shared", "steam controller configs"];
 /// (their unfinished downloads are not leftovers).
 pub fn scan(steam_dir: &Path, busy: &HashSet<u32>) -> Vec<LibInfo> {
     let libs = local::library_dirs(steam_dir);
-    let all: Vec<HashMap<u32, (String, String, u32, u64)>> = libs.iter().map(|l| manifests(l)).collect();
+    let read: Vec<_> = libs.iter().map(|l| manifests(l)).collect();
+    // Some manifest unreadable - no leftovers at all: deleting a real game is worse than missing junk.
+    let unsure = read.iter().any(|(_, u)| *u);
+    let all: Vec<HashMap<u32, (String, String, u32, u64)>> = read.into_iter().map(|(m, _)| m).collect();
     let installed: HashSet<u32> = all.iter().flat_map(|m| m.keys().copied()).collect();
     let mut out = Vec::new();
     for (lib, mans) in libs.iter().zip(&all) {
@@ -142,6 +156,10 @@ pub fn scan(steam_dir: &Path, busy: &HashSet<u32>) -> Vec<LibInfo> {
             .collect();
         games.sort_by(|a, b| b.size.cmp(&a.size));
         let mut leftovers = Vec::new();
+        if unsure {
+            out.push(LibInfo { path: lib.clone(), free, total, games, leftovers, unsure: true });
+            continue;
+        }
         // common folders without an appmanifest.
         let dirs: HashSet<String> = mans.values().map(|(_, d, _, _)| d.to_lowercase()).collect();
         if let Ok(rd) = fs::read_dir(apps.join("common")) {
@@ -191,7 +209,7 @@ pub fn scan(steam_dir: &Path, busy: &HashSet<u32>) -> Vec<LibInfo> {
         // Empty caches (0 bytes) are not shown - nothing to clean there.
         leftovers.retain(|l| l.size > 0 || l.kind == Kind::Folder);
         leftovers.sort_by(|a, b| b.size.cmp(&a.size));
-        out.push(LibInfo { path: lib.clone(), free, total, games, leftovers });
+        out.push(LibInfo { path: lib.clone(), free, total, games, leftovers, unsure: false });
     }
     out
 }
@@ -201,7 +219,7 @@ pub fn scan(steam_dir: &Path, busy: &HashSet<u32>) -> Vec<LibInfo> {
 pub fn to_recycle_bin(paths: &[&Path]) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::UI::Shell::{
-        SHFileOperationW, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, FO_DELETE, SHFILEOPSTRUCTW,
+        SHFileOperationW, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, FOF_WANTNUKEWARNING, FO_DELETE, SHFILEOPSTRUCTW,
     };
     // A list of paths separated by \0, with one more \0 at the end.
     let mut from: Vec<u16> = Vec::new();
@@ -213,7 +231,8 @@ pub fn to_recycle_bin(paths: &[&Path]) -> Result<(), String> {
     let mut op: SHFILEOPSTRUCTW = unsafe { std::mem::zeroed() };
     op.wFunc = FO_DELETE;
     op.pFrom = from.as_ptr();
-    op.fFlags = (FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT) as u16;
+    // WANTNUKEWARNING: a folder too large for the Recycle Bin would otherwise be deleted for good without a question.
+    op.fFlags = (FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT | FOF_WANTNUKEWARNING) as u16;
     let r = unsafe { SHFileOperationW(&mut op) };
     if r != 0 || op.fAnyOperationsAborted != 0 {
         return Err(trf!("Windows не удалил (код {r}).", "Windows did not delete it (code {r})."));
@@ -336,6 +355,13 @@ impl LauncherApp {
                                 w.show_all.insert(lib.path.clone());
                             }
                         }
+                    }
+                    if lib.unsure {
+                        ui.add_space(8.0);
+                        ui.weak(tr!(
+                            "Остатки не искались: какой-то файл appmanifest в этой библиотеке не прочитался (занят Steam?). Закройте Steam и откройте раздел снова.",
+                            "Leftovers were not searched: some appmanifest file in this library could not be read (busy in Steam?). Close Steam and open the section again."
+                        ));
                     }
                     // Leftovers of uninstalled games.
                     if !lib.leftovers.is_empty() {

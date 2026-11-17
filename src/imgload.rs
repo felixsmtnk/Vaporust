@@ -131,6 +131,7 @@ fn pump(st: &Arc<Mutex<HttpState>>, ctx: &egui::Context) {
         let (st2, ctx2) = (st.clone(), ctx.clone());
         ehttp::fetch(ehttp::Request::get(fetch), move |r| {
             let entry = match r {
+                Ok(r) if r.ok && r.bytes.len() > MAX_DOWNLOAD => Http::Failed("file too large".into()),
                 Ok(r) if r.ok => Http::Ready(r.bytes.clone().into(), r.content_type().map(str::to_owned)),
                 Ok(r) => Http::Failed(format!("{} {}", r.status, r.status_text)),
                 Err(e) => Http::Failed(e),
@@ -186,7 +187,11 @@ impl BytesLoader for HttpLoader {
 
     fn forget(&self, uri: &str) {
         let mut s = self.st.lock();
-        s.cache.remove(uri);
+        // A download in progress is not dropped: it would start again on the next frame for the same
+        // address. When it finishes, the next cleanup takes it.
+        if !matches!(s.cache.get(uri), Some(Http::Running)) {
+            s.cache.remove(uri);
+        }
         s.queue.retain(|u| u != uri);
     }
 
@@ -295,9 +300,33 @@ pub fn decode_small(bytes: &[u8]) -> Result<ColorImage, String> {
     decode_max(bytes, max_side())
 }
 
+/// Decode with limits: a "decompression bomb" (a tiny file that unpacks into
+/// gigabytes) is refused instead of filling the memory.
+pub(crate) fn decode_limited(bytes: &[u8]) -> Result<image::DynamicImage, String> {
+    let mut r = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().map_err(|e| e.to_string())?;
+    let mut lim = image::Limits::default();
+    lim.max_image_width = Some(8192);
+    lim.max_image_height = Some(8192);
+    lim.max_alloc = Some(256 * 1024 * 1024);
+    r.limits(lim);
+    r.decode().map_err(|e| e.to_string())
+}
+
+/// A downloaded file larger than this is not decoded (a chat image is a few MB at most).
+const MAX_DOWNLOAD: usize = 25 * 1024 * 1024;
+
+/// A file:// address that points to another computer (\\server\share): Windows would
+/// connect to that server and send it the hash of the account password. Never loaded.
+pub(crate) fn is_network_file(uri: &str) -> bool {
+    let Some(rest) = uri.strip_prefix("file:") else { return false };
+    let p = rest.trim_start_matches('/');
+    let slashes = rest.len() - p.len();
+    rest.starts_with("\\") || rest.starts_with("//\\") || p.starts_with("\\") || (slashes >= 4) || (slashes == 2 && !p.get(1..2).is_some_and(|c| c == ":"))
+}
+
 /// Decode and downscale to `side` on the larger side.
 fn decode_max(bytes: &[u8], side: u32) -> Result<ColorImage, String> {
-    let img = image::load_from_memory(bytes).map_err(|e| e.to_string())?;
+    let img = decode_limited(bytes)?;
     let img = if img.width().max(img.height()) > side {
         img.resize(side, side, image::imageops::FilterType::Triangle)
     } else {
@@ -313,6 +342,10 @@ impl ImageLoader for SmallLoader {
     }
 
     fn load(&self, ctx: &egui::Context, uri: &str, _: SizeHint) -> ImageLoadResult {
+        if is_network_file(uri) {
+            // An error (not NotSupported): no other loader may try it either.
+            return Err(LoadError::Loading("network paths are not loaded".into()));
+        }
         if !(uri.starts_with("http://") || uri.starts_with("https://") || uri.starts_with("file://")) || is_frame_uri(uri) {
             return Err(LoadError::NotSupported);
         }
@@ -487,5 +520,19 @@ pub fn forget_large(ctx: &egui::Context) {
     drop.dedup();
     for uri in drop {
         ctx.forget_image(&uri);
+    }
+}
+
+#[cfg(test)]
+mod network_path_tests {
+    #[test]
+    fn network_file_paths() {
+        assert!(super::is_network_file("file://server/share/a.png"));
+        assert!(super::is_network_file("file:////server/share/a.png"));
+        assert!(super::is_network_file(r"file://\\server\share\a.png"));
+        assert!(super::is_network_file(r"file:\\server\share\a.png"));
+        assert!(!super::is_network_file("file:///C:/Users/a.png"));
+        assert!(!super::is_network_file(r"file://C:\Users\a.png"));
+        assert!(!super::is_network_file("https://x/a.png"));
     }
 }

@@ -168,6 +168,9 @@ impl LauncherApp {
                 "Installed games only, launched through Steam: no Steam password needed. You can log in later."
             ));
         if r.clicked() {
+            // A QR login may be waiting in the background: stop it, or it would show a new code
+            // and then a timeout error over the no-login mode.
+            let _ = self.tx.send(Cmd::CancelQr);
             self.settings.local_mode = true;
             let mut s = self.net.lock().unwrap();
             s.need_login = false;

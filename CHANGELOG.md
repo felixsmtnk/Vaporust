@@ -5,6 +5,70 @@
 What went into each released version, newest first. Plans for the future are in
 [ROADMAP.md](ROADMAP.md), archives and full release notes are on the [Releases](../../releases) page.
 
+## ✅ 0.8.5-alpha: fixes from code reviews
+
+*Released 2026-11-17.*
+
+Fixes from two code reviews (Claude Fable and Gemini).
+
+**Safety**
+- Chat loads images by itself only from Steam sites (over https); an image from another site is a
+  link with a "Show" button, so the sender does not learn your IP address. Network paths
+  (`file://\\server\...`) are never loaded; very large files and "decompression bombs" are refused.
+- A link whose text pretends to be another site's address shows the real address; a link to a
+  non-Steam site asks first ("Do not enter your Steam login and password there").
+- Restoring a save backup writes only to this game's save paths (an archive from the internet can
+  no longer put a file anywhere); a backup made under another Windows user name still fits.
+- Deleting leftovers warns when a folder does not fit into the Recycle Bin; leftovers are not
+  searched if some game file of the library could not be read.
+- Windows programs (cmd, Explorer, PowerShell, Notepad) are started by their full path; the exe from
+  Steam's launch table cannot point outside the game folder; the log hides user folder names in any
+  form and the account number of the Steam folder.
+
+**Steam and files**
+- Closing Vaporust (or a crash) during a game no longer leaves steamwebhelper frozen: the frozen
+  processes are written to a file and unfrozen on exit and on the next start.
+- New "Softly" freezing mode (the way NoSteamWebHelper-Reloaded does it): low priority and Windows
+  efficiency mode instead of suspending, the Steam overlay keeps working.
+- Steam is not killed while it is busy: updating itself at start (up to 15 minutes), syncing the
+  cloud when closing. If a game does not appear within 120 s, the Steam window is shown instead of
+  closing Steam.
+- "Close forcefully" can no longer hit an unrelated process that got the number of a closed one;
+  only processes from the Steam folder are finished off.
+- Steam files with empty values ("BetaKey" "") and quotes inside are read correctly; the game file
+  and the account list are written via a temporary file.
+- A game launched without Steam can be released with "Stop tracking the game".
+- A leftover in the temporary download folder no longer blocks continuing a download (it is moved
+  aside).
+- Backups and downloaded screenshots go to the real "Documents" and "Pictures" (also when moved to
+  OneDrive or another disk).
+
+**Fixes**
+- Account switching finds the account in Steam by its login, not by the display name; switching
+  from the "Sign in" menu closes the old window.
+- "Quick sale" no longer lists an item above the cheapest listing in currencies like the hryvnia.
+- Store reviews no longer re-request a failed page endlessly.
+- Without a connection the top bar keeps "Library" and "Settings".
+- Pausing a language change, a rollback or a check no longer turns it into a plain install.
+- Chat: earlier messages stay after sending a sticker or an image; an echo of your own message is
+  not added twice; a quote of a name with a space works; "Copy text" keeps spoilers and links; a
+  closed tab does not come back as a draft.
+- Group chats: the right default channel, images and stickers instead of plain text.
+- Inventory: game items are shown one by one (different wear, trade lock), Steam items are stacked.
+- Properties: "public" and an empty beta are the same branch; the language "Update now" button
+  shows when Steam did not write the installed language; launch options and shortcuts go to the
+  Steam account you are signed in with.
+- Tray: a minimized window comes back on the screen; `--tray` with a maximized window stays in the
+  tray.
+- The window buttons in the corner are no longer taken by the resize edge.
+- English interface: reviews, guides, tags and notifications in English; Steam texts load again
+  after a language switch.
+
+**Speed**
+- The library list is built only when something changes (it was rebuilt several times per frame);
+  chat messages are parsed once; the size of unfinished games is counted in the background; names
+  of a Workshop collection come in one request per 100 mods.
+
 ## ✅ 0.8.4-alpha: one style
 
 *Released 2026-11-16.* The library, settings and windows in the style of the new sign-in screen.
@@ -237,6 +301,15 @@ profile editing, several accounts, chat tabs.
 - Several accounts and quick switching; a first-run wizard.
 - Interface scale 75-200%; "My licenses", purchase and wallet history.
 - Download progress on the tray icon.
+
+**Known issues**
+- An unfinished game started while Steam was closed sometimes does not continue while Steam is
+  open - close Steam and press "CONTINUE".
+- An open Steam does not see a game downloaded while it was running until it restarts (that is how
+  Steam itself works).
+- Long names in the "Steam Family" table are cut off.
+- A black bar at the top of the window on a laptop with Intel graphics. Workaround: "Settings -
+  Window - Window frame: Standard Windows".
 
 ## ✅ 0.5.1-alpha: fixes after testing
 

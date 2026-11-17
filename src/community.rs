@@ -47,11 +47,7 @@ pub struct Guide {
     pub views: u64,
 }
 
-fn between<'a>(s: &'a str, a: &str, b: &str) -> Option<&'a str> {
-    let i = s.find(a)? + a.len();
-    let j = s[i..].find(b)? + i;
-    Some(&s[i..j])
-}
+use crate::util::between;
 
 fn text(s: &str) -> String {
     crate::store::plain_text(s).split_whitespace().collect::<Vec<_>>().join(" ")
@@ -194,7 +190,7 @@ pub async fn load_guides(client: &SteamClient, appid: u32, search: &str) -> Resu
         ("return_short_description", "true".to_string()),
         ("return_vote_data", "true".to_string()),
         ("return_previews", "true".to_string()),
-        ("language", "8".to_string()),
+        ("language", if crate::lang::en() { "0" } else { "8" }.to_string()), // 0 English, 8 Russian
     ];
     if search.trim().is_empty() {
         p.push(("query_type", "0".to_string()));

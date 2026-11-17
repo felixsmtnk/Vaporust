@@ -44,19 +44,68 @@ pub fn thumbnail_url(url: &str) -> String {
     }
 }
 
+/// Host of an http(s) URL in lower case ("" for anything else).
+pub fn host_of(url: &str) -> String {
+    let u = url.trim();
+    let rest = match u.split_once("://") {
+        Some((scheme, rest)) if scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https") => rest,
+        _ => return String::new(),
+    };
+    let auth = rest.split(['/', '?', '#']).next().unwrap_or("");
+    // "user@host:port" -> "host"
+    let host = auth.rsplit('@').next().unwrap_or("");
+    let host = host.split(':').next().unwrap_or("");
+    host.trim_end_matches('.').to_ascii_lowercase()
+}
+
+/// Sites that belong to Valve (Steam store, community, CDN).
+const STEAM_HOSTS: &[&str] = &[
+    "steampowered.com",
+    "steamcommunity.com",
+    "steamstatic.com",
+    "steamusercontent.com",
+    "steamcontent.com",
+    "steamchina.com",
+    "steam-chat.com",
+    "valvesoftware.com",
+    "steamgames.com",
+    "steamserver.net",
+];
+
+/// A Valve site (the domain itself or a subdomain).
+pub fn is_steam_host(host: &str) -> bool {
+    STEAM_HOSTS.iter().any(|d| host == *d || host.ends_with(&format!(".{d}")))
+        || host == "steamuserimages-a.akamaihd.net"
+        || host == "steamcdn-a.akamaihd.net"
+}
+
+/// An image from a chat message may be loaded by itself only from a Steam site over https:
+/// a request to any other server would show the sender our IP address and the time we read it.
+pub fn trusted_image(url: &str) -> bool {
+    url.trim().get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://")) && is_steam_host(&host_of(url))
+}
+
+/// The label of a link looks like an address of another site than the real one
+/// ("[url=https://evil.example]https://steamcommunity.com/...[/url]").
+pub fn misleading_label(url: &str, label: &str) -> bool {
+    let l = label.trim();
+    let looks = l.contains("://") || l.to_ascii_lowercase().starts_with("www.") || {
+        let first = l.split(['/', ' ']).next().unwrap_or("");
+        first.contains('.') && first.rsplit('.').next().is_some_and(|tld| tld.len() >= 2 && tld.chars().all(|c| c.is_ascii_alphabetic()))
+    };
+    if !looks {
+        return false;
+    }
+    let lh = if l.contains("://") { host_of(l) } else { host_of(&format!("https://{l}")) };
+    lh != host_of(url)
+}
+
 /// Sticker image URL.
 pub fn sticker_url(name: &str) -> String {
     format!("{CDN}/sticker/{}", urlencode(name))
 }
 
-fn urlencode(s: &str) -> String {
-    s.bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' => (b as char).to_string(),
-            _ => format!("%{b:02X}"),
-        })
-        .collect()
-}
+use crate::util::urlencode;
 
 /// Attribute value like key="value" or key=value from the tag contents.
 fn attr(tag: &str, key: &str) -> Option<String> {
@@ -353,6 +402,29 @@ mod tests {
     }
 }
 
+/// For "Copy text": the real text of the message - spoilers open, links and images as addresses,
+/// emoticons as :name:.
+pub fn copy_text(msg: &str) -> String {
+    let mut out = String::new();
+    for seg in parse(msg) {
+        let piece = match seg {
+            Seg::Text(t) | Seg::Spoiler(t) | Seg::Code(t) => t,
+            Seg::Link { url, label } if label == url => url,
+            Seg::Link { url, label } => format!("{label} ({url})"),
+            Seg::Image { url, .. } => url,
+            Seg::Emoticon(n) => format!(":{n}:"),
+            Seg::Sticker(n) => format!("[{n}]"),
+            Seg::RoomEffect(n) => format!("[{n}]"),
+            Seg::Quote { author, text } => match author {
+                Some(a) => format!("{a}: \"{text}\"\n"),
+                None => format!("\"{text}\"\n"),
+            },
+            Seg::Me(t) => format!("* {t}"),
+        };
+        out.push_str(&piece);
+    }
+    out.trim().to_string()
+}
 
 /// For a popup notification: message text and image (first emoticon or sticker).
 pub fn preview(msg: &str) -> (String, Option<String>) {
@@ -423,5 +495,42 @@ mod format_tags_tests {
         assert!(s.iter().any(|x| matches!(x, Seg::Code(t) if t == "let x = 1;")));
         assert!(s.iter().any(|x| matches!(x, Seg::Quote { author: Some(a), text } if a == "Аня" && text == "привет")));
         assert!(matches!(parse("/me машет рукой").as_slice(), [Seg::Me(t)] if t == "машет рукой"));
+    }
+}
+
+#[cfg(test)]
+mod safety_tests {
+    use super::*;
+
+    #[test]
+    fn images_only_from_steam() {
+        assert!(trusted_image("https://images.steamusercontent.com/ugc/123/ABC/"));
+        assert!(trusted_image("https://community.fastly.steamstatic.com/economy/emoticonlarge/x"));
+        assert!(trusted_image("https://steamuserimages-a.akamaihd.net/ugc/1/2/"));
+        assert!(!trusted_image("http://images.steamusercontent.com/ugc/1/")); // not https
+        assert!(!trusted_image("https://evil.example/a.png"));
+        assert!(!trusted_image("https://steamcommunity.com.evil.example/a.png"));
+        assert!(!trusted_image("https://notsteamcommunity.com/a.png"));
+        assert!(!trusted_image("https://user@evil.example/steamcommunity.com/a.png"));
+        assert!(!trusted_image(r"file://\\server\share\a.png"));
+        assert!(!trusted_image("file:///C:/a.png"));
+        assert_eq!(host_of("https://User:pw@Store.SteamPowered.com:443/app/1"), "store.steampowered.com");
+    }
+
+    #[test]
+    fn fake_link_labels() {
+        // A label that pretends to be a Steam address while the link leads elsewhere.
+        assert!(misleading_label("https://steamcornmunity.example/tradeoffer/1", "https://steamcommunity.com/tradeoffer/new/"));
+        assert!(misleading_label("https://evil.example/", "steamcommunity.com/id/me"));
+        // An honest label, or a plain word.
+        assert!(!misleading_label("https://steamcommunity.com/id/me", "https://steamcommunity.com/id/me"));
+        assert!(!misleading_label("https://evil.example/", "мой сайт"));
+        assert!(!misleading_label("https://evil.example/", "click here"));
+    }
+
+    #[test]
+    fn copy_keeps_hidden_parts() {
+        let t = copy_text("a [spoiler]тайна[/spoiler] [url=https://x.example/]сайт[/url] [img src=https://images.steamusercontent.com/ugc/1/][/img]");
+        assert!(t.contains("тайна") && t.contains("сайт (https://x.example/)") && t.contains("https://images.steamusercontent.com/ugc/1/"), "{t}");
     }
 }

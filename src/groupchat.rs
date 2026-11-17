@@ -17,6 +17,8 @@ pub struct GroupsUi {
     pub polled: Option<Instant>,
     /// Whose names were already requested.
     pub asked_names: std::collections::HashSet<u64>,
+    /// Animated stickers of the open channel.
+    pub anims: crate::anim::Cache,
 }
 
 impl LauncherApp {
@@ -69,7 +71,9 @@ impl LauncherApp {
         }
         // By default - the first channel of the first group.
         if self.groups_ui.current.is_none() {
-            self.groups_ui.current = groups.first().map(|g| (g.group_id, g.default_chat.max(g.channels.first().map_or(0, |c| c.chat_id))));
+            self.groups_ui.current = groups.first().map(|g| (g.group_id, // The group's default channel if it is in the list, otherwise the first one (comparing
+                // numbers with max chose just the larger number).
+                if g.channels.iter().any(|c| c.chat_id == g.default_chat) { g.default_chat } else { g.channels.first().map_or(g.default_chat, |c| c.chat_id) }));
         }
         let (gid, cid) = self.groups_ui.current.unwrap();
         // Refresh the open channel every 4 s (and right away on selection).
@@ -169,11 +173,13 @@ impl LauncherApp {
                     if m.deleted {
                         continue;
                     }
-                    let (text, _img) = crate::chatfmt::preview(&m.text);
+                    // The same pieces as in a friend chat: images, stickers, spoilers, links.
                     ui.horizontal_wrapped(|ui| {
                         ui.weak(crate::fmt_day(m.time as u64));
                         ui.colored_label(egui::Color32::from_rgb(120, 170, 230), format!("{name}:"));
-                        ui.add(egui::Label::new(text).wrap());
+                        for seg in crate::chatfmt::parse(&m.text) {
+                            crate::draw_seg(ui, seg, &mut self.groups_ui.anims, name);
+                        }
                     });
                 }
             });

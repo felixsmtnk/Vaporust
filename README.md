@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="../../releases/tag/v0.8.4-alpha"><b>Download for Windows</b></a> ·
+  <a href="../../releases/tag/v0.8.5-alpha"><b>Download for Windows</b></a> ·
   <a href="#password-and-security">Password and security</a> ·
   <a href="#features">Features</a> ·
   <a href="#faq">FAQ</a> ·
@@ -114,7 +114,7 @@ The name comes from *vapor* + *Rust*.
 
 1. You need **Windows 10 or 11** and an installed **Steam** that you have logged in to at least
    once with "Remember password" checked.
-2. Download `Vaporust-0.8.4-alpha-windows-x64.zip` from the [latest release](../../releases/tag/v0.8.4-alpha)
+2. Download `Vaporust-0.8.5-alpha-windows-x64.zip` from the [latest release](../../releases/tag/v0.8.5-alpha)
    page (for 32-bit Windows - `windows-x86`).
 3. Unpack it into any folder and run `vaporust.exe`. No installation needed.
 4. Log in to your Steam account: password and Steam Guard code, or a QR code from the Steam app.
@@ -192,9 +192,20 @@ inject into game processes. The decision is yours - see the [disclaimer](#discla
 <details>
 <summary><b>Does it work on 32-bit Windows, Windows 7, Linux, macOS?</b></summary>
 
-32-bit Windows - yes, there is a `windows-x86` archive. But Steam itself has not supported it
-since January 1, 2026, so the store, friends, chat, installing games and launching games without
-Steam work reliably there. Windows 7, Linux and macOS - no. On Linux try [Aurelia](https://github.com/Drackrath/Aurelia).
+32-bit Windows - yes, there is a `windows-x86` archive. Windows 7 - not yet: Vaporust is built for
+Windows 10 and newer (support for Windows 7 is in the [roadmap](ROADMAP.md)). Linux and macOS - no;
+on Linux try [Aurelia](https://github.com/Drackrath/Aurelia).
+
+What works where. Steam itself stopped supporting Windows 7 in 2024 and 32-bit Windows on
+January 1, 2026, so launching through Steam there depends on an old Steam client that Valve may
+switch off at any time.
+
+| | Windows 10/11, 64-bit | Windows 10, 32-bit | Windows 7 |
+|---|---|---|---|
+| Library, store, friends, chat | yes | yes | not yet |
+| Installing and updating games | yes | yes | not yet |
+| Launching through Steam | yes | only with an old Steam client | only with an old Steam client |
+| Launching without Steam (games without Steam protection) | yes | yes | not yet |
 </details>
 
 <details>

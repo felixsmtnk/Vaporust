@@ -14,11 +14,7 @@ pub struct License {
     pub method: String,
 }
 
-fn between<'a>(s: &'a str, a: &str, b: &str) -> Option<&'a str> {
-    let i = s.find(a)? + a.len();
-    let j = s[i..].find(b)? + i;
-    Some(&s[i..j])
-}
+use crate::util::between;
 
 fn clean(s: &str) -> String {
     let mut out = String::new();

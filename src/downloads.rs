@@ -87,13 +87,17 @@ fn sample(net: &NetState, queue: &[settings::QueueItem]) {
     // a downloaded game is announced by notices.rs.
     if !i.download {
         // The operation name contains the action kind ("Удаление: игра"): only the game goes into the notification.
-        let name = [tr!("Смена языка: ", "Language change: "), tr!("Обновление: ", "Update: "), tr!("Проверка файлов: ", "Verifying files: "), tr!("Перенос: ", "Moving: "), tr!("Добавление: ", "Adding: "), tr!("Откат версии: ", "Version rollback: "), tr!("Удаление: ", "Uninstalling: ")]
+        // Both languages: the interface language may have changed while the operation ran.
+        let name = [
+            "Смена языка: ", "Language change: ", "Обновление: ", "Update: ", "Проверка файлов: ", "Verifying files: ",
+            "Перенос: ", "Moving: ", "Добавление: ", "Adding: ", "Откат версии: ", "Version rollback: ", "Удаление: ", "Uninstalling: ",
+        ]
             .iter()
             .find_map(|p| i.name.strip_prefix(p))
             .unwrap_or(&i.name);
         let body = match &result {
-            Ok(t) => format!("«{name}» {t}"),
-            Err(e) => format!("«{name}»: {e}"),
+            Ok(t) => trf!("«{name}» {t}", "\"{name}\" {t}"),
+            Err(e) => trf!("«{name}»: {e}", "\"{name}\": {e}"),
         };
         crate::popup::push(crate::popup::Kind::Game(i.appid), "Vaporust", body);
     }
@@ -530,7 +534,9 @@ impl LauncherApp {
                 Act::Stop(pause) => {
                     if let Some(inst) = net.install.as_ref().filter(|i| i.result.is_none()) {
                         inst.abort.store(true, Ordering::Relaxed);
-                        if pause {
+                        // Only a download goes back to the queue: a language switch, a rollback or a check would
+                        // come back from the queue as a plain install of the latest version.
+                        if pause && inst.download {
                             self.settings.downloads.retain(|q| q.appid != inst.appid);
                             self.settings
                                 .downloads
@@ -611,18 +617,32 @@ fn menu_common(ui: &mut egui::Ui, appid: u32, name: &str, on_disk: bool, acts: &
 }
 
 /// How much of an unfinished game is downloaded (folder size; recomputed at most every 10 s).
+/// Counted in a background thread: walking a large game folder on a hard disk took long enough
+/// to freeze the window. Until the first count is ready - 0.
 fn partial_size(g: &local::Game) -> u64 {
-    static CACHE: Mutex<Vec<(u32, u64, std::time::Instant)>> = Mutex::new(Vec::new());
-    let mut c = CACHE.lock().unwrap();
-    if let Some(e) = c.iter().find(|e| e.0 == g.appid) {
-        if e.2.elapsed() < std::time::Duration::from_secs(10) {
-            return e.1;
+    // appid -> (size, when counted, counting now)
+    static CACHE: Mutex<Vec<(u32, u64, Option<std::time::Instant>, bool)>> = Mutex::new(Vec::new());
+    let mut c = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    let i = match c.iter().position(|e| e.0 == g.appid) {
+        Some(i) => i,
+        None => {
+            c.push((g.appid, 0, None, false));
+            c.len() - 1
         }
+    };
+    let stale = c[i].2.is_none_or(|t| t.elapsed() >= std::time::Duration::from_secs(10));
+    if stale && !c[i].3 {
+        c[i].3 = true;
+        let (appid, dir) = (g.appid, g.dir.clone());
+        std::thread::spawn(move || {
+            let size = local::dir_size(&dir);
+            let mut c = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(e) = c.iter_mut().find(|e| e.0 == appid) {
+                *e = (appid, size, Some(std::time::Instant::now()), false);
+            }
+        });
     }
-    let size = local::dir_size(&g.dir);
-    c.retain(|e| e.0 != g.appid);
-    c.push((g.appid, size, std::time::Instant::now()));
-    size
+    c[i].1
 }
 
 /// Area for the right-click menu: the block's area from the previous frame. Registered BEFORE

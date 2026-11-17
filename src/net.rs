@@ -1783,6 +1783,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         Cmd::Logout => {
             PROBE_GEN.fetch_add(1, Ordering::Relaxed); // the previous login's connection check is no longer needed
             SESSION_GEN.fetch_add(1, Ordering::Relaxed); // tasks of the previous login no longer write anything
+            crate::launchopts::set_account(0);
             crate::webapi::clear_token();
             let _ = client.logout().await;
             upd(st, ctx, |s| {
@@ -1797,13 +1798,17 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
 }
 
 async fn logged_in(client: &mut SteamClient, session: SessionState, st: &Shared, ctx: &egui::Context) {
+    // The login (AccountName), not the display name: accounts.rs finds the account in Steam's
+    // loginusers.vdf by it. The display name is only a fallback when the login is unknown.
     let name = session
-        .persona_name
+        .account_name
         .clone()
-        .or(session.account_name.clone())
+        .or(session.persona_name.clone())
         .unwrap_or_else(|| "?".into());
     let roster = Arc::new(RwLock::new(Roster::new()));
     let my_id = client.my_steam_id();
+    // Launch options and shortcuts go to this account's Steam folder (several accounts on one PC).
+    crate::launchopts::set_account(my_id.unwrap_or(0));
     crate::webapi::clear_token();
     // New login: tasks of the previous login no longer write anything (spawn_session, chat listener).
     SESSION_GEN.fetch_add(1, Ordering::Relaxed);
@@ -2174,10 +2179,14 @@ async fn second_plan(client: &SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Co
 }
 
 async fn reload_history(client: &SteamClient, friend: u64, st: &Shared, ctx: &egui::Context) {
-    if let Ok((msgs, _)) = client.chat_history(friend, 50, None).await {
+    if let Ok((msgs, more)) = client.chat_history(friend, 50, None).await {
         upd(st, ctx, |s| {
             let conv = Arc::make_mut(&mut s.chats).entry(friend).or_default();
-            conv.lines = msgs
+            if !conv.history_loaded {
+                conv.oldest = msgs.iter().map(|m| (m.timestamp, m.ordinal)).min();
+                conv.more_history = more;
+            }
+            let history: Vec<ChatLine> = msgs
                 .into_iter()
                 .rev()
                 .map(|m| ChatLine {
@@ -2189,6 +2198,17 @@ async fn reload_history(client: &SteamClient, friend: u64, st: &Shared, ctx: &eg
                     reactions: m.reactions,
                 })
                 .collect();
+            // Earlier messages loaded with "Show earlier messages" are older than these 50: they stay
+            // (replacing the list wiped them and left a hole in the conversation).
+            let first = history.first().map(|l| (l.time, l.ordinal));
+            let current = std::mem::take(&mut conv.lines);
+            let (older, recent): (Vec<ChatLine>, Vec<ChatLine>) = match first {
+                Some(f) => current.into_iter().partition(|l| l.exact && (l.time, l.ordinal) < f),
+                None => (Vec::new(), current),
+            };
+            let mut lines = older;
+            lines.extend(merge_history(history, recent));
+            conv.lines = lines;
             conv.history_loaded = true;
         });
     }
@@ -2289,7 +2309,13 @@ fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st: &Shared, 
             };
             upd(&st, &ctx, |s| {
                 let conv = Arc::make_mut(&mut s.chats).entry(friend).or_default();
-                conv.lines.push(line);
+                // Our own message comes back as an echo: SendChat may have added it already
+                // (same server time and number) - then it is not added twice.
+                let dup = line.exact
+                    && conv.lines.iter().rev().take(50).any(|l| l.exact && l.from_self == line.from_self && l.time == line.time && l.ordinal == line.ordinal);
+                if !dup {
+                    conv.lines.push(line);
+                }
                 conv.typing_at = None;
                 if !from_self {
                     conv.unread += 1;

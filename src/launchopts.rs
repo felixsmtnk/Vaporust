@@ -11,9 +11,25 @@ use std::{
 
 const APPS_PATH: [&str; 5] = ["UserLocalConfigStore", "Software", "Valve", "Steam", "apps"];
 
-/// The current user's localconfig.vdf: the most recently modified one
-/// (Steam rewrites it every time the logged-in account exits).
+/// SteamID of the account signed in to Vaporust (0 - none): its Steam folder is used first.
+static ACCOUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Called on login and logout.
+pub fn set_account(steam_id: u64) {
+    ACCOUNT.store(steam_id, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The current user's localconfig.vdf. With several Steam accounts on the PC - the folder of the
+/// account signed in to Vaporust (userdata/<account number>); otherwise (no login, no such folder)
+/// the most recently modified one (Steam rewrites it every time the logged-in account exits).
 pub fn find_localconfig(steam_dir: &Path) -> Option<PathBuf> {
+    let id = ACCOUNT.load(std::sync::atomic::Ordering::Relaxed);
+    if id > 76561197960265728 {
+        let p = steam_dir.join("userdata").join((id - 76561197960265728).to_string()).join("config").join("localconfig.vdf");
+        if p.is_file() {
+            return Some(p);
+        }
+    }
     fs::read_dir(steam_dir.join("userdata"))
         .ok()?
         .flatten()

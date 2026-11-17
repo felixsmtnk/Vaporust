@@ -24,9 +24,7 @@ pub struct FriendRecent {
     pub games: Vec<Recent>,
 }
 
-fn num(v: &serde_json::Value) -> u64 {
-    v.as_u64().or_else(|| v.as_str()?.parse().ok()).unwrap_or(0)
-}
+use crate::util::num;
 
 pub fn parse_recent(v: &serde_json::Value) -> Vec<Recent> {
     v["games"]

@@ -27,6 +27,8 @@ pub struct ChatWin {
     emoticons_requested: bool,
     /// Animated sticker frames (live while the chat is open).
     anims: anim::Cache,
+    /// Messages already parsed from BBCode (by text): parsing every line on every frame is a waste.
+    parsed: std::collections::HashMap<String, Vec<chatfmt::Seg>>,
     /// Whether V was pressed in the previous frame (for Ctrl+V with an image).
     v_was_down: bool,
     /// Put the cursor into the input field (right after opening).
@@ -83,6 +85,7 @@ impl ChatWin {
             effects_asked: None,
             emoticons_requested: false,
             anims: Default::default(),
+            parsed: Default::default(),
             v_was_down: false,
             focus_input: true,
             effect: None,
@@ -137,8 +140,74 @@ pub fn show(ctx: &egui::Context, chat: &SharedChat, net: &Shared, tx: &Unbounded
     );
 }
 
+/// Images from non-Steam sites the user asked to show (this run only).
+static REVEALED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// A link to a non-Steam site waiting for "Open?" confirmation.
+static PENDING_LINK: Mutex<Option<String>> = Mutex::new(None);
+
+pub fn image_revealed(url: &str) -> bool {
+    REVEALED.lock().map(|v| v.iter().any(|u| u == url)).unwrap_or(false)
+}
+
+pub fn reveal_image(url: &str) {
+    if let Ok(mut v) = REVEALED.lock() {
+        v.push(url.to_string());
+    }
+}
+
+/// Open a link from a message: Steam sites at once, others after a warning
+/// (a fake "Steam" link is the most common way accounts are stolen).
+pub fn open_link(ctx: &egui::Context, url: &str) {
+    let host = chatfmt::host_of(url);
+    if host.is_empty() {
+        return; // not http(s): file://, steam://... from a message are not opened
+    }
+    if url.trim().to_ascii_lowercase().starts_with("https://") && chatfmt::is_steam_host(&host) {
+        ctx.open_url(egui::OpenUrl::new_tab(url));
+    } else if let Ok(mut p) = PENDING_LINK.lock() {
+        *p = Some(url.to_string());
+    }
+}
+
+/// "You are leaving Steam" window over the chat.
+pub(crate) fn link_warning(ctx: &egui::Context) {
+    let Some(url) = PENDING_LINK.lock().ok().and_then(|p| p.clone()) else { return };
+    let host = chatfmt::host_of(&url);
+    let mut close = false;
+    egui::Window::new(tr!("Ссылка на другой сайт", "Link to another site"))
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            ui.set_max_width(380.0);
+            ui.label(tr!(
+                "Ссылка ведет не на сайт Steam. Не вводите на нем логин и пароль Steam.",
+                "The link does not lead to a Steam site. Do not enter your Steam login and password there."
+            ));
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new(&host).strong().size(16.0));
+            ui.add(egui::Label::new(egui::RichText::new(&url).small().weak()).wrap());
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if ui.button(tr!("Открыть", "Open")).clicked() {
+                    ctx.open_url(egui::OpenUrl::new_tab(&url));
+                    close = true;
+                }
+                if ui.button(tr!("Отмена", "Cancel")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    close = true;
+                }
+            });
+        });
+    if close {
+        if let Ok(mut p) = PENDING_LINK.lock() {
+            *p = None;
+        }
+    }
+}
+
 impl ChatWin {
     fn frame(&mut self, ctx: &egui::Context, net: &NetState, shared: &Shared, tx: &UnboundedSender<Cmd>) {
+        link_warning(ctx);
         let id = self.id;
         // For notifications: no sound if the chat with this very friend is active.
         crate::notify::set_open_chat(id);
@@ -149,7 +218,9 @@ impl ChatWin {
             }
             ctx.request_repaint_of(egui::ViewportId::ROOT);
         }
-        let conv = net.chats.get(&id).cloned().unwrap_or_default();
+        let empty = crate::net::Conversation::default();
+        // A reference, not a copy: the whole conversation was copied on every frame.
+        let conv = net.chats.get(&id).unwrap_or(&empty);
         let mut send = None;
         let mut send_image: Option<std::path::PathBuf> = None;
 
@@ -287,7 +358,10 @@ impl ChatWin {
                     // A reply is a quote with the author before the text (Steam shows it as a block).
                     if let Some((who, quoted)) = self.reply.take() {
                         let q: String = quoted.chars().take(300).collect();
-                        msg = format!("[quote author={who}]{q}[/quote]\n{msg}");
+                        // The name in quotes: otherwise a space cuts it ("John Doe" -> "John"); quotes
+                        // and brackets in the name itself would break the tag.
+                        let who: String = who.chars().filter(|c| !matches!(c, '"' | '[' | ']')).collect();
+                        msg = format!("[quote author=\"{who}\"]{q}[/quote]\n{msg}");
                     }
                     send = Some(msg);
                     edit.request_focus();
@@ -360,6 +434,8 @@ impl ChatWin {
                     // The current one was closed - go to the first remaining (the closed draft is not kept).
                     self.input.clear();
                     self.switch_to(n, name);
+                    // switch_to kept the (empty) text of the closed tab as its draft - not needed.
+                    self.drafts.remove(&t);
                 }
             }
         }
@@ -482,7 +558,7 @@ impl ChatWin {
                                     ui.close_menu();
                                 }
                                 if ui.button(tr!("Копировать текст", "Copy text")).clicked() {
-                                    ui.ctx().copy_text(chatfmt::preview(&l.text).0);
+                                    ui.ctx().copy_text(chatfmt::copy_text(&l.text));
                                     ui.close_menu();
                                 }
                                 // Reactions: own Steam emoticons (needs the message number - history messages have it).
@@ -532,7 +608,11 @@ impl ChatWin {
                                     });
                                 }
                                 ui.horizontal_wrapped(|ui| {
-                                    for seg in chatfmt::parse(&l.text) {
+                                    if self.parsed.len() > 3000 {
+                                        self.parsed.clear();
+                                    }
+                                    let segs = self.parsed.entry(l.text.clone()).or_insert_with(|| chatfmt::parse(&l.text)).clone();
+                                    for seg in segs {
                                         crate::draw_seg(ui, seg, &mut self.anims, who);
                                     }
                                 });

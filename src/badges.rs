@@ -34,11 +34,7 @@ pub struct Badges {
     pub games: Vec<GameCards>,
 }
 
-fn between<'a>(s: &'a str, a: &str, b: &str) -> Option<&'a str> {
-    let i = s.find(a)? + a.len();
-    let j = s[i..].find(b)? + i;
-    Some(&s[i..j])
-}
+use crate::util::between;
 
 fn clean(s: &str) -> String {
     s.replace("&nbsp;", " ").split_whitespace().collect::<Vec<_>>().join(" ")

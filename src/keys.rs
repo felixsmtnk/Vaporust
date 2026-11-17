@@ -11,7 +11,7 @@ pub enum KeyResult {
     Err(String),
 }
 
-/// Normalize a key to XXXXX-XXXXX-XXXXX (spaces and case do not matter).
+/// Normalize a key: trimmed, upper case, inner spaces collapsed to one (the format is checked by Steam).
 pub fn normalize(key: &str) -> String {
     key.trim().to_uppercase().split_whitespace().collect::<Vec<_>>().join(" ")
 }

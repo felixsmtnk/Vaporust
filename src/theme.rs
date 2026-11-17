@@ -156,8 +156,11 @@ pub fn bar_button(ui: &mut egui::Ui, text: &str, left: Option<Icon>, right: Opti
 
 /// Mix two colors: t = 0 - `a`, 1 - `b`.
 pub fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
+    // Color32 keeps channels already multiplied by alpha: mixing them is mixing premultiplied
+    // colors, so the result is premultiplied too (from_rgba_unmultiplied would multiply again).
+    let t = t.clamp(0.0, 1.0);
     let m = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
-    Color32::from_rgba_unmultiplied(m(a.r(), b.r()), m(a.g(), b.g()), m(a.b(), b.b()), m(a.a(), b.a()))
+    Color32::from_rgba_premultiplied(m(a.r(), b.r()), m(a.g(), b.g()), m(a.b(), b.b()), m(a.a(), b.a()))
 }
 
 /// Magnifier icon.

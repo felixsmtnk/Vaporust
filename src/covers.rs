@@ -62,7 +62,9 @@ impl Covers {
                     let heroes: Vec<u32> = map.keys().filter(|(k, _)| *k == Kind::Hero).map(|(_, a)| *a).collect();
                     if heroes.len() >= 3 {
                         for a in heroes {
-                            map.remove(&(Kind::Hero, a));
+                            if !matches!(map.get(&(Kind::Hero, a)), Some(Cover::Loading)) {
+                                map.remove(&(Kind::Hero, a));
+                            }
                         }
                     }
                 }
@@ -71,7 +73,9 @@ impl Covers {
                 if kind == Kind::Cover {
                     let limit = if crate::imgload::ECONOMY.load(std::sync::atomic::Ordering::Relaxed) { 48 } else { 120 };
                     if map.keys().filter(|(k, _)| *k == Kind::Cover).count() >= limit {
-                        map.retain(|(k, _), _| *k != Kind::Cover);
+                        // The ones still loading stay: otherwise every visible tile asked for them again
+                        // on the next frame and the loading thread got the same covers many times.
+                        map.retain(|(k, _), v| *k != Kind::Cover || matches!(v, Cover::Loading));
                     }
                 }
                 map.insert((kind, appid), Cover::Loading);

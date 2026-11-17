@@ -38,18 +38,20 @@ struct Stack<'a> {
     ctx: u32,
 }
 
-fn stacks<'a>(parts: &[(u32, &'a [InventoryItem])], filter: &str) -> Vec<Stack<'a>> {
+fn stacks<'a>(parts: &[(u32, &'a [InventoryItem])], filter: &str, stack: bool) -> Vec<Stack<'a>> {
     let f = filter.trim().to_lowercase();
-    let mut index: HashMap<&str, usize> = HashMap::new();
+    let mut index: HashMap<(&str, bool, bool, u32), usize> = HashMap::new();
     let mut out: Vec<Stack> = Vec::new();
     for (ctx, it) in parts.iter().flat_map(|(c, items)| items.iter().map(move |it| (*c, it))) {
         if !f.is_empty() && !it.name.to_lowercase().contains(&f) && !it.item_type.to_lowercase().contains(&f) {
             continue;
         }
-        match index.get(it.class_id.as_str()) {
+        // Only equal items: the same class, section and the same "can be traded / sold".
+        let key = (it.class_id.as_str(), it.tradable, it.marketable, ctx);
+        match index.get(&key).filter(|_| stack) {
             Some(&i) => out[i].amount += it.amount,
             None => {
-                index.insert(&it.class_id, out.len());
+                index.insert(key, out.len());
                 out.push(Stack { item: it, amount: it.amount, ctx });
             }
         }
@@ -275,7 +277,9 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
         return;
     }
     let total: usize = parts.iter().map(|p| p.1.len()).sum();
-    let list = stacks(&parts, &w.filter);
+    // Steam items (cards, backgrounds) are stacked; game items are shown one by one, as in Steam:
+    // two copies of a skin differ (wear, stickers, trade lock), the first one must not stand for all.
+    let list = stacks(&parts, &w.filter, w.app == Some(753));
 
     // On the right - the selected item.
     let chosen = w.selected.as_ref().and_then(|id| list.iter().find(|s| &s.item.class_id == id));

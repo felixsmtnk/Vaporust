@@ -85,6 +85,7 @@ pub use aurelia::steam_client::MarketFeeRules as FeeRules;
 
 /// Rules when the wallet did not send them: as for the dollar. Only for tests and hints -
 /// selling without real rules is forbidden (see tradeui).
+#[cfg(test)]
 pub fn default_rules() -> FeeRules {
     FeeRules { market_minimum: 1, currency_increment: 1, steam_fee_percent: 0.05, publisher_fee_percent: 0.10 }
 }
@@ -123,37 +124,28 @@ pub fn pay_for(receive: i64, r: &FeeRules) -> i64 {
 
 /// How much you receive if the buyer pays `total` (GetItemPriceFromTotal).
 pub fn receive_for(total: i64, r: &FeeRules) -> i64 {
-    let (ppct, spct) = (r.publisher_fee_percent, r.steam_fee_percent);
-    let (inc, floor) = (r.currency_increment, r.market_minimum);
-    let guess = (total as f64 / (1.0 + ppct + spct)).floor() as i64;
-    // The minimum fee is subtracted only for fees that exist (a game's fee can be 0) -
-    // otherwise with a zero game fee a reachable price "was not found".
-    let n_fees = [ppct, spct].iter().filter(|p| **p > 0.0).count() as i64;
-    let max_base = total - n_fees * floor;
-    let mut base = to_valid(guess.min(max_base), r);
-    for _ in 0..3 {
-        let calc = pay_for(base, r);
-        if calc == total {
-            return base;
-        }
-        if calc < total {
-            base += inc;
+    // The largest valid price whose total with fees does not exceed `total`. pay_for grows with
+    // the price, so a binary search finds it exactly for any currency. (Steam's own loop starts
+    // from an estimate and makes a few steps: where the minimum fee is larger than the currency
+    // step - the hryvnia - the estimate is off by dozens of steps and the price came out too high.)
+    let step = r.currency_increment.max(1);
+    let start = to_valid(r.market_minimum, r);
+    if pay_for(start, r) >= total {
+        return start;
+    }
+    let (mut lo, mut hi) = (0i64, ((total - start) / step).max(0));
+    while lo < hi {
+        let mid = (lo + hi + 1) / 2;
+        if pay_for(start + mid * step, r) <= total {
+            lo = mid;
         } else {
-            base -= inc;
-            break;
+            hi = mid - 1;
         }
     }
-    base.max(floor)
+    start + lo * step
 }
 
-fn url_encode(s: &str) -> String {
-    s.bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
-            _ => format!("%{b:02X}"),
-        })
-        .collect()
-}
+use crate::util::urlencode as url_encode;
 
 fn num(v: &Value) -> i64 {
     v.as_i64().or_else(|| v.as_str().and_then(|s| s.replace(',', "").parse().ok())).unwrap_or(0)
@@ -212,6 +204,7 @@ pub fn parse_spread_page(body: &str) -> Result<(Spread, u32), String> {
     ))
 }
 
+#[cfg(test)]
 pub fn parse_spread(body: &str) -> Result<Spread, String> {
     let v: Value = serde_json::from_str(body).map_err(|_| tr!("Steam прислал непонятный ответ", "Steam sent an unclear answer").to_string())?;
     if num(&v["success"]) != 1 {
@@ -320,7 +313,7 @@ pub fn handle(client: &SteamClient, cmd: MarketCmd, st: &SharedInv, ctx: &egui::
                 if let Ok(items) = aurelia::steam_client::inventory_via_lang(&web, appid, cx, crate::lang::steam()).await {
                     st.lock().unwrap().items.insert((appid, cx), Ok(items));
                 }
-                if let Ok(body) = web.get_text("https://steamcommunity.com/market/mylistings/?norender=1&count=100&l=russian").await {
+                if let Ok(body) = web.get_text(&format!("https://steamcommunity.com/market/mylistings/?norender=1&count=100&l={}", crate::lang::steam())).await {
                     st.lock().unwrap().listings = Some(crate::invent::parse_my_market(&body));
                 }
             }
@@ -334,7 +327,7 @@ pub fn handle(client: &SteamClient, cmd: MarketCmd, st: &SharedInv, ctx: &egui::
                     Ok((s, _)) => trf!("Не снят: ответ {s}", "Not removed: answer {s}"),
                     Err(e) => trf!("Не снят: {e:#}", "Not removed: {e:#}"),
                 });
-                if let Ok(body) = web.get_text("https://steamcommunity.com/market/mylistings/?norender=1&count=100&l=russian").await {
+                if let Ok(body) = web.get_text(&format!("https://steamcommunity.com/market/mylistings/?norender=1&count=100&l={}", crate::lang::steam())).await {
                     st.lock().unwrap().listings = Some(crate::invent::parse_my_market(&body));
                 }
             }
@@ -348,7 +341,7 @@ pub fn handle(client: &SteamClient, cmd: MarketCmd, st: &SharedInv, ctx: &egui::
                     Ok((s, _)) => trf!("Не отменена: ответ {s}", "Not cancelled: answer {s}"),
                     Err(e) => trf!("Не отменена: {e:#}", "Not cancelled: {e:#}"),
                 });
-                if let Ok(body) = web.get_text("https://steamcommunity.com/market/mylistings/?norender=1&count=100&l=russian").await {
+                if let Ok(body) = web.get_text(&format!("https://steamcommunity.com/market/mylistings/?norender=1&count=100&l={}", crate::lang::steam())).await {
                     st.lock().unwrap().listings = Some(crate::invent::parse_my_market(&body));
                 }
             }
@@ -487,6 +480,14 @@ mod tests {
         let uah = FeeRules { market_minimum: 100, currency_increment: 1, ..usd };
         assert_eq!(pay_for(100, &uah), 300);
         assert_eq!(receive_for(300, &uah), 100);
+        // Between 10 and 20 the Steam fee is held at its minimum while the game fee already grows:
+        // the buyer must not pay more than asked (it used to come out 15,28 instead of 15,00).
+        for total in 300..5000 {
+            let base = receive_for(total, &uah);
+            assert!(pay_for(base, &uah) <= total, "total {total}: base {base} -> {}", pay_for(base, &uah));
+            assert!(pay_for(base + 1, &uah) > total, "total {total}: base {base} is not the largest");
+        }
+        assert!(pay_for(receive_for(1500, &uah), &uah) <= 1500);
         assert_eq!(to_valid(1234, &big), 1200);
         assert_eq!(to_valid(1250, &big), 1300);
         assert_eq!(to_valid(5, &uah), 100);

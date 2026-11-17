@@ -158,7 +158,7 @@ impl LauncherApp {
                 appid: g.id,
                 name: g.name.clone(),
                 installed: true,
-                ready: std::path::Path::new(&g.exe).exists(),
+                ready: exe_exists(&g.exe),
                 needs_update: false,
                 playtime_min: Some(g.minutes),
                 size: 0,
@@ -426,4 +426,20 @@ fn norm_path(p: &str) -> String {
 
 fn same_path(a: &str, b: &str) -> bool {
     norm_path(a) == norm_path(b)
+}
+
+/// Whether the exe is on disk, remembered for a minute: on a disconnected network drive the check
+/// itself hangs for seconds, and the library list is rebuilt often.
+fn exe_exists(exe: &str) -> bool {
+    static SEEN: std::sync::Mutex<Vec<(String, bool, std::time::Instant)>> = std::sync::Mutex::new(Vec::new());
+    if let Some(e) = SEEN.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|e| e.0 == exe) {
+        if e.2.elapsed() < std::time::Duration::from_secs(60) {
+            return e.1;
+        }
+    }
+    let ok = std::path::Path::new(exe).exists();
+    let mut s = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+    s.retain(|e| e.0 != exe);
+    s.push((exe.to_string(), ok, std::time::Instant::now()));
+    ok
 }

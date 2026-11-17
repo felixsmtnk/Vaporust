@@ -42,9 +42,7 @@ pub struct Family {
     pub pending: Vec<(u64, u32)>,
 }
 
-fn num(v: &serde_json::Value) -> u64 {
-    v.as_u64().or_else(|| v.as_str()?.parse().ok()).unwrap_or(0)
-}
+use crate::util::num;
 
 pub async fn load(client: &SteamClient, me: u64) -> Result<Family, String> {
     let g = webapi::get(client, "IFamilyGroupsService/GetFamilyGroupForUser/v1", &[("steamid", me.to_string())]).await?;

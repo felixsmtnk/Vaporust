@@ -58,7 +58,7 @@ pub fn save(a: &Accounts) {
         if let Some(p) = f.parent() {
             let _ = std::fs::create_dir_all(p);
         }
-        let _ = std::fs::write(f, serde_json::to_string_pretty(a).unwrap_or_default());
+        let _ = crate::util::write_atomic(&f, serde_json::to_string_pretty(a).unwrap_or_default().as_bytes());
     }
 }
 
@@ -302,7 +302,7 @@ fn restore_last_point(steam_dir: &std::path::Path, points: &std::path::Path) -> 
 
 impl LauncherApp {
     /// Switch to an account (folder) and restart Vaporust.
-    pub(crate) fn switch_account(&mut self, dir: String) {
+    pub(crate) fn switch_account(&mut self, ctx: &egui::Context, dir: String) {
         let mut a = load();
         let login = a.list.iter().find(|e| e.dir == dir).map(|e| e.login.clone()).unwrap_or_default();
         a.active = dir;
@@ -320,7 +320,11 @@ impl LauncherApp {
         a.steam_pending = !done;
         save(&a);
         match crate::portable::restart() {
-            Ok(()) => crate::tray::request_exit(),
+            Ok(()) => {
+                // Exit for real (not to the tray): the new process is already starting.
+                crate::tray::request_exit();
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
             Err(e) => crate::popup::push(crate::popup::Kind::Info, tr!("Аккаунты", "Accounts"), e),
         }
     }
@@ -328,12 +332,13 @@ impl LauncherApp {
     pub(crate) fn accounts_window(&mut self, ctx: &egui::Context, net: &crate::net::NetState) {
         // Add the current account to the list (login and name).
         if let Some(login) = &net.account {
-            if self.accounts_noted.as_deref() != Some(login.as_str()) {
-                let name = net.my_id.and_then(|m| net.profiles.get(&m)).and_then(|p| p.as_ref().ok()).and_then(|p| p.persona_name.clone()).unwrap_or_default();
+            // Written when the login or the name changes (not on every frame while the profile is loading:
+            // that read and wrote accounts.json 60 times a second).
+            let name = net.my_id.and_then(|m| net.profiles.get(&m)).and_then(|p| p.as_ref().ok()).and_then(|p| p.persona_name.clone()).unwrap_or_default();
+            let noted = format!("{login}\n{name}");
+            if self.accounts_noted.as_deref() != Some(noted.as_str()) {
                 note_current(login, &name);
-                if !name.is_empty() {
-                    self.accounts_noted = Some(login.clone());
-                }
+                self.accounts_noted = Some(noted);
             }
             // A pending Steam switch: the login is known now; wait until Steam is closed.
             if STEAM_PENDING.load(std::sync::atomic::Ordering::Relaxed) && !self.steam_running() {
@@ -456,8 +461,8 @@ impl LauncherApp {
             }
         }
         if let Some(d) = switch {
-            self.switch_account(d);
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            // On success switch_account closes Vaporust itself (tray::request_exit); on an error it stays open.
+            self.switch_account(ctx, d);
         }
     }
 }

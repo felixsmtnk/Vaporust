@@ -83,6 +83,12 @@ pub async fn post(client: &SteamClient, method: &str, params: &[(&str, String)])
         .await
         .map_err(err)?;
     let status = resp.status().as_u16();
+    if status == 401 || status == 403 {
+        // The token was revoked: forget it so the next request gets a new one (as get() does).
+        *TOKEN.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        crate::errlog::write("steam api", &trf!("{method}: вход не принят ({status})", "{method}: login not accepted ({status})"));
+        return Err(tr!("Steam не принял вход (войдите заново).", "Steam did not accept the login (log in again).").into());
+    }
     if status != 200 {
         return Err(trf!("Steam ответил кодом {status}.", "Steam answered with code {status}."));
     }
@@ -90,14 +96,7 @@ pub async fn post(client: &SteamClient, method: &str, params: &[(&str, String)])
     Ok(v.get("response").cloned().unwrap_or(v))
 }
 
-fn urlenc(s: &str) -> String {
-    s.bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
-            _ => format!("%{b:02X}"),
-        })
-        .collect()
-}
+use crate::util::urlencode as urlenc;
 
 #[cfg(test)]
 mod live {

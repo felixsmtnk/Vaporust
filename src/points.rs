@@ -44,9 +44,7 @@ pub struct Page {
     pub cursor: Option<String>,
 }
 
-fn num(v: &serde_json::Value) -> u64 {
-    v.as_u64().or_else(|| v.as_str()?.parse().ok()).unwrap_or(0)
-}
+use crate::util::num;
 
 /// Points balance.
 pub async fn balance(client: &SteamClient, me: u64) -> Result<u64, String> {

@@ -249,7 +249,7 @@ impl LauncherApp {
                                     m.paused = false;
                                 }
                             } else {
-                                let _ = std::process::Command::new("explorer.exe").arg(p).spawn();
+                                let _ = std::process::Command::new(crate::util::system_exe("explorer.exe")).arg(p).spawn();
                             }
                         }
                         let text = egui::RichText::new(format!("{:>2}. {}", i + 1, crate::richtext::fix(ui, &name)));

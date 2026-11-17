@@ -49,7 +49,8 @@ pub fn icon_url(name: &str) -> String {
 // ---------- Captions from Steam localization ----------
 
 static STEAM_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
-static LABELS: OnceLock<HashMap<String, String>> = OnceLock::new();
+/// Captions per interface language: [Russian, English] (the language can change while running).
+static LABELS: [OnceLock<HashMap<String, String>>; 2] = [OnceLock::new(), OnceLock::new()];
 
 pub fn set_steam_dir(dir: &std::path::Path) {
     let _ = STEAM_DIR.set(dir.to_path_buf());
@@ -57,7 +58,7 @@ pub fn set_steam_dir(dir: &std::path::Path) {
 
 /// "%1$s launches balloons!" from Steam's translation file (steamui\localization).
 fn labels() -> &'static HashMap<String, String> {
-    LABELS.get_or_init(|| {
+    LABELS[crate::lang::en() as usize].get_or_init(|| {
         let mut map = HashMap::new();
         let Some(dir) = STEAM_DIR.get() else { return map };
         let Ok(text) = std::fs::read_to_string(dir.join(format!("steamui/localization/friendsui_{}-json.js", crate::lang::steam()))) else {

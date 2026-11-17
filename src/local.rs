@@ -46,6 +46,8 @@ pub struct LaunchOptions {
     /// Experiment: freeze steamwebhelper while playing.
     /// Closing it is useless: Steam restarts it right away (checked in 0.3).
     pub freeze_webhelper: bool,
+    /// Soft freezing (priority and efficiency mode) instead of suspending the process.
+    pub freeze_soft: bool,
     /// Launch flags of the hidden Steam; empty - DEFAULT_STEAM_ARGS.
     pub steam_args: String,
 }
@@ -104,11 +106,47 @@ fn reset_active_user() {}
 
 // ---------- VDF/ACF parsing (minimal, line by line) ----------
 
+/// A `"key"  "value"` line. The value may be empty (`"BetaKey"  ""`) and may contain
+/// escaped quotes and backslashes (\" and \\), as Steam writes them.
 fn kv(line: &str) -> Option<(String, String)> {
-    let mut parts = line.trim().split('"').filter(|s| !s.trim().is_empty());
-    let k = parts.next()?;
-    let v = parts.next()?;
-    Some((k.to_string(), v.replace("\\\\", "\\")))
+    let mut chars = line.trim().chars().peekable();
+    let mut quoted = || -> Option<String> {
+        while chars.peek().is_some_and(|c| c.is_whitespace()) {
+            chars.next();
+        }
+        if chars.next()? != '"' {
+            return None;
+        }
+        let mut s = String::new();
+        loop {
+            match chars.next()? {
+                '"' => return Some(s),
+                '\\' => match chars.peek() {
+                    Some('\\') | Some('"') => s.push(chars.next()?),
+                    _ => s.push('\\'),
+                },
+                c => s.push(c),
+            }
+        }
+    };
+    let k = quoted()?;
+    let v = quoted()?;
+    if k.is_empty() {
+        return None;
+    }
+    Some((k, v))
+}
+
+#[cfg(test)]
+mod kv_tests {
+    #[test]
+    fn values() {
+        assert_eq!(super::kv("\t\t\"BetaKey\"\t\t\"\""), Some(("BetaKey".into(), String::new())));
+        assert_eq!(super::kv("\"name\"\t\t\"Say \\\"hi\\\"\""), Some(("name".into(), "Say \"hi\"".into())));
+        assert_eq!(super::kv("\"path\"\t\t\"D:\\\\Games\\\\Steam\""), Some(("path".into(), "D:\\Games\\Steam".into())));
+        assert_eq!(super::kv("\t\"apps\""), None);
+        assert_eq!(super::kv("{"), None);
+    }
 }
 
 /// A "key" "value" line from VDF (for other modules).
@@ -324,6 +362,16 @@ pub struct AcfInfo {
 }
 
 impl AcfInfo {
+    /// Installed language: MountedConfig, and when Steam did not write it - English (the default).
+    pub fn installed_language(&self) -> &str {
+        if self.mounted_language.is_empty() { "english" } else { &self.mounted_language }
+    }
+
+    /// Another language was chosen and is not installed yet.
+    pub fn language_pending(&self) -> bool {
+        !self.user_language.is_empty() && !self.user_language.eq_ignore_ascii_case(self.installed_language())
+    }
+
     /// Steam is downloading something / must update (4 = fully installed and up to date).
     pub fn updating(&self) -> bool {
         self.state_flags != 0 && self.state_flags != 4
@@ -368,9 +416,10 @@ pub fn read_acf(path: &Path) -> AcfInfo {
             (1, _, "bytesdownloaded") => info.bytes_downloaded = num(),
             (1, _, "lastupdated") => info.last_updated = num(),
             (2, "UserConfig", "language") => info.user_language = v,
-            (2, "UserConfig", "betakey") => info.user_beta = v,
+            // "public" is the main branch, the same as an empty key (Steam writes both).
+            (2, "UserConfig", "betakey") => info.user_beta = if v.eq_ignore_ascii_case("public") { String::new() } else { v },
             (2, "MountedConfig", "language") => info.mounted_language = v,
-            (2, "MountedConfig", "betakey") => info.mounted_beta = v,
+            (2, "MountedConfig", "betakey") => info.mounted_beta = if v.eq_ignore_ascii_case("public") { String::new() } else { v },
             _ => {}
         }
     }
@@ -451,7 +500,7 @@ fn set_config_block(path: &Path, block: &str, key: &str, value: &str, mark_updat
     }
     let mut body = out.join("\n");
     body.push('\n');
-    fs::write(path, body).map_err(|e| trf!("Не удалось записать файл игры: {e}", "Could not write the game file: {e}"))
+    crate::util::write_atomic(path, body.as_bytes()).map_err(|e| trf!("Не удалось записать файл игры: {e}", "Could not write the game file: {e}"))
 }
 
 /// Games installed in several Steam libraries at once: (appid, name, library
@@ -595,7 +644,7 @@ pub fn open_folder(dir: &Path) {
     // Explorer does not understand paths with "/" (that is how Steam writes its folder to the registry)
     // and opens "Documents" instead - convert to backslashes.
     let p = PathBuf::from(dir.to_string_lossy().replace('/', "\\"));
-    let _ = Command::new("explorer.exe").arg(p).spawn();
+    let _ = Command::new(crate::util::system_exe("explorer.exe")).arg(p).spawn();
 }
 
 // ---------- Processes ----------
@@ -653,12 +702,21 @@ impl Procs {
         self.named(name).map(|p| p.pid().as_u32()).collect()
     }
 
-    /// Kills all processes with these names, returns how many were killed.
-    fn kill_all(&mut self, names: &[&str]) -> usize {
+    /// Kills all processes with these names whose exe lies in `root` (the Steam folder: another
+    /// program's "steam.exe" elsewhere is not touched). Returns how many were killed.
+    fn kill_all(&mut self, names: &[&str], root: &Path) -> usize {
         self.refresh();
+        let mut root = norm(root);
+        if !root.ends_with('\\') {
+            root.push('\\');
+        }
         let mut n = 0;
         for name in names {
             for p in self.named(name) {
+                // Path unknown (no access) - it is still Steam's process by name, as before.
+                if p.exe().is_some_and(|e| !norm(e).starts_with(&root)) {
+                    continue;
+                }
                 if p.kill() {
                     n += 1;
                 }
@@ -670,14 +728,23 @@ impl Procs {
 
 // ---------- Freezing processes ----------
 
-/// Suspends the whole process (NtSuspendProcess) and flushes its memory to the page file.
-/// The process stays alive, so Steam does not restart it.
+/// How steamwebhelper is held down while a game runs.
+///  - full: the whole process is suspended (NtSuspendProcess) and its memory goes to the page file.
+///    The process stays alive, so Steam does not restart it. The most effect, but the Steam
+///    overlay and other browser windows cannot open.
+///  - soft (the way NoSteamWebHelper-Reloaded does it): low priority, Windows efficiency mode,
+///    very low memory priority and the memory moved to the page file again every 10 s.
+///    Nothing is stopped, so Steam never waits for a frozen process.
 #[cfg(windows)]
 mod freeze {
-    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::Foundation::{CloseHandle, FILETIME, HANDLE};
     use windows_sys::Win32::System::ProcessStatus::K32EmptyWorkingSet;
     use windows_sys::Win32::System::Threading::{
-        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA, PROCESS_SUSPEND_RESUME,
+        GetProcessTimes, OpenProcess, ProcessMemoryPriority, ProcessPowerThrottling, SetPriorityClass, SetProcessInformation,
+        BELOW_NORMAL_PRIORITY_CLASS, MEMORY_PRIORITY_INFORMATION, MEMORY_PRIORITY_NORMAL, MEMORY_PRIORITY_VERY_LOW,
+        NORMAL_PRIORITY_CLASS, PROCESS_POWER_THROTTLING_CURRENT_VERSION, PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+        PROCESS_POWER_THROTTLING_STATE, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_INFORMATION, PROCESS_SET_QUOTA,
+        PROCESS_SUSPEND_RESUME,
     };
 
     #[link(name = "ntdll")]
@@ -686,17 +753,31 @@ mod freeze {
         fn NtResumeProcess(h: HANDLE) -> i32;
     }
 
-    fn with_process(pid: u32, f: impl FnOnce(HANDLE) -> bool) -> bool {
+    fn with_process<T: Default>(pid: u32, f: impl FnOnce(HANDLE) -> T) -> T {
+        // SAFETY: the handle is checked and closed; the functions get valid pointers to local data.
         unsafe {
-            let access = PROCESS_SUSPEND_RESUME | PROCESS_SET_QUOTA | PROCESS_QUERY_LIMITED_INFORMATION;
+            let access = PROCESS_SUSPEND_RESUME | PROCESS_SET_QUOTA | PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION;
             let h = OpenProcess(access, 0, pid);
             if h.is_null() {
-                return false;
+                return T::default();
             }
-            let ok = f(h);
+            let r = f(h);
             CloseHandle(h);
-            ok
+            r
         }
+    }
+
+    /// Process start time (100 ns units): together with the number it tells one process from
+    /// another that later got the same number.
+    pub fn started(pid: u32) -> u64 {
+        with_process(pid, |h| unsafe {
+            let z = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+            let (mut c, mut e, mut k, mut u) = (z, z, z, z);
+            if GetProcessTimes(h, &mut c, &mut e, &mut k, &mut u) == 0 {
+                return 0;
+            }
+            ((c.dwHighDateTime as u64) << 32) | c.dwLowDateTime as u64
+        })
     }
 
     pub fn suspend(pid: u32) -> bool {
@@ -712,42 +793,155 @@ mod freeze {
     pub fn resume(pid: u32) -> bool {
         with_process(pid, |h| unsafe { NtResumeProcess(h) >= 0 })
     }
+
+    fn set_soft(h: HANDLE, on: bool) -> bool {
+        unsafe {
+            let ok = SetPriorityClass(h, if on { BELOW_NORMAL_PRIORITY_CLASS } else { NORMAL_PRIORITY_CLASS }) != 0;
+            // Efficiency mode and memory priority: Windows 10 and newer; on older systems simply not applied.
+            let thr = PROCESS_POWER_THROTTLING_STATE {
+                Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+                ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+                StateMask: if on { PROCESS_POWER_THROTTLING_EXECUTION_SPEED } else { 0 },
+            };
+            SetProcessInformation(h, ProcessPowerThrottling, &thr as *const _ as _, std::mem::size_of_val(&thr) as u32);
+            let mem = MEMORY_PRIORITY_INFORMATION { MemoryPriority: if on { MEMORY_PRIORITY_VERY_LOW } else { MEMORY_PRIORITY_NORMAL } };
+            SetProcessInformation(h, ProcessMemoryPriority, &mem as *const _ as _, std::mem::size_of_val(&mem) as u32);
+            if on {
+                K32EmptyWorkingSet(h);
+            }
+            ok
+        }
+    }
+
+    pub fn soften(pid: u32) -> bool {
+        with_process(pid, |h| set_soft(h, true))
+    }
+
+    pub fn unsoften(pid: u32) -> bool {
+        with_process(pid, |h| set_soft(h, false))
+    }
+
+    /// Move the memory of a softened process to the page file again (it grows back while it works).
+    pub fn trim(pid: u32) {
+        with_process(pid, |h| unsafe { K32EmptyWorkingSet(h) });
+    }
 }
 
 #[cfg(not(windows))]
 mod freeze {
+    pub fn started(_pid: u32) -> u64 {
+        0
+    }
     pub fn suspend(_pid: u32) -> bool {
         false
     }
     pub fn resume(_pid: u32) -> bool {
         false
     }
+    pub fn soften(_pid: u32) -> bool {
+        false
+    }
+    pub fn unsoften(_pid: u32) -> bool {
+        false
+    }
+    pub fn trim(_pid: u32) {}
 }
 
-/// List of frozen processes. Unfreezes all of them when run_chain exits
-/// by any path (game over, error, "Stop waiting").
+/// File with the processes Vaporust froze: if Vaporust is closed or crashes during a game, the next
+/// start (or the exit itself) unfreezes them, otherwise Steam would stay hidden and "hung".
+fn frozen_file() -> Option<PathBuf> {
+    crate::errlog::path().map(|p| p.with_file_name("frozen_webhelper.txt"))
+}
+
+fn write_frozen(list: &[(u32, u64, bool)]) {
+    let Some(p) = frozen_file() else { return };
+    if list.is_empty() {
+        let _ = fs::remove_file(&p);
+        return;
+    }
+    let text: String = list.iter().map(|(pid, t, soft)| format!("{pid} {t} {}\n", if *soft { "soft" } else { "full" })).collect();
+    if let Some(d) = p.parent() {
+        let _ = fs::create_dir_all(d);
+    }
+    let _ = crate::util::write_atomic(&p, text.as_bytes());
+}
+
+/// Unfreeze what a previous run (or this one, before exiting) left frozen.
+/// Only the same processes: the number and the start time must both match.
+pub fn thaw_leftovers() {
+    let Some(p) = frozen_file() else { return };
+    let Ok(text) = fs::read_to_string(&p) else { return };
+    for line in text.lines() {
+        let mut it = line.split_whitespace();
+        let pid = it.next().and_then(|s| s.parse::<u32>().ok());
+        let t = it.next().and_then(|s| s.parse::<u64>().ok());
+        let (Some(pid), Some(t)) = (pid, t) else { continue };
+        if t == 0 || freeze::started(pid) != t {
+            continue; // the process is gone, or the number now belongs to another one
+        }
+        if it.next() == Some("soft") {
+            freeze::unsoften(pid);
+        } else {
+            freeze::resume(pid);
+        }
+    }
+    let _ = fs::remove_file(&p);
+}
+
+/// List of frozen processes. Unfreezes all of them when run_chain exits by any path
+/// (game over, error, "Stop waiting"); the list is also kept in a file (see thaw_leftovers).
 #[derive(Default)]
-struct Frozen(Vec<u32>);
+struct Frozen {
+    list: Vec<(u32, u64, bool)>,
+    soft: bool,
+}
 
 impl Frozen {
+    fn new(soft: bool) -> Self {
+        Self { list: Vec::new(), soft }
+    }
+
+    fn len(&self) -> usize {
+        self.list.len()
+    }
+
     fn freeze_new(&mut self, pids: Vec<u32>) {
         for pid in pids {
-            if !self.0.contains(&pid) && freeze::suspend(pid) {
-                self.0.push(pid);
+            if self.list.iter().any(|(p, _, _)| *p == pid) {
+                if self.soft {
+                    freeze::trim(pid);
+                }
+                continue;
+            }
+            let t = freeze::started(pid);
+            // The file first: even if Vaporust dies right after freezing, the next start knows about it.
+            self.list.push((pid, t, self.soft));
+            write_frozen(&self.list);
+            let ok = if self.soft { freeze::soften(pid) } else { freeze::suspend(pid) };
+            if !ok {
+                self.list.pop();
+                write_frozen(&self.list);
             }
         }
     }
 
     fn resume_all(&mut self) {
-        for pid in self.0.drain(..) {
-            freeze::resume(pid);
+        for (pid, _, soft) in self.list.drain(..) {
+            if soft {
+                freeze::unsoften(pid);
+            } else {
+                freeze::resume(pid);
+            }
         }
+        write_frozen(&[]);
     }
 }
 
 impl Drop for Frozen {
     fn drop(&mut self) {
-        self.resume_all();
+        if !self.list.is_empty() {
+            self.resume_all();
+        }
     }
 }
 
@@ -768,15 +962,39 @@ fn wait_until(timeout: Duration, cancel: &AtomicBool, mut cond: impl FnMut() -> 
     false
 }
 
+/// Steam wrote something in its folder within the last `secs` seconds: updates itself (package),
+/// syncs the cloud (logs/cloud_log.txt) and the like. Then it is busy and must not be killed.
+fn steam_busy(steam: &SteamInfo, secs: u64) -> bool {
+    let fresh = |p: PathBuf| {
+        fs::metadata(&p)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|e| e < Duration::from_secs(secs))
+    };
+    let package = steam.dir.join("package");
+    fresh(package.clone())
+        || fs::read_dir(&package).into_iter().flatten().flatten().any(|e| fresh(e.path()))
+        || fresh(steam.dir.join("logs").join("cloud_log.txt"))
+        || fresh(steam.dir.join("logs").join("bootstrap_log.txt"))
+}
+
 fn shutdown_steam(steam: &SteamInfo, procs: &mut Procs, set: &dyn Fn(&str)) {
     set(tr!("Закрываю Steam...", "Closing Steam..."));
     let _ = Command::new(&steam.exe).arg("-shutdown").spawn();
     let never = AtomicBool::new(false);
-    if !wait_until(Duration::from_secs(30), &never, || !procs.steam_running()) {
+    let mut closed = wait_until(Duration::from_secs(30), &never, || !procs.steam_running());
+    // Still sending saves to the cloud or updating itself: wait up to 3 more minutes while it is busy.
+    let extra = Instant::now();
+    while !closed && extra.elapsed() < Duration::from_secs(180) && steam_busy(steam, 15) {
+        set(tr!("Steam еще занят (облако или обновление), жду...", "Steam is still busy (cloud or update), waiting..."));
+        closed = wait_until(Duration::from_secs(5), &never, || !procs.steam_running());
+    }
+    if !closed {
         set(tr!("Steam не закрылся за 30 с, завершаю принудительно...", "Steam did not close within 30 s, forcing it to quit..."));
     }
     // Finish off leftovers in any case (webhelper and the overlay sometimes stay hanging).
-    procs.kill_all(&["steam.exe", "steamwebhelper.exe", "gameoverlayui.exe"]);
+    procs.kill_all(&["steam.exe", "steamwebhelper.exe", "gameoverlayui.exe"], &steam.dir);
     reset_active_user();
 }
 
@@ -808,6 +1026,18 @@ fn start_hidden_steam(
     if !wait_until(Duration::from_secs(90), cancel, || active_user() != 0) {
         if cancel.load(Ordering::Relaxed) {
             return Ok(None);
+        }
+        // Steam may be updating itself first (often after a long break, and slow on an old PC):
+        // killing it in the middle can break the Steam installation. Wait while it is busy.
+        let extra = Instant::now();
+        while extra.elapsed() < Duration::from_secs(900) && procs.steam_running() && steam_busy(steam, 60) {
+            set(tr!("Steam обновляет сам себя, жду...", "Steam is updating itself, waiting..."));
+            if wait_until(Duration::from_secs(5), cancel, || active_user() != 0) {
+                return Ok(Some(true));
+            }
+            if cancel.load(Ordering::Relaxed) {
+                return Ok(None);
+            }
         }
         shutdown_steam(steam, procs, set);
         return Err(tr!("Steam не залогинился за 90 с. Войдите один раз через обычный интерфейс \
@@ -841,7 +1071,7 @@ pub fn update_via_steam(
     let mut nudged = false;
     let mut done_since: Option<Instant> = None;
     let mut last_progress = (0u64, Instant::now());
-    let mut frozen = Frozen::default();
+    let mut frozen = Frozen::new(opts.freeze_soft);
     let mut last_freeze: Option<Instant> = None;
     let mut steam_gone: Option<Instant> = None;
     let result = loop {
@@ -977,10 +1207,15 @@ pub fn run_chain(
             set(&trf!("Steam обновляет игру перед запуском{progress}", "Steam is updating the game before launch{progress}"));
         }
         if Instant::now() > deadline {
-            if we_started {
-                shutdown_steam(steam, &mut procs, set);
-            }
-            return Err(tr!("Игра не запустилась за 120 с.", "The game did not start within 120 s.").into());
+            // The game may wait for a Steam window that is hidden (an agreement, a launch option,
+            // a cloud conflict) or start through its own launcher from another folder. Closing Steam
+            // would break both, so the Steam window is shown instead.
+            let _ = Command::new(&steam.exe).arg("steam://open/main").spawn();
+            return Err(tr!(
+                "Игра не появилась за 120 с. Открыл окно Steam: возможно, он что-то спрашивает. Steam оставлен открытым - закройте его кнопкой «Закрыть Steam», когда закончите.",
+                "The game did not appear within 120 s. The Steam window is opened: it may be asking something. Steam is left open - close it with the \"Close Steam\" button when you are done."
+            )
+            .into());
         }
         thread::sleep(Duration::from_secs(1));
     }
@@ -989,7 +1224,7 @@ pub fn run_chain(
     set(tr!("Игра запущена, жду выхода...", "The game is running, waiting for it to exit..."));
     let started = Instant::now();
     let mut gone_since: Option<Instant> = None;
-    let mut frozen = Frozen::default();
+    let mut frozen = Frozen::new(opts.freeze_soft);
     let mut last_freeze: Option<Instant> = None;
     loop {
         thread::sleep(Duration::from_secs(1));
@@ -1008,12 +1243,12 @@ pub fn run_chain(
             && last_freeze.map_or(true, |t| t.elapsed() >= Duration::from_secs(10))
         {
             last_freeze = Some(Instant::now());
-            let before = frozen.0.len();
+            let before = frozen.len();
             frozen.freeze_new(procs.pids("steamwebhelper.exe"));
-            if frozen.0.len() != before {
+            if frozen.len() != before {
                 set(&trf!(
                     "Игра запущена, жду выхода... (steamwebhelper заморожен, процессов: {})", "The game is running, waiting for it to exit... (steamwebhelper frozen, processes: {})",
-                    frozen.0.len()
+                    frozen.len()
                 ));
             }
         }
@@ -1457,7 +1692,14 @@ fn game_pids(dir: &Path) -> Vec<u32> {
             .values()
             .filter(|p| {
                 let pid = p.pid().as_u32();
-                pid != me && !pids.contains(&pid) && p.parent().is_some_and(|pp| pids.contains(&pp.as_u32()))
+                // Windows reuses process numbers and keeps the parent number after the parent died:
+                // a real child cannot have started before its parent.
+                pid != me
+                    && !pids.contains(&pid)
+                    && p.parent().is_some_and(|pp| {
+                        pids.contains(&pp.as_u32())
+                            && procs.sys.process(pp).is_some_and(|parent| parent.start_time() <= p.start_time())
+                    })
             })
             .map(|p| p.pid().as_u32())
             .collect();
@@ -2092,7 +2334,8 @@ pub fn unstage(library: &Path, appid: u32) -> Result<(), String> {
     let acfs = fs::read_dir(staging.join("steamapps"))
         .map(|d| d.flatten().any(|e| e.file_name().to_string_lossy().starts_with("appmanifest_")))
         .unwrap_or(false);
-    if left && !acfs {
+    // "old" holds pieces of earlier attempts: the folder stays (they go with "Remove Vaporust changes").
+    if left && !acfs && !staging.join("old").exists() {
         let _ = fs::remove_dir_all(&staging);
     }
     Ok(())
@@ -2132,7 +2375,17 @@ pub fn to_staging(library: &Path, appid: u32) -> Result<(), String> {
     let to = st.join("common").join(&installdir);
     if from.exists() {
         if to.exists() {
-            return Err(trf!("во временной папке уже есть {}", "the temporary folder already has {}", to.display()));
+            // A piece of an earlier attempt. If the temporary folder has no appmanifest of this game, the
+            // piece belongs to nothing: it is moved aside (VaporustStaging\old), not deleted, and the
+            // download goes on. With an appmanifest it is a real unfinished copy - then refuse.
+            if st.join(format!("appmanifest_{appid}.acf")).exists() {
+                return Err(trf!("во временной папке уже есть {}", "the temporary folder already has {}", to.display()));
+            }
+            let old = staging_dir(library).join("old");
+            fs::create_dir_all(&old).map_err(|e| e.to_string())?;
+            let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+            fs::rename(&to, old.join(format!("{installdir}-{stamp}")))
+                .map_err(|e| trf!("старый остаток во временной папке: {e}", "an old piece in the temporary folder: {e}"))?;
         }
         fs::rename(&from, &to).map_err(|e| trf!("перенос папки игры: {e}", "moving the game folder: {e}"))?;
     }

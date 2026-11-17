@@ -17,9 +17,7 @@ fn success(v: &serde_json::Value) -> bool {
     v["success"].as_i64() == Some(1) || v["success"].as_bool() == Some(true)
 }
 
-fn num(v: &serde_json::Value) -> u64 {
-    v.as_u64().or_else(|| v.as_str()?.parse().ok()).unwrap_or(0)
-}
+use crate::util::num;
 
 // ---------- Own review ----------
 
@@ -79,7 +77,7 @@ pub async fn review_save(c: &SteamClient, appid: u32, r: &MyReview) -> Result<()
 /// Create a topic in the game's "General Discussions". Returns the new topic's URL.
 pub async fn create_topic(c: &SteamClient, appid: u32, title: &str, text: &str) -> Result<String, String> {
     let web = webapi::web_session(c).await?;
-    let page = format!("https://steamcommunity.com/app/{appid}/discussions/0/");
+    let page = format!("https://steamcommunity.com/app/{appid}/discussions/0/?l=english");
     let html = web.get_text(&page).await.map_err(|e| format!("{e:#}"))?;
     // InitializeForum( "General_<owner>", {... "feature":"0" ...}, 'https://steamcommunity.com/forum/<owner>/General/' );
     let i = html.find("InitializeForum(").ok_or(tr!("на странице обсуждений нет формы новой темы", "the discussions page has no new topic form"))?;
