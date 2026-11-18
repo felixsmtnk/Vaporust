@@ -1991,7 +1991,7 @@ mod relink_tests {
             size: 0,
             stashed: false,
         };
-        assert_eq!(relink_candidates(&a, &game), vec![b.clone()]);
+        assert_eq!(relink_candidates(&a, &game), vec![PathBuf::from(pretty_path(&b))]);
         relink_game(&a, &game, &b).unwrap();
         assert!(!a.join("steamapps").join("appmanifest_70.acf").exists());
         assert!(b.join("steamapps").join("appmanifest_70.acf").exists());
@@ -2326,7 +2326,7 @@ mod add_library_tests {
         assert!(lib.join("steamapps").is_dir());
         assert!(lib.join("libraryfolder.vdf").is_file());
         let dirs = library_dirs(&steam);
-        assert!(dirs.iter().any(|d| norm(d).trim_end_matches('\\') == norm(&lib).trim_end_matches('\\')), "{dirs:?}");
+        assert!(dirs.iter().any(|d| norm(d).trim_end_matches('\\') == norm(&PathBuf::from(pretty_path(&lib))).trim_end_matches('\\')), "{dirs:?}");
         let t = fs::read_to_string(steam.join("steamapps").join("libraryfolders.vdf")).unwrap();
         assert!(t.contains("\t\"1\"\n\t{"), "{t}");
         assert!(t.trim_end().ends_with('}'));
