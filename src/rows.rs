@@ -141,6 +141,12 @@ impl LauncherApp {
         let selected = self.collection.as_ref().and_then(|id| colls.iter().find(|c| &c.id == id));
         let filter = self.filter.to_lowercase();
         let has_update = |r: &Row| r.needs_update || net.updates.as_ref().is_some_and(|u| u.contains(&r.appid));
+        // A smart collection: its rules (the genre is checked below with the store tags).
+        let smart = self.collection.as_deref().and_then(|id| id.strip_prefix(smartcoll::PREFIX)).and_then(|i| i.parse::<usize>().ok()).and_then(|i| self.settings.smart.get(i)).cloned();
+        let smart_rules = smart.clone().map(|mut s| {
+            s.genre = None;
+            s
+        });
         let mut rows: Vec<Row> = map
             .values()
             .cloned()
@@ -154,13 +160,14 @@ impl LauncherApp {
                 (Some(UNPLAYED), _) => !r.family && r.playtime_min == Some(0) && !hidden.contains(&r.appid),
                 (Some(READY), _) => r.ready && !has_update(r) && !hidden.contains(&r.appid),
                 (Some(UPDATES), _) => r.ready && has_update(r),
+                (Some(id), _) if id.starts_with(smartcoll::PREFIX) => smart_rules.as_ref().is_some_and(|s| s.fits(r, None, has_update(r))) && !hidden.contains(&r.appid),
                 (_, Some(c)) => c.apps.contains(&r.appid),
                 _ => !hidden.contains(&r.appid) && (self.settings.show_family || !r.family),
             })
             .filter(|r| r.name.to_lowercase().contains(&filter))
             .collect();
         // Genre: the game's first 8 store tags (like the most prominent tags on the Steam page).
-        if let Some(g) = &self.genre {
+        for g in self.genre.iter().chain(smart.as_ref().and_then(|s| s.genre.as_ref())) {
             let st = net.store.lock().unwrap();
             rows.retain(|r| {
                 st.apps.get(&r.appid).is_some_and(|a| a.tags.iter().take(8).any(|t| t.name.as_deref() == Some(g.as_str())))

@@ -62,9 +62,11 @@ pub fn find_steam() -> Option<SteamInfo> {
         .ok()?;
     let dir: String = key.get_value("SteamPath").ok()?;
     let exe: String = key.get_value("SteamExe").ok()?;
+    // The registry keeps the path in lower case with "/" ("c:/program files (x86)/steam"): the real
+    // spelling comes from the file system, so the folder is shown as Explorer shows it.
     Some(SteamInfo {
-        dir: PathBuf::from(dir),
-        exe: PathBuf::from(exe),
+        dir: PathBuf::from(pretty_path(std::path::Path::new(&dir))),
+        exe: PathBuf::from(pretty_path(std::path::Path::new(&exe))),
     })
 }
 
@@ -165,7 +167,7 @@ pub fn library_dirs(steam_dir: &Path) -> Vec<PathBuf> {
                     let p = PathBuf::from(v);
                     let n = norm(&p);
                     if !dirs.iter().any(|d| norm(d).trim_end_matches('\\') == n.trim_end_matches('\\')) {
-                        dirs.push(p);
+                        dirs.push(PathBuf::from(pretty_path(&p)));
                     }
                 }
             }

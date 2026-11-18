@@ -522,3 +522,85 @@ pub fn progress(ui: &mut egui::Ui, frac: f32, width: f32, text: Option<String>) 
     })
     .inner
 }
+
+/// A Steam switch with a caption that can be turned off (`enabled` false - greyed, not clickable).
+/// The caption click switches too. Returns the switch response (`changed()` after a switch).
+pub fn switch(ui: &mut egui::Ui, enabled: bool, on: &mut bool, text: impl Into<egui::WidgetText>) -> egui::Response {
+    ui.add_enabled_ui(enabled, |ui| {
+        ui.horizontal(|ui| {
+            let mut r = toggle(ui, on);
+            let l = ui.add(egui::Label::new(text).sense(egui::Sense::click()));
+            if l.clicked() {
+                *on = !*on;
+                r.mark_changed();
+            }
+            r.union(l)
+        })
+        .inner
+    })
+    .inner
+}
+
+/// A page tab as in Steam (profile, community, inventory): text, white with a blue underline when
+/// selected, lighter on hover. No plate.
+pub fn tab(ui: &mut egui::Ui, on: bool, text: impl Into<egui::WidgetText>) -> egui::Response {
+    let galley = text.into().into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, egui::FontSelection::FontId(egui::FontId::proportional(14.0)));
+    let pad = egui::vec2(8.0, 5.0);
+    let (rect, resp) = ui.allocate_exact_size(galley.size() + pad * 2.0, egui::Sense::click());
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    let t = ui.ctx().animate_bool_with_time(resp.id, resp.hovered(), 0.1);
+    let color = if on { Color32::WHITE } else { lerp_color(TEXT2, Color32::WHITE, t) };
+    ui.painter().galley_with_override_text_color(rect.min + pad, galley, color);
+    if on {
+        ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(rect.left() + pad.x, rect.bottom() - 2.0), egui::pos2(rect.right() - pad.x, rect.bottom())), 1.0, ACCENT);
+    }
+    resp
+}
+
+/// [`tab`] bound to a value, like `selectable_value`.
+pub fn tab_value<V: PartialEq>(ui: &mut egui::Ui, current: &mut V, value: V, text: impl Into<egui::WidgetText>) -> egui::Response {
+    let mut r = tab(ui, *current == value, text);
+    if r.clicked() && *current != value {
+        *current = value;
+        r.mark_changed();
+    }
+    r
+}
+
+// ---------- Page building blocks (store, community, library subpages) ----------
+
+/// A page title as in the Steam client ("YOUR SHOPPING CART", "Manage Downloads"): light, large, capitals.
+pub fn page_title(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    ui.add(egui::Label::new(spaced(&text.to_uppercase(), egui::FontId::proportional(24.0), Color32::WHITE, 1.2)).selectable(false))
+}
+
+/// A dark block of a page (the Steam "panel"): slightly lighter than the page, square corners.
+pub fn block<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    egui::Frame::none()
+        .fill(Color32::from_rgba_unmultiplied(0, 0, 0, 60))
+        .rounding(3.0)
+        .inner_margin(egui::Margin::same(12.0))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            add(ui)
+        })
+        .inner
+}
+
+/// A plain text link (Steam's "Remove", "View all"): grey, white and underlined on hover.
+pub fn text_link(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    let galley = ui.painter().layout_no_wrap(text.to_string(), egui::FontId::proportional(12.5), WEAK);
+    let (rect, resp) = ui.allocate_exact_size(galley.size(), egui::Sense::click());
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    let c = if resp.hovered() { Color32::WHITE } else { WEAK };
+    if resp.hovered() {
+        ui.painter().line_segment([rect.left_bottom(), rect.right_bottom()], egui::Stroke::new(1.0, c));
+    }
+    ui.painter().galley_with_override_text_color(rect.min, galley, c);
+    resp
+}
+
+/// The green Steam purchase button ("Continue to payment", "Add to Cart").
+pub fn buy_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    action_button(ui, text, Color32::from_rgb(117, 183, 44), Color32::from_rgb(88, 141, 33), None, true)
+}

@@ -310,8 +310,9 @@ impl LauncherApp {
         let mut rescan = false;
         let mut open_game: Option<u32> = None;
         ui.horizontal(|ui| {
-            ui.heading(tr!("Хранилище", "Storage"));
-            if ui.button(tr!("Пересчитать", "Recount")).clicked() {
+            crate::theme::page_title(ui, tr!("Хранилище", "Storage"));
+            ui.add_space(8.0);
+            if crate::theme::text_link(ui, tr!("Пересчитать", "Recount")).clicked() {
                 rescan = true;
             }
         });
@@ -328,25 +329,13 @@ impl LauncherApp {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             for lib in &libs {
                 ui.add_space(8.0);
-                egui::Frame::group(ui.style()).rounding(6.0).inner_margin(egui::Margin::same(12.0)).show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.strong(crate::local::pretty_path(&lib.path));
+                crate::theme::block(ui, |ui| {
+                    ui.label(egui::RichText::new(crate::local::pretty_path(&lib.path)).font(crate::theme::semibold(15.0)).color(egui::Color32::WHITE));
+                    ui.add_space(4.0);
                     let games_total: u64 = lib.games.iter().map(|g| g.size).sum();
                     let left_total: u64 = lib.leftovers.iter().map(|l| l.size).sum();
                     if let (Some(free), Some(total)) = (lib.free, lib.total) {
-                        let used = total.saturating_sub(free);
-                        let w = (ui.available_width() - 260.0).clamp(120.0, 420.0);
-                        crate::theme::progress(
-                            ui,
-                            used as f32 / total.max(1) as f32,
-                            w,
-                            Some(trf!(
-                                "занято {} из {}, свободно {}", "{} of {} used, {} free",
-                                net::fmt_bytes(used),
-                                net::fmt_bytes(total),
-                                net::fmt_bytes(free)
-                            )),
-                        );
+                        disk_bar(ui, total, games_total + left_total, free);
                     }
                     ui.label(trf!(
                         "Игры Steam: {} ({} шт.){}", "Steam games: {} ({} pcs.){}",
@@ -388,7 +377,7 @@ impl LauncherApp {
                     // Leftovers of uninstalled games.
                     if !lib.leftovers.is_empty() {
                         ui.add_space(8.0);
-                        ui.strong(tr!("Остатки, которые можно удалить", "Leftovers that can be deleted"));
+                        crate::theme::caps_title(ui, tr!("Остатки, которые можно удалить", "Leftovers that can be deleted"), None);
                         if steam_open {
                             ui.colored_label(egui::Color32::from_rgb(230, 170, 60), tr!("Удаление - при закрытом Steam.", "Deleting works while Steam is closed."));
                         }
@@ -557,4 +546,37 @@ mod tests {
             }
         }
     }
+}
+
+/// The disk bar of the Steam storage manager: Steam games (blue), other files (grey), free (dark),
+/// with a legend under it.
+fn disk_bar(ui: &mut egui::Ui, total: u64, games: u64, free: u64) {
+    let total = total.max(1);
+    let other = total.saturating_sub(free).saturating_sub(games);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 14.0), egui::Sense::hover());
+    let p = ui.painter();
+    p.rect_filled(rect, 2.0, egui::Color32::from_rgb(24, 28, 34));
+    let mut x = rect.left();
+    for (part, color) in [(games, crate::theme::ACCENT), (other, egui::Color32::from_rgb(103, 112, 123))] {
+        let w = rect.width() * part as f32 / total as f32;
+        if w > 0.5 {
+            p.rect_filled(egui::Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(w, rect.height())), 0.0, color);
+            x += w;
+        }
+    }
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        for (label, size, color) in [
+            (tr!("Игры", "Games"), games, crate::theme::ACCENT),
+            (tr!("Другое", "Other"), other, egui::Color32::from_rgb(103, 112, 123)),
+            (tr!("Свободно", "Free"), free, egui::Color32::from_rgb(24, 28, 34)),
+        ] {
+            let (r, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
+            ui.painter().rect_filled(r, 2.0, color);
+            ui.painter().rect_stroke(r, 2.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(103, 112, 123)));
+            ui.label(egui::RichText::new(format!("{label}: {}", net::fmt_bytes(size))).size(12.0).color(crate::theme::TEXT2));
+            ui.add_space(10.0);
+        }
+    });
+    ui.add_space(4.0);
 }

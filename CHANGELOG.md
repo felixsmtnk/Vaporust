@@ -5,6 +5,43 @@
 What went into each released version, newest first. Plans for the future are in
 [ROADMAP.md](ROADMAP.md), archives and full release notes are on the [Releases](../../releases) page.
 
+## ✅ 0.9.1-alpha: more of the Steam client
+
+*Released 2026-11-18.*
+
+**More of the Steam client**
+- Properties of a game open in their own window, as in Steam, instead of taking the whole page.
+- Smart collections: a name and rules (installed, played, owner, genre, update available); the games
+  are picked by the rules every time, like Steam dynamic collections. Kept in Vaporust settings only,
+  the Steam cloud collections are not touched.
+- The library home has a "Play Next" shelf: owned games never launched, installed ones first.
+- The store band (sections, Points Shop, News, Wishlist, Cart) is on the Cart, News and Points Shop
+  pages too, so the store reads as one place.
+- Cart as in Steam: game capsules, prices, "Remove", the estimated total and "Continue to payment"
+  (payment stays on the Steam website).
+- News as the Steam news hub: cards with the game capsule, the game, the date, the title and an excerpt.
+- Points Shop as in Steam: categories on the left, items on dark tiles with the points price, the
+  balance with the points coin on the right.
+- Inventory as on the Steam site: games as tabs on top, item tiles with a border of the rarity color,
+  a large item card on the right with the colored name and the item description.
+- Friends page as in Steam: a menu on the left (friends, pending and sent invites, recently played
+  with), friends grouped into in game, online and offline, names in the status colors.
+- Badges as the rows of the Steam badges page: game capsule, hours, card drops left, collected cards.
+- Steam Family: member cards with avatars and roles, family play time as rows with game capsules.
+- Group chats in the look of the Steam chat: groups and channels on the left, names and times above
+  the messages, the message field on a plate with the blue send button.
+- Profile edit: sections in a menu on the left, as on the Steam site.
+- Every page has the same Steam page title.
+- Curators on a store page can be followed (experimental functions).
+
+**Fixes**
+- Section drop-downs no longer open when the mouse passes over the top bar after a click or while a
+  menu is open; they open after the mouse rests on the section.
+- The store bar showed "Cart (0)" while the cart had games: the cart is now loaded with the store.
+- The STORE hint no longer covers its drop-down.
+- The Steam folder is shown as Windows writes it (capital letters, backslashes).
+- "Play Next" does not offer non-Steam games.
+
 ## ✅ 0.9.0-alpha: new design, as the Steam client
 
 *Released 2026-11-17.*

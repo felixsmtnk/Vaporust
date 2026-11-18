@@ -83,13 +83,16 @@ impl LauncherApp {
         }
         ui.ctx().request_repaint_after(Duration::from_secs(4));
 
-        egui::SidePanel::left("groups_list").resizable(true).default_width(220.0).show_inside(ui, |ui| {
+        egui::SidePanel::left("groups_list").resizable(true).default_width(230.0).frame(egui::Frame::none().fill(crate::theme::SIDEBAR).inner_margin(egui::Margin::same(8.0))).show_inside(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.heading(tr!("Групповые чаты", "Group chats"));
-                if ui.small_button(tr!("Обновить", "Refresh")).clicked() {
+                crate::theme::caps_title(ui, tr!("Групповые чаты", "Group chats"), Some(groups.len()));
+            });
+            ui.horizontal(|ui| {
+                if crate::theme::text_link(ui, tr!("Обновить", "Refresh")).clicked() {
                     let _ = self.tx.send(Cmd::ChatGroups);
                 }
-                if ui.small_button(tr!("Создать...", "Create...")).clicked() {
+                ui.add_space(8.0);
+                if crate::theme::text_link(ui, tr!("Создать...", "Create...")).clicked() {
                     self.net.lock().unwrap().action_msg = None;
                     self.social_ui.group_create = Some((String::new(), Default::default()));
                 }
@@ -115,15 +118,15 @@ impl LauncherApp {
                         } else {
                             g.name.clone()
                         };
-                        ui.strong(crate::richtext::fix(ui, &title));
+                        ui.label(egui::RichText::new(crate::richtext::fix(ui, &title)).size(14.0).color(egui::Color32::WHITE));
                     });
                     if g.members_online > 0 {
-                        ui.weak(trf!("в сети: {}", "online: {}", g.members_online));
+                        ui.label(egui::RichText::new(trf!("в сети: {}", "online: {}", g.members_online)).size(11.5).color(crate::theme::ONLINE));
                     }
                     for c in &g.channels {
                         let sel = (gid, cid) == (g.group_id, c.chat_id);
                         let name = if c.name.is_empty() { tr!("Общий", "General").to_string() } else { c.name.clone() };
-                        if ui.selectable_label(sel, format!("  # {name}")).clicked() && !sel {
+                        if crate::theme::side_item(ui, sel, &format!("# {name}"), None).clicked() && !sel {
                             self.groups_ui.current = Some((g.group_id, c.chat_id));
                             self.groups_ui.polled = None;
                         }
@@ -141,19 +144,21 @@ impl LauncherApp {
             None => Vec::new(),
         };
         let mut send = None;
-        egui::TopBottomPanel::bottom("group_input").show_inside(ui, |ui| {
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
+        egui::TopBottomPanel::bottom("group_input").frame(egui::Frame::none().fill(crate::theme::TOP).inner_margin(egui::Margin::same(8.0))).show_inside(ui, |ui| {
+            egui::Frame::none().fill(crate::theme::CARD).rounding(3.0).inner_margin(egui::Margin::symmetric(8.0, 4.0)).show(ui, |ui| {
+                ui.horizontal(|ui| {
                 let edit = ui.add(
                     egui::TextEdit::singleline(&mut self.groups_ui.draft)
                         .hint_text(tr!("Сообщение, Enter - отправить", "Message, Enter - send"))
-                        .desired_width(ui.available_width() - 100.0),
+                        .frame(false)
+                        .desired_width(ui.available_width() - 90.0),
                 );
                 let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                if (enter || ui.button(tr!("Отправить", "Send")).clicked()) && !self.groups_ui.draft.trim().is_empty() {
+                if (enter || ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| crate::theme::accent_button(ui, tr!("Отправить", "Send"))).inner.clicked()) && !self.groups_ui.draft.trim().is_empty() {
                     send = Some(self.groups_ui.draft.trim().to_string());
                     edit.request_focus();
                 }
+                });
             });
             if let Some(e) = &net.group_error {
                 ui.colored_label(egui::Color32::from_rgb(230, 110, 110), e);
@@ -174,9 +179,12 @@ impl LauncherApp {
                         continue;
                     }
                     // The same pieces as in a friend chat: images, stickers, spoilers, links.
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(name).size(13.5).color(crate::theme::ONLINE));
+                        ui.label(egui::RichText::new(crate::fmt_day(m.time as u64)).size(11.0).color(crate::theme::DIM));
+                    });
                     ui.horizontal_wrapped(|ui| {
-                        ui.weak(crate::fmt_day(m.time as u64));
-                        ui.colored_label(egui::Color32::from_rgb(120, 170, 230), format!("{name}:"));
                         for seg in crate::chatfmt::parse(&m.text) {
                             crate::draw_seg(ui, seg, &mut self.groups_ui.anims, name);
                         }

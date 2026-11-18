@@ -126,7 +126,7 @@ impl LauncherApp {
             let _ = self.tx.send(Cmd::Feed { start: 0 });
         }
         ui.horizontal(|ui| {
-            if ui.button(tr!("Обновить", "Refresh")).clicked() {
+            if crate::theme::text_link(ui, tr!("Обновить", "Refresh")).clicked() {
                 let _ = self.tx.send(Cmd::Feed { start: 0 });
             }
             if net.feed_busy {
@@ -149,18 +149,23 @@ impl LauncherApp {
         let mut more = None;
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             let mut day = String::new();
+            ui.spacing_mut().item_spacing.y = 4.0;
             for e in &page.entries {
                 if e.day != day {
                     day = e.day.clone();
-                    ui.add_space(6.0);
-                    ui.strong(&day);
+                    ui.add_space(10.0);
+                    crate::theme::caps_title(ui, &day, None);
+                    ui.add_space(2.0);
                 }
+                // Each event is a card, as on the Steam community activity page.
+                egui::Frame::none().fill(crate::theme::CARD).rounding(2.0).inner_margin(egui::Margin::same(8.0)).show(ui, |ui| {
+                ui.set_width(ui.available_width());
                 ui.horizontal_top(|ui| {
                     if !e.avatar.is_empty() {
-                        ui.add(egui::Image::new(e.avatar.as_str()).fit_to_exact_size(egui::vec2(24.0, 24.0)));
+                        ui.add(egui::Image::new(e.avatar.as_str()).fit_to_exact_size(egui::vec2(32.0, 32.0)).rounding(2.0));
                     }
                     ui.vertical(|ui| {
-                        let r = ui.add(egui::Label::new(&e.text).wrap().sense(egui::Sense::click()));
+                        let r = ui.add(egui::Label::new(egui::RichText::new(&e.text).size(13.0).color(crate::theme::TEXT)).wrap().sense(egui::Sense::click()));
                         if let Some(a) = e.appid {
                             if r.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tr!("Страница игры в магазине", "Game page in the store")).clicked() {
                                 open_store = Some(a);
@@ -174,6 +179,7 @@ impl LauncherApp {
                             });
                         }
                     });
+                });
                 });
             }
             if page.entries.is_empty() {
@@ -195,10 +201,10 @@ impl LauncherApp {
 
     pub(crate) fn activity_contents(&mut self, ui: &mut egui::Ui, net: &NetState) {
         ui.horizontal(|ui| {
-            ui.heading(tr!("Активность друзей", "Friends activity"));
+            crate::theme::page_title(ui, tr!("Активность друзей", "Friends activity"));
             ui.separator();
-            ui.selectable_value(&mut self.activity_ui.tab, 0, tr!("Лента событий", "Activity feed"));
-            ui.selectable_value(&mut self.activity_ui.tab, 1, tr!("Во что играли", "What they played"));
+            crate::theme::tab_value(ui, &mut self.activity_ui.tab, 0, tr!("Лента событий", "Activity feed"));
+            crate::theme::tab_value(ui, &mut self.activity_ui.tab, 1, tr!("Во что играли", "What they played"));
         });
         if self.activity_ui.tab == 0 {
             self.feed_contents(ui, net);
@@ -210,7 +216,7 @@ impl LauncherApp {
         }
         let mut refresh = false;
         ui.horizontal(|ui| {
-            if ui.button(tr!("Обновить", "Refresh")).clicked() {
+            if crate::theme::text_link(ui, tr!("Обновить", "Refresh")).clicked() {
                 refresh = true;
             }
             if net.activity_busy {
@@ -235,19 +241,33 @@ impl LauncherApp {
         let mut open_store = None;
         let mut open_chat = None;
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            ui.strong(tr!("Популярно у друзей", "Popular with friends"));
-            egui::Grid::new("act_popular").num_columns(3).striped(true).show(ui, |ui| {
+            crate::theme::caps_title(ui, tr!("Популярно у друзей", "Popular with friends"), None);
+            ui.add_space(4.0);
+            // A shelf of capsules, as "Friends are playing" in Steam.
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
                 for (appid, name, count, total) in popular(&list).into_iter().take(15) {
-                    if ui.link(&name).on_hover_text(tr!("Страница в магазине", "Store page")).clicked() {
-                        open_store = Some(appid);
-                    }
-                    ui.label(trf!("друзей: {count}", "friends: {count}"));
-                    ui.weak(trf!("всего {}", "total {}", hours(total)));
-                    ui.end_row();
+                    ui.allocate_ui(egui::vec2(184.0, 118.0), |ui| {
+                    egui::Frame::none().fill(egui::Color32::from_rgb(32, 38, 46)).show(ui, |ui| {
+                        ui.set_width(184.0);
+                        ui.vertical(|ui| {
+                            let cap = egui::Image::new(format!("https://cdn.akamai.steamstatic.com/steam/apps/{appid}/capsule_184x69.jpg"))
+                                .fit_to_exact_size(egui::vec2(184.0, 69.0))
+                                .sense(egui::Sense::click());
+                            if ui.add(cap).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(&name).clicked() {
+                                open_store = Some(appid);
+                            }
+                            egui::Frame::none().inner_margin(egui::Margin::symmetric(6.0, 4.0)).show(ui, |ui| {
+                                ui.add(egui::Label::new(egui::RichText::new(&name).size(12.5).color(egui::Color32::WHITE)).truncate());
+                                ui.label(egui::RichText::new(trf!("друзей: {count} · {}", "friends: {count} · {}", hours(total))).size(11.0).color(crate::theme::LIGHT_BLUE));
+                            });
+                        });
+                    });
+                    });
                 }
             });
             ui.add_space(10.0);
-            ui.strong(tr!("По друзьям", "By friend"));
+            crate::theme::caps_title(ui, tr!("По друзьям", "By friend"), None);
             for f in &list {
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {

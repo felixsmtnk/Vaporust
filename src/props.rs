@@ -157,9 +157,32 @@ impl LauncherApp {
             restore_confirm: None,
         });
         let _ = self.tx.send(Cmd::LoadProps(appid));
-        // Properties - a page of the main window (as in Steam: "Properties" opens over the library).
-        self.close_extras(crate::View::Props);
-        self.view = crate::View::Props;
+    }
+
+    /// Game properties - a separate window, as in Steam (the library stays as it was).
+    pub(crate) fn props_window(&mut self, ctx: &egui::Context, net: &NetState) {
+        if self.view == crate::View::Props {
+            // The old page (back / forward history): properties are a window now.
+            self.view = crate::View::Library;
+        }
+        let Some(name) = self.props.as_ref().map(|w| w.name.clone()) else { return };
+        let builder = egui::ViewportBuilder::default()
+            .with_title(trf!("{name} - Свойства", "{name} - Properties"))
+            .with_inner_size([780.0, 560.0])
+            .with_min_inner_size([600.0, 420.0])
+            .with_icon(crate::icons::icon(crate::icons::Kind::Launcher))
+            .with_decorations(crate::winframe::system());
+        let mut close = false;
+        ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("vaporust_props"), builder, |ctx, _| {
+            crate::winframe::title_bar_auto(ctx);
+            egui::CentralPanel::default().frame(egui::Frame::none().fill(crate::theme::BG)).show(ctx, |ui| self.props_contents(ui, net));
+            if ctx.input(|i| i.viewport().close_requested()) {
+                close = true;
+            }
+        });
+        if close {
+            self.props = None;
+        }
     }
 
     pub(crate) fn props_contents(&mut self, ui: &mut egui::Ui, net: &NetState) {
@@ -183,7 +206,6 @@ impl LauncherApp {
         let logged_in = net.account.is_some();
         let my_id = net.my_id;
         let steam_dir = self.steam.as_ref().map(|s| s.dir.clone());
-        let mut back = false;
 
         // As the Steam game properties: a dark column of sections on the left.
         egui::SidePanel::left("props_tabs")
@@ -191,9 +213,7 @@ impl LauncherApp {
             .exact_width(180.0)
             .frame(egui::Frame::none().fill(crate::theme::TOP).inner_margin(egui::Margin::symmetric(8.0, 10.0)))
             .show_inside(ui, |ui| {
-                if ui.add(egui::Button::new(egui::RichText::new(tr!("< К игре", "< Back to game")).size(12.5).color(crate::theme::TEXT2)).frame(false)).clicked() {
-                    back = true;
-                }
+                ui.add(egui::Label::new(crate::theme::spaced(&tr!("Свойства", "Properties").to_uppercase(), crate::theme::semibold(12.5), crate::theme::ACCENT, 1.0)).selectable(false));
                 ui.add_space(8.0);
                 ui.spacing_mut().item_spacing.y = 2.0;
                 for (tab, label) in [
@@ -247,7 +267,7 @@ impl LauncherApp {
 
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match w.tab {
                 Tab::General => {
-                    ui.strong(tr!("Параметры запуска", "Launch options"));
+                    crate::theme::caps_title(ui, tr!("Параметры запуска", "Launch options"), None);
                     ui.add(
                         egui::TextEdit::multiline(&mut w.launch_text)
                             .desired_rows(2)
@@ -279,7 +299,7 @@ impl LauncherApp {
                     // Auto-update of this game (the AutoUpdateBehavior field in appmanifest, as in
                     // Steam's "Properties -> Updates"). Change only while Steam is closed.
                     ui.add_space(12.0);
-                    ui.strong(tr!("Обновления", "Updates"));
+                    crate::theme::caps_title(ui, tr!("Обновления", "Updates"), None);
                     let cur: u8 = local::acf_top(&acf_path, "AutoUpdateBehavior").and_then(|v| v.parse().ok()).unwrap_or(0);
                     let names = [
                         (0u8, tr!("Всегда обновлять эту игру", "Always keep this game updated")),
@@ -308,13 +328,12 @@ impl LauncherApp {
                     ui.weak(tr!("Так же, как в Steam. Vaporust сам игры в фоне не обновляет: кнопка «Обновить» появляется, когда обновление есть.", "The same as in Steam. Vaporust does not update games in the background itself: the \"Update\" button appears when an update is available."));
 
                     ui.add_space(12.0);
-                    ui.strong(tr!("Запуск без Steam", "Launch without Steam"));
+                    crate::theme::caps_title(ui, tr!("Запуск без Steam", "Launch without Steam"), None);
                     // Family games (others', from the family library) - only through Steam: launching around
                     // Steam would bypass family sharing rules (for example the lock while the owner plays).
                     let family = crate::is_family_only(net, appid);
                     let mut direct = self.settings.no_steam.contains(&appid) && !family;
-                    if ui
-                        .add_enabled(!family, egui::Checkbox::new(&mut direct, tr!("Запускать эту игру без Steam", "Launch this game without Steam")))
+                    if crate::theme::switch(ui, !family, &mut direct, tr!("Запускать эту игру без Steam", "Launch this game without Steam"))
                         .on_hover_text(tr!("Быстрее и легче: Steam не запускается вовсе. Только для игр без защиты Steam.", "Faster and lighter: Steam does not start at all. Only for games without Steam protection."))
                         .on_disabled_hover_text(tr!("Игра из семейной библиотеки: запускается только через Steam, чтобы соблюдались правила семейного доступа.", "A game from the family library: it is launched only through Steam so that family sharing rules are followed."))
                         .changed()
@@ -375,7 +394,7 @@ impl LauncherApp {
                     ui.weak(tr!("Без Steam не работают достижения, облачные сохранения, оверлей и учет времени в игре.", "Without Steam, achievements, cloud saves, the overlay and playtime tracking do not work."));
 
                     ui.add_space(12.0);
-                    ui.strong(tr!("Скрипты запуска", "Launch scripts"));
+                    crate::theme::caps_title(ui, tr!("Скрипты запуска", "Launch scripts"), None);
                     let mut sc = self.settings.scripts.get(&appid).cloned().unwrap_or_default();
                     let before = sc.clone();
                     egui::Grid::new("scripts").num_columns(2).show(ui, |ui| {
@@ -405,7 +424,7 @@ impl LauncherApp {
                     }
 
                     ui.add_space(12.0);
-                    ui.strong(tr!("Язык игры", "Game language"));
+                    crate::theme::caps_title(ui, tr!("Язык игры", "Game language"), None);
                     match &data.languages {
                         None => {
                             crate::spin::spinner(ui);
@@ -519,7 +538,7 @@ impl LauncherApp {
                     // ---------- Pinning and rollback ----------
                     ui.add_space(14.0);
                     ui.separator();
-                    ui.strong(tr!("Версия игры", "Game version"));
+                    crate::theme::caps_title(ui, tr!("Версия игры", "Game version"), None);
                     match &pinned_real {
                         Some(_) => {
                             ui.colored_label(GREEN, tr!("Версия закреплена: Steam не будет обновлять эту игру.", "Version pinned: Steam will not update this game."));
@@ -760,7 +779,7 @@ impl LauncherApp {
                             ui.horizontal(|ui| {
                                 if d.owned && d.installed {
                                     let mut on = !d.disabled;
-                                    if ui.add_enabled(!locked, egui::Checkbox::new(&mut on, &name)).changed() {
+                                    if crate::theme::switch(ui, !locked, &mut on, name.as_str()).changed() {
                                         cmds.push(Cmd::SetDlc { base: w.appid, dlc: d.app_id, enabled: on });
                                     }
                                 } else if d.owned {
@@ -802,7 +821,7 @@ impl LauncherApp {
 
                 Tab::Cloud => {
                     // ---------- Manual sync ----------
-                    ui.strong(tr!("Синхронизация вручную", "Manual sync"));
+                    crate::theme::caps_title(ui, tr!("Синхронизация вручную", "Manual sync"), None);
                     ui.weak(
                         tr!("Steam сам синхронизирует сохранения при запуске игры и после выхода. Здесь это можно \
                          сделать вручную, не запуская игру. Сохранения лежат в папке игры на этом ПК (она указана \
@@ -923,7 +942,7 @@ impl LauncherApp {
                         }
                         // Save backups (zip in Documents\Vaporust\Сохранения).
                         ui.horizontal_wrapped(|ui| {
-                            ui.strong(tr!("Резервные копии", "Backups"));
+                            crate::theme::caps_title(ui, tr!("Резервные копии", "Backups"), None);
                             if ui
                                 .button(tr!("Сделать копию", "Make a backup"))
                                 .on_hover_text(tr!("Сложить сохранения с этого ПК в zip-архив (Документы\\Vaporust\\Сохранения)", "Put the saves from this PC into a zip archive (Documents\\Vaporust\\Сохранения)"))
@@ -1030,12 +1049,6 @@ impl LauncherApp {
         }
         if do_update_smart {
             self.start_update(appid, ctx);
-        }
-        if back {
-            self.props = None;
-            self.view = crate::View::Library;
-            self.lib_page = Some(appid);
-            return;
         }
         if let Some(on) = pin_action {
             let res = if on { self.pin_game(appid) } else { self.unpin_game(appid) };

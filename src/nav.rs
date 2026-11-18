@@ -53,9 +53,18 @@ fn menu_title(ui: &mut egui::Ui, text: &str, add: impl FnOnce(&mut egui::Ui)) {
         ui.set_min_width(210.0);
         add(ui);
     });
+    if r.inner.is_some() {
+        MENU_OPEN.with(|m| m.set(true));
+    }
     let resp = r.response;
     let color = if resp.hovered() { egui::Color32::WHITE } else { theme::TEXT2 };
     ui.painter().galley_with_override_text_color(resp.rect.center() - galley.size() / 2.0, galley, color);
+}
+
+thread_local! {
+    /// A menu of the title rows (Vaporust, View, the account, notifications) is open in this frame:
+    /// the section drop-downs must not pop up over it.
+    pub(crate) static MENU_OPEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// An item of a hover drop-down under a top section.
@@ -73,7 +82,7 @@ fn drop_item(ui: &mut egui::Ui, text: &str, on: bool) -> egui::Response {
 
 /// What a drop-down item does.
 #[derive(Clone, Copy)]
-enum Go {
+pub(crate) enum Go {
     StoreTab(Tab),
     News,
     Points,
@@ -138,6 +147,7 @@ impl LauncherApp {
     /// and the account on the right), then back / forward and the sections.
     pub(crate) fn title_rows(&mut self, ui: &mut egui::Ui, net: &NetState) {
         self.nav_history_tick();
+        MENU_OPEN.with(|m| m.set(false));
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             // ----- Row 1: menus -----
@@ -192,8 +202,7 @@ impl LauncherApp {
         let section = section_of(self.view);
         let full = !self.settings.games_only;
         if full {
-            let r = top_item(ui, section == Some(Section::Store), tr!("Магазин", "Store"))
-                .on_hover_text(tr!("Ctrl+щелчок - открыть магазин в отдельном окне", "Ctrl+click - open the store in a separate window"));
+            let r = top_item(ui, section == Some(Section::Store), tr!("Магазин", "Store"));
             if r.clicked() {
                 self.open_store(None, ctrl);
             }
@@ -235,7 +244,28 @@ impl LauncherApp {
         let over = |r: egui::Rect| pointer.is_some_and(|p| r.contains(p));
         // A bridge between the item and the list, so moving the mouse down does not close it.
         let bridge = egui::Rect::from_min_max(item.rect.left_bottom() - egui::vec2(0.0, 2.0), item.rect.right_bottom() + egui::vec2(0.0, 4.0));
-        let open = item.hovered() || over(bridge) || prev.is_some_and(|r| over(r.expand(6.0)));
+        // Open only after the mouse rested on the item a moment (passing over the bar opens nothing),
+        // not right after a click on the item, and not while another menu is open.
+        let since_id = id.with("since");
+        let clicked_id = id.with("clicked");
+        let now = ui.input(|i| i.time);
+        if item.clicked() {
+            ui.ctx().data_mut(|d| d.insert_temp(clicked_id, true));
+        }
+        let hovering = item.hovered() || over(bridge);
+        if !hovering {
+            ui.ctx().data_mut(|d| {
+                d.remove::<f64>(since_id);
+                d.remove::<bool>(clicked_id);
+            });
+        }
+        let since: f64 = if hovering { ui.ctx().data_mut(|d| *d.get_temp_mut_or_insert_with(since_id, || now)) } else { now };
+        let suppressed = ui.ctx().data(|d| d.get_temp::<bool>(clicked_id).unwrap_or(false)) || MENU_OPEN.with(|m| m.get()) || ui.ctx().memory(|m| m.any_popup_open());
+        let rested = now - since >= 0.25;
+        if hovering && !rested && prev.is_none() {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(260));
+        }
+        let open = !suppressed && ((hovering && (rested || prev.is_some())) || prev.is_some_and(|r| over(r.expand(6.0))));
         if !open {
             if prev.is_some() {
                 ui.ctx().data_mut(|d| d.remove::<egui::Rect>(id));
@@ -314,7 +344,7 @@ impl LauncherApp {
         }
     }
 
-    fn go(&mut self, g: Go, net: &NetState, ctrl: bool) {
+    pub(crate) fn go(&mut self, g: Go, net: &NetState, ctrl: bool) {
         match g {
             Go::StoreTab(t) => {
                 self.open_store(None, ctrl);
@@ -408,6 +438,9 @@ impl LauncherApp {
                 ui.close_menu();
             }
         });
+        if r.inner.is_some() {
+            MENU_OPEN.with(|m| m.set(true));
+        }
         let rect = r.response.rect;
         let hovered = r.response.hovered();
         if hovered {

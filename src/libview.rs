@@ -191,7 +191,7 @@ pub fn list(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, sort: &mu
 
 /// Grid of covers. Only visible rows are drawn (and loaded).
 /// `recent` - the "Recent games" shelf as the first row (as on Steam's library home); empty - no shelf.
-pub fn grid(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, recent: &[Row]) -> Option<Action> {
+pub fn grid(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, recent: &[Row], next: &[Row]) -> Option<Action> {
     let mut out = None;
     // How many covers at least 140 points wide fit, stretched to the full width -
     // no empty space is left on the right at any window size.
@@ -207,7 +207,13 @@ pub fn grid(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, recent: &
     let label_h = 26.0;
     // Under the shelf - a separator line: the shelf and the full list are different sections.
     // Shelves on top, then the "ALL GAMES (n)" header, as on the Steam library home.
-    let shelf_h = if recent.is_empty() { 0.0 } else { label_h + row_h + 8.0 } + label_h;
+    // The shelves: "Recent Games" and "Play Next" (owned, never launched), each a caption and one row.
+    let shelves: Vec<(&str, &[Row], u8)> = [(tr!("Недавние игры", "Recent Games"), recent, 0u8), (tr!("Во что сыграть дальше", "Play Next"), next, 2u8)]
+        .into_iter()
+        .filter(|s| !s.1.is_empty())
+        .collect();
+    let one_shelf = label_h + row_h + 8.0;
+    let shelf_h = shelves.len() as f32 * one_shelf + label_h;
     let n_rows = rows.len().div_ceil(cols);
     // The screenshot tour (tour.rs) can ask to open the grid at row N (stored as N + 1;
     // a large number - to the very bottom, egui clamps scrolling to the end of the list).
@@ -229,14 +235,17 @@ pub fn grid(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, recent: &
             let rect = egui::Rect::from_min_size(egui::pos2(origin.x, origin.y + y), egui::vec2(width, h));
             ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::left_to_right(egui::Align::Min)))
         };
-        if !recent.is_empty() && vp.min.y < label_h + row_h {
-            let mut lab = row_ui(ui, 0.0, label_h);
-            lab.set_width(width - 16.0);
-            theme::shelf_title(&mut lab, tr!("Недавние игры", "Recent Games"));
-            let mut child = row_ui(ui, label_h, row_h);
-            child.spacing_mut().item_spacing.x = gap;
-            for r in recent.iter().take(cols) {
-                tile_ui(&mut child, r, c, covers, tile, 0, &mut out);
+        for (i, (title, list, section)) in shelves.iter().enumerate() {
+            let top = i as f32 * one_shelf;
+            if vp.min.y < top + one_shelf && vp.max.y > top {
+                let mut lab = row_ui(ui, top, label_h);
+                lab.set_width(width - 16.0);
+                theme::shelf_title(&mut lab, title);
+                let mut child = row_ui(ui, top + label_h, row_h);
+                child.spacing_mut().item_spacing.x = gap;
+                for r in list.iter().take(cols) {
+                    tile_ui(&mut child, r, c, covers, tile, *section, &mut out);
+                }
             }
         }
         if vp.min.y < shelf_h {
@@ -682,7 +691,7 @@ pub fn page(ui: &mut egui::Ui, r: &Row, c: &Ctx, covers: &Covers, d: &PageData, 
                 }
             };
             let two_buttons = r.ready && c.needs_update(r);
-            let wide = ui.available_width() >= if two_buttons { 860.0 } else { 700.0 };
+            let wide = ui.available_width() >= if two_buttons { 980.0 } else { 820.0 };
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 22.0;
                 ui.scope(|ui| {

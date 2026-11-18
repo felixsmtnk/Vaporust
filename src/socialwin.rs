@@ -168,7 +168,7 @@ impl LauncherApp {
             0 | 7 => egui::Color32::from_gray(140),
             2 => egui::Color32::from_rgb(220, 120, 110),
             3 | 4 => egui::Color32::from_rgb(110, 140, 170),
-            _ => egui::Color32::from_rgb(90, 170, 230),
+            _ => crate::theme::ONLINE,
         };
         let mut open_profile = false;
         let mut open_page: Option<u8> = None;
@@ -1110,9 +1110,9 @@ fn profile_right(
     act: &mut Option<ProfileAct>,
 ) {
     let (status, color) = match (p.persona_state, &p.game_name) {
-        (_, Some(g)) if !g.is_empty() => (trf!("В игре\n{g}", "In game\n{g}"), egui::Color32::from_rgb(140, 200, 80)),
+        (_, Some(g)) if !g.is_empty() => (trf!("В игре\n{g}", "In game\n{g}"), crate::theme::IN_GAME),
         (Some(0) | None, _) => (tr!("Не в сети", "Offline").to_string(), egui::Color32::GRAY),
-        _ => (tr!("В сети", "Online").to_string(), egui::Color32::from_rgb(90, 170, 230)),
+        _ => (tr!("В сети", "Online").to_string(), crate::theme::ONLINE),
     };
     ui.label(egui::RichText::new(status).size(22.0).color(color));
     ui.add_space(12.0);
@@ -1163,9 +1163,9 @@ fn profile_right(
                     egui::Image::new(f.avatar.as_str()).rounding(2.0).paint_at(ui, ar);
                 }
                 let c = if f.in_game {
-                    egui::Color32::from_rgb(140, 200, 80)
+                    crate::theme::IN_GAME
                 } else if f.online {
-                    egui::Color32::from_rgb(90, 170, 230)
+                    crate::theme::ONLINE
                 } else {
                     egui::Color32::from_gray(110)
                 };

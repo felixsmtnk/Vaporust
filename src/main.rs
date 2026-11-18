@@ -12,6 +12,7 @@ mod chatfmt;
 mod chatwin;
 mod colls;
 mod collview;
+mod smartcoll;
 mod achview;
 mod friendslist;
 mod launch;
@@ -158,7 +159,7 @@ const READY: &str = "__ready";
 const UPDATES: &str = "__updates";
 
 /// One library row: installed and owned games combined.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct Row {
     appid: u32,
     name: String,
@@ -250,6 +251,8 @@ struct LauncherApp {
     nav_last: (View, Option<u32>, bool),
     /// Library: the collections page instead of the home page.
     collections_page: bool,
+    /// The editor of a new smart collection.
+    smart_edit: smartcoll::SmartEdit,
     /// Memory was already given back to the system (window in the tray or a game is running) and when last.
     trimmed: bool,
     /// Window for adding or editing a non-Steam game.
@@ -522,6 +525,7 @@ impl LauncherApp {
             nav_fwd: Vec::new(),
             nav_last: (View::Library, None, false),
             collections_page: false,
+            smart_edit: Default::default(),
             trimmed: false,
             custom_edit: None,
             uninstall_ask: None,
@@ -625,7 +629,9 @@ impl LauncherApp {
         app.rescan();
         // Library folder chosen last time.
         if let Some(lib) = app.settings.library.clone() {
-            if let Some(i) = app.libraries.iter().position(|l| l.to_string_lossy() == lib) {
+            // Compared without case and slash differences (older versions saved the registry spelling).
+            let same = |a: &str, b: &str| a.replace('/', "\\").trim_end_matches('\\').eq_ignore_ascii_case(b.replace('/', "\\").trim_end_matches('\\'));
+            if let Some(i) = app.libraries.iter().position(|l| same(&l.to_string_lossy(), &lib)) {
                 app.lib_idx = i;
             }
         }
@@ -730,9 +736,15 @@ impl LauncherApp {
             View::Settings => self.settings_contents(ui, net),
             View::Screenshots => self.shots_contents(ui, net),
             View::Storage => self.storage_contents(ui),
-            View::News => self.news_contents(ui, net),
+            View::News => {
+                self.store_band(ui, net);
+                self.news_contents(ui, net)
+            }
             View::Badges => self.badges_contents(ui, net),
-            View::Points => self.points_contents(ui, net),
+            View::Points => {
+                self.store_band(ui, net);
+                self.points_contents(ui, net)
+            }
             View::Family => self.family_contents(ui, net),
             View::Activity => self.activity_contents(ui, net),
             View::Stats => self.stats_contents(ui, net),
@@ -742,7 +754,10 @@ impl LauncherApp {
             View::ProfileEdit => self.profile_edit_contents(ui, net),
             View::Achievements => self.achievements_contents(ui, net),
             View::Props => self.props_contents(ui, net),
-            View::Cart => self.cart_contents(ui, net),
+            View::Cart => {
+                self.store_band(ui, net);
+                self.cart_contents(ui, net)
+            }
             View::Music => self.music_contents(ui),
             View::Profile => self.profile_contents(ui, net),
             View::Friends => self.friends_page_contents(ui, net),
@@ -1162,7 +1177,7 @@ impl eframe::App for LauncherApp {
     /// eframe calls this on exit and periodically (every 30 s).
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         // The screenshot tour switches views and options: it must not overwrite the real settings.
-        if std::env::var_os("VAPORUST_TOUR").is_some() {
+        if std::env::var_os("VAPORUST_TOUR").is_some() || std::env::var_os("VAPORUST_NOSAVE").is_some() {
             return;
         }
         self.settings.window = if self.settings.remember_window {
@@ -1564,7 +1579,17 @@ impl eframe::App for LauncherApp {
                         } else {
                             Vec::new()
                         };
-                        libview::grid(ui, &rows, &vc, &self.covers, &recent)
+                        // "Play Next": owned games never launched, installed ones first (as the Steam shelf of
+                        // games you own but have not played).
+                        let next: Vec<Row> = if self.collection.is_none() && self.filter.trim().is_empty() && self.genre.is_none() {
+                            let mut r: Vec<Row> = rows.iter().filter(|r| r.playtime_min == Some(0) && !r.family && !custom::is_custom(r.appid)).cloned().collect();
+                            r.sort_by_key(|r| (!r.installed, r.name.to_lowercase()));
+                            r.truncate(12);
+                            r
+                        } else {
+                            Vec::new()
+                        };
+                        libview::grid(ui, &rows, &vc, &self.covers, &recent, &next)
                     }
                 };
                 let action = side_action.take().or(action);
@@ -1680,6 +1705,17 @@ impl eframe::App for LauncherApp {
         self.inventory_window(ctx, &net);
         self.social_windows(ctx, &net);
         self.friends_window(ctx, &net);
+        self.props_window(ctx, &net);
+        if self.smart_edit.open {
+            // Game tags come from the store: asked once for all library games (as for the genre filter).
+            if !self.genre_asked && net.account.is_some() {
+                self.genre_asked = true;
+                let ids: Vec<u32> = self.row_map(&net).keys().copied().filter(|id| *id < crate::custom::BASE).collect();
+                let _ = self.tx.send(Cmd::Store(store::StoreCmd::Details(ids)));
+            }
+            let genres = self.known_genres(&net);
+            self.smart_dialog(ctx, &genres);
+        }
         self.accounts_window(ctx, &net);
         self.install_ask_dialog(ctx, &net);
         self.key_window(ctx, &net);

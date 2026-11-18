@@ -298,13 +298,13 @@ impl LauncherApp {
         let mut new_topic = false;
         let mut back = false;
         ui.horizontal(|ui| {
-            ui.heading(trf!("Сообщество: {name}", "Community: {name}"));
+            crate::theme::page_title(ui, &trf!("Сообщество: {name}", "Community: {name}"));
             ui.separator();
-            if ui.selectable_label(st.tab == 0, tr!("Обсуждения", "Discussions")).clicked() {
+            if crate::theme::tab(ui, st.tab == 0, tr!("Обсуждения", "Discussions")).clicked() {
                 st.tab = 0;
                 back = true;
             }
-            if ui.selectable_label(st.tab == 1, tr!("Руководства", "Guides")).clicked() {
+            if crate::theme::tab(ui, st.tab == 1, tr!("Руководства", "Guides")).clicked() {
                 st.tab = 1;
             }
             if crate::exp::button(ui, tr!("Новая тема...", "New topic...")).on_hover_text(tr!("Создать тему в «Общем обсуждении» игры", "Create a topic in the game's \"General Discussions\"")).clicked() {
@@ -318,7 +318,7 @@ impl LauncherApp {
         // Open topic.
         if st.tab == 0 {
             if let Some(t) = &net.comm_topic {
-                if ui.button(tr!("< К списку тем", "< Back to topics")).clicked() {
+                if ui.add(egui::Button::new(egui::RichText::new(tr!("< К списку тем", "< Back to topics")).size(12.5).color(theme::TEXT2)).frame(false)).clicked() {
                     back = true;
                 }
                 match t {
@@ -339,26 +339,34 @@ impl LauncherApp {
                                 }
                             });
                             ui.add_space(6.0);
-                            crate::richtext::show(ui, &t.items);
-                            ui.separator();
-                            ui.strong(trf!("Ответы ({})", "Replies ({})", t.total));
+                            // The first post in a card, replies as cards under it, as on the Steam forum.
+                            egui::Frame::none().fill(theme::CARD).rounding(2.0).inner_margin(egui::Margin::same(12.0)).show(ui, |ui| {
+                                ui.set_width(ui.available_width());
+                                crate::richtext::show(ui, &t.items);
+                            });
+                            ui.add_space(10.0);
+                            theme::caps_title(ui, tr!("Ответы", "Replies"), Some(t.total as usize));
+                            ui.add_space(4.0);
                             for c in &t.replies {
+                                egui::Frame::none().fill(egui::Color32::from_rgb(35, 41, 50)).rounding(2.0).inner_margin(egui::Margin::same(8.0)).show(ui, |ui| {
+                                ui.set_width(ui.available_width());
                                 ui.horizontal_top(|ui| {
                                     if !c.avatar.is_empty() {
-                                        ui.add(egui::Image::new(c.avatar.as_str()).fit_to_exact_size(egui::vec2(28.0, 28.0)));
+                                        ui.add(egui::Image::new(c.avatar.as_str()).fit_to_exact_size(egui::vec2(32.0, 32.0)).rounding(2.0));
                                     }
                                     ui.vertical(|ui| {
                                         ui.horizontal(|ui| {
-                                            ui.strong(crate::richtext::fix(ui, &c.author));
+                                            ui.label(egui::RichText::new(crate::richtext::fix(ui, &c.author)).font(theme::semibold(13.0)).color(theme::ONLINE));
                                             if c.time > 0 {
-                                                ui.weak(crate::socialwin::fmt_date(c.time));
+                                                ui.label(egui::RichText::new(crate::socialwin::fmt_date(c.time)).size(11.0).color(theme::DIM));
                                             }
                                         });
                                         let txt = crate::richtext::fix(ui, &c.text);
-                                        ui.add(egui::Label::new(txt).wrap());
+                                        ui.add(egui::Label::new(egui::RichText::new(txt).size(13.0).color(theme::TEXT)).wrap());
                                     });
                                 });
-                                ui.add_space(4.0);
+                                });
+                                ui.add_space(3.0);
                             }
                             if (t.replies.len() as u32) < t.total {
                                 ui.weak(tr!("Показаны первые 50 ответов - остальные в браузере.", "The first 50 replies are shown - the rest are in the browser."));
@@ -397,7 +405,7 @@ impl LauncherApp {
                 if ui.button(tr!("Дальше >", "Next >")).clicked() {
                     st.page += 1;
                 }
-                if ui.button(tr!("Обновить", "Refresh")).clicked() {
+                if crate::theme::text_link(ui, tr!("Обновить", "Refresh")).clicked() {
                     st.asked = None;
                 }
             });
@@ -456,7 +464,7 @@ impl LauncherApp {
             // Open guide - in full, inside the program.
             let mut back = false;
             ui.horizontal(|ui| {
-                if ui.button(tr!("< К руководствам", "< Back to guides")).clicked() {
+                if ui.add(egui::Button::new(egui::RichText::new(tr!("< К руководствам", "< Back to guides")).size(12.5).color(theme::TEXT2)).frame(false)).clicked() {
                     back = true;
                 }
                 if let Ok(g) = g {
@@ -471,8 +479,7 @@ impl LauncherApp {
                     ui.label(e);
                 }
                 Ok(g) => {
-                    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                        ui.set_max_width(860.0);
+                    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| theme::centered(ui, 860.0, |ui| {
                         ui.label(egui::RichText::new(crate::richtext::fix(ui, &g.title)).font(crate::theme::semibold(20.0)).color(egui::Color32::WHITE));
                         ui.add_space(6.0);
                         crate::richtext::show(ui, &g.intro);
@@ -484,14 +491,17 @@ impl LauncherApp {
                                 }
                             });
                         }
+                        // Sections as cards, as the guide sections on the Steam community.
                         for (name, items) in &g.sections {
                             ui.add_space(10.0);
-                            ui.separator();
-                            ui.label(egui::RichText::new(crate::richtext::fix(ui, name)).font(crate::theme::semibold(18.0)).color(egui::Color32::WHITE));
-                            ui.add_space(4.0);
-                            crate::richtext::show(ui, items);
+                            egui::Frame::none().fill(theme::CARD).rounding(2.0).inner_margin(egui::Margin::same(12.0)).show(ui, |ui| {
+                                ui.set_width(ui.available_width());
+                                ui.label(egui::RichText::new(crate::richtext::fix(ui, name)).font(crate::theme::semibold(17.0)).color(egui::Color32::WHITE));
+                                ui.add_space(4.0);
+                                crate::richtext::show(ui, items);
+                            });
                         }
-                    });
+                    }));
                 }
             }
             if back {

@@ -14,6 +14,8 @@ pub struct Tour {
     next_at: f64,
     /// Which step's screenshot we are waiting for (file name).
     waiting: Option<String>,
+    /// When the screenshot was asked (a minimized window loses the request: it is sent again).
+    asked_at: f64,
     /// The step is applied, waiting for the section to finish loading.
     shown: Option<String>,
     started: Option<f64>,
@@ -23,7 +25,7 @@ impl Tour {
     pub fn from_env() -> Option<Self> {
         let dir = PathBuf::from(std::env::var_os("VAPORUST_TOUR")?);
         let _ = std::fs::create_dir_all(&dir);
-        Some(Tour { dir, step: 0, next_at: 0.0, waiting: None, shown: None, started: None })
+        Some(Tour { dir, step: 0, next_at: 0.0, waiting: None, asked_at: 0.0, shown: None, started: None })
     }
 }
 
@@ -122,6 +124,10 @@ impl LauncherApp {
             }
         }
         ctx.request_repaint_after(std::time::Duration::from_millis(300));
+        if t.waiting.is_some() && now - t.asked_at > 10.0 {
+            t.asked_at = now;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot);
+        }
         if t.waiting.is_some() || now < t.next_at {
             return;
         }
@@ -132,6 +138,7 @@ impl LauncherApp {
         }
         if let Some(name) = t.shown.take() {
             t.waiting = Some(name);
+            t.asked_at = now;
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot);
             return;
         }

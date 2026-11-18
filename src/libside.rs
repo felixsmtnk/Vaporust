@@ -93,6 +93,10 @@ impl LauncherApp {
                             .or_else(|| (self.collection.as_deref() == Some(UNPLAYED)).then(|| tr!("Ни разу не запускались", "Never launched").to_string()))
                             .or_else(|| (self.collection.as_deref() == Some(READY)).then(|| tr!("Готово к игре", "Ready to play").to_string()))
                             .or_else(|| (self.collection.as_deref() == Some(UPDATES)).then(|| tr!("Есть обновление", "Update available").to_string()))
+                            .or_else(|| {
+                                let i: usize = self.collection.as_deref()?.strip_prefix(smartcoll::PREFIX)?.parse().ok()?;
+                                self.settings.smart.get(i).map(|s| format!("{} *", s.name))
+                            })
                             .unwrap_or_else(|| tr!("Все игры", "All games").into());
                         let family_n = self.row_map(&net).values().filter(|r| r.family).count();
                         // Own collection (not built-in and not filter-based): rename, delete.
@@ -130,6 +134,15 @@ impl LauncherApp {
                                     .on_hover_text(tr!("Установленные игры, которым не нужно обновление", "Installed games that need no update"));
                                 ui.selectable_value(&mut self.collection, Some(UPDATES.to_string()), tr!("Есть обновление", "Update available"))
                                     .on_hover_text(tr!("Установленные игры, для которых вышло обновление", "Installed games with an update available"));
+                                ui.separator();
+                                // Smart collections (marked with *), then "New smart collection...".
+                                for (i, s) in self.settings.smart.iter().enumerate() {
+                                    ui.selectable_value(&mut self.collection, Some(format!("{}{i}", smartcoll::PREFIX)), format!("{} *", s.name))
+                                        .on_hover_text(tr!("Умная коллекция: игры подбираются по правилам", "Smart collection: games are picked by rules"));
+                                }
+                                if ui.button(tr!("Новая умная коллекция...", "New smart collection...")).clicked() {
+                                    self.smart_edit.open = true;
+                                }
                                 ui.separator();
                                 for c in colls {
                                     ui.selectable_value(
@@ -342,6 +355,7 @@ impl LauncherApp {
             Some(UNPLAYED) => tr!("Ни разу не запускались", "Never launched").to_string(),
             Some(READY) => tr!("Готово к игре", "Ready to play").to_string(),
             Some(UPDATES) => tr!("Есть обновление", "Update available").to_string(),
+            Some(id) if id.starts_with(smartcoll::PREFIX) => id.strip_prefix(smartcoll::PREFIX).and_then(|i| i.parse::<usize>().ok()).and_then(|i| self.settings.smart.get(i)).map(|s| s.name.clone()).unwrap_or_default(),
             Some(id) => net.collections.as_ref().and_then(|c| c.iter().find(|c| c.id == id)).map(|c| c.name.clone()).unwrap_or_default(),
         };
         ui.add_space(6.0);

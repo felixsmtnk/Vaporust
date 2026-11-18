@@ -131,7 +131,7 @@ impl LauncherApp {
                         let d = crate::store::group_digits;
                         ui.label(egui::RichText::new(trf!("{} участников", "{} members", d(g.members))).strong());
                         ui.label(egui::RichText::new(trf!("{} в игре", "{} in game", d(g.in_game))).color(crate::theme::PLAY_TEXT));
-                        ui.label(egui::RichText::new(trf!("{} в сети", "{} online", d(g.online))).color(egui::Color32::from_rgb(90, 170, 230)));
+                        ui.label(egui::RichText::new(trf!("{} в сети", "{} online", d(g.online))).color(crate::theme::ONLINE));
                         ui.weak(trf!("{} в чате", "{} in chat", d(g.in_chat)));
                     });
                     ui.add_space(6.0);

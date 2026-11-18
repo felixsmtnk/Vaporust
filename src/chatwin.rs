@@ -386,12 +386,12 @@ impl ChatWin {
         let my_avatar = net.my_id.and_then(|m| net.profiles.get(&m)).and_then(|p| p.as_ref().ok()).and_then(|p| p.avatar_url.clone());
         let (status, status_color) = match friend.as_ref() {
             Some(f) if f.game_name.as_ref().is_some_and(|g| !g.is_empty()) => {
-                (trf!("В игре: {}", "In game: {}", f.game_name.clone().unwrap_or_default()), egui::Color32::from_rgb(140, 200, 80))
+                (trf!("В игре: {}", "In game: {}", f.game_name.clone().unwrap_or_default()), crate::theme::IN_GAME)
             }
-            Some(f) if f.persona_state.unwrap_or(0) == 0 => (tr!("не в сети", "offline").to_string(), egui::Color32::GRAY),
-            Some(f) if matches!(f.persona_state, Some(3 | 4)) => (tr!("отошел", "away").to_string(), egui::Color32::from_rgb(110, 140, 170)),
-            Some(_) => (tr!("в сети", "online").to_string(), egui::Color32::from_rgb(90, 170, 230)),
-            None => (String::new(), egui::Color32::GRAY),
+            Some(f) if f.persona_state.unwrap_or(0) == 0 => (tr!("не в сети", "offline").to_string(), crate::theme::OFFLINE),
+            Some(f) if matches!(f.persona_state, Some(3 | 4)) => (tr!("отошел", "away").to_string(), crate::theme::ONLINE),
+            Some(_) => (tr!("в сети", "online").to_string(), crate::theme::ONLINE),
+            None => (String::new(), crate::theme::OFFLINE),
         };
         // Ctrl+F - search, Esc - close search.
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F)) {
@@ -520,7 +520,7 @@ impl ChatWin {
         });
         let query = self.search.trim().to_lowercase();
         // Conversation: messages grouped by sender (avatar, name, time), a separator between days.
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::none().fill(egui::Color32::from_rgb(30, 35, 42)).inner_margin(egui::Margin::symmetric(10.0, 4.0))).show_inside(ui, |ui| {
             egui::ScrollArea::vertical()
                 .stick_to_bottom(true)
                 .auto_shrink([false, false])
@@ -555,16 +555,22 @@ impl ChatWin {
                         if day != last_day {
                             last_day = day.clone();
                             last = None;
-                            ui.add_space(6.0);
-                            ui.vertical_centered(|ui| ui.label(egui::RichText::new(&day).size(11.5).color(crate::theme::WEAK)));
-                            ui.add_space(2.0);
+                            // The day separator as in the Steam chat: the date between two thin lines.
+                            ui.add_space(8.0);
+                            let r = ui.vertical_centered(|ui| ui.label(egui::RichText::new(&day).size(11.0).color(crate::theme::DIM))).inner.rect;
+                            let full = ui.max_rect();
+                            let line = egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(103, 112, 123, 60));
+                            ui.painter().hline(full.left() + 8.0..=r.left() - 10.0, r.center().y, line);
+                            ui.painter().hline(r.right() + 10.0..=full.right() - 8.0, r.center().y, line);
+                            ui.add_space(4.0);
                         }
                         let who = if l.from_self { tr!("Вы", "You") } else { self.name.as_str() };
                         // New group: another sender or a break longer than 5 minutes.
                         let new_group = last.is_none_or(|(s, t)| s != l.from_self || l.time.saturating_sub(t) > 300);
                         last = Some((l.from_self, l.time));
                         let avatar = if l.from_self { my_avatar.as_ref() } else { friend_avatar.as_ref() };
-                        let color = if l.from_self { egui::Color32::from_rgb(120, 170, 230) } else { egui::Color32::from_rgb(140, 200, 80) };
+                        // Names as in the Steam chat: own one light blue, the friend in the color of their status.
+                        let color = if l.from_self { crate::theme::ONLINE } else { status_color };
                         // Message right-click menu: register the area from the previous frame BEFORE
                         // the contents so that links and spoilers inside are still clickable.
                         let msg_key = egui::Id::new(("chat_msg", id, l.time, l.ordinal, l.text.len()));
@@ -622,8 +628,8 @@ impl ChatWin {
                             ui.vertical(|ui| {
                                 if new_group {
                                     ui.horizontal(|ui| {
-                                        ui.label(egui::RichText::new(crate::richtext::fix(ui, who)).color(color).strong());
-                                        ui.label(egui::RichText::new(crate::fmt_time(l.time)).size(11.0).color(crate::theme::WEAK));
+                                        ui.label(egui::RichText::new(crate::richtext::fix(ui, who)).font(crate::theme::semibold(13.0)).color(color));
+                                        ui.label(egui::RichText::new(crate::fmt_time(l.time)).size(10.5).color(crate::theme::DIM));
                                     });
                                 }
                                 ui.horizontal_wrapped(|ui| {

@@ -307,7 +307,7 @@ fn kind_label(k: Kind) -> &'static str {
 fn color(k: Kind) -> egui::Color32 {
     match k {
         Kind::Message(_) => egui::Color32::from_rgb(90, 160, 240),
-        Kind::FriendGame(_) => egui::Color32::from_rgb(140, 200, 80),
+        Kind::FriendGame(_) => crate::theme::IN_GAME,
         Kind::FriendOnline(_) => egui::Color32::from_rgb(90, 190, 220),
         Kind::Sale(_) => egui::Color32::from_rgb(240, 180, 60),
         Kind::Download(_) => egui::Color32::from_rgb(120, 210, 140),
@@ -462,11 +462,11 @@ impl LauncherApp {
 /// Friend status color, as in the friend list: in game - green, online - blue, away - slate blue.
 pub fn status_color(state: Option<u32>, in_game: bool) -> Option<egui::Color32> {
     Some(match (state.unwrap_or(0), in_game) {
-        (_, true) => egui::Color32::from_rgb(140, 200, 80),
+        (_, true) => crate::theme::IN_GAME,
         (0, _) => return None,
         (2, _) => egui::Color32::from_rgb(220, 120, 110),
         (3 | 4, _) => egui::Color32::from_rgb(110, 140, 170),
-        _ => egui::Color32::from_rgb(90, 170, 230),
+        _ => crate::theme::ONLINE,
     })
 }
 

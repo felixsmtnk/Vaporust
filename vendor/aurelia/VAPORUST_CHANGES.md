@@ -46,6 +46,8 @@ All other files are unchanged. Every change in the code is marked with a `vaporu
   - `WalletBalance.fee_rules` and `MarketFeeRules` (minimum price, price step and fees from
     `g_rgWalletInfo`: `wallet_market_minimum`, `wallet_currency_increment`, `wallet_fee_percent`,
     `wallet_publisher_fee_percent_default`), exported - to calculate market prices as the Steam site does.
+  - `InventoryItem.name_color` (rarity color) and `InventoryItem.description` (description lines without
+    HTML tags) - for the item tiles and the item card, as on the Steam inventory page.
 - `src/steam_client/workshop.rs`, `src/core/models.rs` - `WorkshopItem` gets an image, subscribers and
   votes (`preview_url`, `subscriptions`, `votes_up`, `votes_down`); the mods query asks for votes.
 - `src/web/web_session.rs`:

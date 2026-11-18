@@ -179,101 +179,162 @@ impl LauncherApp {
             st.asked = Some(want.clone());
             let _ = self.tx.send(Cmd::PointsQuery { class: want.0, search: want.1, cursor: None });
         }
+        use crate::theme;
+        let shown_list = matches!(&net.points_page, Some(Ok(p)) if p.class == st.class && p.search == st.search.trim());
+        ui.add_space(4.0);
         ui.horizontal(|ui| {
-            ui.heading(tr!("Очки Steam", "Steam Points"));
-            match net.points_balance {
-                Some(b) => ui.label(trf!("на счету: {}", "balance: {}", crate::store::group_digits(b))),
-                None => crate::spin::spinner(ui),
-            };
-            ui.hyperlink_to(tr!("Магазин очков на сайте", "Points Shop on the website"), "https://store.steampowered.com/points/shop");
+            theme::page_title(ui, tr!("Магазин очков", "Points Shop"));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // The balance, as the Steam points chip: a coin and the number.
+                match net.points_balance {
+                    Some(b) => {
+                        ui.label(egui::RichText::new(crate::store::group_digits(b)).font(theme::semibold(17.0)).color(egui::Color32::WHITE));
+                        let (r, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
+                        coin(ui.painter(), r);
+                        ui.label(egui::RichText::new(tr!("ВАШИ ОЧКИ", "YOUR POINTS")).size(11.5).color(theme::WEAK));
+                    }
+                    None => {
+                        crate::spin::spinner(ui);
+                    }
+                }
+            });
         });
         if let Some(m) = &net.points_msg {
             ui.label(m);
         }
-        ui.horizontal_wrapped(|ui| {
-            for (c, name) in CLASSES() {
-                ui.selectable_value(&mut st.class, c, name);
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut st.search).hint_text(tr!("Поиск по названию или игре", "Search by name or game")).desired_width(260.0));
-            // The loading icon here only when the list is already shown (loading more); an empty list
-            // shows its own icon below, a second one is not needed.
-            let shown = matches!(&net.points_page, Some(Ok(p)) if p.class == st.class && p.search == st.search.trim());
-            if net.points_busy && shown {
-                crate::spin::spinner(ui);
-            }
-        });
-        ui.weak(tr!("Очки дают за покупки в Steam (100 очков за каждый доллар). Купленное появится в профиле и в чате.", "Points are earned for purchases on Steam (100 points for every dollar). Purchases appear in the profile and in chat."));
-        ui.separator();
+        ui.add_space(8.0);
         let page = match &net.points_page {
-            Some(Ok(p)) if p.class == st.class && p.search == st.search.trim() => p.clone(),
+            Some(Ok(p)) if shown_list => Some(p.clone()),
             Some(Err(e)) => {
                 ui.label(trf!("Не удалось загрузить: {e}", "Could not load: {e}"));
                 return;
             }
-            _ => {
-                crate::spin::spinner(ui);
-                return;
-            }
+            _ => None,
         };
         let balance = net.points_balance.unwrap_or(0);
         let mut buy: Option<RewardItem> = None;
         let owned = net.points_owned.clone().unwrap_or_default();
         let mut more = false;
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            ui.weak(trf!("Найдено: {}", "Found: {}", page.total));
-            ui.horizontal_wrapped(|ui| {
-                for it in &page.items {
-                    ui.allocate_ui(egui::vec2(150.0, 190.0), |ui| {
-                        ui.vertical(|ui| {
-                            ui.set_width(150.0);
-                            // An image loads only when visible (the catalog has tens of thousands of items), and
-                            // downscaled: profile backgrounds come in 1920x1080.
-                            let (r, _) = ui.allocate_exact_size(egui::vec2(110.0, 110.0), egui::Sense::hover());
-                            if !it.image.is_empty() && ui.is_rect_visible(r) {
-                                let url = crate::imgload::sized(&crate::imgload::still(&it.image), 240);
-                                let img = egui::Image::new(url).max_size(egui::vec2(110.0, 110.0)).maintain_aspect_ratio(true);
-                                // Emoticons are small (54x54) - not stretched so they do not blur.
-                                let target = if it.class == 4 { r.shrink(19.0) } else { r };
-                                ui.put(target, img.max_size(target.size()));
-                            }
-                            ui.add(egui::Label::new(egui::RichText::new(&it.title).small()).truncate());
-                            ui.label(trf!("{} очков", "{} points", crate::store::group_digits(it.cost)));
-                            if owned.has(it) {
-                                ui.colored_label(egui::Color32::from_rgb(110, 200, 110), tr!("Уже есть", "Owned"));
-                            } else if st.confirm == Some(it.defid) {
-                                ui.horizontal(|ui| {
-                                    if ui.button(tr!("Купить", "Buy")).clicked() {
-                                        buy = Some(it.clone());
-                                    }
-                                    if ui.button(tr!("Нет", "No")).clicked() {
-                                        st.confirm = None;
-                                    }
-                                });
-                            } else if ui
-                                .add_enabled(it.cost <= balance, egui::Button::new(tr!("Купить...", "Buy...")))
-                                .on_disabled_hover_text(tr!("Не хватает очков", "Not enough points"))
-                                .clicked()
-                            {
-                                st.confirm = Some(it.defid);
-                            }
-                        });
-                    });
+        ui.horizontal_top(|ui| {
+            // Categories on the left, as the Points Shop menu.
+            ui.vertical(|ui| {
+                ui.set_width(190.0);
+                ui.spacing_mut().item_spacing.y = 0.0;
+                ui.label(egui::RichText::new(tr!("ПРЕДМЕТЫ ПРОФИЛЯ И ЧАТА", "PROFILE AND CHAT ITEMS")).size(11.0).color(theme::DIM));
+                ui.add_space(4.0);
+                for (c, name) in CLASSES() {
+                    if theme::side_item(ui, st.class == c, name, None).clicked() {
+                        st.class = c;
+                    }
+                }
+                ui.add_space(10.0);
+                ui.label(
+                    egui::RichText::new(tr!(
+                        "Очки дают за покупки в Steam (100 очков за каждый доллар). Купленное появится в профиле и в чате.",
+                        "Points are earned for purchases on Steam (100 points for every dollar). Purchases appear in the profile and in chat."
+                    ))
+                    .size(11.5)
+                    .color(theme::DIM),
+                );
+                ui.add_space(6.0);
+                if theme::text_link(ui, tr!("Магазин очков на сайте", "Points Shop on the website")).clicked() {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab("https://store.steampowered.com/points/shop"));
                 }
             });
-            if page.cursor.is_some() && (page.items.len() as u64) < page.total && ui.button(tr!("Показать еще", "Show more")).clicked() {
-                more = true;
-            }
+            ui.add_space(12.0);
+            ui.allocate_ui_with_layout(ui.available_size(), egui::Layout::top_down(egui::Align::Min), |ui| {
+                ui.set_max_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    theme::search_field(ui, &mut st.search, tr!("Поиск по названию или игре", "Search by name or game"), 300.0);
+                    if net.points_busy && shown_list {
+                        crate::spin::spinner(ui);
+                    }
+                    if let Some(p) = &page {
+                        ui.label(egui::RichText::new(trf!("Найдено: {}", "Found: {}", p.total)).size(12.0).color(theme::DIM));
+                    }
+                });
+                ui.add_space(8.0);
+                let Some(page) = page.as_ref() else {
+                    crate::spin::spinner(ui);
+                    return;
+                };
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
+                        for it in &page.items {
+                            ui.allocate_ui(egui::vec2(166.0, 222.0), |ui| {
+                            egui::Frame::none().fill(egui::Color32::from_rgb(36, 43, 53)).rounding(3.0).inner_margin(egui::Margin::same(8.0)).show(ui, |ui| {
+                                ui.set_width(150.0);
+                                ui.set_height(206.0);
+                                ui.vertical(|ui| {
+                                    ui.spacing_mut().item_spacing.y = 3.0;
+                                    // An image loads only when visible (the catalog has tens of thousands of items), and
+                                    // downscaled: profile backgrounds come in 1920x1080.
+                                    let (r, _) = ui.allocate_exact_size(egui::vec2(150.0, 112.0), egui::Sense::hover());
+                                    theme::vgradient_rect(ui.painter(), r, egui::Color32::from_rgb(52, 62, 76), egui::Color32::from_rgb(30, 36, 45));
+                                    if !it.image.is_empty() && ui.is_rect_visible(r) {
+                                        let url = crate::imgload::sized(&crate::imgload::still(&it.image), 240);
+                                        let img = egui::Image::new(url).maintain_aspect_ratio(true);
+                                        // Emoticons are small (54x54) - not stretched so they do not blur.
+                                        let target = if it.class == 4 { r.shrink2(egui::vec2(48.0, 29.0)) } else { r.shrink(6.0) };
+                                        ui.put(target, img.max_size(target.size()));
+                                    }
+                                    ui.add_space(2.0);
+                                    ui.add(egui::Label::new(egui::RichText::new(&it.title).size(13.0).color(egui::Color32::WHITE)).truncate());
+                                    ui.horizontal(|ui| {
+                                        let (r, _) = ui.allocate_exact_size(egui::vec2(13.0, 13.0), egui::Sense::hover());
+                                        coin(ui.painter(), r);
+                                        ui.label(egui::RichText::new(crate::store::group_digits(it.cost)).size(12.5).color(theme::TEXT2));
+                                    });
+                                    ui.add_space(2.0);
+                                    if owned.has(it) {
+                                        ui.label(egui::RichText::new(tr!("Уже есть", "Owned")).size(12.5).color(theme::PLAY));
+                                    } else if st.confirm == Some(it.defid) {
+                                        ui.horizontal(|ui| {
+                                            if theme::accent_button(ui, tr!("Купить", "Buy")).clicked() {
+                                                buy = Some(it.clone());
+                                            }
+                                            if ui.button(tr!("Нет", "No")).clicked() {
+                                                st.confirm = None;
+                                            }
+                                        });
+                                    } else if ui
+                                        .add_enabled(it.cost <= balance, egui::Button::new(tr!("Купить...", "Buy...")))
+                                        .on_disabled_hover_text(tr!("Не хватает очков", "Not enough points"))
+                                        .clicked()
+                                    {
+                                        st.confirm = Some(it.defid);
+                                    }
+                                });
+                            });
+                            });
+                        }
+                    });
+                    ui.add_space(8.0);
+                    if page.cursor.is_some() && (page.items.len() as u64) < page.total && ui.button(tr!("Показать еще", "Show more")).clicked() {
+                        more = true;
+                    }
+                });
+            });
         });
         if let Some(it) = buy {
             st.confirm = None;
             let _ = self.tx.send(Cmd::PointsRedeem(it));
         }
         if more {
-            let _ = self.tx.send(Cmd::PointsQuery { class: page.class, search: page.search.clone(), cursor: page.cursor.clone() });
+            if let Some(Ok(page)) = &net.points_page {
+                let _ = self.tx.send(Cmd::PointsQuery { class: page.class, search: page.search.clone(), cursor: page.cursor.clone() });
+            }
         }
     }
+}
+
+/// The Steam points coin: a blue circle with a lighter ring.
+fn coin(p: &egui::Painter, r: egui::Rect) {
+    let c = r.center();
+    let rad = r.width().min(r.height()) / 2.0;
+    p.circle_filled(c, rad, egui::Color32::from_rgb(26, 159, 255));
+    p.circle_stroke(c, rad * 0.62, egui::Stroke::new(1.4, egui::Color32::from_rgb(190, 228, 255)));
 }
 
 #[cfg(test)]

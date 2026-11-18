@@ -248,7 +248,7 @@ impl LauncherApp {
         let bell_resp = egui::menu::menu_custom_button(ui, bell, |ui| {
             ui.set_min_width(340.0);
             ui.horizontal(|ui| {
-                ui.strong(tr!("Уведомления Steam", "Steam notifications"));
+                crate::theme::caps_title(ui, tr!("Уведомления", "Notifications"), None);
                 if ns.unread > 0 && ui.small_button(tr!("Прочитать все", "Mark all read")).clicked() {
                     mark = true;
                 }
@@ -262,6 +262,8 @@ impl LauncherApp {
                     let title = self.notif_title(n, net);
                     let text = if n.read { egui::RichText::new(&title) } else { egui::RichText::new(&title).strong() };
                     // As in Steam: an image on the left (of the game the notification is about), text on the right.
+                    // As in Steam: unread notifications on a blue backing.
+                    let bg = ui.painter().add(egui::Shape::Noop);
                     let row = ui.horizontal(|ui| {
                         let size = egui::vec2(86.0, 40.0);
                         // A new item - its image from the inventory (on a dark backing).
@@ -305,13 +307,17 @@ impl LauncherApp {
                             if !n.text.is_empty() {
                                 ui.add(egui::Label::new(egui::RichText::new(n.text.chars().take(200).collect::<String>()).weak().small()).wrap());
                             }
-                            ui.weak(crate::socialwin::fmt_date(n.time));
+                            ui.label(egui::RichText::new(crate::socialwin::fmt_date(n.time)).size(11.0).color(crate::theme::DIM));
                         });
                     });
                     let resp = ui.interact(row.response.rect, ui.id().with(("notif", &n.id)), egui::Sense::click());
-                    if resp.hovered() {
-                        ui.painter().rect_stroke(row.response.rect.expand(2.0), 3.0, egui::Stroke::new(1.0, crate::theme::ACCENT));
-                    }
+                    let fill = match (n.read, resp.hovered()) {
+                        (false, false) => egui::Color32::from_rgb(33, 52, 74),
+                        (false, true) => egui::Color32::from_rgb(42, 66, 94),
+                        (true, true) => crate::theme::BUTTON,
+                        (true, false) => egui::Color32::TRANSPARENT,
+                    };
+                    ui.painter().set(bg, egui::Shape::rect_filled(row.response.rect.expand(3.0), 2.0, fill));
                     if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                         go = Some(n.link.clone());
                         ui.close_menu();
@@ -320,6 +326,9 @@ impl LauncherApp {
                 }
             });
         });
+        if bell_resp.inner.is_some() {
+            crate::nav::MENU_OPEN.with(|m| m.set(true));
+        }
         let r = bell_resp.response.rect;
         if bell_resp.response.hovered() {
             ui.painter().rect_filled(r, 0.0, ui.visuals().widgets.hovered.weak_bg_fill);

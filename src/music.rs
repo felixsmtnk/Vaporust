@@ -151,14 +151,14 @@ impl LauncherApp {
         let albums = m.albums.clone().unwrap_or_default();
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(tr!("Саундтреки", "Soundtracks")).font(crate::theme::semibold(20.0)).color(egui::Color32::WHITE));
+            crate::theme::page_title(ui, tr!("Саундтреки", "Soundtracks"));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button(tr!("Найти заново", "Search again")).clicked() {
+                if crate::theme::text_link(ui, tr!("Найти заново", "Search again")).clicked() {
                     m.albums = None;
                 }
             });
         });
-        ui.separator();
+        ui.add_space(8.0);
         if albums.is_empty() {
             ui.weak(tr!("Саундтреков не найдено. Steam ставит купленные саундтреки в папку steamapps\\music библиотеки; \
                      у некоторых игр музыка лежит в папке «Soundtrack» внутри игры.", "No soundtracks found. Steam puts purchased soundtracks into the library's steamapps\\music folder; some games keep their music in a \"Soundtrack\" folder inside the game."));
@@ -217,10 +217,10 @@ impl LauncherApp {
             ui.add_space(6.0);
         }
         let album = m.album.min(albums.len() - 1);
-        egui::SidePanel::left("music_albums").resizable(true).default_width(240.0).show_inside(ui, |ui| {
+        egui::SidePanel::left("music_albums").resizable(true).default_width(240.0).frame(egui::Frame::none().fill(crate::theme::SIDEBAR).inner_margin(egui::Margin::same(6.0))).show_inside(ui, |ui| {
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                 for (i, al) in albums.iter().enumerate() {
-                    if ui.selectable_label(i == album, format!("{} ({})", al.name, al.tracks.len())).clicked() {
+                    if crate::theme::side_item(ui, i == album, &format!("{} ({})", al.name, al.tracks.len()), None).clicked() {
                         m.album = i;
                     }
                 }

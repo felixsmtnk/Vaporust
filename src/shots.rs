@@ -243,19 +243,19 @@ impl LauncherApp {
 
         ui.horizontal(|ui| {
             if let Some((_, name)) = &w.user {
-                ui.heading(trf!("Скриншоты: {name}", "Screenshots: {name}"));
+                crate::theme::page_title(ui, &trf!("Скриншоты: {name}", "Screenshots: {name}"));
                 if let Some((total, _)) = &cloud_all {
                     ui.weak(format!("({total})"));
                 }
             } else {
-                ui.heading(tr!("Скриншоты", "Screenshots"));
+                crate::theme::page_title(ui, tr!("Скриншоты", "Screenshots"));
                 ui.separator();
-                ui.selectable_value(&mut w.tab, 0, trf!("На этом ПК ({})", "On this PC ({})", local.len()));
+                crate::theme::tab_value(ui, &mut w.tab, 0, trf!("На этом ПК ({})", "On this PC ({})", local.len()));
                 let cloud_label = match &cloud_all {
                     Some((total, _)) => trf!("В облаке Steam ({total})", "In the Steam cloud ({total})"),
                     None => tr!("В облаке Steam", "In the Steam cloud").to_string(),
                 };
-                ui.selectable_value(&mut w.tab, 1, cloud_label);
+                crate::theme::tab_value(ui, &mut w.tab, 1, cloud_label);
             }
             ui.separator();
             // Game filter: games that have screenshots on the PC, plus the current filter.
@@ -283,7 +283,7 @@ impl LauncherApp {
                     ui.selectable_value(&mut w.filter, Some(*a), n);
                 }
             });
-            if w.tab == 0 && ui.button(tr!("Обновить", "Refresh")).on_hover_text(tr!("Перечитать папку скриншотов", "Reread the screenshot folder")).clicked() {
+            if w.tab == 0 && crate::theme::text_link(ui, tr!("Обновить", "Refresh")).on_hover_text(tr!("Перечитать папку скриншотов", "Reread the screenshot folder")).clicked() {
                 w.local = None;
             }
         });

@@ -152,11 +152,15 @@ impl LauncherApp {
             let _ = self.tx.send(Cmd::Family);
         }
         ui.horizontal(|ui| {
-            ui.heading(tr!("Семья Steam", "Steam Family"));
-            if ui.button(tr!("Обновить", "Refresh")).clicked() {
+            crate::theme::page_title(ui, tr!("Семья Steam", "Steam Family"));
+            ui.add_space(8.0);
+            if crate::theme::text_link(ui, tr!("Обновить", "Refresh")).clicked() {
                 let _ = self.tx.send(Cmd::Family);
             }
-            ui.hyperlink_to(tr!("Управление семьей на сайте", "Manage the family on the website"), "https://store.steampowered.com/account/familymanagement");
+            ui.add_space(8.0);
+            if crate::theme::text_link(ui, tr!("Управление семьей на сайте", "Manage the family on the website")).clicked() {
+                ui.ctx().open_url(egui::OpenUrl::new_tab("https://store.steampowered.com/account/familymanagement"));
+            }
         });
         let fam = match &net.family_group {
             None => {
@@ -175,26 +179,65 @@ impl LauncherApp {
         }
         let mut open_profile = None;
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            ui.label(egui::RichText::new(&fam.name).font(crate::theme::semibold(18.0)).color(egui::Color32::WHITE));
-            ui.weak(trf!("Свободных мест: {}", "Free slots: {}", fam.free_spots));
-            invite_block(ui, &fam, net, &self.tx, &mut self.family_ui.invite);
             ui.add_space(6.0);
-            ui.strong(tr!("Участники", "Members"));
-            egui::Grid::new("family_members").num_columns(4).striped(true).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(&fam.name).font(crate::theme::semibold(18.0)).color(egui::Color32::WHITE));
+                ui.add_space(10.0);
+                ui.label(egui::RichText::new(trf!("Свободных мест: {}", "Free slots: {}", fam.free_spots)).size(12.0).color(crate::theme::WEAK));
+            });
+            ui.add_space(8.0);
+            crate::theme::caps_title(ui, tr!("Участники", "Members"), Some(fam.members.len()));
+            ui.add_space(4.0);
+            // Members as the cards of the Steam family page: avatar, name, role, shared games.
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
                 for m in &fam.members {
                     let name = self.member_name(m.steamid, net);
-                    if ui.link(&name).on_hover_text(tr!("Профиль", "Profile")).clicked() {
-                        open_profile = Some(m.steamid);
-                    }
-                    ui.label(if m.role == 2 { tr!("ребенок", "child") } else { tr!("взрослый", "adult") });
-                    ui.label(trf!("игр в общей библиотеке: {}", "games in the shared library: {}", m.shared));
-                    ui.weak(trf!("в семье с {}", "in the family since {}", crate::socialwin::fmt_date(m.joined)));
-                    ui.end_row();
+                    let avatar = net
+                        .roster
+                        .read()
+                        .unwrap()
+                        .get(&m.steamid)
+                        .and_then(|f| f.avatar_hash.clone())
+                        .map(|h| format!("https://avatars.fastly.steamstatic.com/{h}_medium.jpg"))
+                        .or_else(|| net.profiles.get(&m.steamid).and_then(|p| p.as_ref().ok()).and_then(|p| p.avatar_url.clone()));
+                    ui.allocate_ui(egui::vec2(190.0, 180.0), |ui| {
+                    egui::Frame::none().fill(egui::Color32::from_rgb(32, 38, 46)).inner_margin(egui::Margin::same(10.0)).show(ui, |ui| {
+                        ui.set_width(170.0);
+                        ui.vertical_centered(|ui| {
+                            let (ar, resp) = ui.allocate_exact_size(egui::vec2(64.0, 64.0), egui::Sense::click());
+                            match &avatar {
+                                Some(u) => egui::Image::new(u.as_str()).paint_at(ui, ar),
+                                None => {
+                                    ui.painter().rect_filled(ar, 0.0, crate::theme::SIDEBAR);
+                                }
+                            }
+                            if resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tr!("Профиль", "Profile")).clicked() {
+                                open_profile = Some(m.steamid);
+                            }
+                            ui.add_space(4.0);
+                            ui.add(egui::Label::new(egui::RichText::new(crate::richtext::fix(ui, &name)).size(14.0).color(egui::Color32::WHITE)).truncate());
+                            ui.label(egui::RichText::new(if m.role == 2 { tr!("Ребенок", "Child") } else { tr!("Взрослый", "Adult") }).size(11.5).color(crate::theme::LIGHT_BLUE));
+                            ui.label(egui::RichText::new(trf!("игр в библиотеке: {}", "shared games: {}", m.shared)).size(11.5).color(crate::theme::WEAK));
+                            ui.label(egui::RichText::new(trf!("с {}", "since {}", crate::socialwin::fmt_date(m.joined))).size(11.0).color(crate::theme::DIM));
+                        });
+                    });
+                    });
                 }
             });
-            ui.add_space(10.0);
-            ui.strong(tr!("Во что играли в семье", "What the family played"));
-            ui.weak(tr!("Время в чужих играх из общей библиотеки (Steam считает его для каждого участника).", "Time in other members' games from the shared library (Steam counts it for each member)."));
+            ui.add_space(8.0);
+            invite_block(ui, &fam, net, &self.tx, &mut self.family_ui.invite);
+            ui.add_space(12.0);
+            crate::theme::caps_title(ui, tr!("Во что играли в семье", "What the family played"), None);
+            ui.label(
+                egui::RichText::new(tr!(
+                    "Время в чужих играх из общей библиотеки (Steam считает его для каждого участника).",
+                    "Time in other members' games from the shared library (Steam counts it for each member)."
+                ))
+                .size(11.5)
+                .color(crate::theme::DIM),
+            );
+            ui.add_space(4.0);
             // Game names that are neither in the shared library nor in the cache - ask Steam once.
             let unknown: Vec<u32> = fam
                 .plays
@@ -207,22 +250,37 @@ impl LauncherApp {
             if !unknown.is_empty() {
                 let _ = self.tx.send(crate::net::Cmd::ResolveApps(unknown));
             }
-            egui::Grid::new("family_plays").num_columns(4).striped(true).show(ui, |ui| {
-                for p in fam.plays.iter().take(80) {
-                    ui.label(self.member_name(p.steamid, net));
-                    let game = fam
-                        .names
-                        .get(&p.appid)
-                        .filter(|n| !n.is_empty())
-                        .cloned()
-                        .or_else(|| net.app_names.get(&p.appid).cloned())
-                        .unwrap_or_else(|| trf!("Игра {}", "Game {}", p.appid));
-                    ui.label(game);
-                    ui.label(trf!("{:.1} ч", "{:.1} h", p.seconds as f64 / 3600.0));
-                    ui.weak(trf!("последний раз {}", "last time {}", crate::socialwin::fmt_date(p.latest)));
-                    ui.end_row();
-                }
-            });
+            ui.spacing_mut().item_spacing.y = 3.0;
+            for p in fam.plays.iter().take(80) {
+                let game = fam
+                    .names
+                    .get(&p.appid)
+                    .filter(|n| !n.is_empty())
+                    .cloned()
+                    .or_else(|| net.app_names.get(&p.appid).cloned())
+                    .unwrap_or_else(|| trf!("Игра {}", "Game {}", p.appid));
+                let who = self.member_name(p.steamid, net);
+                egui::Frame::none().fill(egui::Color32::from_rgb(32, 38, 46)).inner_margin(egui::Margin::symmetric(8.0, 4.0)).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Image::new(format!("https://cdn.akamai.steamstatic.com/steam/apps/{}/capsule_184x69.jpg", p.appid)).fit_to_exact_size(egui::vec2(96.0, 36.0)));
+                        ui.add_space(4.0);
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = 1.0;
+                            ui.label(egui::RichText::new(game).size(13.5).color(egui::Color32::WHITE));
+                            ui.label(egui::RichText::new(who).size(11.5).color(crate::theme::LIGHT_BLUE));
+                        });
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.vertical(|ui| {
+                                ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
+                                    ui.label(egui::RichText::new(trf!("{:.1} ч", "{:.1} h", p.seconds as f64 / 3600.0)).size(13.0).color(crate::theme::TEXT2));
+                                    ui.label(egui::RichText::new(trf!("последний раз {}", "last time {}", crate::socialwin::fmt_date(p.latest))).size(11.0).color(crate::theme::DIM));
+                                });
+                            });
+                        });
+                    });
+                });
+            }
         });
         if let Some(id) = open_profile {
             self.open_profile(id, net);
@@ -268,7 +326,7 @@ fn invite_block(
     };
     if !fam.pending.is_empty() {
         ui.add_space(4.0);
-        ui.strong(tr!("Отправленные приглашения", "Sent invitations"));
+        crate::theme::caps_title(ui, tr!("Отправленные приглашения", "Sent invitations"), None);
         for (id, role) in &fam.pending {
             ui.horizontal(|ui| {
                 ui.label(format!("{} ({})", name_of(*id), if *role == 2 { tr!("ребенок", "child") } else { tr!("взрослый", "adult") }));

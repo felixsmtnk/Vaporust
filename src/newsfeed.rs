@@ -139,9 +139,11 @@ impl LauncherApp {
         }
         let installed: HashSet<u32> = self.games.iter().map(|g| g.appid).collect();
         let mut open_game = None;
+        ui.add_space(4.0);
         ui.horizontal(|ui| {
-            ui.heading(tr!("Новости ваших игр", "News of your games"));
-            if ui.button(tr!("Обновить", "Refresh")).clicked() {
+            crate::theme::page_title(ui, tr!("Новости", "News"));
+            ui.add_space(8.0);
+            if crate::theme::text_link(ui, tr!("Обновить", "Refresh")).clicked() {
                 let _ = self.tx.send(Cmd::NewsFeed(self.news_games(net)));
             }
             if net.news_busy {
@@ -182,21 +184,21 @@ impl LauncherApp {
             });
             ui.checkbox(&mut st.only_installed, tr!("Только установленные", "Installed only"));
         });
-        ui.separator();
+        ui.add_space(6.0);
         // Open news item - in full.
         if let Some(n) = st.open.as_ref().and_then(|key| items.iter().find(|n| (n.appid, n.date, &n.title) == (key.0, key.1, &key.2))) {
             let mut back = false;
             ui.horizontal(|ui| {
-                if ui.button(tr!("< К новостям", "< Back to news")).clicked() {
+                if crate::theme::text_link(ui, tr!("< К новостям", "< Back to news")).clicked() {
                     back = true;
                 }
-                if ui.button(tr!("Открыть в браузере", "Open in browser")).clicked() {
+                ui.add_space(12.0);
+                if crate::theme::text_link(ui, tr!("Открыть в браузере", "Open in browser")).clicked() {
                     ui.ctx().open_url(egui::OpenUrl::new_tab(&n.url));
                 }
             });
-            ui.separator();
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                ui.set_max_width(820.0);
+            ui.add_space(8.0);
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| crate::theme::centered(ui, 820.0, |ui| {
                 ui.horizontal(|ui| {
                     ui.weak(crate::socialwin::fmt_date(n.date));
                     if ui.link(&n.game).clicked() {
@@ -223,7 +225,7 @@ impl LauncherApp {
                         }
                     }
                 }
-            });
+            }));
             if back {
                 st.open = None;
             }
@@ -243,25 +245,43 @@ impl LauncherApp {
             ui.weak(tr!("Новостей нет.", "No news."));
         }
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            for n in shown {
-                ui.horizontal(|ui| {
-                    ui.weak(crate::socialwin::fmt_date(n.date));
-                    if ui.link(&n.game).on_hover_text(tr!("Страница игры в библиотеке", "Game page in the library")).clicked() {
-                        open_game = Some(n.appid);
-                    }
-                });
-                if ui.add(egui::Label::new(egui::RichText::new(&n.title).strong()).sense(egui::Sense::click()))
-                    .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    .on_hover_text(tr!("Читать целиком", "Read in full"))
-                    .clicked()
-                {
-                    open = Some((n.appid, n.date, n.title.clone()));
+            crate::theme::centered(ui, 980.0, |ui| {
+                ui.spacing_mut().item_spacing.y = 6.0;
+                for n in shown {
+                    // A news card as in Steam News: the game capsule, the game, the date, the title, an excerpt.
+                    crate::theme::block(ui, |ui| {
+                        ui.horizontal_top(|ui| {
+                            let cap = egui::Image::new(format!("https://cdn.akamai.steamstatic.com/steam/apps/{}/capsule_184x69.jpg", n.appid))
+                                .fit_to_exact_size(egui::vec2(184.0, 69.0))
+                                .sense(egui::Sense::click());
+                            if ui.add(cap).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tr!("Страница игры в библиотеке", "Game page in the library")).clicked() {
+                                open_game = Some(n.appid);
+                            }
+                            ui.add_space(6.0);
+                            ui.vertical(|ui| {
+                                ui.spacing_mut().item_spacing.y = 3.0;
+                                ui.horizontal(|ui| {
+                                    ui.label(egui::RichText::new(n.game.to_uppercase()).size(11.5).color(crate::theme::LIGHT_BLUE));
+                                    ui.label(egui::RichText::new(crate::socialwin::fmt_date(n.date)).size(11.5).color(crate::theme::DIM));
+                                });
+                                let title = ui
+                                    .add(egui::Label::new(egui::RichText::new(&n.title).font(crate::theme::semibold(16.0)).color(egui::Color32::WHITE)).sense(egui::Sense::click()))
+                                    .on_hover_cursor(egui::CursorIcon::PointingHand);
+                                if title.clicked() {
+                                    open = Some((n.appid, n.date, n.title.clone()));
+                                }
+                                if !n.excerpt.is_empty() {
+                                    let t: String = n.excerpt.chars().take(260).collect();
+                                    ui.add(egui::Label::new(egui::RichText::new(t).size(12.5).color(crate::theme::WEAK)).wrap());
+                                }
+                                if crate::theme::text_link(ui, tr!("Читать далее", "Read more")).clicked() {
+                                    open = Some((n.appid, n.date, n.title.clone()));
+                                }
+                            });
+                        });
+                    });
                 }
-                if !n.excerpt.is_empty() {
-                    ui.add(egui::Label::new(egui::RichText::new(&n.excerpt).weak()).wrap());
-                }
-                ui.add_space(10.0);
-            }
+            });
         });
         if open.is_some() {
             self.news_ui.open = open;

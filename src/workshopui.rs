@@ -65,10 +65,22 @@ fn item_info(ui: &mut egui::Ui, it: &WorkshopItem) {
 pub fn browse(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &mut Vec<Cmd>) {
     let appid = w.appid;
     let subs = ws.sub_ids.get(&appid).cloned().unwrap_or_default();
-    ui.horizontal_wrapped(|ui| {
-        ui.strong(tr!("Мастерская", "Workshop"));
-        ui.weak(trf!("подписок: {} (включить/выключить - в «Свойствах»)", "subscriptions: {} (enable/disable in \"Properties\")", subs.len()));
-    });
+    // The Workshop banner, as the top of a Steam Workshop page: the game header darkened, "WORKSHOP".
+    let (banner, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 74.0), egui::Sense::hover());
+    let img = egui::Image::new(format!("https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg"))
+        .uv(egui::Rect::from_min_max(egui::pos2(0.0, 0.3), egui::pos2(1.0, 0.62)))
+        .tint(egui::Color32::from_gray(110));
+    img.paint_at(ui, banner);
+    crate::theme::gradient_rect(ui.painter(), banner, egui::Color32::from_black_alpha(200), egui::Color32::from_black_alpha(40));
+    ui.painter().text(banner.left_center() + egui::vec2(16.0, -8.0), egui::Align2::LEFT_CENTER, tr!("МАСТЕРСКАЯ", "WORKSHOP"), crate::theme::semibold(22.0), egui::Color32::WHITE);
+    ui.painter().text(
+        banner.left_center() + egui::vec2(16.0, 16.0),
+        egui::Align2::LEFT_CENTER,
+        trf!("подписок: {} (включить/выключить - в «Свойствах»)", "subscriptions: {} (enable/disable in \"Properties\")", subs.len()),
+        egui::FontId::proportional(12.5),
+        crate::theme::TEXT2,
+    );
+    ui.add_space(8.0);
     if let Some(e) = &ws.error {
         ui.colored_label(egui::Color32::from_rgb(230, 110, 110), e);
     }
@@ -264,10 +276,10 @@ impl crate::LauncherApp {
             ui.label(egui::RichText::new(trf!("Мастерская  ·  {name}", "Workshop  ·  {name}")).size(15.0).color(crate::theme::WEAK));
             if !in_item {
                 ui.add_space(12.0);
-                if ui.selectable_label(!self.ws_ui.collections, tr!("Моды", "Mods")).clicked() {
+                if crate::theme::tab(ui, !self.ws_ui.collections, tr!("Моды", "Mods")).clicked() {
                     self.ws_ui.collections = false;
                 }
-                if ui.selectable_label(self.ws_ui.collections, tr!("Коллекции", "Collections")).on_hover_text(tr!("Наборы модов, собранные игроками", "Mod sets collected by players")).clicked() {
+                if crate::theme::tab(ui, self.ws_ui.collections, tr!("Коллекции", "Collections")).on_hover_text(tr!("Наборы модов, собранные игроками", "Mod sets collected by players")).clicked() {
                     self.ws_ui.collections = true;
                 }
             }

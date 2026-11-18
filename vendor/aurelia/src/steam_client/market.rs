@@ -38,6 +38,10 @@ pub struct InventoryItem {
     pub marketable: bool,
     /// Full icon URL, if the item has one.
     pub icon_url: Option<String>,
+    /// vaporust: the name color (item rarity, hex without "#"), if Steam gives one.
+    pub name_color: Option<String>,
+    /// vaporust: the item description lines (HTML tags removed), as on the inventory page.
+    pub description: Vec<String>,
 }
 
 /// Market price summary for an item (`priceoverview`). Prices are Steam-formatted
@@ -406,9 +410,35 @@ fn parse_inventory(body: &str) -> Result<Vec<InventoryItem>> {
             tradable: flag("tradable"),
             marketable: flag("marketable"),
             icon_url: icon,
+            name_color: desc.and_then(|d| d.get("name_color").and_then(Value::as_str)).filter(|s| !s.is_empty()).map(String::from),
+            description: desc
+                .and_then(|d| d.get("descriptions").and_then(Value::as_array))
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|x| x.get("value").and_then(Value::as_str))
+                        .map(vaporust_strip_tags)
+                        .filter(|s| !s.trim().is_empty())
+                        .collect()
+                })
+                .unwrap_or_default(),
         });
     }
     Ok(items)
+}
+
+/// vaporust: removes HTML tags and decodes the common entities of item descriptions.
+fn vaporust_strip_tags(s: &str) -> String {
+    let mut out = String::new();
+    let mut tag = false;
+    for c in s.chars() {
+        match c {
+            '<' => tag = true,
+            '>' => tag = false,
+            _ if !tag => out.push(c),
+            _ => {}
+        }
+    }
+    out.replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">").replace("&nbsp;", " ").trim().to_string()
 }
 
 fn parse_my_listings(body: &str) -> Result<MyMarketState> {

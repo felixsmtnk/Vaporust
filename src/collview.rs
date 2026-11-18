@@ -23,8 +23,13 @@ impl LauncherApp {
             let mut new_name: Option<String> = ui.data(|d| d.get_temp(new_key));
             // The tiles: the first one creates a collection.
             // Creating a collection needs the Steam account (collections live in the Steam cloud).
-            let mut items: Vec<Option<&colls::Coll>> = if net.account.is_some() { vec![None] } else { Vec::new() };
-            items.extend(colls.iter().filter(|c| c.id != "hidden").map(Some));
+            // Smart collections live in Vaporust settings: they work without the account too.
+            let smart = self.settings.smart.clone();
+            let mut items: Vec<Tile> = if net.account.is_some() { vec![Tile::New] } else { Vec::new() };
+            items.push(Tile::NewSmart);
+            items.extend(colls.iter().filter(|c| c.id != "hidden").map(Tile::Steam));
+            items.extend(smart.iter().enumerate().map(|(i, s)| Tile::Smart(i, s)));
+            let mut delete_smart: Option<usize> = None;
             if net.account.is_none() {
                 ui.horizontal(|ui| {
                     ui.add_space(16.0);
@@ -41,7 +46,41 @@ impl LauncherApp {
                         let t = ui.ctx().animate_bool_with_time(resp.id, resp.hovered(), 0.1);
                         let p = ui.painter();
                         match it {
-                            None => {
+                            Tile::NewSmart => {
+                                p.rect_stroke(rect.shrink(1.0), 2.0, egui::Stroke::new(1.0, theme::lerp_color(theme::BUTTON_HOVER, theme::TEXT2, t)));
+                                theme::icon_plus(p, egui::Rect::from_center_size(rect.center() - egui::vec2(0.0, 22.0), egui::vec2(20.0, 20.0)), theme::ACCENT);
+                                p.text(rect.center() + egui::vec2(0.0, 10.0), egui::Align2::CENTER_CENTER, tr!("УМНАЯ КОЛЛЕКЦИЯ", "SMART COLLECTION"), theme::semibold(11.5), theme::TEXT);
+                                p.text(rect.center() + egui::vec2(0.0, 28.0), egui::Align2::CENTER_CENTER, tr!("по правилам", "by rules"), egui::FontId::proportional(11.0), theme::WEAK);
+                                if resp.clicked() {
+                                    self.smart_edit.open = true;
+                                }
+                            }
+                            Tile::Smart(i, s) => {
+                                p.rect_filled(rect, 2.0, theme::lerp_color(egui::Color32::from_rgb(52, 63, 82), egui::Color32::from_rgb(64, 78, 102), t));
+                                let galley = p.layout(s.name.to_uppercase(), theme::semibold(13.0), theme::TEXT, rect.width() - 20.0);
+                                let h = galley.size().y + 18.0;
+                                p.galley(egui::pos2(rect.center().x - galley.size().x / 2.0, rect.center().y - h / 2.0), galley, theme::TEXT);
+                                p.text(rect.center() + egui::vec2(0.0, h / 2.0 - 6.0), egui::Align2::CENTER_CENTER, tr!("( умная )", "( smart )"), egui::FontId::proportional(12.0), theme::TEXT2);
+                                // The lightning mark of a dynamic collection, as in Steam.
+                                let b = egui::Rect::from_min_size(rect.right_bottom() - egui::vec2(24.0, 24.0), egui::vec2(18.0, 18.0));
+                                p.rect_filled(b, 2.0, egui::Color32::from_rgb(30, 35, 42));
+                                let c = b.center();
+                                p.add(egui::Shape::convex_polygon(vec![c + egui::vec2(1.5, -7.0), c + egui::vec2(-4.0, 1.0), c + egui::vec2(-0.5, 1.0)], theme::TEXT, egui::Stroke::NONE));
+                                p.add(egui::Shape::convex_polygon(vec![c + egui::vec2(0.5, -1.0), c + egui::vec2(4.0, -1.0), c + egui::vec2(-1.5, 7.0)], theme::TEXT, egui::Stroke::NONE));
+                                let idx = *i;
+                                resp.context_menu(|ui| {
+                                    if ui.button(tr!("Удалить умную коллекцию", "Delete the smart collection")).clicked() {
+                                        delete_smart = Some(idx);
+                                        ui.close_menu();
+                                    }
+                                });
+                                if resp.clicked() {
+                                    self.collection = Some(format!("{}{idx}", crate::smartcoll::PREFIX));
+                                    self.collections_page = false;
+                                    self.lib_page = None;
+                                }
+                            }
+                            Tile::New => {
                                 p.rect_stroke(rect.shrink(1.0), 2.0, egui::Stroke::new(1.0, theme::lerp_color(theme::BUTTON_HOVER, theme::TEXT2, t)));
                                 theme::icon_plus(p, egui::Rect::from_center_size(rect.center() - egui::vec2(0.0, 18.0), egui::vec2(20.0, 20.0)), theme::TEXT);
                                 p.text(
@@ -55,7 +94,7 @@ impl LauncherApp {
                                     new_name = Some(String::new());
                                 }
                             }
-                            Some(c) => {
+                            Tile::Steam(c) => {
                                 p.rect_filled(rect, 2.0, theme::lerp_color(egui::Color32::from_rgb(52, 63, 82), egui::Color32::from_rgb(64, 78, 102), t));
                                 let name = if c.id == "favorite" { tr!("Избранное", "Favorites").to_string() } else { c.name.clone() };
                                 let galley = p.layout(name.to_uppercase(), theme::semibold(13.0), theme::TEXT, rect.width() - 20.0);
@@ -92,10 +131,22 @@ impl LauncherApp {
                 });
                 new_name = if close { None } else { Some(name) };
             }
+            if let Some(i) = delete_smart {
+                self.settings.smart.remove(i);
+                self.collection = None;
+            }
             ui.data_mut(|d| match &new_name {
                 Some(n) => d.insert_temp(new_key, n.clone()),
                 None => d.remove::<String>(new_key),
             });
         });
     }
+}
+
+/// A tile of the collections page.
+enum Tile<'a> {
+    New,
+    NewSmart,
+    Steam(&'a colls::Coll),
+    Smart(usize, &'a crate::smartcoll::Smart),
 }

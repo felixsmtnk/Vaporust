@@ -252,16 +252,19 @@ impl LauncherApp {
         let orig = self.edit_ui.original.clone().unwrap_or_default();
         let mut cmd = None;
         ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(tr!("Редактирование профиля", "Edit profile")).font(crate::theme::semibold(20.0)).color(egui::Color32::WHITE));
-            ui.add_space(12.0);
-            for (i, t) in [tr!("Основное", "General"), tr!("Аватар", "Avatar"), tr!("Приватность", "Privacy")].into_iter().enumerate() {
-                if ui.selectable_label(self.edit_ui.tab == i as u8, t).clicked() {
+        crate::theme::page_title(ui, tr!("Редактирование профиля", "Edit profile"));
+        ui.add_space(10.0);
+        // The section menu on the left, as on the Steam profile edit page.
+        egui::SidePanel::left("pe_menu").resizable(false).exact_width(200.0).frame(egui::Frame::none().inner_margin(egui::Margin { left: 0.0, right: 14.0, top: 0.0, bottom: 0.0 })).show_inside(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for (i, t) in [tr!("Основное", "General"), tr!("Аватар", "Avatar"), tr!("Настройки приватности", "Privacy Settings")].into_iter().enumerate() {
+                if crate::theme::side_item(ui, self.edit_ui.tab == i as u8, t, None).clicked() {
                     self.edit_ui.tab = i as u8;
                 }
             }
+            ui.add_space(10.0);
+            ui.label(egui::RichText::new(tr!("Фон, мини-профиль, тема и витрины - на сайте Steam.", "Background, mini profile, theme and showcases are on the Steam website.")).size(11.5).color(crate::theme::DIM));
         });
-        ui.separator();
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.set_max_width(ui.available_width().min(760.0));
             match self.edit_ui.tab {

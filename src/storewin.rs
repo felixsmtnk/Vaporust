@@ -251,6 +251,7 @@ impl LauncherApp {
 
     /// Store contents: both in the main window and in the separate one.
     pub(crate) fn store_contents(&mut self, ui: &mut egui::Ui, net: &NetState) {
+        self.cart_count_tick(net);
         let shared = net.store.clone();
         let mut st = shared.lock().unwrap();
         // Price region: saved in settings, otherwise the one Steam determined by IP.
@@ -274,25 +275,27 @@ impl LauncherApp {
         let cart_n = net.cart.as_ref().and_then(|c| c.as_ref().ok()).map_or(0, |c| c.lines.len());
         let wish_n = wish.len();
         let mut want_cart = false;
+        let mut go_other: Option<crate::nav::Go> = None;
         egui::TopBottomPanel::top("store_top").frame(egui::Frame::none().fill(theme::BG).inner_margin(egui::Margin { left: 12.0, right: 12.0, top: 8.0, bottom: 6.0 })).show_inside(ui, |ui| {
             // The Steam store bar: a blue band with the store sections, the search and Wishlist / Cart.
             let band = ui.painter().add(egui::Shape::Noop);
             // The right part of the band: the search with its button, Wishlist and Cart.
-            let narrow = ui.available_width() < 760.0;
+            let narrow = ui.available_width() < if w.pages.is_empty() { 900.0 } else { 1000.0 };
             macro_rules! store_tools {
                 ($ui:expr) => {{
                     let ui: &mut egui::Ui = $ui;
                     ui.spacing_mut().item_spacing.x = 6.0;
                     ui.add_space(4.0);
-                    let cart = egui::Button::new(egui::RichText::new(trf!("Корзина ({cart_n})", "Cart ({cart_n})")).color(egui::Color32::WHITE)).fill(theme::ACCENT);
-                    if ui.add(cart).clicked() {
+                    // Cart: the blue Steam button, lighter on hover; Wishlist: a band item.
+                    let cart = store_bar_button(ui, &trf!("Корзина ({cart_n})", "Cart ({cart_n})"), true);
+                    if cart.clicked() {
                         want_cart = true;
                     }
-                    let wl = egui::Button::new(egui::RichText::new(trf!("Желаемое ({wish_n})", "Wishlist ({wish_n})")).color(egui::Color32::WHITE)).frame(false);
-                    if ui.add(wl).clicked() {
+                    if store_bar_button(ui, &trf!("Желаемое ({wish_n})", "Wishlist ({wish_n})"), false).clicked() {
                         w.tab = Tab::Wishlist;
                         w.pages.clear();
                     }
+                    region_combo(ui, &st.country.clone(), &mut self.settings.store_country, &mut cmds, w);
                     // Search: a dark field with a blue magnifier button, as on the Steam store.
                     let (b, _) = ui.allocate_exact_size(egui::vec2(28.0, 26.0), egui::Sense::hover());
                     let go = ui.interact(b, ui.id().with("store_search_go"), egui::Sense::click());
@@ -336,6 +339,12 @@ impl LauncherApp {
                         w.pages.clear();
                     }
                 }
+                if store_bar_item(ui, tr!("Магазин очков", "Points Shop"), false).clicked() {
+                    go_other = Some(crate::nav::Go::Points);
+                }
+                if store_bar_item(ui, tr!("Новости", "News"), false).clicked() {
+                    go_other = Some(crate::nav::Go::News);
+                }
                 if let Some((_, name, _)) = st.friend_wishlist.clone() {
                     if store_bar_item(ui, &trf!("Желаемое: {name}", "Wishlist: {name}"), w.tab == Tab::FriendWishlist && w.pages.is_empty()).clicked() {
                         w.tab = Tab::FriendWishlist;
@@ -359,26 +368,13 @@ impl LauncherApp {
             } else {
                 row
             };
-            let r = row.response.rect.expand2(egui::vec2(0.0, 1.0));
-            let mut mesh = egui::Mesh::default();
-            let (l, m, rr) = (egui::Color32::from_rgb(62, 103, 150), egui::Color32::from_rgb(58, 120, 177), egui::Color32::from_rgb(15, 33, 110));
-            let xm = r.left() + r.width() * 0.25;
-            for (x, c) in [(r.left(), l), (xm, m), (r.right(), rr)] {
-                mesh.colored_vertex(egui::pos2(x, r.top()), c);
-                mesh.colored_vertex(egui::pos2(x, r.bottom()), c);
-            }
-            for i in 0..2u32 {
-                let b = i * 2;
-                mesh.add_triangle(b, b + 1, b + 2);
-                mesh.add_triangle(b + 1, b + 3, b + 2);
-            }
-            ui.painter().set(band, egui::Shape::mesh(mesh));
+            paint_band(ui, band, row.response.rect);
             // Row 2 (lists only): subsection on the left, region, order and filters on the right.
-            if w.pages.is_empty() {
+            // Nothing to choose on the storefront itself: no second row there (the region is in the band).
+            if w.pages.is_empty() && w.tab != Tab::Home {
                 macro_rules! right_group {
                     ($ui:expr) => {{
                         let ui: &mut egui::Ui = $ui;
-                        region_combo(ui, &st.country.clone(), &mut self.settings.store_country, &mut cmds, w);
                         if !matches!(w.tab, Tab::Home) {
                             let active = [w.only_discount, w.only_free, w.hide_owned].iter().filter(|b| **b).count();
                             let label = if active > 0 { trf!("Фильтры ({active})", "Filters ({active})") } else { tr!("Фильтры", "Filters").to_string() };
@@ -408,14 +404,14 @@ impl LauncherApp {
                             ui.add(egui::TextEdit::singleline(&mut w.wish_query).hint_text(tr!("Поиск в списке", "Search the list")).desired_width(240.0));
                         }
                         Tab::Deals | Tab::Events => {
-                            ui.selectable_value(&mut w.tab, Tab::Deals, tr!("Популярное со скидкой", "Popular discounted"))
+                            crate::theme::tab_value(ui, &mut w.tab, Tab::Deals, tr!("Популярное со скидкой", "Popular discounted"))
                                 .on_hover_text(tr!("Самые продаваемые игры в вашем регионе, на которые сейчас есть скидка", "The best-selling games in your region that are on sale now"));
-                            ui.selectable_value(&mut w.tab, Tab::Events, tr!("Акции Steam", "Steam events"))
+                            crate::theme::tab_value(ui, &mut w.tab, Tab::Events, tr!("Акции Steam", "Steam events"))
                                 .on_hover_text(tr!("Скидка дня, скидки недели и выходных, бесплатные выходные, новинки", "Daily deal, weekly and weekend deals, free weekends, new releases"));
                         }
                         Tab::Charts => {
                             for (i, (name, hint)) in store::CHARTS().iter().enumerate() {
-                                ui.selectable_value(&mut w.chart, i as u8, *name).on_hover_text(*hint);
+                                crate::theme::tab_value(ui, &mut w.chart, i as u8, *name).on_hover_text(*hint);
                             }
                         }
                         Tab::Discovery => {
@@ -678,6 +674,9 @@ impl LauncherApp {
         if want_cart {
             self.open_cart();
         }
+        if let Some(g) = go_other {
+            self.go(g, net, false);
+        }
     }
 }
 
@@ -703,7 +702,7 @@ fn curators_block(ui: &mut egui::Ui, appid: u32, st: &store::StoreState, cmds: &
         return;
     }
     ui.add_space(10.0);
-    ui.label(egui::RichText::new(tr!("КУРАТОРЫ", "CURATORS")).size(13.0).color(crate::theme::TEXT));
+    crate::theme::caps_title(ui, tr!("Кураторы", "Curators"), None);
     // Three first, the rest by a button (like "All curators" in Steam).
     let key = egui::Id::new(("curators_all", appid));
     let all: bool = ui.data(|d| d.get_temp(key)).unwrap_or(false);
@@ -730,9 +729,19 @@ fn curators_block(ui: &mut egui::Ui, appid: u32, st: &store::StoreState, cmds: &
                     if !c.blurb.is_empty() {
                         ui.label(crate::richtext::fix(ui, &c.blurb));
                     }
+                    ui.horizontal(|ui| {
                     if !c.review_url.is_empty() && ui.small_button(tr!("Полный обзор", "Full review")).clicked() {
                         ui.ctx().open_url(egui::OpenUrl::new_tab(c.review_url.clone()));
                     }
+                    // Follow, as the button on a Steam curator page (experimental: not checked live yet).
+                    if c.clan_id != 0 {
+                        let on = st.followed.contains(&c.clan_id);
+                        let label = if on { tr!("Вы подписаны - отписаться", "Following - unfollow") } else { tr!("Подписаться", "Follow") };
+                        if crate::exp::small_button(ui, label).clicked() {
+                            cmds.push(Cmd::Store(store::StoreCmd::FollowCurator(c.clan_id, !on)));
+                        }
+                    }
+                    });
                 });
             });
         });
@@ -1088,8 +1097,7 @@ fn game_page(
                         ui.horizontal_wrapped(|ui| {
                             ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
                             for t in all_tags.iter().take(if open { usize::MAX } else { 8 }) {
-                                let r = ui
-                                    .add(egui::Label::new(egui::RichText::new(t).size(11.0).color(egui::Color32::from_rgb(103, 193, 245)).background_color(egui::Color32::from_rgba_unmultiplied(103, 193, 245, 40))).sense(egui::Sense::click()))
+                                let r = tag_chip(ui, t)
                                     .on_hover_cursor(egui::CursorIcon::PointingHand)
                                     .on_hover_text(tr!("Игры с этой меткой в магазине Steam", "Games with this tag in the Steam store"));
                                 if r.clicked() {
@@ -1350,7 +1358,7 @@ fn game_page(
         if let Some(sim) = ex.and_then(|e| e.similar.as_ref()) {
             if !sim.is_empty() {
                 ui.add_space(8.0);
-                ui.strong(tr!("Похожие игры", "Similar games"));
+                crate::theme::caps_title(ui, tr!("Похожие игры", "Similar games"), None);
                 egui::ScrollArea::horizontal().id_salt("similar").show(ui, |ui| {
                     ui.horizontal(|ui| {
                         for &id in sim {
@@ -1538,5 +1546,113 @@ fn store_bar_item(ui: &mut egui::Ui, text: &str, on: bool) -> egui::Response {
         ui.painter().rect_filled(rect, 2.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, if on { 46 } else { 26 }));
     }
     ui.painter().galley_with_override_text_color(rect.center() - galley.size() / 2.0, galley, egui::Color32::WHITE);
+    resp
+}
+
+/// A clickable item on the right of the store band: Wishlist (plain) or Cart (the blue button).
+fn store_bar_button(ui: &mut egui::Ui, text: &str, cart: bool) -> egui::Response {
+    let galley = ui.painter().layout_no_wrap(text.to_string(), egui::FontId::proportional(13.0), egui::Color32::WHITE);
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(galley.size().x + 18.0, 26.0), egui::Sense::click());
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    let fill = match (cart, resp.hovered()) {
+        (true, false) => theme::ACCENT,
+        (true, true) => theme::ACCENT_HOVER,
+        (false, true) => egui::Color32::from_rgba_unmultiplied(255, 255, 255, 30),
+        (false, false) => egui::Color32::TRANSPARENT,
+    };
+    ui.painter().rect_filled(rect, 2.0, fill);
+    ui.painter().galley_with_override_text_color(rect.center() - galley.size() / 2.0, galley, egui::Color32::WHITE);
+    resp
+}
+
+/// Paints the blue gradient of the store band under `rect` (into a placeholder shape added earlier).
+pub(crate) fn paint_band(ui: &egui::Ui, shape: egui::layers::ShapeIdx, rect: egui::Rect) {
+    let r = rect.expand2(egui::vec2(0.0, 1.0));
+    let mut mesh = egui::Mesh::default();
+    let (l, m, rr) = (egui::Color32::from_rgb(62, 103, 150), egui::Color32::from_rgb(58, 120, 177), egui::Color32::from_rgb(15, 33, 110));
+    let xm = r.left() + r.width() * 0.25;
+    for (x, c) in [(r.left(), l), (xm, m), (r.right(), rr)] {
+        mesh.colored_vertex(egui::pos2(x, r.top()), c);
+        mesh.colored_vertex(egui::pos2(x, r.bottom()), c);
+    }
+    for i in 0..2u32 {
+        let b = i * 2;
+        mesh.add_triangle(b, b + 1, b + 2);
+        mesh.add_triangle(b + 1, b + 3, b + 2);
+    }
+    ui.painter().set(shape, egui::Shape::mesh(mesh));
+}
+
+impl LauncherApp {
+    /// The store band on the store pages outside the store view itself (Cart, News, Points Shop):
+    /// the same sections, Wishlist and Cart, so the store reads as one place, as in Steam.
+    pub(crate) fn store_band(&mut self, ui: &mut egui::Ui, net: &NetState) {
+        let cart_n = net.cart.as_ref().and_then(|c| c.as_ref().ok()).map_or(0, |c| c.lines.len());
+        let wish_n = match &net.store.lock().unwrap().wishlist {
+            Some(Ok(l)) => l.len(),
+            _ => 0,
+        };
+        let mut go: Option<crate::nav::Go> = None;
+        egui::Frame::none().inner_margin(egui::Margin { left: 12.0, right: 12.0, top: 8.0, bottom: 8.0 }).show(ui, |ui| {
+            let band = ui.painter().add(egui::Shape::Noop);
+            let row = ui.horizontal(|ui| {
+                ui.set_height(32.0);
+                ui.spacing_mut().item_spacing.x = 2.0;
+                ui.add_space(6.0);
+                for (tab, label) in [
+                    (Tab::Home, tr!("Главная", "Home")),
+                    (Tab::Deals, tr!("Скидки", "Specials")),
+                    (Tab::Charts, tr!("Чарты", "Charts")),
+                    (Tab::Discovery, tr!("Рекомендации", "Recommendations")),
+                ] {
+                    if store_bar_item(ui, label, false).clicked() {
+                        go = Some(crate::nav::Go::StoreTab(tab));
+                    }
+                }
+                if store_bar_item(ui, tr!("Магазин очков", "Points Shop"), self.view == crate::View::Points).clicked() {
+                    go = Some(crate::nav::Go::Points);
+                }
+                if store_bar_item(ui, tr!("Новости", "News"), self.view == crate::View::News).clicked() {
+                    go = Some(crate::nav::Go::News);
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    ui.add_space(4.0);
+                    if store_bar_button(ui, &trf!("Корзина ({cart_n})", "Cart ({cart_n})"), true).clicked() {
+                        go = Some(crate::nav::Go::Cart);
+                    }
+                    if store_bar_button(ui, &trf!("Желаемое ({wish_n})", "Wishlist ({wish_n})"), false).clicked() {
+                        go = Some(crate::nav::Go::StoreTab(Tab::Wishlist));
+                    }
+                });
+            });
+            paint_band(ui, band, row.response.rect);
+        });
+        if let Some(g) = go {
+            self.go(g, net, ui.input(|i| i.modifiers.ctrl));
+        }
+    }
+
+    /// The cart count on the band: the cart is loaded once when the store opens (not only on the
+    /// cart page), otherwise the band showed "Cart (0)" with games in the cart.
+    pub(crate) fn cart_count_tick(&mut self, net: &NetState) {
+        if net.account.is_some() && net.cart.is_none() && !self.cart_ui.counted {
+            self.cart_ui.counted = true;
+            let _ = self.tx.send(Cmd::CartLoad);
+        }
+    }
+}
+
+/// A Steam store tag: light blue text on a dim blue plate, lighter on hover.
+fn tag_chip(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    let galley = ui.painter().layout_no_wrap(text.to_string(), egui::FontId::proportional(11.5), egui::Color32::WHITE);
+    let (rect, resp) = ui.allocate_exact_size(galley.size() + egui::vec2(14.0, 6.0), egui::Sense::click());
+    let (bg, fg) = if resp.hovered() {
+        (egui::Color32::from_rgb(103, 193, 245), egui::Color32::WHITE)
+    } else {
+        (egui::Color32::from_rgb(31, 53, 72), egui::Color32::from_rgb(103, 193, 245))
+    };
+    ui.painter().rect_filled(rect, 2.0, bg);
+    ui.painter().galley_with_override_text_color(rect.center() - galley.size() / 2.0, galley, fg);
     resp
 }

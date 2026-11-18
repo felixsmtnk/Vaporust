@@ -308,22 +308,33 @@ impl LauncherApp {
             (Some(me), _) => self.stats_ui.history.insert(load_for(me)).clone(),
             _ => History::default(),
         };
-        ui.heading(tr!("Статистика", "Statistics"));
+        crate::theme::page_title(ui, tr!("Статистика", "Statistics"));
         self.legacy_offer(ui, net);
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             let total: u32 = net.owned.iter().map(|g| g.playtime_forever_minutes).sum();
             let played = net.owned.iter().filter(|g| g.playtime_forever_minutes > 0).count();
-            ui.label(trf!(
-                "Всего в играх: {} · игр на аккаунте: {} · запускали: {} · ни разу: {}", "Total playtime: {} · games on the account: {} · launched: {} · never: {}",
-                hours(total),
-                net.owned.len(),
-                played,
-                net.owned.len() - played
-            ));
+            ui.add_space(6.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
+                for (value, label) in [
+                    (hours(total), tr!("всего в играх", "total play time")),
+                    (net.owned.len().to_string(), tr!("игр на аккаунте", "games on the account")),
+                    (played.to_string(), tr!("запускали", "launched")),
+                    ((net.owned.len() - played).to_string(), tr!("ни разу не запускали", "never launched")),
+                ] {
+                    egui::Frame::none().fill(egui::Color32::from_rgb(32, 38, 46)).inner_margin(egui::Margin::symmetric(14.0, 10.0)).show(ui, |ui| {
+                        ui.set_min_width(150.0);
+                        ui.vertical(|ui| {
+                            ui.label(egui::RichText::new(value).font(crate::theme::semibold(22.0)).color(egui::Color32::WHITE));
+                            ui.label(egui::RichText::new(label.to_uppercase()).size(11.0).color(crate::theme::WEAK));
+                        });
+                    });
+                }
+            });
             ui.add_space(8.0);
 
             // By day - our own record.
-            ui.strong(tr!("По дням (последние 30)", "By day (last 30)"));
+            crate::theme::caps_title(ui, tr!("По дням (последние 30)", "By day (last 30)"), None);
             let today = chrono::Local::now().date_naive();
             let days = per_day(&h, today, 30);
             let max = days.iter().map(|d| d.1).max().unwrap_or(0).max(60);
@@ -365,7 +376,7 @@ impl LauncherApp {
             ui.add_space(10.0);
 
             // The last two weeks - from Steam.
-            ui.strong(tr!("Последние две недели (по данным Steam)", "Last two weeks (Steam data)"));
+            crate::theme::caps_title(ui, tr!("Последние две недели (по данным Steam)", "Last two weeks (Steam data)"), None);
             match &net.my_recent {
                 None => {
                     crate::spin::spinner(ui);
@@ -386,7 +397,7 @@ impl LauncherApp {
             ui.add_space(10.0);
 
             // The most hours of all time.
-            ui.strong(tr!("Больше всего часов", "Most hours"));
+            crate::theme::caps_title(ui, tr!("Больше всего часов", "Most hours"), None);
             let mut top: Vec<_> = net.owned.iter().filter(|g| g.playtime_forever_minutes > 0).collect();
             top.sort_by_key(|g| std::cmp::Reverse(g.playtime_forever_minutes));
             let max = top.first().map(|g| g.playtime_forever_minutes).unwrap_or(1).max(1);

@@ -153,11 +153,12 @@ impl LauncherApp {
             }
         }
 
-        egui::TopBottomPanel::top("inv_top").show_inside(ui, |ui| {
-            ui.add_space(4.0);
+        egui::TopBottomPanel::top("inv_top").frame(egui::Frame::none().inner_margin(egui::Margin { left: 4.0, right: 4.0, top: 6.0, bottom: 4.0 })).show_inside(ui, |ui| {
+            crate::theme::page_title(ui, tr!("Инвентарь", "Inventory"));
+            ui.add_space(6.0);
             ui.horizontal(|ui| {
                 for (tab, label) in [(Tab::Items, tr!("Инвентарь", "Inventory")), (Tab::Listings, tr!("Мои лоты", "My listings")), (Tab::Market, tr!("Торговая площадка", "Community Market")), (Tab::Offers, tr!("Обмены", "Trades"))] {
-                    ui.selectable_value(&mut w.tab, tab, label);
+                    crate::theme::tab_value(ui, &mut w.tab, tab, label);
                 }
                 ui.separator();
                 match &st.wallet {
@@ -213,38 +214,50 @@ impl LauncherApp {
 }
 
 fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds: &mut Vec<InvCmd>) {
-    // On the left - games with items.
-    egui::SidePanel::left("inv_apps").resizable(true).default_width(200.0).show_inside(ui, |ui| {
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match &st.apps {
-            None => {
-                crate::spin::spinner(ui);
-            }
-            Some(Err(e)) => {
-                ui.label(trf!("Не удалось загрузить: {e}", "Could not load: {e}"));
-            }
-            Some(Ok(apps)) => {
+    // Games with items on top, as the game tabs of the Steam inventory: icon, name, count.
+    egui::TopBottomPanel::top("inv_apps").frame(egui::Frame::none().inner_margin(egui::Margin::symmetric(0.0, 6.0))).show_inside(ui, |ui| match &st.apps {
+        None => {
+            crate::spin::spinner(ui);
+        }
+        Some(Err(e)) => {
+            ui.label(trf!("Не удалось загрузить: {e}", "Could not load: {e}"));
+        }
+        Some(Ok(apps)) => {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
                 for a in apps {
                     // Game sections (CS2 has normal and "trade protected", Steam has
                     // gifts and community items) are shown as one list.
                     let count: u64 = a.contexts.iter().map(|c| c.2).sum();
                     let sel = w.app == Some(a.appid);
-                    ui.horizontal(|ui| {
-                        match a.icon.as_deref().filter(|u| u.starts_with("http")) {
-                            Some(u) => {
-                                ui.add(egui::Image::new(u).fit_to_exact_size(egui::vec2(18.0, 18.0)));
-                            }
-                            None => {
-                                ui.add_space(22.0);
-                            }
-                        }
-                        if ui.selectable_label(sel, format!("{} ({count})", a.name)).clicked() && !sel {
-                            w.app = Some(a.appid);
-                            w.selected = None;
-                        }
-                    });
+                    let name = format!("{}  ({count})", a.name);
+                    let galley = ui.painter().layout_no_wrap(name, egui::FontId::proportional(13.0), egui::Color32::WHITE);
+                    let (rect, resp) = ui.allocate_exact_size(egui::vec2(galley.size().x + 44.0, 34.0), egui::Sense::click());
+                    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+                    let fill = if sel {
+                        egui::Color32::from_rgb(61, 68, 80)
+                    } else if resp.hovered() {
+                        egui::Color32::from_rgb(45, 52, 62)
+                    } else {
+                        egui::Color32::from_rgb(32, 38, 46)
+                    };
+                    ui.painter().rect_filled(rect, 3.0, fill);
+                    if sel {
+                        ui.painter().line_segment([rect.left_bottom(), rect.right_bottom()], egui::Stroke::new(2.0, crate::theme::ACCENT));
+                    }
+                    let ir = egui::Rect::from_min_size(rect.min + egui::vec2(8.0, 7.0), egui::vec2(20.0, 20.0));
+                    if let Some(u) = a.icon.as_deref().filter(|u| u.starts_with("http")) {
+                        egui::Image::new(u).paint_at(ui, ir);
+                    }
+                    let color = if sel { egui::Color32::WHITE } else { crate::theme::TEXT2 };
+                    ui.painter().galley_with_override_text_color(egui::pos2(rect.left() + 36.0, rect.center().y - galley.size().y / 2.0), galley, color);
+                    if resp.clicked() && !sel {
+                        w.app = Some(a.appid);
+                        w.selected = None;
+                    }
                 }
-            }
-        });
+            });
+        }
     });
 
     let Some(appid) = w.app else {
@@ -285,15 +298,26 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
     let chosen = w.selected.as_ref().and_then(|id| list.iter().find(|s| &s.item.class_id == id));
     if let Some(s) = chosen {
         let it = s.item;
-        egui::SidePanel::right("inv_item").resizable(false).exact_width(260.0).show_inside(ui, |ui| {
+        egui::SidePanel::right("inv_item").resizable(false).exact_width(320.0).frame(egui::Frame::none().fill(egui::Color32::from_rgb(29, 34, 41)).inner_margin(egui::Margin::same(12.0))).show_inside(ui, |ui| {
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                let (pic, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 200.0), egui::Sense::hover());
+                crate::theme::vgradient_rect(ui.painter(), pic, egui::Color32::from_rgb(52, 60, 72), egui::Color32::from_rgb(29, 34, 41));
                 if let Some(u) = &it.icon_url {
-                    ui.add(egui::Image::new(icon(u, 192)).fit_to_exact_size(egui::vec2(160.0, 160.0)));
+                    egui::Image::new(icon(u, 330)).paint_at(ui, egui::Rect::from_center_size(pic.center(), egui::vec2(180.0, 180.0)));
                 }
-                ui.strong(&it.name);
+                ui.add_space(8.0);
+                let name_c = rarity_color(it).unwrap_or(egui::Color32::WHITE);
+                ui.label(egui::RichText::new(&it.name).font(crate::theme::semibold(17.0)).color(name_c));
                 if !it.item_type.is_empty() {
-                    ui.weak(&it.item_type);
+                    ui.label(egui::RichText::new(&it.item_type).size(12.5).color(crate::theme::WEAK));
                 }
+                if !it.description.is_empty() {
+                    ui.add_space(6.0);
+                    for line in it.description.iter().take(30) {
+                        ui.add(egui::Label::new(egui::RichText::new(line).size(12.5).color(crate::theme::TEXT2)).wrap());
+                    }
+                }
+                ui.add_space(6.0);
                 if s.amount > 1 {
                     ui.label(trf!("Количество: {}", "Quantity: {}", s.amount));
                 }
@@ -363,40 +387,35 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
             ui.weak(if total == 0 { tr!("Здесь пусто.", "Nothing here.") } else { tr!("Ничего не найдено.", "Nothing found.") });
             return;
         }
-        // Tiles; only visible rows are loaded and drawn.
-        let cell = egui::vec2(96.0, 118.0);
+        // Tiles as in the Steam inventory: a dark square, the item, a border of its rarity color;
+        // only visible rows are loaded and drawn.
+        let cell = egui::vec2(92.0, 92.0);
         let cols = ((ui.available_width() - 16.0) / (cell.x + 6.0)).floor().max(1.0) as usize;
         let rows = list.len().div_ceil(cols);
         egui::ScrollArea::vertical().auto_shrink([false, false]).show_rows(ui, cell.y + 6.0, rows, |ui, range| {
             for row in range {
                 ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
                     for s in list.iter().skip(row * cols).take(cols) {
                         let it = s.item;
                         let (rect, resp) = ui.allocate_exact_size(cell, egui::Sense::click());
                         let sel = w.selected.as_deref() == Some(it.class_id.as_str());
-                        let bg = if sel {
-                            ui.visuals().selection.bg_fill
-                        } else if resp.hovered() {
-                            ui.visuals().widgets.hovered.bg_fill
-                        } else {
-                            ui.visuals().faint_bg_color
-                        };
-                        ui.painter().rect_filled(rect, 4.0, bg);
-                        let img = egui::Rect::from_center_size(rect.center_top() + egui::vec2(0.0, 40.0), egui::vec2(72.0, 72.0));
+                        let rarity = rarity_color(it);
+                        crate::theme::vgradient_rect(ui.painter(), rect, egui::Color32::from_rgb(48, 54, 64), egui::Color32::from_rgb(30, 35, 42));
                         if let Some(u) = &it.icon_url {
-                            egui::Image::new(icon(u, 96)).paint_at(ui, img);
+                            egui::Image::new(icon(u, 96)).paint_at(ui, rect.shrink(8.0));
                         }
+                        let border = if sel {
+                            egui::Stroke::new(2.0, egui::Color32::WHITE)
+                        } else if resp.hovered() {
+                            egui::Stroke::new(1.5, rarity.unwrap_or(egui::Color32::from_rgb(140, 150, 160)))
+                        } else {
+                            egui::Stroke::new(1.0, rarity.map(|c| c.gamma_multiply(0.7)).unwrap_or(egui::Color32::from_rgb(60, 66, 76)))
+                        };
+                        ui.painter().rect_stroke(rect, 2.0, border);
                         if s.amount > 1 {
-                            ui.painter().text(
-                                rect.right_top() + egui::vec2(-4.0, 3.0),
-                                egui::Align2::RIGHT_TOP,
-                                format!("x{}", s.amount),
-                                egui::FontId::proportional(12.0),
-                                egui::Color32::from_rgb(240, 200, 80),
-                            );
+                            ui.painter().text(rect.left_bottom() + egui::vec2(5.0, -3.0), egui::Align2::LEFT_BOTTOM, format!("{}", s.amount), egui::FontId::proportional(12.0), egui::Color32::WHITE);
                         }
-                        let text = egui::Rect::from_min_max(egui::pos2(rect.left() + 3.0, rect.top() + 80.0), rect.max - egui::vec2(3.0, 2.0));
-                        ui.put(text, egui::Label::new(egui::RichText::new(&it.name).small()).truncate());
                         let resp = resp.on_hover_text(format!("{}\n{}", it.name, it.item_type)).on_hover_cursor(egui::CursorIcon::PointingHand);
                         if resp.clicked() {
                             w.selected = if sel { None } else { Some(it.class_id.clone()) };
@@ -406,6 +425,16 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
             }
         });
     });
+}
+
+/// The rarity color of an item (its name color), as the Steam inventory borders.
+fn rarity_color(it: &InventoryItem) -> Option<egui::Color32> {
+    let h = it.name_color.as_deref()?.trim_start_matches('#');
+    if h.len() != 6 {
+        return None;
+    }
+    let v = u32::from_str_radix(h, 16).ok()?;
+    Some(egui::Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8))
 }
 
 /// List row: 40x40 image, name linking to the market, caption and price on the right.

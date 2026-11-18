@@ -159,6 +159,8 @@ pub struct Settings {
     pub games_only: bool,
     /// The friends list as a separate window (as in Steam) instead of the right side of the main window.
     pub friends_window: bool,
+    /// Smart collections (rules, picked every time), like Steam dynamic collections.
+    pub smart: Vec<crate::smartcoll::Smart>,
     pub window: Option<crate::winpos::WinPos>,
     /// Performance: animations (stickers, GIFs, chat effects, loading icons).
     pub animations: bool,
@@ -293,6 +295,7 @@ impl Default for Settings {
             light_mode: false,
             games_only: false,
             friends_window: false,
+            smart: Vec::new(),
             language: String::new(),
             window: None,
             animations: true,

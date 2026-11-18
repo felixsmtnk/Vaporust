@@ -162,10 +162,14 @@ pub struct StoreState {
     pub charts: HashMap<u8, Result<Vec<(u32, String)>, String>>,
     /// Games hidden from recommendations ("Not interested"); None - the list is not loaded yet.
     pub ignored: Option<HashSet<u32>>,
+    /// Curators followed during this session (Steam does not report the list here).
+    pub followed: HashSet<u64>,
     /// Discovery queue.
     pub discovery: Option<Result<Vec<u32>, String>>,
     /// Package names (cart).
     pub package_names: HashMap<u32, String>,
+    /// The first game of a package (cart pictures).
+    pub package_apps: HashMap<u32, u32>,
     /// Curators who reviewed the game.
     pub curators: HashMap<u32, Result<Vec<crate::actions::Curator>, String>>,
 }
@@ -216,6 +220,8 @@ pub enum StoreCmd {
     Discovery { rebuild: bool, skip: Vec<u32> },
     /// "Not interested": hide a game from store recommendations (true) or bring it back.
     Ignore(u32, bool),
+    /// Follow (true) or unfollow a curator (its clan number).
+    FollowCurator(u64, bool),
     /// Which games are already hidden from recommendations (once per session).
     IgnoredList,
 }
@@ -425,8 +431,13 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
             }
             StoreCmd::Details(ids) => load_details(&c, ids, &st, &ctx).await,
             StoreCmd::PackageName(id) => {
-                if let Ok(name) = package_name(id).await {
-                    st.lock().unwrap().package_names.insert(id, name);
+                if let Ok((name, app)) = package_name(id).await {
+                    let mut s = st.lock().unwrap();
+                    s.package_names.insert(id, name);
+                    if let Some(a) = app {
+                        s.package_apps.insert(id, a);
+                    }
+                    drop(s);
                     ctx.request_repaint();
                 }
             }
@@ -557,6 +568,21 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                         }
                     }
                     Err(e) => s.error = Some(trf!("Не удалось: {e}", "Failed: {e}")),
+                }
+            }
+            StoreCmd::FollowCurator(clan, on) => {
+                let res = crate::actions::follow_curator(&c, clan, on).await;
+                let mut s = st.lock().unwrap();
+                match res {
+                    Ok(()) => {
+                        s.error = None;
+                        if on {
+                            s.followed.insert(clan);
+                        } else {
+                            s.followed.remove(&clan);
+                        }
+                    }
+                    Err(e) => s.error = Some(trf!("Подписка на куратора не изменена: {e}", "Curator follow not changed: {e}")),
                 }
             }
             StoreCmd::IgnoredList => {
@@ -1326,11 +1352,13 @@ mod ignored_tests {
 }
 
 /// Store package name (packagedetails, no login).
-async fn package_name(id: u32) -> Result<String, String> {
+async fn package_name(id: u32) -> Result<(String, Option<u32>), String> {
     let http = aurelia::core::net::steam_web_client().map_err(|e| format!("{e:#}"))?;
     let url = format!("https://store.steampowered.com/api/packagedetails?packageids={id}&l={}", crate::lang::steam());
     let v: serde_json::Value = http.get(url).send().await.map_err(|e| format!("{e:#}"))?.json().await.map_err(|e| format!("{e:#}"))?;
-    v[id.to_string()]["data"]["name"].as_str().map(String::from).ok_or_else(|| tr!("нет данных", "no data").into())
+    let d = &v[id.to_string()]["data"];
+    let app = d["apps"].get(0).and_then(|a| a["id"].as_u64()).map(|a| a as u32);
+    d["name"].as_str().map(|n| (n.to_string(), app)).ok_or_else(|| tr!("нет данных", "no data").into())
 }
 
 /// Wishlist in Steam's order: (priority > 0 ascending), then by date added.

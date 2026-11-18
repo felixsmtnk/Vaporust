@@ -140,8 +140,9 @@ impl LauncherApp {
             let _ = self.tx.send(Cmd::Badges);
         }
         ui.horizontal(|ui| {
-            ui.heading(tr!("Значки и карточки", "Badges and cards"));
-            if ui.button(tr!("Обновить", "Refresh")).clicked() {
+            crate::theme::page_title(ui, tr!("Значки и карточки", "Badges and cards"));
+            ui.add_space(8.0);
+            if crate::theme::text_link(ui, tr!("Обновить", "Refresh")).clicked() {
                 let _ = self.tx.send(Cmd::Badges);
             }
         });
@@ -177,69 +178,74 @@ impl LauncherApp {
             ui.weak(trf!("Значков: {}", "Badges: {}", b.badges_count));
             ui.add_space(8.0);
 
-            // Ready sets.
-            let ready: Vec<&GameCards> = b.games.iter().filter(|g| g.ready).collect();
-            if !ready.is_empty() {
-                ui.strong(tr!("Можно создать значок", "A badge can be crafted"));
-                for g in ready {
-                    ui.horizontal(|ui| {
-                        ui.label(format!("{}{}", g.name, if g.foil { tr!(" (металлический)", " (foil)") } else { "" }));
-                        if self.badges_ui.confirm == Some((g.appid, g.foil)) {
-                            ui.label(tr!("Карточки набора будут израсходованы. Создать?", "The set's cards will be used up. Craft?"));
-                            if ui.button(tr!("Да", "Yes")).clicked() {
-                                let _ = self.tx.send(Cmd::CraftBadge { appid: g.appid, foil: g.foil });
-                                self.badges_ui.confirm = None;
-                            }
-                            if ui.button(tr!("Нет", "No")).clicked() {
-                                self.badges_ui.confirm = None;
-                            }
-                        } else if ui
-                            .add_enabled(crate::exp::on(), egui::Button::new(tr!("Создать значок...", "Craft badge...")))
-                            .on_disabled_hover_text(crate::exp::HINT())
-                            .on_hover_text(tr!("Из полного набора карточек: значок, опыт Steam, фон и смайлик игры", "From a full card set: a badge, Steam XP, a background and an emoticon of the game"))
-                            .clicked()
-                        {
-                            self.badges_ui.confirm = Some((g.appid, g.foil));
-                        }
-                    });
-                }
-                ui.add_space(8.0);
-            }
-
-            // Cards that will still drop.
-            let mut drops: Vec<&GameCards> = b.games.iter().filter(|g| g.drops > 0).collect();
-            drops.sort_by_key(|g| std::cmp::Reverse(g.drops));
-            let total: u32 = drops.iter().map(|g| g.drops).sum();
-            ui.strong(trf!("Еще выпадет карточек: {total} (в играх: {})", "Card drops remaining: {total} (in games: {})", drops.len()));
-            ui.weak(
-                tr!("Карточки выпадают, пока игра запущена через Steam (обычное «Играть» в Vaporust). При запуске без \
-                 Steam они не выпадают.", "Cards drop while the game runs through Steam (the normal \"Play\" in Vaporust). When launched without Steam they do not drop."),
+            // Game badges as the rows of the Steam badges page: the game capsule, the name, hours,
+            // drops left and the collected cards; games with drops left first.
+            let mut games: Vec<&GameCards> = b.games.iter().filter(|g| g.drops > 0 || g.total > 0 || g.ready).collect();
+            games.sort_by_key(|g| (std::cmp::Reverse(g.drops), std::cmp::Reverse(g.owned)));
+            let total: u32 = games.iter().map(|g| g.drops).sum();
+            ui.horizontal(|ui| {
+                crate::theme::caps_title(ui, tr!("Значки игр", "Game badges"), Some(games.len()));
+                ui.add_space(12.0);
+                ui.label(egui::RichText::new(trf!("еще выпадет карточек: {total}", "card drops remaining: {total}")).size(12.0).color(crate::theme::WEAK));
+            });
+            ui.label(
+                egui::RichText::new(tr!(
+                    "Карточки выпадают, пока игра запущена через Steam (обычное «Играть» в Vaporust). При запуске без Steam они не выпадают.",
+                    "Cards drop while the game runs through Steam (the normal \"Play\" in Vaporust). When launched without Steam they do not drop."
+                ))
+                .size(11.5)
+                .color(crate::theme::DIM),
             );
-            egui::Grid::new("drops").num_columns(3).striped(true).show(ui, |ui| {
-                for g in &drops {
-                    if ui.link(&g.name).on_hover_text(tr!("Страница значка в Steam", "Badge page on Steam")).clicked() {
-                        open_url = Some(format!("https://steamcommunity.com/profiles/{me}/gamecards/{}/", g.appid));
-                    }
-                    ui.label(trf!("еще {}", "{} more", g.drops));
-                    ui.weak(hours_ru(&g.hours));
-                    ui.end_row();
-                }
-            });
-            ui.add_space(8.0);
-
-            // All sets: how much is collected.
-            ui.strong(tr!("Наборы карточек", "Card sets"));
-            egui::Grid::new("sets").num_columns(3).striped(true).show(ui, |ui| {
-                for g in b.games.iter().filter(|g| g.total > 0 || g.ready) {
-                    if ui.link(&g.name).clicked() {
-                        open_url = Some(format!("https://steamcommunity.com/profiles/{me}/gamecards/{}/", g.appid));
-                    }
-                    let total = g.total.max(1);
-                    crate::theme::progress(ui, g.owned as f32 / total as f32, 120.0, Some(trf!("{} из {}", "{} of {}", g.owned, g.total)));
-                    ui.weak(if g.ready { tr!("готов", "ready") } else { "" });
-                    ui.end_row();
-                }
-            });
+            ui.add_space(6.0);
+            ui.spacing_mut().item_spacing.y = 4.0;
+            for g in games {
+                crate::theme::block(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        let cap = egui::Image::new(format!("https://cdn.akamai.steamstatic.com/steam/apps/{}/capsule_184x69.jpg", g.appid))
+                            .fit_to_exact_size(egui::vec2(150.0, 56.0))
+                            .sense(egui::Sense::click());
+                        if ui.add(cap).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tr!("Страница значка в Steam", "Badge page on Steam")).clicked() {
+                            open_url = Some(format!("https://steamcommunity.com/profiles/{me}/gamecards/{}/", g.appid));
+                        }
+                        ui.add_space(6.0);
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = 2.0;
+                            ui.label(egui::RichText::new(format!("{}{}", g.name, if g.foil { tr!(" (металлический)", " (foil)") } else { "" })).size(14.5).color(egui::Color32::WHITE));
+                            let hours = hours_ru(&g.hours);
+                            if !hours.is_empty() {
+                                ui.label(egui::RichText::new(hours).size(11.5).color(crate::theme::DIM));
+                            }
+                            if g.drops > 0 {
+                                ui.label(egui::RichText::new(trf!("Еще выпадет карточек: {}", "{} card drops remaining", g.drops)).size(12.0).color(crate::theme::LIGHT_BLUE));
+                            }
+                        });
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if g.ready {
+                                if self.badges_ui.confirm == Some((g.appid, g.foil)) {
+                                    if ui.button(tr!("Нет", "No")).clicked() {
+                                        self.badges_ui.confirm = None;
+                                    }
+                                    if crate::theme::accent_button(ui, tr!("Создать", "Craft")).on_hover_text(tr!("Карточки набора будут израсходованы", "The set's cards will be used up")).clicked() {
+                                        let _ = self.tx.send(Cmd::CraftBadge { appid: g.appid, foil: g.foil });
+                                        self.badges_ui.confirm = None;
+                                    }
+                                } else if ui
+                                    .add_enabled(crate::exp::on(), egui::Button::new(tr!("Создать значок...", "Craft badge...")))
+                                    .on_disabled_hover_text(crate::exp::HINT())
+                                    .on_hover_text(tr!("Из полного набора карточек: значок, опыт Steam, фон и смайлик игры", "From a full card set: a badge, Steam XP, a background and an emoticon of the game"))
+                                    .clicked()
+                                {
+                                    self.badges_ui.confirm = Some((g.appid, g.foil));
+                                }
+                            }
+                            if g.total > 0 {
+                                let total = g.total.max(1);
+                                crate::theme::progress(ui, g.owned as f32 / total as f32, 140.0, Some(trf!("{} из {} карточек", "{} of {} cards", g.owned, g.total)));
+                            }
+                        });
+                    });
+                });
+            }
         });
         if let Some(u) = open_url {
             ui.ctx().open_url(egui::OpenUrl::new_tab(u));

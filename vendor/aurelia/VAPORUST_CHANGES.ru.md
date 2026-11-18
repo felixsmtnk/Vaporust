@@ -44,6 +44,8 @@ Vaporust использует ее как библиотеку и внес пе�
   - `WalletBalance.fee_rules` и `MarketFeeRules` (минимальная цена, шаг цены и комиссии из
     `g_rgWalletInfo`: `wallet_market_minimum`, `wallet_currency_increment`, `wallet_fee_percent`,
     `wallet_publisher_fee_percent_default`), вынесены наружу - для расчета цен площадки как на сайте Steam.
+  - `InventoryItem.name_color` (цвет редкости) и `InventoryItem.description` (строки описания без
+    HTML-тегов) - для плиток и карточки предмета, как на странице инвентаря Steam.
 - `src/steam_client/workshop.rs`, `src/core/models.rs` - у `WorkshopItem` добавлены картинка,
   подписчики и оценки (`preview_url`, `subscriptions`, `votes_up`, `votes_down`); запрос модов просит оценки.
 - `src/web/web_session.rs`:

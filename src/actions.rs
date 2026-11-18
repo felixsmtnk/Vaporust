@@ -248,6 +248,8 @@ pub async fn app_packages(appid: u32, cc: &str) -> Result<Vec<(u32, String, Stri
 
 #[derive(Clone, Debug, Default)]
 pub struct Curator {
+    /// The curator's Steam group (clan) number: needed to follow it.
+    pub clan_id: u64,
     pub name: String,
     pub link: String,
     pub avatar: String,
@@ -284,6 +286,7 @@ pub fn parse_curators(html: &str, appid: u32) -> Vec<Curator> {
         let Some(rec) = rec else { continue };
         let hash = c["strAvatarHash"].as_str().unwrap_or("");
         out.push(Curator {
+            clan_id: num(&c["clanID"]),
             name: c["name"].as_str().unwrap_or("").to_string(),
             link: c["link"].as_str().unwrap_or("").to_string(),
             avatar: if hash.is_empty() { String::new() } else { format!("https://avatars.fastly.steamstatic.com/{hash}_medium.jpg") },
@@ -672,4 +675,16 @@ pub async fn download_regions() -> Result<Vec<(u32, String)>, String> {
     let mut v: Vec<(u32, String)> = found.into_iter().collect();
     v.sort_by(|a, b| a.1.cmp(&b.1));
     Ok(v)
+}
+
+/// Follow (true) or unfollow a curator, as the "Follow" button of a Steam curator page.
+pub async fn follow_curator(c: &SteamClient, clan_id: u64, follow: bool) -> Result<(), String> {
+    let web = crate::webapi::web_session(c).await?;
+    let fields = [("sessionid", web.sessionid().to_string()), ("clanid", clan_id.to_string()), ("follow", if follow { "1" } else { "0" }.to_string())];
+    match web.post_form("https://store.steampowered.com/curators/ajaxfollow", &fields, "https://store.steampowered.com/curators/").await {
+        Ok((200, body)) if !body.contains("\"success\":2") && !body.contains("\"success\":false") => Ok(()),
+        Ok((200, body)) => Err(trf!("Steam не подтвердил: {}", "Steam did not confirm: {}", body.chars().take(120).collect::<String>())),
+        Ok((status, _)) => Err(trf!("Steam ответил кодом {status}", "Steam answered with code {status}")),
+        Err(e) => Err(trf!("нет связи со Steam: {e:#}", "no connection to Steam: {e:#}")),
+    }
 }

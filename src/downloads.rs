@@ -230,6 +230,8 @@ impl LauncherApp {
         let active_id = net.install.as_ref().filter(|i| i.result.is_none()).map(|i| i.appid);
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.add_space(6.0);
+            crate::theme::page_title(ui, tr!("Загрузки", "Downloads"));
+            ui.add_space(8.0);
             if !self.install_note.is_empty() {
                 ui.colored_label(egui::Color32::from_rgb(230, 170, 60), &self.install_note);
             }
