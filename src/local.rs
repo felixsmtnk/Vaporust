@@ -2242,7 +2242,8 @@ pub fn add_library(steam_dir: &Path, folder: &Path) -> Result<PathBuf, String> {
     if !folder.is_absolute() {
         return Err(tr!("нужен полный путь к папке", "a full folder path is needed").into());
     }
-    let n = norm(folder);
+    // The library list holds full paths (a short 8.3 name like RUNNER~1 is expanded): compare in that form.
+    let n = norm(&full_form(folder));
     let n = n.trim_end_matches('\\');
     for d in library_dirs(steam_dir) {
         let dn = norm(&d);
@@ -2477,5 +2478,41 @@ mod to_staging_tests {
         super::unstage(&lib, 60).unwrap();
         assert!(apps.join("common").join("Игра").join("a.bin").exists());
         let _ = std::fs::remove_dir_all(&lib);
+    }
+}
+
+/// A path in its full form even when it does not exist yet: the nearest existing parent is expanded
+/// (short 8.3 names, letter case) and the rest is appended.
+fn full_form(p: &Path) -> PathBuf {
+    let mut base = p.to_path_buf();
+    let mut rest: Vec<std::ffi::OsString> = Vec::new();
+    while !base.exists() {
+        match (base.file_name().map(|n| n.to_os_string()), base.parent()) {
+            (Some(name), Some(parent)) => {
+                rest.push(name);
+                base = parent.to_path_buf();
+            }
+            _ => return p.to_path_buf(),
+        }
+    }
+    let mut out = PathBuf::from(pretty_path(&base));
+    for name in rest.into_iter().rev() {
+        out.push(name);
+    }
+    out
+}
+
+#[cfg(test)]
+mod full_form_tests {
+    /// A short 8.3 name of an existing parent is expanded, the missing rest is kept.
+    #[test]
+    fn expands_short_parent() {
+        let short = std::path::Path::new(r"C:\PROGRA~2");
+        if !short.exists() {
+            return;
+        }
+        let p = super::full_form(&short.join("vaporust-no-such").join("x"));
+        let s = p.to_string_lossy().to_lowercase();
+        assert!(s.starts_with(r"c:\program files (x86)\vaporust-no-such\x"), "{s}");
     }
 }
