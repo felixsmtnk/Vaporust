@@ -17,7 +17,7 @@ pub enum Section {
 pub fn section_of(v: View) -> Option<Section> {
     Some(match v {
         View::Store | View::News | View::Points | View::Cart => Section::Store,
-        View::Library | View::Screenshots | View::Stats | View::Storage | View::Downloads | View::Achievements | View::Props | View::Music => Section::Library,
+        View::Library | View::Screenshots | View::Stats | View::Storage | View::Downloads | View::Achievements | View::Music => Section::Library,
         View::Activity | View::Groups | View::Group | View::Community | View::Workshop => Section::Community,
         View::Inventory | View::Badges | View::Family | View::Profile | View::Friends | View::ProfileEdit => Section::Profile,
         View::Settings => return None,
@@ -140,7 +140,17 @@ impl LauncherApp {
         self.view = to.0;
         self.lib_page = to.1;
         self.collections_page = to.2;
-        self.nav_last = to;
+        // A page whose own state was already closed is opened again, or (when it cannot be:
+        // achievements, a group, discussions of a game) the library is shown instead of an empty page.
+        match to.0 {
+            View::Screenshots if self.shots_win.is_none() => self.open_shots(None),
+            View::Storage if self.storage_win.is_none() => self.open_storage(),
+            View::Achievements if self.ach_open.is_none() => self.view = View::Library,
+            View::Group if self.group_ui.url.is_none() => self.view = View::Library,
+            View::Community if self.community_ui.appid.is_none() => self.view = View::Library,
+            _ => {}
+        }
+        self.nav_last = (self.view, self.lib_page, self.collections_page);
     }
 
     /// The whole top of the window, as in Steam: a row of text menus (window buttons, notifications
@@ -213,6 +223,7 @@ impl LauncherApp {
             self.close_extras(View::Library);
             self.view = View::Library;
             self.lib_page = None;
+            self.collections_page = false;
         }
         self.drop_down(ui, &r, Section::Library, net);
         if full {
@@ -401,7 +412,6 @@ impl LauncherApp {
         let name = crate::richtext::fix(ui, &name);
         let wallet = net.inv.lock().unwrap().wallet.as_ref().and_then(|w| w.as_ref().ok()).map(|w| crate::invent::money(w.balance_cents, w.currency));
         // The wallet is loaded once per account right away, as Steam shows it next to the name.
-        static WALLET_ASKED: std::sync::Mutex<Option<u64>> = std::sync::Mutex::new(None);
         if wallet.is_none() && net.my_id.is_some() {
             let mut asked = WALLET_ASKED.lock().unwrap();
             if *asked != net.my_id {
@@ -672,4 +682,12 @@ impl LauncherApp {
             }
         });
     }
+}
+
+/// Which account the wallet was asked for (once per login).
+static WALLET_ASKED: std::sync::Mutex<Option<u64>> = std::sync::Mutex::new(None);
+
+/// After a logout or an account change the wallet is asked again.
+pub(crate) fn reset_wallet_asked() {
+    *WALLET_ASKED.lock().unwrap() = None;
 }

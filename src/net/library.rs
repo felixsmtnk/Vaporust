@@ -97,12 +97,18 @@ pub(crate) fn start_link_probe(st: &Shared, ctx: &egui::Context) {
             if PROBE_GEN.load(Ordering::Relaxed) != gen {
                 return;
             }
-            let ok = tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                tokio::net::TcpStream::connect("steamcommunity.com:443"),
-            )
-            .await
-            .is_ok_and(|r| r.is_ok());
+            // Behind a proxy a direct connection says nothing about Steam: no check then.
+            if aurelia::core::config::load_launcher_config().await.is_ok_and(|c| c.proxy.url.as_deref().is_some_and(|u| !u.trim().is_empty())) {
+                continue;
+            }
+            // Several Steam addresses: one blocked site (a firewall, a provider) is not "no connection".
+            let mut ok = false;
+            for host in ["steamcommunity.com:443", "store.steampowered.com:443", "api.steampowered.com:443"] {
+                if tokio::time::timeout(std::time::Duration::from_secs(5), tokio::net::TcpStream::connect(host)).await.is_ok_and(|r| r.is_ok()) {
+                    ok = true;
+                    break;
+                }
+            }
             if ok {
                 fails = 0;
                 continue;

@@ -5,6 +5,59 @@
 What went into each released version, newest first. Plans for the future are in
 [ROADMAP.md](ROADMAP.md), archives and full release notes are on the [Releases](../../releases) page.
 
+## ✅ 0.9.2-alpha: Aurelia 0.2.6 and fixes from a code review
+
+*Released 2026-11-20.*
+
+**Aurelia 0.2.6**
+- The bundled Aurelia is updated to 0.2.6: games whose depots come from another app install
+  correctly, an install that got no base game files is reported as failed, safer storage of the
+  login and of Steam Guard tokens, Steam Cloud downloads are size-capped, and the Steam libraries
+  move off two dependencies with security advisories (protobuf, rsa).
+
+**Fixes from a code review**
+- Selling a game item: with several copies of one skin, the copy you clicked is the one sold (before,
+  the first copy of that skin was always chosen).
+- "Close game" for a non-Steam game closes only that game and the programs it started, not every
+  program from its folder (dangerous for games on the Desktop or in a shared folder).
+- Steam Cloud: a damaged download no longer overwrites a local save (the next sync could upload it over
+  the cloud copy); big save sets are listed in full; "Make a copy" and "Restore" find saves where the
+  sync looks for them (root overrides, SteamID folders, Documents moved to OneDrive or another disk).
+- Changing a game language no longer deletes base game files when two depots write the same file with
+  different letter case; file names from Steam that would leave the game folder are ignored.
+- The saved login: it is encrypted before the very first save; a passing keyring error no longer
+  replaces the encryption key (the login stayed unreadable); a damaged session file no longer crashes.
+- Updates of Vaporust: the version on trial is no longer confirmed by the old process closing, and
+  "Go back to the previous version" stays available until the next start.
+- Unfinished downloads in the temporary folder (Steam was open) are visible again: they can be
+  continued or deleted; a failed move keeps the record; "Restart Steam to play" appears again.
+- After a logout, logging in again (even into the same account) loads the profile, wallet, badges,
+  family and the rest again; the download of the old login stops; the friends watcher of the old
+  login closes.
+- Back / forward no longer show empty pages; LIBRARY leaves the collections page; Community keeps the
+  last game for its drop-down.
+- Table view: a double click plays or installs (the first click opened the game page at once).
+- Smart collections with a genre rule fill after a restart; their name is shown as the list title, in
+  the grid too; deleting one no longer resets another chosen collection.
+- Endless loading: the store after a language change, a mod opened from a Workshop collection, a
+  friend's achievements for another game; the cart count on the Points Shop and News pages; bundles
+  in the cart get their name and picture.
+- "Delete" while another game downloads now says to wait instead of doing nothing; results like
+  "Shortcut created" or "force-closed" are shown while a game runs; the review window no longer shows
+  the review loaded last time.
+- Group chats from the friends page are not shown as friends; nicknames and "busy" there.
+- Launch scripts that start with a quoted path work; non-Steam games with the same program and other
+  arguments are no longer merged; desktop shortcuts of non-Steam games work without Steam games.
+- Soundtracks: the next track starts in any section and in the tray; FLAC and other unplayable files
+  are skipped; the volume works for WAV.
+- Refund hint: names with ™ and ®, the latest purchase, dates of last December.
+- Cloud screenshots: "Show more" no longer repeats the first page.
+- The connection check no longer goes offline when only steamcommunity.com is blocked or a proxy is set.
+- Security: picture links in messages are loaded only from the web (http/https), local network
+  addresses are refused also on the first request.
+- Smaller things: disabled switches look disabled, Steam texts of notifications, wallet history and
+  mod pages follow the interface language, curator following is checked as an experimental function.
+
 ## ✅ 0.9.1-alpha: more of the Steam client
 
 *Released 2026-11-18.*

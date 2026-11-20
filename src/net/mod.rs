@@ -285,6 +285,9 @@ pub struct PropsData {
     pub branches: Option<Result<Vec<(String, Option<String>)>, String>>,
     pub dlc: Option<Result<Vec<DlcRow>, String>>,
     pub cloud: Option<Result<Vec<CloudFile>, String>>,
+    /// Cloud path rules of the game (root overrides from UFS) and the SteamID, so the cloud tab finds
+    /// the saves where the sync looks for them.
+    pub cloud_paths: Option<(Vec<aurelia::library::cloud_sync::UfsRootOverride>, u64)>,
     /// Depot descriptions: depot -> (name, OS, language, DLC).
     pub depots: Option<Result<HashMap<u32, DepotDesc>, String>>,
     /// Result of the last manual cloud sync; cloud_busy - a sync is running.
@@ -377,6 +380,8 @@ pub struct NetState {
     /// Screenshots in the Steam cloud: (game filter, total, loaded pages); None - not loaded.
     pub cloud_shots: Option<Result<(u32, u32, Vec<aurelia::steam_client::CloudScreenshot>), String>>,
     pub cloud_shots_busy: bool,
+    /// The last loaded page of cloud screenshots ("Show more" asks the next one; a page can hold fewer than 50).
+    pub cloud_shots_page: u32,
     /// Whose screenshots are in cloud_shots (0 - own).
     pub cloud_shots_user: u64,
     /// Account info from Aurelia ("Settings" -> "Account" tab).
@@ -640,6 +645,8 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 s.busy = true;
                 s.message = tr!("Вход... Если включен мобильный аутентификатор, подтвердите вход в приложении Steam.", "Logging in... If the mobile authenticator is on, confirm the login in the Steam app.").into();
             });
+            // Encryption on before the first save: the fresh session must never be written in plain text.
+            let _ = secure_session().await;
             match client.login(user, Secret::new(pass), code, None).await {
                 Ok(session) => logged_in(client, session, st, ctx).await,
                 Err(e) => {
@@ -662,6 +669,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                 s.busy = true;
                 s.message = tr!("Получаю QR-код...", "Getting a QR code...").into();
             });
+            let _ = secure_session().await;
             let (st2, ctx2) = (st.clone(), ctx.clone());
             let result = client
                 .login_qr(Duration::from_secs(300), move |ev| match ev {
@@ -991,7 +999,8 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
         }
         Cmd::PinRefresh { appid, path, branch, launch } => {
             let (c, st, ctx) = (client.clone(), st.clone(), ctx.clone());
-            tokio::spawn(async move {
+            // Bound to the login: after a logout its result (possibly "launch") is dropped.
+            spawn_session(async move {
                 let result = async {
                     let (latest, buildid) = c
                         .latest_depot_versions(appid, &branch)
@@ -1724,10 +1733,16 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
                         // Next page of the same filter - append.
                         Ok((total, v)) => match s.cloud_shots.take() {
                             Some(Ok((a, _, mut old))) if a == appid && page > 1 && same_user => {
+                                // An empty page: there is nothing more, whatever the total says.
+                                let total = if v.is_empty() { old.len() as u32 } else { total };
                                 old.extend(v);
+                                s.cloud_shots_page = page;
                                 Ok((appid, total, old))
                             }
-                            _ => Ok((appid, total, v)),
+                            _ => {
+                                s.cloud_shots_page = page;
+                                Ok((appid, total, v))
+                            }
                         },
                         Err(e) => Err(e),
                     });
@@ -1810,6 +1825,10 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             crate::webapi::clear_token();
             let _ = client.logout().await;
             upd(st, ctx, |s| {
+                // A running download or file check stops: it belonged to this login.
+                if let Some(i) = s.install.as_ref() {
+                    i.abort.store(true, Ordering::Relaxed);
+                }
                 *s = NetState {
                     need_login: true,
                     message: tr!("Вы вышли из аккаунта.", "You logged out.").into(),

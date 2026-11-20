@@ -161,10 +161,6 @@ impl LauncherApp {
 
     /// Game properties - a separate window, as in Steam (the library stays as it was).
     pub(crate) fn props_window(&mut self, ctx: &egui::Context, net: &NetState) {
-        if self.view == crate::View::Props {
-            // The old page (back / forward history): properties are a window now.
-            self.view = crate::View::Library;
-        }
         let Some(name) = self.props.as_ref().map(|w| w.name.clone()) else { return };
         let builder = egui::ViewportBuilder::default()
             .with_title(trf!("{name} - Свойства", "{name} - Properties"))
@@ -922,8 +918,13 @@ impl LauncherApp {
                     Some(Ok(files)) => {
                         let total: u64 = files.iter().map(|f| f.size).sum();
                         // Where these files live on this PC: %WinAppDataLocalLow% and the like -> real folders.
+                        // The same rules as the sync: UFS root overrides for Windows and the SteamID.
                         let resolver = remote.clone().map(|r| {
-                            aurelia::library::cloud_sync::CloudPathResolver::new(r, Some(game.dir.clone()))
+                            let mut res = aurelia::library::cloud_sync::CloudPathResolver::new(r, Some(game.dir.clone()));
+                            if let Some((overrides, sid)) = &data.cloud_paths {
+                                res = res.with_root_overrides(overrides, "windows").with_steam_id(*sid);
+                            }
+                            res
                         });
                         let local: Vec<Option<std::path::PathBuf>> = files
                             .iter()

@@ -163,7 +163,7 @@ impl LauncherApp {
         let before = self.notices.install.replace((i.appid, i.result.is_some()));
         // Report only the "running -> finished successfully" transition and only for an install.
         // Downloaded to the temp folder while Steam was open: Steam sees it only after a restart.
-        let staged = self.settings.staged.contains_key(&i.appid) && crate::local::steam_running();
+        let staged = (self.unstaged_open.contains(&i.appid) || self.settings.staged.contains_key(&i.appid)) && crate::local::steam_running();
         if before == Some((i.appid, false))
             && finished_ok
             && i.download

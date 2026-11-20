@@ -1,5 +1,5 @@
-//! "Inventory" window (a separate Windows window): items by game, wallet, own listings
-//! and Community Market search. Selling and buying happen on the Steam site in a browser.
+//! The "Inventory" page (or a separate window with Ctrl): items by game, wallet, own listings,
+//! Community Market search and trade offers. Selling - tradeui.rs; buying - on the Steam site.
 
 use crate::invent::{self, InvCmd, InvState};
 use crate::net::{Cmd, NetState};
@@ -22,6 +22,7 @@ pub struct InvWin {
     app: Option<u32>,
     filter: String,
     /// Selected item (class_id).
+    /// The selected item instance: "<section>:<asset id>" (copies of one skin share a class id).
     selected: Option<String>,
     query: String,
     /// Prices already requested (so we do not ask every frame).
@@ -295,7 +296,7 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
     let list = stacks(&parts, &w.filter, w.app == Some(753));
 
     // On the right - the selected item.
-    let chosen = w.selected.as_ref().and_then(|id| list.iter().find(|s| &s.item.class_id == id));
+    let chosen = w.selected.as_ref().and_then(|id| list.iter().find(|s| &sel_key(s) == id).or_else(|| list.iter().find(|s| &s.item.class_id == id)));
     if let Some(s) = chosen {
         let it = s.item;
         egui::SidePanel::right("inv_item").resizable(false).exact_width(320.0).frame(egui::Frame::none().fill(egui::Color32::from_rgb(29, 34, 41)).inner_margin(egui::Margin::same(12.0))).show_inside(ui, |ui| {
@@ -399,7 +400,8 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
                     for s in list.iter().skip(row * cols).take(cols) {
                         let it = s.item;
                         let (rect, resp) = ui.allocate_exact_size(cell, egui::Sense::click());
-                        let sel = w.selected.as_deref() == Some(it.class_id.as_str());
+                        let key = sel_key(s);
+                        let sel = w.selected.as_deref() == Some(key.as_str());
                         let rarity = rarity_color(it);
                         crate::theme::vgradient_rect(ui.painter(), rect, egui::Color32::from_rgb(48, 54, 64), egui::Color32::from_rgb(30, 35, 42));
                         if let Some(u) = &it.icon_url {
@@ -418,7 +420,7 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
                         }
                         let resp = resp.on_hover_text(format!("{}\n{}", it.name, it.item_type)).on_hover_cursor(egui::CursorIcon::PointingHand);
                         if resp.clicked() {
-                            w.selected = if sel { None } else { Some(it.class_id.clone()) };
+                            w.selected = if sel { None } else { Some(key.clone()) };
                         }
                     }
                 });
@@ -595,4 +597,9 @@ impl InvWin {
         self.app = Some(app);
         self.selected = Some(class);
     }
+}
+
+/// The key of a shown item instance: its inventory section and asset id (unique per copy).
+fn sel_key(s: &Stack) -> String {
+    format!("{}:{}", s.ctx, s.item.asset_id)
 }

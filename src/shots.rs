@@ -390,7 +390,7 @@ impl LauncherApp {
                         if (list.len() as u32) < *total {
                             ui.horizontal(|ui| {
                                 if ui.add_enabled(!net.cloud_shots_busy, egui::Button::new(tr!("Показать еще", "Show more"))).clicked() {
-                                    let page = list.len() as u32 / 50 + 1;
+                                    let page = net.cloud_shots_page.max(1) + 1;
                                     let _ = self.tx.send(Cmd::CloudShots { user: uid, appid: w.filter.unwrap_or(0), page });
                                 }
                             });

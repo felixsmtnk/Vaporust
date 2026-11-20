@@ -118,7 +118,13 @@ where
     F: FnOnce(Arc<AtomicBool>) -> Fut + Send + 'static,
     Fut: std::future::Future<Output = Result<(), String>> + Send + 'static,
 {
-    if st.lock().unwrap().install.as_ref().is_some_and(|i| i.active()) {
+    if let Some(busy) = st.lock().unwrap().install.as_ref().filter(|i| i.active()).map(|i| i.name.clone()) {
+        // One file operation at a time: said instead of silently dropping the request.
+        crate::popup::push(
+            crate::popup::Kind::Info,
+            "Vaporust",
+            trf!("«{name}»: сначала дождитесь окончания «{busy}» (загрузка или проверка файлов).", "\"{name}\": wait until \"{busy}\" finishes first (a download or a file check)."),
+        );
         return;
     }
     let abort = Arc::new(AtomicBool::new(false));
@@ -201,7 +207,12 @@ pub(crate) fn load_props(client: &SteamClient, appid: u32, st: &Shared, ctx: &eg
         let (c, st, ctx) = (client.clone(), st.clone(), ctx.clone());
         spawn_session(async move {
             let r = async {
-                let mut files = c.cloud_client().map_err(es)?.get_file_list(appid).await.map_err(es)?;
+                let cloud = c.cloud_client().map_err(es)?;
+                let ufs = c.fetch_ufs_config(appid).await.unwrap_or_default();
+                let paths = (ufs.root_overrides, cloud.steam_id());
+                let st2 = st.clone();
+                set(&st2, &ctx, Box::new(move |p| p.cloud_paths = Some(paths)));
+                let mut files = cloud.get_file_list(appid).await.map_err(es)?;
                 files.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
                 Ok(files
                     .into_iter()
@@ -388,23 +399,25 @@ pub(crate) async fn remove_language_files(
     };
     let mut keep = std::collections::HashSet::new();
     for (d, m) in installed.iter().filter(|(d, _)| !removed.contains(d)) {
-        keep.extend(files(appid, *d, *m).await?);
+        keep.extend(files(appid, *d, *m).await?.iter().map(|f| file_key(f)));
     }
     for (d, owner) in shared {
         let owner_acf = library.join("steamapps").join(format!("appmanifest_{owner}.acf"));
         let m = *crate::local::installed_depots(&owner_acf)
             .get(d)
             .ok_or(trf!("неизвестна версия общего хранилища {d}", "unknown version of shared depot {d}"))?;
-        keep.extend(files(*owner, *d, m).await?);
+        keep.extend(files(*owner, *d, m).await?.iter().map(|f| file_key(f)));
     }
     let mut n = 0;
     for d in removed {
         let Some(m) = installed.get(d) else { continue };
         for f in files(appid, *d, *m).await? {
-            if keep.contains(&f) {
+            // Windows file names do not depend on letter case: compare in one form.
+            if keep.contains(&file_key(&f)) {
                 continue;
             }
-            let p = game_dir.join(f.replace('/', "\\"));
+            let Some(rel) = safe_rel(&f) else { continue };
+            let p = game_dir.join(rel);
             if p.is_file() && std::fs::remove_file(&p).is_ok() {
                 n += 1;
             }
@@ -498,7 +511,8 @@ pub(crate) fn remove_listed(
     let mut n = 0;
     let mut dirs = std::collections::BTreeSet::new();
     for f in remove {
-        let p = game_dir.join(f.replace('/', "\\"));
+        let Some(rel) = safe_rel(f) else { continue };
+        let p = game_dir.join(rel);
         if p.is_file() && std::fs::remove_file(&p).is_ok() {
             n += 1;
         }
@@ -528,4 +542,41 @@ pub(crate) fn remove_listed(
         }
     }
     Ok(n)
+}
+
+/// A depot file name in the form used for comparing: lower case, forward slashes
+/// (NTFS does not tell "Data/Voice.pak" from "data/voice.pak").
+pub(crate) fn file_key(f: &str) -> String {
+    f.replace('\\', "/").to_lowercase()
+}
+
+/// A depot file name as a path inside the game folder; None for anything that could leave it
+/// (an absolute path, a drive, "..").
+pub(crate) fn safe_rel(f: &str) -> Option<std::path::PathBuf> {
+    let f = f.replace('/', "\\");
+    let p = std::path::Path::new(&f);
+    if f.is_empty() || f.starts_with('\\') || p.is_absolute() {
+        return None;
+    }
+    let mut out = std::path::PathBuf::new();
+    for c in p.components() {
+        match c {
+            std::path::Component::Normal(x) => out.push(x),
+            std::path::Component::CurDir => {}
+            _ => return None,
+        }
+    }
+    (!out.as_os_str().is_empty()).then_some(out)
+}
+
+#[cfg(test)]
+mod path_tests {
+    #[test]
+    fn depot_paths() {
+        assert_eq!(super::file_key(r"Data\Voice.PAK"), "data/voice.pak");
+        assert!(super::safe_rel("data/voice.pak").is_some());
+        for bad in ["../x", "a/../../x", r"C:\Windows\x", r"\x", "/x", ""] {
+            assert!(super::safe_rel(bad).is_none(), "{bad}");
+        }
+    }
 }

@@ -552,12 +552,13 @@ pub use install::InstallOptions;
 pub use install::set_download_limit_now; // vaporust
 pub use content::CELL_OVERRIDE; // vaporust
 mod content;
+mod depots;
 pub(crate) use content::ContentHost;
 mod launch;
 mod library;
 mod manage;
 pub use launch::{
-    LaunchTargetChoice, check_launch_option_target, find_launch_option,
+    LaunchTargetChoice, check_launch_option_target, find_launch_option, forced_steam_reason,
     hide_uninstalled_launch_options, launch_executable_installed, launch_targets,
     select_launch_entry,
 };
@@ -1575,6 +1576,15 @@ pub fn find_vdf_in_pics(buffer: &[u8]) -> Result<steam_vdf_parser::Vdf<'static>>
 /// under a single root key — either the literal `appinfo` or the numeric appid.
 /// Return the inner value that actually holds those sections, descending one level
 /// past the wrapper when present so callers can navigate by section name directly.
+/// Install folder from a PICS app section.
+pub(crate) fn pics_installdir(section: &steam_vdf_parser::Value) -> Option<String> {
+    section
+        .get_str(&["config", "installdir"])
+        .or_else(|| section.get_str(&["common", "installdir"]))
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string)
+}
+
 pub(crate) fn pics_app_section<'a, 'text>(
     root: &'a steam_vdf_parser::Value<'text>,
 ) -> &'a steam_vdf_parser::Value<'text> {
@@ -1685,6 +1695,8 @@ pub(crate) async fn run_depot_loop(
         "download"
     };
     let mut successful_depots = Vec::new();
+    let required_selected = selections.iter().any(|selection| selection.required);
+    let mut required_successful = 0;
     for selection in selections {
         tracing::info!(
             "Starting download for Depot {} (GID: {})...",
@@ -1709,7 +1721,7 @@ pub(crate) async fn run_depot_loop(
         if is_override {
             let ok = matches!(
                 client
-                    .get_manifest_request_code(appid, selection.depot_id, selection.manifest_id)
+                    .get_manifest_request_code(selection.app_id, selection.depot_id, selection.manifest_id)
                     .await,
                 Ok(code) if code != 0
             );
@@ -1726,27 +1738,27 @@ pub(crate) async fn run_depot_loop(
             }
         }
 
-        // Missing key skips; overridden depots hard-fail.
-        let key = match client.get_depot_key(appid, selection.depot_id).await {
+        // Appinfo can advertise mutually exclusive depots from different packages.
+        // Only an explicit access denial permits skipping automatically selected content.
+        let key = match client
+            .get_depot_key(selection.app_id, selection.depot_id)
+            .await
+        {
             Ok(k) => k,
             Err(e) => {
-                if is_override {
-                    emit_failed(
-                        tx,
-                        format!(
-                            "No depot key for depot {} — downgrade requires owning the game with a non-anonymous login: {}",
-                            selection.depot_id, e
-                        ),
-                    )
-                    .await;
-                    return None;
+                if depots::skip_denied_key(&e, is_override) {
+                    tracing::warn!("Skipping depot {}: Steam denied access", selection.depot_id);
+                    continue;
                 }
-                tracing::warn!(
-                    "Skipping Depot {} (No Key/Not Owned): {}",
-                    selection.depot_id,
-                    e
-                );
-                continue;
+                emit_failed(
+                    tx,
+                    format!(
+                        "No depot key for depot {} — installation is incomplete: {}",
+                        selection.depot_id, e
+                    ),
+                )
+                .await;
+                return None;
             }
         };
         // A valid depot key is exactly 32 bytes; a short/all-zero key would
@@ -1761,7 +1773,7 @@ pub(crate) async fn run_depot_loop(
 
         match client
             .download_depot_to_with_hosts(
-                appid,
+                selection.app_id,
                 selection.depot_id,
                 selection.manifest_id,
                 dest,
@@ -1775,6 +1787,9 @@ pub(crate) async fn run_depot_loop(
             .await
         {
             Ok(depot_size) => {
+                if selection.required {
+                    required_successful += 1;
+                }
                 successful_depots.push((selection.depot_id, selection.manifest_id, depot_size));
             }
             Err(e) => {
@@ -1788,6 +1803,18 @@ pub(crate) async fn run_depot_loop(
                 return None;
             }
         }
+    }
+    if !depots::has_installable_content(
+        successful_depots.len(),
+        required_selected,
+        required_successful,
+    ) {
+        emit_failed(
+            tx,
+            format!("No accessible base-game content installed for app {appid}"),
+        )
+        .await;
+        return None;
     }
     Some(successful_depots)
 }

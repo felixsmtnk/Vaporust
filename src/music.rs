@@ -114,11 +114,10 @@ fn stop_all() {
 
 fn play_file(p: &Path, volume: f32) -> Result<(), String> {
     stop_all();
-    let kind = if ext(p) == "wav" { "waveaudio" } else { "mpegvideo" };
-    mci(&format!("open \"{}\" type {kind} alias vaporust_music", p.display()))?;
-    if kind == "mpegvideo" {
-        let _ = mci(&format!("setaudio vaporust_music volume to {}", (volume * 1000.0) as u32));
-    }
+    // One device type for MP3, WMA and WAV: "mpegvideo" (DirectShow) also plays WAV and, unlike
+    // "waveaudio", has a volume control.
+    mci(&format!("open \"{}\" type mpegvideo alias vaporust_music", p.display()))?;
+    let _ = mci(&format!("setaudio vaporust_music volume to {}", (volume * 1000.0) as u32));
     mci("play vaporust_music").map(|_| ())
 }
 
@@ -182,28 +181,11 @@ impl LauncherApp {
                         m.playing = None;
                     }
                     if ui.button(tr!("Следующий", "Next")).clicked() {
-                        let next = t + 1;
-                        if let Some(p) = albums.get(a).and_then(|al| al.tracks.get(next)) {
-                            if play_file(p, m.volume).is_ok() {
-                                m.playing = Some((a, next));
-                                m.paused = false;
-                            }
-                        }
+                        play_next(m, &albums, a, t);
                     }
                     ui.label(egui::RichText::new(crate::richtext::fix(ui, &name)).strong());
                     if let Some((p, l)) = pos {
                         ui.weak(format!("{} / {}", mmss(p), mmss(l)));
-                        // The track ended - next one.
-                        if l > 0 && p >= l && !m.paused {
-                            let next = t + 1;
-                            match albums.get(a).and_then(|al| al.tracks.get(next)) {
-                                Some(p) if PLAYABLE.contains(&ext(p).as_str()) && play_file(p, m.volume).is_ok() => m.playing = Some((a, next)),
-                                _ => {
-                                    stop_all();
-                                    m.playing = None;
-                                }
-                            }
-                        }
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.add(egui::Slider::new(&mut m.volume, 0.0..=1.0).show_value(false)).changed() {
@@ -275,5 +257,43 @@ mod tests {
         super::collect(&album, 1, &mut v);
         assert_eq!(v.len(), 1);
         let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+/// Play the next playable track of the album after `t` (FLAC, OGG and the like are skipped);
+/// nothing left - stop.
+fn play_next(m: &mut Music, albums: &[Album], a: usize, t: usize) {
+    let next = albums
+        .get(a)
+        .and_then(|al| al.tracks.iter().enumerate().skip(t + 1).find(|(_, p)| PLAYABLE.contains(&ext(p).as_str())))
+        .map(|(i, p)| (i, p.clone()));
+    match next {
+        Some((i, p)) if play_file(&p, m.volume).is_ok() => {
+            m.playing = Some((a, i));
+            m.paused = false;
+        }
+        _ => {
+            stop_all();
+            m.playing = None;
+        }
+    }
+}
+
+impl LauncherApp {
+    /// Every frame, whatever section is open (and in the tray): a finished track goes on to the next.
+    /// The end is "stopped" mode (variable bitrate MP3 can stop a little before its length) or the length.
+    pub(crate) fn music_tick(&mut self, ctx: &egui::Context) {
+        let Some((a, t)) = self.music.playing else { return };
+        ctx.request_repaint_after(std::time::Duration::from_secs(1));
+        if self.music.paused || self.music_checked.is_some_and(|c| c.elapsed() < std::time::Duration::from_millis(700)) {
+            return;
+        }
+        self.music_checked = Some(std::time::Instant::now());
+        let stopped = mci("status vaporust_music mode").is_ok_and(|s| s.trim() == "stopped");
+        let ended = position().is_some_and(|(p, l)| l > 0 && p >= l);
+        if stopped || ended {
+            let albums = self.music.albums.clone().unwrap_or_default();
+            play_next(&mut self.music, &albums, a, t);
+        }
     }
 }

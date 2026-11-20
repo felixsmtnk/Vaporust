@@ -190,10 +190,17 @@ mod tests {
 pub fn public_host(u: &url::Url) -> bool {
     match u.host() {
         Some(url::Host::Domain(d)) => {
+            // "localhost." is localhost too: the trailing dot of a full domain name is dropped.
             let d = d.to_ascii_lowercase();
+            let d = d.trim_end_matches('.');
             !(d == "localhost" || d.ends_with(".localhost") || d.ends_with(".local") || d.ends_with(".lan") || !d.contains('.'))
         }
         Some(url::Host::Ipv4(ip)) => !(ip.is_private() || ip.is_loopback() || ip.is_link_local() || ip.is_unspecified() || ip.is_broadcast()),
+        // An IPv4 address written as IPv6 ([::ffff:127.0.0.1]) is checked as that IPv4 address.
+        Some(url::Host::Ipv6(ip)) if ip.to_ipv4_mapped().is_some() => {
+            let v4 = ip.to_ipv4_mapped().unwrap();
+            !(v4.is_private() || v4.is_loopback() || v4.is_link_local() || v4.is_unspecified() || v4.is_broadcast())
+        }
         Some(url::Host::Ipv6(ip)) => !(ip.is_loopback() || ip.is_unspecified() || (ip.segments()[0] & 0xfe00) == 0xfc00 || (ip.segments()[0] & 0xffc0) == 0xfe80),
         None => false,
     }
@@ -217,6 +224,12 @@ pub fn http_get_with(url: &str, headers: &[(&str, &str)], max: usize, keep_going
         .user_agent(concat!("Vaporust/", env!("CARGO_PKG_VERSION")))
         .build();
     let mut cur = url::Url::parse(url).map_err(|e| e.to_string())?;
+    // The first address is checked like the redirects (a picture link in a chat must not reach the
+    // local network). Tests use a local server.
+    #[cfg(not(test))]
+    if !public_host(&cur) {
+        return Err("local address".into());
+    }
     for _ in 0..5 {
         if !matches!(cur.scheme(), "http" | "https") || !cur.username().is_empty() || cur.password().is_some() {
             return Err("unsupported address".into());

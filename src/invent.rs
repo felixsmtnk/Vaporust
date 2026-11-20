@@ -1,5 +1,6 @@
 //! Steam inventory, wallet and Community Market (via Aurelia's web session).
-//! View only: selling and buying happen on the Steam site in a browser.
+//! Selling (quick, instant, own price), listings and trade offers are in trade.rs (experimental
+//! functions); buying happens on the Steam site.
 
 use aurelia::steam_client::{self as sc, InventoryItem, MarketPrice, SteamClient, WalletBalance};
 use eframe::egui;
@@ -388,16 +389,7 @@ pub fn parse_app_contexts(html: &str) -> Result<Vec<InvApp>, String> {
 }
 
 /// Encoding an item name for a Community Market link.
-pub fn url_encode(s: &str) -> String {
-    let mut out = String::new();
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
-}
+pub use crate::util::urlencode as url_encode;
 
 /// Item page on the Community Market.
 pub fn listing_url(appid: u32, hash_name: &str) -> String {

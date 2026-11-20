@@ -182,8 +182,6 @@ pub struct Settings {
     pub wish_upcoming: std::collections::BTreeSet<u32>,
     /// Interface scale (1.0 - 100%).
     pub ui_scale: f32,
-    /// Saved library filters (dynamic collections).
-    pub saved_filters: Vec<SavedFilter>,
     /// The first-run wizard is completed (or skipped).
     pub wizard_done: bool,
     /// Download region (Steam server cell id), 0 - automatic.
@@ -197,17 +195,6 @@ pub struct Settings {
     pub staged: std::collections::BTreeMap<u32, String>,
     /// Non-Steam games added with the "Add a game" button.
     pub custom_games: Vec<crate::custom::CustomGame>,
-}
-
-/// Saved library filter: search, genre, collection, "installed only".
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-#[serde(default)]
-pub struct SavedFilter {
-    pub name: String,
-    pub search: String,
-    pub genre: Option<String>,
-    pub collection: Option<String>,
-    pub only_installed: bool,
 }
 
 /// A game in the install queue.
@@ -309,7 +296,6 @@ impl Default for Settings {
             friend_groups_closed: Default::default(),
             wish_upcoming: Default::default(),
             ui_scale: 1.0,
-            saved_filters: Vec::new(),
             wizard_done: false,
             download_cell: 0,
             download_with_steam: true,

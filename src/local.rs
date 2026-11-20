@@ -268,7 +268,11 @@ pub fn process_named(name: &str) -> bool {
 
 pub fn scan_games(steam_dir: &Path) -> Vec<Game> {
     let mut games: Vec<Game> = Vec::new();
-    for lib in library_dirs(steam_dir) {
+    // The libraries, then their VaporustStaging folders: an unfinished download there (Steam was open)
+    // must stay visible, to be continued or deleted. It is never "ready": Steam does not see it yet.
+    let libs = library_dirs(steam_dir);
+    let staging: Vec<PathBuf> = libs.iter().map(|l| staging_dir(l)).filter(|s| s.join("steamapps").is_dir()).collect();
+    for (lib, in_staging) in libs.into_iter().map(|l| (l, false)).chain(staging.into_iter().map(|s| (s, true))) {
         let Ok(entries) = fs::read_dir(lib.join("steamapps")) else {
             continue;
         };
@@ -299,7 +303,7 @@ pub fn scan_games(steam_dir: &Path) -> Vec<Game> {
                 // 228980 = Steamworks Common Redistributables, not a game
                 if appid != 228980 && !games.iter().any(|g| g.appid == appid) {
                     let dir = lib.join("steamapps").join("common").join(installdir);
-                    let ready = !stashed && flags & 4 != 0;
+                    let ready = !stashed && !in_staging && flags & 4 != 0;
                     let needs_update = ready && flags != 4;
                     games.push(Game { appid, name, dir, ready, needs_update, size, stashed });
                 }
@@ -1738,13 +1742,19 @@ fn game_pids(dir: &Path) -> Vec<u32> {
     let mut procs = Procs::new();
     procs.refresh();
     let me = std::process::id();
-    let mut pids: Vec<u32> = procs
+    let roots: Vec<u32> = procs
         .sys
         .processes()
         .values()
         .filter(|p| p.pid().as_u32() != me && p.exe().is_some_and(|e| norm(e).starts_with(&d)))
         .map(|p| p.pid().as_u32())
         .collect();
+    with_children(&procs, roots)
+}
+
+/// The processes and all their descendants.
+fn with_children(procs: &Procs, mut pids: Vec<u32>) -> Vec<u32> {
+    let me = std::process::id();
     // And their child processes: many games start the actual game outside their folder (Plants vs. Zombies
     // unpacks and starts popcapgame1.exe in a temp folder, and PlantsVsZombies.exe only waits).
     loop {
@@ -1777,7 +1787,25 @@ fn game_pids(dir: &Path) -> Vec<u32> {
 /// Alt+F4), the game may save and exit by itself. Forcefully: processes are terminated
 /// immediately (unsaved progress is lost). Returns the number of game processes.
 pub fn stop_game(dir: &Path, force: bool) -> usize {
-    let pids = game_pids(dir);
+    stop_pids(game_pids(dir), force)
+}
+
+/// A non-Steam game started by Vaporust: (appid, process number). Its folder can be the Desktop or
+/// System32, so it is closed by its own process tree, never by "everything in the folder".
+pub static RUNNING_ROOT: Mutex<Option<(u32, u32)>> = Mutex::new(None);
+
+/// Close one process and its descendants (gently or forcefully).
+pub fn stop_tree(root: u32, force: bool) -> usize {
+    let mut procs = Procs::new();
+    procs.refresh();
+    if procs.sys.process(sysinfo::Pid::from_u32(root)).is_none() {
+        return 0;
+    }
+    let pids = with_children(&procs, vec![root]);
+    stop_pids(pids, force)
+}
+
+fn stop_pids(pids: Vec<u32>, force: bool) -> usize {
     if pids.is_empty() {
         return 0;
     }

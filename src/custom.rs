@@ -172,7 +172,8 @@ impl LauncherApp {
     /// Launch a non-Steam game directly.
     pub(crate) fn launch_custom(&mut self, appid: u32) {
         if self.launching.load(Ordering::Relaxed) {
-            *self.launch_status.lock().unwrap() = tr!("Сначала дождитесь закрытия запущенной игры.", "Wait until the running game closes first.").into();
+            // Said right away: while a game runs the status line is launch progress and is not popped up.
+            crate::popup::push(crate::popup::Kind::Info, "Vaporust", tr!("Сначала дождитесь закрытия запущенной игры.", "Wait until the running game closes first."));
             return;
         }
         let Some(g) = self.settings.custom_games.iter_mut().find(|g| g.id == appid) else { return };
@@ -188,11 +189,15 @@ impl LauncherApp {
                 launching.store(true, Ordering::Relaxed);
                 // Playtime: wait for the process to exit in its own thread.
                 let started = std::time::Instant::now();
+                let pid = child.id();
                 std::thread::spawn(move || {
                     {
                         // While the game runs, "Close game" is available at the bottom and on its page.
+                        // It closes only this process tree (the folder may be the Desktop or System32).
                         let _running = crate::local::RunningGuard::set(appid, &name, &dir);
+                        *crate::local::RUNNING_ROOT.lock().unwrap() = Some((appid, pid));
                         let _ = child.wait();
+                        *crate::local::RUNNING_ROOT.lock().unwrap() = None;
                     }
                     let min = (started.elapsed().as_secs() / 60) as u32;
                     if min > 0 {
@@ -210,11 +215,12 @@ impl LauncherApp {
 
     /// Every frame: add up non-Steam playtime, add/edit windows.
     pub(crate) fn custom_tick(&mut self, ctx: &egui::Context) {
-        // Identical games (same exe) - one entry, playtime is summed.
+        // Identical games (same exe and the same launch options) - one entry, playtime is summed.
+        // One emulator or launcher with different arguments is different games.
         let mut seen: Vec<(String, u32)> = Vec::new();
         let mut merged: Vec<(u32, u32, u64)> = Vec::new();
         for g in &self.settings.custom_games {
-            let key = norm_path(&g.exe);
+            let key = format!("{}|{}", norm_path(&g.exe), g.args.trim());
             match seen.iter().find(|(k, _)| *k == key) {
                 Some((_, first)) => merged.push((*first, g.minutes, g.last_played)),
                 None => seen.push((key, g.id)),
@@ -263,7 +269,7 @@ impl LauncherApp {
                     ui.horizontal(|ui| {
                         ui.add(egui::TextEdit::singleline(&mut e.exe).desired_width(300.0).hint_text("C:\\Games\\...\\game.exe"));
                         if ui.button(tr!("Обзор...", "Browse...")).clicked() {
-                            if let Some(p) = rfd::FileDialog::new().add_filter(tr!("Программа", "Program"), &["exe", "bat", "cmd", "lnk"]).pick_file() {
+                            if let Some(p) = rfd::FileDialog::new().add_filter(tr!("Программа", "Program"), &["exe", "bat", "cmd"]).pick_file() {
                                 if e.name.trim().is_empty() {
                                     e.name = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
                                 }

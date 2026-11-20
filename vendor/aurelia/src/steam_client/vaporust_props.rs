@@ -109,9 +109,8 @@ impl SteamClient {
                     cur.as_str().map(str::to_string).filter(|v| !v.is_empty())
                 };
                 let Some(lang) = s(&["config", "language"]) else { continue };
-                let manifest = s(&["manifests", branch, "gid"])
-                    .or_else(|| s(&["manifests", "public", "gid"]))
-                    .and_then(|v| v.parse().ok());
+                // The robust reader: binary PICS can store the manifest id as a number, not a string.
+                let manifest = extract_manifest_id_robust(value, branch).or_else(|| extract_manifest_id_robust(value, "public"));
                 out.push((
                     id,
                     lang,

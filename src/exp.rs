@@ -67,6 +67,7 @@ pub fn guarded(cmd: &Cmd) -> bool {
             | Cmd::CraftBadge { .. }
             | Cmd::Social(SocialCmd::Block(..))
             | Cmd::Store(StoreCmd::ReviewVote { .. })
+            | Cmd::Store(StoreCmd::FollowCurator(..))
             | Cmd::Market(
                 MarketCmd::Sell { .. } | MarketCmd::RemoveListing { .. } | MarketCmd::CancelOrder { .. } | MarketCmd::Offer { .. }
             )

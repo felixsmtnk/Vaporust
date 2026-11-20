@@ -102,18 +102,25 @@ pub(crate) fn start_social(client: &SteamClient, roster: Arc<RwLock<Roster>>, st
     // Friends: Aurelia announces the status itself ("invisible" by default) and watches for changes.
     {
         let (client, ctx) = (client.clone(), ctx.clone());
+        let gen = SESSION_GEN.load(Ordering::Relaxed);
         tokio::spawn(async move {
             // Repaint every 4 s while the watcher runs so friend statuses refresh
             // (more often is not needed: when idle this is the main source of frames).
-            let ctx2 = ctx.clone();
-            let ticker = tokio::spawn(async move {
+            // After a logout or another login (SESSION_GEN changes) the watcher is dropped, and with it
+            // its copy of the old Steam connection.
+            let ticker = async {
                 loop {
                     tokio::time::sleep(crate::lite::secs(4, 15)).await;
-                    ctx2.request_repaint();
+                    if SESSION_GEN.load(Ordering::Relaxed) != gen {
+                        return;
+                    }
+                    ctx.request_repaint();
                 }
-            });
-            let _ = client.run_friends_watcher(roster).await;
-            ticker.abort();
+            };
+            tokio::select! {
+                _ = client.run_friends_watcher(roster) => {}
+                _ = ticker => {}
+            }
         });
     }
     // Incoming messages.

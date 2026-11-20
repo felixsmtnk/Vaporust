@@ -15,7 +15,7 @@ pub struct WalletRow {
 pub async fn load(client: &SteamClient) -> Result<Vec<WalletRow>, String> {
     let web = crate::webapi::web_session(client).await?;
     let html = web
-        .get_text("https://store.steampowered.com/account/history/?l=russian")
+        .get_text(&format!("https://store.steampowered.com/account/history/?l={}", crate::lang::steam()))
         .await
         .map_err(|e| format!("{e:#}"))?;
     Ok(parse(&html))

@@ -40,6 +40,10 @@ impl LauncherApp {
         {
             let roster = net.roster.read().unwrap();
             for f in roster.values() {
+                // Only people: Steam groups (account type 7) also come in the list.
+                if (f.steam_id >> 52) & 0xF != 1 {
+                    continue;
+                }
                 let slot = match f.relationship {
                     3 => 0,
                     2 => 1,
@@ -55,6 +59,11 @@ impl LauncherApp {
                         ask.push(f.steam_id);
                         "...".into()
                     });
+                // Own nickname for the friend first, as in the friends list.
+                let name = match f.nickname.as_deref().filter(|n| !n.is_empty()) {
+                    Some(n) => format!("{n} ({name})"),
+                    None => name,
+                };
                 let avatar = f
                     .avatar_hash
                     .as_ref()
@@ -64,6 +73,7 @@ impl LauncherApp {
                 let (status, color) = match (state, &f.game_name) {
                     (_, Some(g)) if !g.is_empty() => (trf!("В игре: {g}", "In game: {g}"), crate::theme::IN_GAME),
                     (0, _) => (tr!("не в сети", "offline").into(), crate::theme::OFFLINE),
+                    (2, _) => (tr!("не беспокоить", "busy").into(), crate::theme::ONLINE.gamma_multiply(0.7)),
                     (3 | 4, _) => (tr!("отошел", "away").into(), crate::theme::ONLINE.gamma_multiply(0.7)),
                     _ => (tr!("в сети", "online").into(), crate::theme::ONLINE),
                 };

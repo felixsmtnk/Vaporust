@@ -368,12 +368,23 @@ pub(crate) fn rollback(exe: &Path, old: &Path) -> std::io::Result<()> {
 pub fn confirm_update() {
     let Ok(exe) = std::env::current_exe() else { return };
     let marker = trial_marker(&exe);
-    if marker.exists() {
+    // Only the version on trial confirms itself, and only after it was really started (starts >= 1):
+    // the old process closing after "Restart" must not take the new version off trial. The
+    // previous exe (.exe.old) stays for "Go back to the previous version" until the next start.
+    if trial_confirms(std::fs::read_to_string(&marker).ok().as_deref(), CURRENT) {
         let _ = std::fs::remove_file(&marker);
-        let _ = std::fs::remove_file(exe.with_extension("exe.old"));
         let _ = std::fs::remove_file(exe.with_extension("exe.failed"));
         let _ = std::fs::remove_file(exe.with_extension("exe.failed-version"));
     }
+}
+
+/// Does the running version confirm the trial marker text ("<starts> <version>").
+fn trial_confirms(marker: Option<&str>, current: &str) -> bool {
+    let Some(text) = marker else { return false };
+    let mut parts = text.split_whitespace();
+    let starts: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let version = parts.next().unwrap_or("");
+    starts >= 1 && version == current
 }
 
 /// A version that was installed and rolled back: not offered again automatically.
@@ -493,6 +504,14 @@ impl crate::LauncherApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trial_marker_is_confirmed_only_by_its_version() {
+        assert!(!super::trial_confirms(Some("0 0.9.2-alpha"), "0.9.1-alpha"), "old process at exit");
+        assert!(!super::trial_confirms(Some("0 0.9.2-alpha"), "0.9.2-alpha"), "not started yet");
+        assert!(super::trial_confirms(Some("1 0.9.2-alpha"), "0.9.2-alpha"));
+        assert!(!super::trial_confirms(None, "0.9.2-alpha"));
+    }
 
     #[test]
     fn versions() {

@@ -19,7 +19,7 @@ impl LauncherApp {
             let gap = 14.0;
             let w = ui.available_width() - 32.0;
             let per_row = ((w + gap) / (tile.x + gap)).floor().max(1.0) as usize;
-            let new_key = egui::Id::new("new_collection_name");
+            let new_key = egui::Id::new("collview_new_name");
             let mut new_name: Option<String> = ui.data(|d| d.get_temp(new_key));
             // The tiles: the first one creates a collection.
             // Creating a collection needs the Steam account (collections live in the Steam cloud).
@@ -133,7 +133,13 @@ impl LauncherApp {
             }
             if let Some(i) = delete_smart {
                 self.settings.smart.remove(i);
-                self.collection = None;
+                // The chosen list: reset only if it was this collection; later smart ones moved down by one.
+                let chosen = self.collection.as_deref().and_then(|id| id.strip_prefix(crate::smartcoll::PREFIX)).and_then(|n| n.parse::<usize>().ok());
+                match chosen {
+                    Some(j) if j == i => self.collection = None,
+                    Some(j) if j > i => self.collection = Some(format!("{}{}", crate::smartcoll::PREFIX, j - 1)),
+                    _ => {}
+                }
             }
             ui.data_mut(|d| match &new_name {
                 Some(n) => d.insert_temp(new_key, n.clone()),

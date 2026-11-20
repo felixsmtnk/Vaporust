@@ -11,6 +11,11 @@ impl LauncherApp {
             return;
         }
         let busy = self.launching.load(Ordering::Relaxed) || self.closing.load(Ordering::Relaxed);
+        // While a game runs the text is launch progress (shown on the game page): it is not marked as
+        // seen, so the result written just before "launching" turns off still pops up a frame later.
+        if busy {
+            return;
+        }
         // "Удаляю...", "Прошу закрыться..." are progress, not a result: not shown.
         let in_progress = st.ends_with("...") || st.ends_with('…');
         if !busy && !in_progress && !st.is_empty() && st != tr!("Готово.", "Done.") {
@@ -39,15 +44,22 @@ impl LauncherApp {
         if id != appid {
             return;
         }
-        let n = local::stop_game(&dir, force);
+        // A non-Steam game: only its own process tree; a Steam game: the processes from its folder.
+        let root = (*local::RUNNING_ROOT.lock().unwrap()).filter(|(a, _)| *a == appid).map(|(_, p)| p);
+        let n = match root {
+            Some(pid) => local::stop_tree(pid, force),
+            None if crate::custom::is_custom(appid) => 0,
+            None => local::stop_game(&dir, force),
+        };
         if !force {
             self.stop_asked = Some((appid, std::time::Instant::now()));
         }
-        *self.launch_status.lock().unwrap() = match (force, n > 0) {
-            (true, _) => trf!("«{name}» закрыта принудительно.", "\"{name}\" was force-closed."),
-            (false, true) => trf!("Прошу «{name}» закрыться...", "Asking \"{name}\" to close..."),
-            (false, false) => tr!("Процессы игры не найдены.", "Game processes not found.").into(),
-        };
+        match (force, n > 0) {
+            // Results are said right away: while the game runs the status line is launch progress.
+            (true, _) => popup::push(popup::Kind::Info, "Vaporust", trf!("«{name}» закрыта принудительно.", "\"{name}\" was force-closed.")),
+            (false, true) => *self.launch_status.lock().unwrap() = trf!("Прошу «{name}» закрыться...", "Asking \"{name}\" to close..."),
+            (false, false) => popup::push(popup::Kind::Info, "Vaporust", tr!("Процессы игры не найдены.", "Game processes not found.")),
+        }
     }
 
     pub(crate) fn steam_running(&mut self) -> bool {

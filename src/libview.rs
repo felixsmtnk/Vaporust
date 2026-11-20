@@ -47,6 +47,8 @@ pub enum Action {
 
 /// State needed for the buttons (the same for all rows of a frame).
 pub struct Ctx<'a> {
+    /// Title of the shown list (collection, genre) for the grid header.
+    pub list_title: String,
     pub launching: bool,
     pub installing: bool,
     pub logged_in: bool,
@@ -182,10 +184,28 @@ pub fn list(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, sort: &mu
                 // As in Steam: double click on a non-installed game - offer to install.
                 out = Some(Action::AskInstall(r.appid, r.name.clone()));
             } else if resp.clicked() {
-                out = Some(Action::Page(r.appid));
+                // The page opens a moment later, so a second click can still make a double click
+                // (otherwise the first click replaced the table with the page at once).
+                let now = ui.input(|i| i.time);
+                ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("table_pending_page"), (r.appid, now)));
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(320));
+            }
+            if resp.double_clicked() {
+                ui.ctx().data_mut(|d| d.remove::<(u32, f64)>(egui::Id::new("table_pending_page")));
             }
         }
     });
+    let pending: Option<(u32, f64)> = ui.ctx().data(|d| d.get_temp(egui::Id::new("table_pending_page")));
+    if let Some((appid, at)) = pending {
+        if ui.input(|i| i.time) - at >= 0.3 {
+            ui.ctx().data_mut(|d| d.remove::<(u32, f64)>(egui::Id::new("table_pending_page")));
+            if out.is_none() {
+                out = Some(Action::Page(appid));
+            }
+        } else {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(60));
+        }
+    }
     out
 }
 
@@ -251,7 +271,7 @@ pub fn grid(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, recent: &
         if vp.min.y < shelf_h {
             let mut lab = row_ui(ui, shelf_h - label_h, label_h);
             lab.set_width(width - 16.0);
-            let mut job = theme::spaced(&tr!("Все игры", "All games").to_uppercase(), theme::semibold(12.5), theme::SECTION, 1.0);
+            let mut job = theme::spaced(&c.list_title.to_uppercase(), theme::semibold(12.5), theme::SECTION, 1.0);
             job.append(&format!("  ({})", rows.len()), 0.0, egui::TextFormat { font_id: egui::FontId::proportional(12.0), color: theme::DIM, ..Default::default() });
             let resp = lab.add(egui::Label::new(job).selectable(false));
             let y = resp.rect.center().y + 1.0;
@@ -400,7 +420,7 @@ fn collections_menu(resp: &egui::Response, r: &Row, c: &Ctx, out: &mut Option<Ac
                 }
                 ui.separator();
                 // The new collection name field lives in egui's temporary memory.
-                let id = egui::Id::new("new_collection_name");
+                let id = egui::Id::new("game_menu_new_collection");
                 let mut name = ui.data_mut(|d| d.get_temp::<String>(id)).unwrap_or_default();
                 ui.horizontal(|ui| {
                     ui.add(egui::TextEdit::singleline(&mut name).hint_text(tr!("Новая коллекция", "New collection")).desired_width(140.0));

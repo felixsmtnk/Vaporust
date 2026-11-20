@@ -180,3 +180,11 @@ impl LauncherApp {
         v.into_iter().take(60).map(|(g, _)| g).collect()
     }
 }
+
+impl LauncherApp {
+    /// The genre rule of the chosen smart collection, if any.
+    pub(crate) fn smart_genre(&self) -> Option<&str> {
+        let i: usize = self.collection.as_deref()?.strip_prefix(PREFIX)?.parse().ok()?;
+        self.settings.smart.get(i)?.genre.as_deref()
+    }
+}

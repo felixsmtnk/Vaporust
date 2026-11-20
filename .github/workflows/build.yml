@@ -85,9 +85,10 @@ jobs:
         run: |
           $env:CARGO_TERM_COLOR = "never"
           # Only the library (Vaporust does not use the Aurelia command-line program). Skipped: the checks
-          # of the Vulkan shader cache: a Linux feature that does not apply on Windows.
+          # of the Vulkan shader cache and of launch wrappers (gamemoderun etc.): Linux features that do
+          # not apply on Windows.
           cargo test --release --locked --lib --manifest-path vendor/aurelia/Cargo.toml --target-dir target/aurelia `
-            -- --skip launch::shaders --skip precache_shaders 2>&1 | Tee-Object -Variable log
+            -- --skip launch::shaders --skip precache_shaders --skip user_launch_options::tests::wrapper_must_exist 2>&1 | Tee-Object -Variable log
           if ($LASTEXITCODE -ne 0) {
             $lines = $log | ForEach-Object { "$_" } |
               Where-Object { $_ -match 'FAILED|panicked|assertion|left:|right:|^error|failures:' } |

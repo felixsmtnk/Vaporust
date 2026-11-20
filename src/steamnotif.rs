@@ -151,7 +151,7 @@ pub async fn load(client: &SteamClient) -> Result<Notifs, String> {
     let v = webapi::get(
         client,
         "ISteamNotificationService/GetSteamNotifications/v1",
-        &[("language", "russian".into()), ("include_read", "true".into())],
+        &[("language", crate::lang::steam().into()), ("include_read", "true".into())],
     )
     .await?;
     Ok(parse(&v))

@@ -114,7 +114,9 @@ impl LauncherApp {
         (self.settings.sort as u8).hash(&mut h);
         net.collections.as_ref().map(|c| c.iter().map(|x| (x.id.clone(), x.apps.len())).collect::<Vec<_>>()).hash(&mut h);
         net.updates.as_ref().map(|u| u.len()).hash(&mut h);
-        if self.genre.is_some() {
+        // Smart collections: their rules are part of the key; with a genre the loaded store tags too.
+        format!("{:?}", self.settings.smart).hash(&mut h);
+        if self.genre.is_some() || self.smart_genre().is_some() {
             net.store.lock().unwrap().apps.len().hash(&mut h);
         }
         let key = h.finish();
@@ -188,5 +190,34 @@ impl LauncherApp {
             settings::Sort::Size => rows.sort_by(|a, b| b.size.cmp(&a.size).then(by_name(a, b))),
         }
         rows
+    }
+}
+
+impl LauncherApp {
+    /// The title of the shown game list: the collection (smart ones too) and the genre.
+    pub(crate) fn list_title(&self, net: &NetState) -> String {
+        let title = match &self.collection {
+            None => tr!("Все игры", "All games").to_string(),
+            Some(id) if id == FAMILY => tr!("Семейная библиотека", "Family library").to_string(),
+            Some(id) if id == UNPLAYED => tr!("Ни разу не запускались", "Never launched").to_string(),
+            Some(id) if id == READY => tr!("Готово к игре", "Ready to play").to_string(),
+            Some(id) if id == UPDATES => tr!("Есть обновление", "Update available").to_string(),
+            Some(id) if id.starts_with(smartcoll::PREFIX) => id
+                .strip_prefix(smartcoll::PREFIX)
+                .and_then(|i| i.parse::<usize>().ok())
+                .and_then(|i| self.settings.smart.get(i))
+                .map(|s| s.name.clone())
+                .unwrap_or_else(|| tr!("Коллекция", "Collection").into()),
+            Some(id) => net
+                .collections
+                .as_ref()
+                .and_then(|c| c.iter().find(|c| &c.id == id))
+                .map(|c| c.name.clone())
+                .unwrap_or_else(|| tr!("Коллекция", "Collection").into()),
+        };
+        match &self.genre {
+            Some(g) => format!("{title} · {g}"),
+            None => title,
+        }
     }
 }

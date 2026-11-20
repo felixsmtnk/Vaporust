@@ -255,7 +255,9 @@ fn parse_at(msg: &str, depth: u32) -> Vec<Seg> {
                     let url = attr(tag, "src").unwrap_or_else(|| b.trim().to_string());
                     let num = |k| attr(tag, k).and_then(|v| v.parse::<f32>().ok()).filter(|v| *v > 0.0);
                     flush(&mut text, &mut segs);
-                    if !url.is_empty() {
+                    // Only web pictures: a file:// (or any other scheme) address from a message is not loaded.
+                    let web = url.get(..8).is_some_and(|p| p.eq_ignore_ascii_case("https://")) || url.get(..7).is_some_and(|p| p.eq_ignore_ascii_case("http://"));
+                    if !url.is_empty() && web {
                         segs.push(Seg::Image {
                             url,
                             size: num("width").zip(num("height")),

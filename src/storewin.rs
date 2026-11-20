@@ -182,6 +182,15 @@ impl StoreWin {
             wish_query: String::new(),
         }
     }
+
+    /// The store texts were dropped (language change): everything is asked again.
+    pub(crate) fn forget_asked(&mut self) {
+        self.asked.clear();
+        self.deals_asked = false;
+        self.events_asked = false;
+        self.charts_asked.clear();
+        self.discovery_asked = false;
+    }
 }
 
 impl LauncherApp {
@@ -1587,6 +1596,7 @@ impl LauncherApp {
     /// The store band on the store pages outside the store view itself (Cart, News, Points Shop):
     /// the same sections, Wishlist and Cart, so the store reads as one place, as in Steam.
     pub(crate) fn store_band(&mut self, ui: &mut egui::Ui, net: &NetState) {
+        self.cart_count_tick(net);
         let cart_n = net.cart.as_ref().and_then(|c| c.as_ref().ok()).map_or(0, |c| c.lines.len());
         let wish_n = match &net.store.lock().unwrap().wishlist {
             Some(Ok(l)) => l.len(),

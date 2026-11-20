@@ -318,7 +318,7 @@ const MAX_DOWNLOAD: usize = 25 * 1024 * 1024;
 /// A file:// address that points to another computer (\\server\share): Windows would
 /// connect to that server and send it the hash of the account password. Never loaded.
 pub(crate) fn is_network_file(uri: &str) -> bool {
-    let Some(rest) = uri.strip_prefix("file:") else { return false };
+    let Some(rest) = uri.get(..5).filter(|p| p.eq_ignore_ascii_case("file:")).map(|_| &uri[5..]) else { return false };
     let p = rest.trim_start_matches('/');
     let slashes = rest.len() - p.len();
     rest.starts_with("\\") || rest.starts_with("//\\") || p.starts_with("\\") || (slashes >= 4) || (slashes == 2 && !p.get(1..2).is_some_and(|c| c == ":"))

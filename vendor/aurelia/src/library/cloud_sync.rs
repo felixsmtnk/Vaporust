@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use sha1::{Digest, Sha1};
 use std::collections::{BTreeSet, HashMap};
@@ -507,7 +507,9 @@ fn resolve_root_token(
     let user = || std::env::var_os("USERPROFILE").map(PathBuf::from);
     match token {
         "GameInstall" => install_dir.map(Path::to_path_buf),
-        "WinMyDocuments" | "WinDocuments" => user().map(|u| u.join("Documents")),
+        // vaporust: the real known folder (Documents moved to OneDrive or another disk), then the default.
+        "WinMyDocuments" | "WinDocuments" => vaporust_known_folder(&windows_sys::Win32::UI::Shell::FOLDERID_Documents)
+            .or_else(|| user().map(|u| u.join("Documents"))),
         "WinAppDataLocal" => std::env::var_os("LOCALAPPDATA")
             .map(PathBuf::from)
             .or_else(|| user().map(|u| u.join("AppData").join("Local"))),
@@ -515,7 +517,8 @@ fn resolve_root_token(
         "WinAppDataRoaming" => std::env::var_os("APPDATA")
             .map(PathBuf::from)
             .or_else(|| user().map(|u| u.join("AppData").join("Roaming"))),
-        "WinSavedGames" => user().map(|u| u.join("Saved Games")),
+        "WinSavedGames" => vaporust_known_folder(&windows_sys::Win32::UI::Shell::FOLDERID_SavedGames)
+            .or_else(|| user().map(|u| u.join("Saved Games"))),
         _ => None,
     }
 }
@@ -800,28 +803,34 @@ impl CloudClient {
     }
 
     pub async fn get_file_list(&self, appid: u32) -> Result<Vec<CloudFileEntry>> {
-        let request = CCloud_EnumerateUserFiles_Request {
-            appid: Some(appid),
-            extended_details: Some(true),
-            ..Default::default()
-        };
+        // vaporust: page by page until total_files (one answer does not hold every file of a big save set).
+        let mut out: Vec<CloudFileEntry> = Vec::new();
+        loop {
+            let request = CCloud_EnumerateUserFiles_Request {
+                appid: Some(appid),
+                extended_details: Some(true),
+                start_index: Some(out.len() as u32),
+                count: Some(500),
+                ..Default::default()
+            };
 
-        let response: CCloud_EnumerateUserFiles_Response = self
-            .connection
-            .service_method(request)
-            .await
-            .context("failed calling Cloud.EnumerateUserFiles")?;
-
-        Ok(response
-            .files
-            .into_iter()
-            .map(|file| CloudFileEntry {
+            let response: CCloud_EnumerateUserFiles_Response = self
+                .connection
+                .service_method(request)
+                .await
+                .context("failed calling Cloud.EnumerateUserFiles")?;
+            let total = response.total_files() as usize;
+            let got = response.files.len();
+            out.extend(response.files.into_iter().map(|file| CloudFileEntry {
                 filename: file.filename().to_string(),
                 timestamp: file.timestamp(),
                 size: u64::from(file.file_size()),
                 sha_hash: file.file_sha,
-            })
-            .collect())
+            }));
+            if got == 0 || out.len() >= total {
+                return Ok(out);
+            }
+        }
     }
 
     /// Download cloud saves that are newer than (or missing) their local copy.
@@ -1129,23 +1138,15 @@ impl CloudClient {
             .map_err(http_error)
             .context("cloud HTTP GET returned failure status")?;
 
-        let body = http_response
-            .bytes()
+        let limit = cloud_body_limit(stored_size, raw_file_size);
+        let body = read_body_capped(http_response, limit)
             .await
-            .map_err(http_error)
-            .context("failed reading cloud download body")?
-            .to_vec();
+            .context("failed reading cloud download body")?;
 
         // Steam stores cloud files compressed: the transfer is then a ZIP container
         // holding the single real file. Writing the body straight to disk yields a
         // zip where the game expects its save.
-        Ok(maybe_decompress(
-            body,
-            stored_size,
-            raw_file_size,
-            expected_sha,
-            filename,
-        ))
+        maybe_decompress(body, stored_size, raw_file_size, expected_sha, filename)
     }
 
     async fn upload_file(
@@ -1279,6 +1280,43 @@ const MAX_CLOUD_UNZIPPED: u64 = 1024 * 1024 * 1024;
 /// Cap on Steam-supplied capacity hints.
 const MAX_CLOUD_PREALLOC: u32 = 64 * 1024 * 1024;
 
+/// Slack over the announced transfer size.
+const CLOUD_BODY_SLACK: u64 = 64 * 1024;
+
+/// Byte limit for one cloud download.
+fn cloud_body_limit(stored_size: u32, raw_file_size: u32) -> u64 {
+    let announced = if stored_size > 0 {
+        stored_size
+    } else {
+        raw_file_size
+    };
+    if announced == 0 {
+        return MAX_CLOUD_UNZIPPED;
+    }
+    (u64::from(announced) + CLOUD_BODY_SLACK).min(MAX_CLOUD_UNZIPPED)
+}
+
+/// Read a response body, refusing oversize.
+async fn read_body_capped(mut resp: reqwest::Response, limit: u64) -> Result<Vec<u8>> {
+    if resp.content_length().is_some_and(|len| len > limit) {
+        bail!("cloud download is larger than the {limit}-byte limit");
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = resp.chunk().await.map_err(http_error)? {
+        push_capped(&mut body, &chunk, limit)?;
+    }
+    Ok(body)
+}
+
+/// Append a chunk within the limit.
+fn push_capped(body: &mut Vec<u8>, chunk: &[u8], limit: u64) -> Result<()> {
+    if body.len() as u64 + chunk.len() as u64 > limit {
+        bail!("cloud download is larger than the {limit}-byte limit");
+    }
+    body.extend_from_slice(chunk);
+    Ok(())
+}
+
 /// A ZIP local-file-header magic — how a compressed Steam Cloud transfer starts.
 const ZIP_MAGIC: &[u8; 4] = b"PK\x03\x04";
 
@@ -1328,21 +1366,22 @@ fn maybe_decompress(
     raw_file_size: u32,
     expected_sha: Option<&str>,
     filename: &str,
-) -> Vec<u8> {
+) -> Result<Vec<u8>> {
     let raw_len = (raw_file_size > 0).then_some(raw_file_size);
 
     if let Some(sha) = expected_sha.map(str::trim).filter(|s| !s.is_empty()) {
         if hash_eq(&hex_lower(&Sha1::digest(&body)), sha) {
-            return body; // stored uncompressed — already the real file
+            return Ok(body); // stored uncompressed — already the real file
         }
         match unzip_single_entry(&body, raw_len) {
-            Some(inner) if hash_eq(&hex_lower(&Sha1::digest(&inner)), sha) => return inner,
+            Some(inner) if hash_eq(&hex_lower(&Sha1::digest(&inner)), sha) => return Ok(inner),
             _ => {
-                tracing::warn!(
+                // vaporust: a body that matches neither way is damaged (cut connection, bad packet):
+                // an error lets the transfer retry, and the local save is never overwritten with it.
+                anyhow::bail!(
                     "cloud file '{filename}' did not match its expected hash {sha} either as \
-                     received or decompressed; writing it as received"
+                     received or decompressed"
                 );
-                return body;
             }
         }
     }
@@ -1356,11 +1395,11 @@ fn maybe_decompress(
                     inner.len()
                 );
             }
-            return inner;
+            return Ok(inner);
         }
         tracing::warn!("cloud file '{filename}' looked compressed but is not a readable zip");
     }
-    body
+    Ok(body)
 }
 
 /// Build the request URL for a Steam Cloud HTTP transfer from the scheme flag and
@@ -1402,3 +1441,23 @@ pub fn default_cloud_root(steam_id: u64, appid: u32) -> Result<PathBuf> {
 #[cfg(test)]
 #[path = "cloud_sync_tests.rs"]
 mod tests;
+
+/// vaporust: a Windows known folder path (SHGetKnownFolderPath), None if Windows does not give one.
+#[cfg(windows)]
+fn vaporust_known_folder(id: &windows_sys::core::GUID) -> Option<PathBuf> {
+    use windows_sys::Win32::System::Com::CoTaskMemFree;
+    use windows_sys::Win32::UI::Shell::SHGetKnownFolderPath;
+    let mut p: windows_sys::core::PWSTR = std::ptr::null_mut();
+    // SAFETY: the out pointer is valid; the returned buffer is freed with CoTaskMemFree.
+    let hr = unsafe { SHGetKnownFolderPath(id, 0, std::ptr::null_mut(), &mut p) };
+    if hr != 0 || p.is_null() {
+        if !p.is_null() {
+            unsafe { CoTaskMemFree(p as _) };
+        }
+        return None;
+    }
+    let len = (0..).take_while(|&i| unsafe { *p.add(i) } != 0).count();
+    let s = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(p, len) });
+    unsafe { CoTaskMemFree(p as _) };
+    Some(PathBuf::from(s))
+}

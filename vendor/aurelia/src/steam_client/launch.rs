@@ -282,6 +282,19 @@ fn pick_launch_entry(
     }
 }
 
+/// Why a launch must use Steam, if forced.
+///
+/// A borrowed licence is only authorised by a running Steam client.
+pub fn forced_steam_reason(app: &LibraryGame) -> Option<&'static str> {
+    if app.is_family_shared {
+        Some("family-shared")
+    } else if !app.is_owned {
+        Some("licence-unconfirmed")
+    } else {
+        None
+    }
+}
+
 impl SteamClient {
     pub async fn play_game(
         &mut self,
@@ -299,10 +312,7 @@ impl SteamClient {
         on_target_resolved: Option<&(dyn Fn(Option<&str>) + Send + Sync)>,
         shaders: crate::launch::shaders::ShaderLaunch,
     ) -> Result<LaunchInfo> {
-        // A Family-Shared game (licensed to another account) can only be authorised
-        // by a running Steam client, so it always needs Steam integration regardless
-        // of the user's preference.
-        let steam_enabled = steam_enabled || !app.is_owned;
+        let steam_enabled = steam_enabled || forced_steam_reason(app).is_some();
 
         // Reject bad entries before starting Steam.
         let launch_options = self.get_product_info(app.app_id).await?;
@@ -641,29 +651,22 @@ impl SteamClient {
             )
             .await;
 
-            let remote_manifests = if verify_mode {
-                local_manifests.clone()
+            let selections = if verify_mode && local_manifests.is_empty() {
+                Vec::new()
             } else {
-                let mut remote =
-                    SteamClient::remote_manifest_ids_static(&connection, appid, &active_branch)
-                        .await
-                        .unwrap_or_default();
-                // An update refreshes only installed depots
-                if !local_manifests.is_empty() {
-                    remote.retain(|depot_id, _| local_manifests.contains_key(depot_id));
-                }
-                remote
+                let selected = (!local_manifests.is_empty()).then_some(&local_manifests);
+                let resolved = match depots::fetch(&connection, appid, selected).await {
+                    Ok(resolved) => resolved,
+                    Err(error) => {
+                        emit_failed_err(&tx, "depot metadata", &error).await;
+                        if let Ok(mut state) = shared_state_clone.write() {
+                            state.finish("Operation failed or paused");
+                        }
+                        return;
+                    }
+                };
+                resolved.download_selections(&local_manifests, &active_branch, verify_mode)
             };
-
-            let selections: Vec<ManifestSelection> = remote_manifests
-                .iter()
-                .map(|(depot_id, manifest_id)| ManifestSelection {
-                    app_id: appid,
-                    depot_id: *depot_id as u32,
-                    manifest_id: *manifest_id,
-                    appinfo_vdf: String::new(),
-                })
-                .collect();
 
             if selections.is_empty() {
                 // In verify mode the selections come from the local appmanifest's

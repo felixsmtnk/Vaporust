@@ -305,12 +305,15 @@ pub fn toggle(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
         *on = !*on;
         resp.mark_changed();
     }
-    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    // A disabled switch is dimmed and shows no hand cursor.
+    let enabled = ui.is_enabled();
+    let resp = if enabled { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp };
+    let dim = if enabled { 1.0 } else { 0.4 };
     let t = ui.ctx().animate_bool_with_time(resp.id, *on, 0.12);
-    let track = lerp_color(Color32::from_rgb(70, 77, 88), ACCENT, t);
+    let track = lerp_color(Color32::from_rgb(70, 77, 88), ACCENT, t).gamma_multiply(dim);
     ui.painter().rect_filled(rect, 9.0, track);
     let x = egui::lerp(rect.left() + 9.0..=rect.right() - 9.0, t);
-    let knob = if resp.hovered() { Color32::WHITE } else { Color32::from_rgb(236, 238, 240) };
+    let knob = if resp.hovered() && enabled { Color32::WHITE } else { Color32::from_rgb(236, 238, 240) }.gamma_multiply(dim);
     ui.painter().circle_filled(egui::pos2(x, rect.center().y), 6.5, knob);
     resp
 }

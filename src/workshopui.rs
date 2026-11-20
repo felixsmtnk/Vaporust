@@ -459,7 +459,7 @@ pub async fn load_detail(_c: &aurelia::steam_client::SteamClient, id: u64) -> Re
     }
     let mut det = parse_detail(d);
     // Mod screenshots - only on its page (a strip of thumbnails under the main image).
-    let page = format!("https://steamcommunity.com/sharedfiles/filedetails/?id={id}&l=russian");
+    let page = format!("https://steamcommunity.com/sharedfiles/filedetails/?id={id}&l={}", crate::lang::steam());
     if let Ok(r) = http.get(page).send().await {
         if let Ok(html) = r.text().await {
             for u in page_screenshots(&html) {
@@ -808,6 +808,11 @@ fn collections_view(ui: &mut egui::Ui, w: &mut WsUi, net: &net::NetState, ws: &W
                         let on = subs.contains(id);
                         if ui.link(crate::richtext::fix(ui, &name)).clicked() {
                             w.item = Some(*id);
+                            w.preview = 0;
+                            // As from the mods list: the mod page needs its details (otherwise it loads forever).
+                            if !matches!(ws.details.get(id), Some(Ok(_))) {
+                                cmds.push(Cmd::Social(SocialCmd::WorkshopDetail(*id)));
+                            }
                         }
                         if on {
                             ui.label(egui::RichText::new(tr!("подписаны", "subscribed")).small().color(crate::theme::PLAY_TEXT));

@@ -139,7 +139,11 @@ impl LauncherApp {
         s.charts.clear();
         s.curators.clear();
         s.review_full.clear();
+        drop(s);
         crate::store::CACHE_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if let Some(w) = self.store_win.as_mut() {
+            w.forget_asked();
+        }
     }
     /// Interface scale: setting -> egui; Ctrl+plus/minus (egui changes it itself) -> setting.
     pub(crate) fn zoom_tick(&mut self, ctx: &egui::Context) {
@@ -1263,7 +1267,14 @@ impl LauncherApp {
     /// family, inventory, store pages...). A sign-in into the same account after a lost connection
     /// keeps everything.
     pub(crate) fn account_tick(&mut self, net: &crate::net::NetState) {
-        let Some(id) = net.my_id else { return };
+        let Some(id) = net.my_id else {
+            // Logged out: the next login (even into the same account) must load everything again.
+            if self.account_seen.is_some() {
+                self.account_seen = Some(0);
+                crate::nav::reset_wallet_asked();
+            }
+            return;
+        };
         let old = self.account_seen.replace(id);
         if old.is_none_or(|o| o == id) {
             return;
@@ -1291,5 +1302,10 @@ impl LauncherApp {
         self.store_win = None;
         self.inv_win = None;
         self.accounts_noted = None;
+        self.ws_ui = Default::default();
+        self.friends_page = Default::default();
+        self.notifs_seen.clear();
+        *self.chat.lock().unwrap() = None;
+        crate::nav::reset_wallet_asked();
     }
 }

@@ -26,7 +26,11 @@ fn window(title: &str) -> egui::Window<'_> {
 impl LauncherApp {
     pub(crate) fn open_review(&mut self, appid: u32, name: String) {
         let _ = self.tx.send(Cmd::ReviewLoad(appid));
-        self.net.lock().unwrap().action_msg = None;
+        let mut n = self.net.lock().unwrap();
+        n.action_msg = None;
+        // The form fills from the fresh answer, not from the one loaded last time.
+        n.my_reviews.remove(&appid);
+        drop(n);
         self.dialogs.review = Some((appid, name, MyReview { up: true, public: true, ..Default::default() }, false));
     }
 

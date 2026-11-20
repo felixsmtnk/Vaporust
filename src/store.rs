@@ -170,6 +170,8 @@ pub struct StoreState {
     pub package_names: HashMap<u32, String>,
     /// The first game of a package (cart pictures).
     pub package_apps: HashMap<u32, u32>,
+    /// Bundles: name and first game (cart).
+    pub bundle_names: HashMap<u32, (String, Option<u32>)>,
     /// Curators who reviewed the game.
     pub curators: HashMap<u32, Result<Vec<crate::actions::Curator>, String>>,
 }
@@ -208,6 +210,8 @@ pub enum StoreCmd {
     Details(Vec<u32>),
     /// Package name (for the cart).
     PackageName(u32),
+    /// Bundle name and its first game (cart lines that are bundles).
+    BundleName(u32),
     /// Game page: details + player count, news, reviews, similar games.
     Page(u32),
     /// Add to the wishlist (true) or remove.
@@ -437,6 +441,14 @@ pub fn handle(client: &SteamClient, cmd: StoreCmd, st: &SharedStore, ctx: &egui:
                     if let Some(a) = app {
                         s.package_apps.insert(id, a);
                     }
+                    drop(s);
+                    ctx.request_repaint();
+                }
+            }
+            StoreCmd::BundleName(id) => {
+                if let Ok((name, app)) = bundle_name(id).await {
+                    let mut s = st.lock().unwrap();
+                    s.bundle_names.insert(id, (name, app));
                     drop(s);
                     ctx.request_repaint();
                 }
@@ -1447,4 +1459,14 @@ mod review_paging_tests {
         assert_eq!(r.cursor.as_deref(), Some("c"));
         assert_eq!(r.list.len(), 1);
     }
+}
+
+/// A store bundle: its name and first game (store actions/ajaxresolvebundles).
+async fn bundle_name(id: u32) -> Result<(String, Option<u32>), String> {
+    let http = aurelia::core::net::steam_web_client().map_err(|e| format!("{e:#}"))?;
+    let url = format!("https://store.steampowered.com/actions/ajaxresolvebundles?bundleids={id}&l={}", crate::lang::steam());
+    let v: serde_json::Value = http.get(url).send().await.map_err(|e| format!("{e:#}"))?.json().await.map_err(|e| format!("{e:#}"))?;
+    let b = v.get(0).ok_or_else(|| tr!("нет данных", "no data").to_string())?;
+    let app = b["appids"].get(0).and_then(|a| a.as_u64()).map(|a| a as u32);
+    b["name"].as_str().map(|n| (n.to_string(), app)).ok_or_else(|| tr!("нет данных", "no data").into())
 }

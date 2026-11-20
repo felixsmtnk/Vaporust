@@ -271,9 +271,8 @@ fn list_points(dir: &std::path::Path) -> Vec<PathBuf> {
 
 /// Write a file through a temporary one, so a crash cannot leave half a file.
 fn write_atomic(path: &std::path::Path, body: &str) -> Result<(), String> {
-    let tmp = path.with_extension("vdf.vaporust-tmp");
-    std::fs::write(&tmp, body).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+    // The common atomic write (unique temp name, flushed to disk, then renamed).
+    crate::util::write_atomic(path, body.as_bytes()).map_err(|e| e.to_string())
 }
 
 /// Switch Steam's own login to `login`: a restore point first, then loginusers.vdf and the

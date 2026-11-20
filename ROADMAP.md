@@ -33,9 +33,9 @@ benefit with numbers.
 ## 🚧 Now: new design
 
 A redesign of the interface: buttons and sections in the same places as in the Steam client, but
-compact. The first part is ready (see the CHANGELOG): the window frame and menus, the library, the
-game page, the store, the friends list, settings, game properties, downloads. Still to do: the chat
-window, inventory and market, Workshop, community pages, achievements, and these problems:
+compact. Done (see the CHANGELOG): the window frame and menus, the library, the game page, the store,
+cart, news, Points Shop, inventory, friends, badges, family, group chats, settings, game properties,
+downloads, chat, Workshop, community pages, achievements. Still to do - these problems:
 
 - Readability at 1366x768 and 125-150% scale: cut-off names in the left game list, small pale
   secondary text.
@@ -64,7 +64,7 @@ window, inventory and market, Workshop, community pages, achievements, and these
 
 **Store and market**
 - Buying from the Community Market, a new buy order, offering a trade to a friend (on the Steam website for now).
-- Following curators; your own game tags.
+- Your own game tags.
 
 **Profile and community**
 - Choosing the favorite badge; likes and comments in the activity feed; Steam Family restrictions.

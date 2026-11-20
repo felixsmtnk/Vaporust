@@ -33,7 +33,9 @@ fn command(text: &str, appid: u32, name: &str, dir: &Path) -> Command {
         use std::os::windows::process::CommandExt;
         // The command itself without a console window; programs it starts get their own windows.
         c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-        c.raw_arg(format!("/D /C {text}"));
+        // /S + outer quotes: cmd removes exactly these two, so a command that starts with a quoted
+        // path and has more quotes ("C:\Program Files\Tool\tool.exe" "C:\My Game") stays intact.
+        c.raw_arg(format!("/D /S /C \"{text}\""));
     }
     #[cfg(not(windows))]
     c.args(["/C", text]);

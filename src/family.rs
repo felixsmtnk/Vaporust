@@ -1,6 +1,6 @@
 //! "Steam Family": members of the family group, how many games each shares in the common library,
-//! what was played in the family. View only: invites and removals are on the Steam site
-//! (these are account settings). Web API IFamilyGroupsService.
+//! what was played in the family, invites (sent ones can be cancelled). Removing members and
+//! other family settings stay on the Steam site. Web API IFamilyGroupsService.
 
 use crate::net::{Cmd, NetState};
 use crate::{webapi, LauncherApp};

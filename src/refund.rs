@@ -27,7 +27,7 @@ fn clean(s: &str) -> String {
             _ => {}
         }
     }
-    out.replace("&amp;", "&").replace("&#39;", "'").replace("&quot;", "\"").split_whitespace().collect::<Vec<_>>().join(" ")
+    out.replace("&amp;", "&").replace("&#39;", "'").replace("&quot;", "\"").replace("&trade;", "™").replace("&reg;", "®").replace("&copy;", "©").replace("&nbsp;", " ").split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// License table rows (l=english).
@@ -39,8 +39,15 @@ pub fn parse(html: &str) -> Vec<License> {
         .filter_map(|row| {
             let date_text = row.split('<').next()?.trim();
             let date = crate::store::parse_en_date(date_text).or_else(|| {
-                // Without a year - the current year.
-                crate::store::parse_en_date(&format!("{date_text}, {}", chrono::Local::now().format("%Y")))
+                // Without a year - this year, or last year if that date is still ahead (a December
+                // purchase seen in January).
+                let year: i32 = chrono::Local::now().format("%Y").to_string().parse().ok()?;
+                let this = crate::store::parse_en_date(&format!("{date_text}, {year}"))?;
+                if this > chrono::Utc::now().timestamp() + 86_400 {
+                    crate::store::parse_en_date(&format!("{date_text}, {}", year - 1))
+                } else {
+                    Some(this)
+                }
             })?;
             let item = between(row, "<td>", "</td>")?;
             // The "Remove" link of free licenses is in its own div, we skip it.
@@ -86,7 +93,8 @@ pub fn find<'a>(game: &str, list: &'a [License]) -> Option<&'a License> {
             let n = norm(&l.name);
             n == g || (n.starts_with(&format!("{g} ")) && editions.iter().any(|e| n[g.len()..].contains(e)))
         })
-        .min_by_key(|l| l.date)
+        // The latest purchase: a refund is about the most recent one.
+        .max_by_key(|l| l.date)
 }
 
 /// Refund hint: Some(text) if the game was bought in the store less than 14 days ago and

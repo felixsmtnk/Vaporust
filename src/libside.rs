@@ -45,7 +45,7 @@ impl LauncherApp {
         ui.add_space(40.0);
         ui.vertical_centered(|ui| {
             ui.set_max_width(520.0);
-            ui.label(egui::RichText::new(title).font(crate::theme::semibold(20.0)).color(egui::Color32::WHITE).color(theme::TEXT));
+            ui.label(egui::RichText::new(title).font(crate::theme::semibold(20.0)).color(theme::TEXT));
             ui.add_space(6.0);
             ui.label(egui::RichText::new(text).color(theme::WEAK));
             ui.add_space(14.0);
@@ -156,7 +156,7 @@ impl LauncherApp {
                             .on_hover_text(tr!("Коллекции из Steam. Добавить игру - правый щелчок по ней. «Скрытые» в «Все игры» не показываются.", "Collections from Steam. To add a game, right-click it. \"Hidden\" are not shown in \"All games\"."));
                         if let Some(c) = own {
                             ui.menu_button("...", |ui| {
-                                let key = egui::Id::new("coll_rename");
+                                let key = egui::Id::new(("coll_rename", &c.id));
                                 let mut name: String =
                                     ui.data_mut(|d| d.get_temp(key)).unwrap_or_else(|| c.name.clone());
                                 ui.horizontal(|ui| {

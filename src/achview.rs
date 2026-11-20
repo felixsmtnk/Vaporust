@@ -97,6 +97,14 @@ impl LauncherApp {
                             None
                         }
                         Some(None) => {
+                            // Not asked yet for this game (another game opened, the language changed): ask once.
+                            if let Some(f) = st.friend {
+                                let key = egui::Id::new(("ach_friend_asked", appid, f, crate::store::gen()));
+                                if !ui.data(|d| d.get_temp::<bool>(key).unwrap_or(false)) {
+                                    ui.data_mut(|d| d.insert_temp(key, true));
+                                    ask_friend = Some(f);
+                                }
+                            }
                             crate::spin::spinner(ui);
                             None
                         }

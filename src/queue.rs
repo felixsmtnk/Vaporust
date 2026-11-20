@@ -68,7 +68,14 @@ impl LauncherApp {
         }
         // If Vaporust is closed mid-download, it resumes on the next run.
         self.settings.current_download = Some(settings::QueueItem { appid, name: name.clone(), paused: false });
-        let library = if steam_open {
+        // A game already lying in VaporustStaging continues there (with or without Steam open): its real
+        // library is the parent folder, and it is moved there when finished.
+        let (library, staged_already) = if library.file_name().is_some_and(|n| n == "VaporustStaging") {
+            (library.parent().map(|p| p.to_path_buf()).unwrap_or(library), true)
+        } else {
+            (library, false)
+        };
+        let library = if steam_open || staged_already {
             self.settings.staged.insert(appid, library.to_string_lossy().into_owned());
             let staging = local::staging_dir(&library);
             let _ = std::fs::create_dir_all(staging.join("steamapps").join("common"));
@@ -180,9 +187,15 @@ impl LauncherApp {
             }
             Ok(()) => {
                 self.resume_tries = 0;
-                if let Some(real) = self.settings.staged.remove(&cur.appid) {
+                // The record is dropped only when the move succeeded: otherwise the game stays known
+                // (shown as unfinished, can be continued or deleted).
+                if let Some(real) = self.settings.staged.get(&cur.appid).cloned() {
                     match local::unstage(std::path::Path::new(&real), cur.appid) {
                         Ok(()) => {
+                            self.settings.staged.remove(&cur.appid);
+                            if local::steam_running() {
+                                self.unstaged_open.insert(cur.appid);
+                            }
                             self.rescan();
                         }
                         Err(e) => {

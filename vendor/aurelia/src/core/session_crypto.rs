@@ -86,6 +86,10 @@ pub fn decrypt(envelope: &EncryptedSession, password: &str) -> Result<Vec<u8>> {
     let ciphertext =
         hex::decode(&envelope.ciphertext).context("bad ciphertext in encrypted session")?;
 
+    // vaporust: a damaged file with a nonce of another length is an error, not a crash.
+    if nonce.len() != 12 {
+        return Err(anyhow!("bad nonce length in encrypted session"));
+    }
     let key = derive_key(password, &salt)?;
     let cipher = ChaCha20Poly1305::new(Key::from_slice(&key));
     cipher
@@ -136,8 +140,21 @@ pub fn keyring_secret_or_create() -> Option<String> {
     if !keyring_enabled() {
         return None;
     }
-    if let Some(key) = keyring_secret() {
-        return Some(key);
+    if let Some(k) = KEYRING_KEY.lock().unwrap().clone() {
+        return Some(k);
+    }
+    // vaporust: a new key only when there is no entry at all. A passing keyring error must not
+    // overwrite the stored key: the encrypted session.json could never be read again.
+    match keyring_entry().and_then(|e| e.get_password()) {
+        Ok(key) => {
+            *KEYRING_KEY.lock().unwrap() = Some(key.clone());
+            return Some(key);
+        }
+        Err(keyring::Error::NoEntry) => {}
+        Err(e) => {
+            tracing::warn!("OS keyring unavailable, the session key is not replaced: {e}");
+            return None;
+        }
     }
     let mut raw = [0u8; 32];
     rand::fill(&mut raw[..]);

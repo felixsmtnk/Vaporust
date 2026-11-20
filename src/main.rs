@@ -128,9 +128,8 @@ pub enum View {
     Group,
     /// Editing own profile.
     ProfileEdit,
-    /// Game achievements and game properties - as pages of the main window.
+    /// Game achievements - a page of the main window (properties are a separate window).
     Achievements,
-    Props,
     /// Store cart.
     Cart,
     /// Soundtracks from the library.
@@ -308,6 +307,10 @@ struct LauncherApp {
     stop_asked: Option<(u32, std::time::Instant)>,
     /// How many times in a row the download resumed after a lost connection.
     resume_tries: u8,
+    /// Games moved from VaporustStaging while Steam was open: the open Steam sees them only after a restart.
+    unstaged_open: std::collections::HashSet<u32>,
+    /// When the soundtrack player last checked whether the track ended.
+    music_checked: Option<std::time::Instant>,
     /// Account info already requested (card in "Settings").
     account_asked: bool,
     /// Cache of "is Steam running?" (process polling at most once per 2 s).
@@ -558,6 +561,8 @@ impl LauncherApp {
             closing: Arc::new(AtomicBool::new(false)),
             stop_asked: None,
             resume_tries: 0,
+            unstaged_open: Default::default(),
+            music_checked: None,
             account_asked: false,
             steam_check: None,
             show_friends: saved.show_friends,
@@ -753,7 +758,6 @@ impl LauncherApp {
             View::Group => self.group_contents(ui, net),
             View::ProfileEdit => self.profile_edit_contents(ui, net),
             View::Achievements => self.achievements_contents(ui, net),
-            View::Props => self.props_contents(ui, net),
             View::Cart => {
                 self.store_band(ui, net);
                 self.cart_contents(ui, net)
@@ -1214,6 +1218,7 @@ impl eframe::App for LauncherApp {
         imgload::ECONOMY.store(self.settings.economy, Ordering::Relaxed);
         imgload::budget_tick(ctx);
         self.memory_tick(ctx);
+        self.music_tick(ctx);
         // Network state snapshot per frame so the lock is not held. Copied again only
         // when the state changed (and every 2 s just in case), otherwise the previous copy is used.
         let gen = self.net.gen();
@@ -1431,6 +1436,7 @@ impl eframe::App for LauncherApp {
                 self.settings.downloads.iter().filter(|q| q.paused).map(|q| q.appid).collect();
             let status_text = self.launch_status.lock().unwrap().clone();
             let vc = libview::Ctx {
+                list_title: self.list_title(&net),
                 launching,
                 installing,
                 logged_in: net.account.is_some(),
@@ -1511,25 +1517,9 @@ impl eframe::App for LauncherApp {
                     // "Home": title, view, "What to play?", then the grid or the list.
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
-                        let title = match &self.collection {
-                            None => tr!("Все игры", "All games").to_string(),
-                            Some(id) if id == FAMILY => tr!("Семейная библиотека", "Family library").to_string(),
-                            Some(id) if id == UNPLAYED => tr!("Ни разу не запускались", "Never launched").to_string(),
-                            Some(id) if id == READY => tr!("Готово к игре", "Ready to play").to_string(),
-                            Some(id) if id == UPDATES => tr!("Есть обновление", "Update available").to_string(),
-                            Some(id) => net
-                                .collections
-                                .as_ref()
-                                .and_then(|c| c.iter().find(|c| &c.id == id))
-                                .map(|c| c.name.clone())
-                                .unwrap_or_else(|| tr!("Коллекция", "Collection").into()),
-                        };
-                        let title = match &self.genre {
-                            Some(g) => format!("{title} · {g}"),
-                            None => title,
-                        };
-                        // In the grid the count is in the "ALL GAMES (n)" header; the table keeps the title here.
-                        if table_mode || self.genre.is_some() {
+                        let title = self.list_title(&net);
+                        // In the grid the title and count are its own header; the table keeps the title here.
+                        if table_mode {
                             ui.label(egui::RichText::new(format!("{title} ({})", rows.len())).font(theme::semibold(16.0)).color(theme::TEXT));
                         }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1706,8 +1696,9 @@ impl eframe::App for LauncherApp {
         self.social_windows(ctx, &net);
         self.friends_window(ctx, &net);
         self.props_window(ctx, &net);
-        if self.smart_edit.open {
-            // Game tags come from the store: asked once for all library games (as for the genre filter).
+        if self.smart_edit.open || self.smart_genre().is_some() {
+            // Game tags come from the store: asked once for all library games (as for the genre filter),
+            // also when a smart collection with a genre rule is chosen (after a restart nothing asked them).
             if !self.genre_asked && net.account.is_some() {
                 self.genre_asked = true;
                 let ids: Vec<u32> = self.row_map(&net).keys().copied().filter(|id| *id < crate::custom::BASE).collect();
@@ -1839,10 +1830,8 @@ impl LauncherApp {
             self.stats_ui.open = false;
         }
         if keep != View::Group {
-            self.group_ui = Default::default();
-        }
-        if keep != View::Community {
-            self.community_ui.appid = None;
+            // The group stays known (back / forward returns to it), only a pending question is dropped.
+            self.group_ui.confirm = None;
         }
         if keep != View::Groups {
             self.groups_ui.open = false;

@@ -30,9 +30,9 @@ impl LauncherApp {
             self.cart_ui.asked = true;
             let _ = self.tx.send(Cmd::CartLoad);
         }
-        let (names, apps) = {
+        let (names, apps, bundles) = {
             let st = net.store.lock().unwrap();
-            (st.package_names.clone(), st.package_apps.clone())
+            (st.package_names.clone(), st.package_apps.clone(), st.bundle_names.clone())
         };
         let mut remove: Option<u64> = None;
         let mut open_app: Option<u32> = None;
@@ -68,13 +68,18 @@ impl LauncherApp {
                 }
                 ui.spacing_mut().item_spacing.y = 6.0;
                 for l in &cart.lines {
-                    let name = names.get(&l.packageid).cloned().unwrap_or_else(|| {
+                    // A bundle line has bundleid and no packageid: its name and game come from the bundle.
+                    let bundle = (l.packageid == 0 && l.bundleid > 0).then(|| bundles.get(&l.bundleid)).flatten();
+                    let known = if l.packageid > 0 { names.get(&l.packageid).cloned() } else { bundle.map(|b| b.0.clone()) };
+                    let name = known.unwrap_or_else(|| {
                         if l.packageid > 0 && self.cart_ui.names_asked.insert(l.packageid) {
                             let _ = self.tx.send(Cmd::Store(crate::store::StoreCmd::PackageName(l.packageid)));
+                        } else if l.packageid == 0 && l.bundleid > 0 && self.cart_ui.names_asked.insert(0x8000_0000 | l.bundleid) {
+                            let _ = self.tx.send(Cmd::Store(crate::store::StoreCmd::BundleName(l.bundleid)));
                         }
                         if l.bundleid > 0 { trf!("Набор {}", "Bundle {}", l.bundleid) } else { trf!("Пакет {}", "Package {}", l.packageid) }
                     });
-                    let app = apps.get(&l.packageid).copied();
+                    let app = if l.packageid > 0 { apps.get(&l.packageid).copied() } else { bundle.and_then(|b| b.1) };
                     theme::block(ui, |ui| {
                         ui.horizontal(|ui| {
                             // The game capsule, as in the Steam cart (a grey plate while unknown).

@@ -23,12 +23,17 @@ fn read_cstr(b: &[u8], i: &mut usize) -> Result<String, String> {
     if *i >= b.len() {
         return Err(tr!("обрыв строки", "string cut off").into());
     }
-    let s = String::from_utf8_lossy(&b[start..*i]).into_owned();
+    // Not UTF-8 (an old path in a local code page): an error, so the file is never rewritten with
+    // replaced characters.
+    let s = String::from_utf8(b[start..*i].to_vec()).map_err(|_| tr!("строка не в UTF-8", "a string is not UTF-8").to_string())?;
     *i += 1;
     Ok(s)
 }
 
-fn parse_map(b: &[u8], i: &mut usize) -> Result<Vec<(String, Node)>, String> {
+fn parse_map(b: &[u8], i: &mut usize, depth: u32) -> Result<Vec<(String, Node)>, String> {
+    if depth > 32 {
+        return Err(tr!("слишком глубокая вложенность", "nesting too deep").into());
+    }
     let mut out = Vec::new();
     loop {
         let Some(&t) = b.get(*i) else { return Err(tr!("обрыв файла", "file cut off").into()) };
@@ -38,7 +43,7 @@ fn parse_map(b: &[u8], i: &mut usize) -> Result<Vec<(String, Node)>, String> {
         }
         let key = read_cstr(b, i)?;
         let node = match t {
-            0x00 => Node::Map(parse_map(b, i)?),
+            0x00 => Node::Map(parse_map(b, i, depth + 1)?),
             0x01 => Node::Str(read_cstr(b, i)?),
             0x02 => {
                 let v = b.get(*i..*i + 4).ok_or(tr!("обрыв числа", "number cut off"))?;
@@ -64,7 +69,11 @@ fn parse_map(b: &[u8], i: &mut usize) -> Result<Vec<(String, Node)>, String> {
 /// File parsing: the root is a single map.
 pub fn parse(b: &[u8]) -> Result<Vec<(String, Node)>, String> {
     let mut i = 0;
-    let root = parse_map(b, &mut i)?;
+    let root = parse_map(b, &mut i, 0)?;
+    // Steam writes one more 0x08 after the root map; anything else after it - not our format.
+    if b[i..].iter().any(|&x| x != 0x08) || b.len() - i > 1 {
+        return Err(tr!("лишние данные в конце файла", "extra data at the end of the file").into());
+    }
     Ok(root)
 }
 

@@ -67,7 +67,8 @@ impl LauncherApp {
     /// Once per second: there is a request to launch a game (from a shortcut) - show the window and launch.
     pub(crate) fn run_request_tick(&mut self, ctx: &egui::Context) {
         let due = self.run_check.is_none_or(|t| t.elapsed() >= std::time::Duration::from_secs(1));
-        if !due || self.games.is_empty() {
+        // Waits for the first scan of Steam games; with none at all, non-Steam shortcuts work anyway.
+        if !due || (self.games.is_empty() && self.settings.custom_games.is_empty()) {
             return;
         }
         self.run_check = Some(std::time::Instant::now());
@@ -137,7 +138,8 @@ impl LauncherApp {
                 trf!("Не удалось создать ярлык: {e}", "Could not create the shortcut: {e}")
             }
         };
-        *self.launch_status.lock().unwrap() = text;
+        // Right away (also while a game runs, when the status line is launch progress).
+        crate::popup::push(crate::popup::Kind::Info, "Vaporust", text);
     }
 }
 

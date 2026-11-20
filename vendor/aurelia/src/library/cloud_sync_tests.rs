@@ -400,7 +400,7 @@ fn compressed_download_is_unwrapped_to_the_real_file() {
         content.len() as u32,
         Some(&sha1_hex(&content)),
         "%WinAppDataLocal%EXPEDITION_0.sav",
-    );
+    ).unwrap();
     assert_eq!(out, content);
 }
 
@@ -413,7 +413,7 @@ fn uncompressed_download_passes_through_untouched() {
         content.len() as u32,
         Some(&sha1_hex(&content)),
         "save.dat",
-    );
+    ).unwrap();
     assert_eq!(out, content);
 }
 
@@ -428,7 +428,7 @@ fn a_save_that_is_itself_a_zip_is_not_unwrapped() {
         content.len() as u32,
         Some(&sha1_hex(&content)),
         "archive.sav",
-    );
+    ).unwrap();
     assert_eq!(out, content, "a genuine zip save must survive intact");
 }
 
@@ -436,7 +436,7 @@ fn a_save_that_is_itself_a_zip_is_not_unwrapped() {
 fn decompresses_on_size_mismatch_when_no_hash_is_known() {
     let content = b"payload without a reported hash".repeat(32);
     let body = zip_wrap(&content);
-    let out = maybe_decompress(body, 100, content.len() as u32, None, "save.dat");
+    let out = maybe_decompress(body, 100, content.len() as u32, None, "save.dat").unwrap();
     assert_eq!(out, content);
 }
 
@@ -571,4 +571,66 @@ async fn retry_fails_fast_on_client_error_and_recovers() {
     .await;
     assert_eq!(res.unwrap(), 3);
     assert_eq!(calls, 3);
+}
+
+#[test]
+fn a_damaged_download_is_an_error_not_a_save() {
+    // vaporust: bytes matching the expected hash neither as received nor unzipped must not be
+    // written over the local save (the next sync would upload them over the cloud copy).
+    let content = b"real save".repeat(16);
+    let damaged = b"cut off".to_vec();
+    assert!(maybe_decompress(damaged, 7, content.len() as u32, Some(&sha1_hex(&content)), "save.dat").is_err());
+}
+
+#[test]
+fn cloud_body_limit_follows_announced_size() {
+    assert_eq!(cloud_body_limit(1000, 5000), 1000 + CLOUD_BODY_SLACK);
+    assert_eq!(cloud_body_limit(0, 5000), 5000 + CLOUD_BODY_SLACK);
+    assert_eq!(cloud_body_limit(0, 0), MAX_CLOUD_UNZIPPED);
+    assert_eq!(cloud_body_limit(u32::MAX, 0), MAX_CLOUD_UNZIPPED);
+}
+
+#[test]
+fn push_capped_accepts_exact_and_refuses_over() {
+    let mut body = Vec::new();
+    push_capped(&mut body, &[1; 6], 10).unwrap();
+    push_capped(&mut body, &[2; 4], 10).unwrap();
+    assert_eq!(body.len(), 10);
+    assert!(push_capped(&mut body, &[3], 10).is_err());
+    assert_eq!(body.len(), 10);
+}
+
+// One-shot HTTP stub on localhost.
+async fn serve_once(body: Vec<u8>, content_length: bool) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let (mut sock, _) = listener.accept().await.unwrap();
+        let mut req = [0u8; 1024];
+        let _ = sock.read(&mut req).await;
+        let head = if content_length {
+            format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len())
+        } else {
+            "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".to_string()
+        };
+        let _ = sock.write_all(head.as_bytes()).await;
+        let _ = sock.write_all(&body).await;
+        let _ = sock.shutdown().await;
+    });
+    format!("http://{addr}/")
+}
+
+#[tokio::test]
+async fn read_body_capped_enforces_the_limit() {
+    let client = reqwest::Client::new();
+    for content_length in [true, false] {
+        let url = serve_once(vec![7; 100], content_length).await;
+        let resp = client.get(&url).send().await.unwrap();
+        assert_eq!(read_body_capped(resp, 100).await.unwrap().len(), 100);
+
+        let url = serve_once(vec![7; 101], content_length).await;
+        let resp = client.get(&url).send().await.unwrap();
+        assert!(read_body_capped(resp, 100).await.is_err());
+    }
 }
