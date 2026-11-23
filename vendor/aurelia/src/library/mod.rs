@@ -5,9 +5,9 @@ pub mod depot_browser;
 pub mod local_library;
 pub mod relocate;
 
+use crate::core::acf::extract_quoted_values;
 use crate::core::config::load_launcher_config;
 use crate::core::models::{GameLibrary, LibraryGame, OwnedGame};
-use crate::core::utils::extract_quoted_values;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -70,6 +70,8 @@ pub struct InstalledAppInfo {
     pub last_updated: u64,
     /// `buildid` from the appmanifest. Secondary tie-break behind `last_updated`.
     pub build_id: u64,
+    /// `SizeOnDisk` from the appmanifest.
+    pub size_on_disk: u64,
 }
 
 pub async fn scan_installed_app_info() -> Result<HashMap<u32, InstalledAppInfo>> {
@@ -87,7 +89,7 @@ pub async fn scan_installed_app_info() -> Result<HashMap<u32, InstalledAppInfo>>
     let mut installed = scan_libraries(&libraries).await;
 
     if config.is_some_and(|cfg| cfg.windows_steam_discovery_enabled) {
-        let master_steam = crate::core::utils::get_master_steam_config();
+        let master_steam = crate::core::steam_host::get_master_steam_config();
         if master_steam.wine_prefix.exists() {
             tracing::debug!(
                 "scanning Windows Steam root: {:?}",
@@ -185,6 +187,15 @@ pub async fn scan_library_info(root_path: &Path) -> Result<HashMap<u32, Installe
 /// root itself, every library its `libraryfolders.vdf` files register, and a
 /// probe of the connected drives for libraries Steam never registered.
 async fn expand_library_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
+    expand_library_roots_with(roots, |p: &Path| std::fs::canonicalize(p)).await
+}
+
+/// `expand_library_roots` with the symlink resolver injected, so tests can
+/// simulate Windows' verbatim-prefixed canonical paths on any platform.
+async fn expand_library_roots_with(
+    roots: &[PathBuf],
+    canonicalize: impl Fn(&Path) -> std::io::Result<PathBuf>,
+) -> Vec<PathBuf> {
     let mut libraries: Vec<PathBuf> = roots.to_vec();
 
     for root in roots {
@@ -207,12 +218,38 @@ async fn expand_library_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
     // three times, and every game in it looks installed in three libraries.
     libraries = libraries
         .into_iter()
-        .map(|p| std::fs::canonicalize(&p).unwrap_or(p))
+        .map(|p| strip_verbatim_prefix(canonicalize(p.as_path()).unwrap_or(p)))
         .collect();
 
     libraries.sort();
     libraries.dedup();
     libraries
+}
+
+/// On Windows, `canonicalize` returns extended-length paths (`\\?\C:\...`, or
+/// `\\?\UNC\server\share`). Steam and user-entered paths use the plain form, so
+/// the prefix is removed to keep the two comparable and printable.
+///
+/// Only drive-letter and UNC forms are rewritten. A volume without a drive letter
+/// canonicalizes to `\\?\Volume{GUID}\...`; stripping that prefix would leave a
+/// relative path that no longer resolves, so it is returned unchanged.
+fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
+    let Some(s) = path.to_str() else {
+        return path;
+    };
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    match s.strip_prefix(r"\\?\") {
+        Some(rest) if is_drive_path(rest) => PathBuf::from(rest),
+        _ => path,
+    }
+}
+
+/// True for a path that starts with a drive letter and root, such as `C:\`.
+fn is_drive_path(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && b[2] == b'\\'
 }
 
 /// The places a Steam data root keeps its `libraryfolders.vdf`. Steam maintains
@@ -255,7 +292,7 @@ fn pick_live_copy(copies: Vec<InstalledAppInfo>) -> Option<InstalledAppInfo> {
 }
 
 /// Every install of every app across `libraries`, including duplicates. Backs both
-/// [`scan_libraries`] and duplicate reporting.
+/// `scan_libraries` and duplicate reporting.
 pub async fn scan_libraries_all(libraries: &[PathBuf]) -> HashMap<u32, Vec<InstalledAppInfo>> {
     let mut installed: HashMap<u32, Vec<InstalledAppInfo>> = HashMap::new();
 
@@ -707,10 +744,10 @@ pub fn probe_install_dir_by_appid(steamapps: &Path, appid: u32) -> Option<PathBu
         if !path.is_dir() {
             continue;
         }
-        if let Ok(content) = std::fs::read_to_string(path.join("steam_appid.txt")) {
-            if content.trim() == appid_str {
-                return Some(path);
-            }
+        if let Ok(content) = std::fs::read_to_string(path.join("steam_appid.txt"))
+            && content.trim() == appid_str
+        {
+            return Some(path);
         }
     }
     None
@@ -738,14 +775,14 @@ async fn parse_app_manifest_info(path: &Path) -> Result<Option<(u32, InstalledAp
     let steamapps = path.parent().map(Path::to_path_buf).unwrap_or_default();
     let mut install_path = steamapps.join("common").join(&dir);
     // A manifest whose `installdir` no longer matches the folder on disk
-    if !install_path.is_dir() {
-        if let Some(found) = probe_install_dir_by_appid(&steamapps, id) {
-            tracing::debug!(
-                "app {id}: installdir {dir:?} missing, using {} instead",
-                found.display()
-            );
-            install_path = found;
-        }
+    if !install_path.is_dir()
+        && let Some(found) = probe_install_dir_by_appid(&steamapps, id)
+    {
+        tracing::debug!(
+            "app {id}: installdir {dir:?} missing, using {} instead",
+            found.display()
+        );
+        install_path = found;
     }
     Ok(Some((
         id,
@@ -758,6 +795,7 @@ async fn parse_app_manifest_info(path: &Path) -> Result<Option<(u32, InstalledAp
             manifest_path: path.to_path_buf(),
             last_updated: manifest.last_updated,
             build_id: manifest.build_id,
+            size_on_disk: manifest.size_on_disk,
         },
     )))
 }
@@ -781,6 +819,7 @@ pub fn build_game_library(
         let info = installed_info.get(&owned_game.app_id);
         let install_path = info.map(|i| i.install_path.to_string_lossy().to_string());
         let from_windows_steam = info.is_some_and(|i| i.from_windows_steam);
+        let size_on_disk = info.map(|i| i.size_on_disk);
         let active_branch = info
             .map(|i| i.active_branch.clone())
             .unwrap_or_else(|| "public".to_string());
@@ -793,6 +832,7 @@ pub fn build_game_library(
             install_path,
             local_manifest_ids: owned_game.local_manifest_ids,
             update_available: owned_game.update_available,
+            steam_config_mismatch: false,
             update_queued: false,
             active_branch,
             is_owned: true,
@@ -800,6 +840,7 @@ pub fn build_game_library(
             online_required: None,
             platform: None,
             from_windows_steam,
+            size_on_disk,
         });
     }
 
@@ -830,6 +871,7 @@ pub fn build_game_library(
             install_path: Some(info.install_path.to_string_lossy().to_string()),
             local_manifest_ids: HashMap::new(),
             update_available: false,
+            steam_config_mismatch: false,
             update_queued: false,
             active_branch: info.active_branch,
             is_owned: false,
@@ -837,6 +879,7 @@ pub fn build_game_library(
             online_required: None,
             platform: None,
             from_windows_steam,
+            size_on_disk: Some(info.size_on_disk),
         });
     }
 
@@ -845,5 +888,4 @@ pub fn build_game_library(
 }
 
 #[cfg(test)]
-#[path = "library_tests.rs"]
 mod tests;

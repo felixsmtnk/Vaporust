@@ -22,7 +22,7 @@ pub fn spinner(ui: &mut egui::Ui) -> egui::Response {
                 rect.center() + radius * egui::vec2(a.cos() as f32, a.sin() as f32)
             })
             .collect();
-        ui.painter().add(egui::Shape::line(points, egui::Stroke::new(2.0, ui.visuals().strong_text_color())));
+        ui.painter().add(egui::Shape::line(points, egui::Stroke::new(2.0_f32, ui.visuals().strong_text_color())));
         if anim {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(83));
         }

@@ -21,11 +21,10 @@ pub const ECON_IMAGE_BASE: &str = "https://community.cloudflare.steamstatic.com/
 pub struct WebSession {
     http: reqwest::Client,
     steam_id: u64,
-    /// The `sessionid` CSRF token. Steam only checks that this cookie matches the
-    /// `sessionid` form field on POSTs, so a client-generated value is accepted.
-    sessionid: String,
     /// `Cookie:` header; gains server cookies.
     cookie: std::sync::Arc<std::sync::Mutex<crate::core::secret::Secret>>,
+    /// vaporust: the `sessionid` CSRF token, kept for the form posts of write actions.
+    sessionid: String,
 }
 
 impl WebSession {
@@ -46,6 +45,7 @@ impl WebSession {
         // steamLoginSecure = urlencode("<steamid64>||<access_token>"); the only
         // character needing encoding is `|` → %7C (the JWT itself is URL-safe).
         let login_secure = format!("{steam_id}%7C%7C{web_access_token}");
+        // Steam only matches cookie and form.
         let sessionid = random_sessionid();
         let mut cookie = format!("steamLoginSecure={login_secure}; sessionid={sessionid}");
         if let Some(cc) = country.filter(|c| !c.is_empty()) {
@@ -56,8 +56,8 @@ impl WebSession {
         Ok(Self {
             http,
             steam_id,
-            sessionid,
             cookie: std::sync::Arc::new(std::sync::Mutex::new(cookie.into())),
+            sessionid,
         })
     }
 
@@ -370,5 +370,4 @@ fn random_sessionid() -> String {
 }
 
 #[cfg(test)]
-#[path = "web_session_tests.rs"]
 mod tests;

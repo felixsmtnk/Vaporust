@@ -4,11 +4,9 @@
 //! records which Workshop items the Steam client considers installed, along with
 //! their sizes, timestamps, and content manifest GIDs.
 //!
-//! This module is intentionally self-contained (no `use super::*;`) so the
-//! integrator can `mod workshop_manifest;` in `steam_client.rs` without any
-//! build-order concerns.
+//! Self-contained; no `use super::*`.
 
-use crate::core::utils::extract_quoted_values;
+use crate::core::acf::extract_quoted_values;
 use anyhow::{Context, Result};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -155,9 +153,9 @@ fn write_workshop_manifest(
     content.push_str("\t\"WorkshopItemsInstalled\"\n\t{\n");
     for item in items {
         write_item_block(&mut content, item.published_file_id, |buf| {
-            let _ = write!(buf, "\t\t\t\"size\"\t\t\"{}\"\n", item.size);
-            let _ = write!(buf, "\t\t\t\"timeupdated\"\t\t\"{}\"\n", item.time_updated);
-            let _ = write!(buf, "\t\t\t\"manifest\"\t\t\"{}\"\n", item.manifest_id);
+            let _ = writeln!(buf, "\t\t\t\"size\"\t\t\"{}\"", item.size);
+            let _ = writeln!(buf, "\t\t\t\"timeupdated\"\t\t\"{}\"", item.time_updated);
+            let _ = writeln!(buf, "\t\t\t\"manifest\"\t\t\"{}\"", item.manifest_id);
         });
     }
     content.push_str("\t}\n");
@@ -166,14 +164,14 @@ fn write_workshop_manifest(
     content.push_str("\t\"WorkshopItemDetails\"\n\t{\n");
     for item in items {
         write_item_block(&mut content, item.published_file_id, |buf| {
-            let _ = write!(buf, "\t\t\t\"manifest\"\t\t\"{}\"\n", item.manifest_id);
-            let _ = write!(buf, "\t\t\t\"timeupdated\"\t\t\"{}\"\n", item.time_updated);
-            let _ = write!(buf, "\t\t\t\"timetouched\"\t\t\"{}\"\n", item.time_updated);
+            let _ = writeln!(buf, "\t\t\t\"manifest\"\t\t\"{}\"", item.manifest_id);
+            let _ = writeln!(buf, "\t\t\t\"timeupdated\"\t\t\"{}\"", item.time_updated);
+            let _ = writeln!(buf, "\t\t\t\"timetouched\"\t\t\"{}\"", item.time_updated);
         });
     }
     content.push_str("\t}\n}\n");
 
-    std::fs::write(path, content)
+    crate::core::atomic::write_atomic(path, content.as_bytes())
         .with_context(|| format!("failed writing workshop manifest {}", path.display()))?;
     Ok(())
 }
@@ -191,10 +189,7 @@ fn write_item_block(buf: &mut String, published_file_id: u64, fields: impl FnOnc
 // Internal: parse
 // ---------------------------------------------------------------------------
 
-/// Extract all Workshop items from the raw ACF text.
-///
-/// The parser is a straightforward line-by-line state machine — the same style
-/// used by `parse_installed_depots_from_acf` in `manifests.rs`.
+/// Workshop items from raw ACF text.
 fn parse_installed_items(raw: &str) -> Vec<InstalledWorkshopItem> {
     #[derive(Debug, PartialEq)]
     enum Section {
@@ -367,5 +362,4 @@ impl ItemDetails {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[path = "workshop_manifest_tests.rs"]
 mod tests;

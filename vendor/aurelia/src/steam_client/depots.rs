@@ -21,11 +21,24 @@ impl std::fmt::Display for DepotKeyError {
 
 impl std::error::Error for DepotKeyError {}
 
-pub(crate) fn skip_denied_key(error: &anyhow::Error, is_override: bool) -> bool {
+/// Does a key failure skip it?
+///
+/// Access denied skips any automatic depot.
+/// Optional depots skip on any refusal.
+pub(crate) fn skip_key_failure(error: &anyhow::Error, is_override: bool, required: bool) -> bool {
     !is_override
         && error
             .downcast_ref::<DepotKeyError>()
-            .is_some_and(|e| e.eresult == 15)
+            .is_some_and(|e| e.eresult == 15 || !required)
+}
+
+/// Installed DLC depots are optional.
+pub(crate) fn mark_dlc_optional(selections: &mut [ManifestSelection], dlc_depots: &HashSet<u64>) {
+    for selection in selections {
+        if dlc_depots.contains(&(selection.depot_id as u64)) {
+            selection.required = false;
+        }
+    }
 }
 
 pub(crate) fn has_installable_content(
@@ -94,6 +107,37 @@ impl ResolvedDepots {
     }
 }
 
+/// Every selected manifest is already installed.
+pub(crate) fn selections_match_installed(
+    selections: &[ManifestSelection],
+    installed: &HashMap<u64, u64>,
+) -> bool {
+    !selections.is_empty()
+        && selections
+            .iter()
+            .all(|s| installed.get(&(s.depot_id as u64)) == Some(&s.manifest_id))
+}
+
+/// A depot row's `config/language`, if set.
+pub(crate) fn depot_language<'a>(value: &'a Value<'_>) -> Option<&'a str> {
+    value
+        .get_obj(&["config"])
+        .and_then(|c| c.get("language"))
+        .and_then(|l| l.as_str())
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+}
+
+/// Whether a depot serves `language`.
+pub(crate) fn depot_matches_language(value: &Value<'_>, language: &str) -> bool {
+    depot_language(value).is_none_or(|l| l.eq_ignore_ascii_case(language))
+}
+
+/// DLC app owning a depot.
+pub(crate) fn dlc_app(value: &Value<'_>, app_id: u32) -> Option<u32> {
+    number(value.get("dlcappid")).filter(|&id| id != 0 && id != app_id)
+}
+
 pub(crate) fn required_depot(value: &Value<'_>, app_id: u32) -> bool {
     number(value.get("dlcappid")).is_none_or(|id| id == 0 || id == app_id)
 }
@@ -130,16 +174,69 @@ async fn resolve_selected(
     vdf: Vdf<'static>,
     selected: Option<&HashMap<u64, u64>>,
 ) -> Result<ResolvedDepots> {
-    resolve_with(app_id, vdf, selected, |source_app| async move {
-        let buffer = pics_app_buffer(
-            connection,
-            source_app,
-            "failed requesting shared depot appinfo",
-        )
-        .await?;
-        find_vdf_in_pics(&buffer)
+    resolve_with(app_id, vdf, selected, |source_app| {
+        shared_appinfo(connection, source_app)
     })
     .await
+}
+
+/// Appinfo of a shared depot's source.
+async fn shared_appinfo(connection: &Connection, source_app: u32) -> Result<Vdf<'static>> {
+    let buffer = pics_app_buffer(
+        connection,
+        source_app,
+        "failed requesting shared depot appinfo",
+    )
+    .await?;
+    find_vdf_in_pics(&buffer)
+}
+
+/// One depot, shared installs included.
+pub(crate) async fn resolve_depot(
+    connection: &Connection,
+    app_id: u32,
+    vdf: Vdf<'static>,
+    depot_id: u32,
+) -> Result<ResolvedDepots> {
+    resolve_one_with(app_id, vdf, depot_id, |source_app| {
+        shared_appinfo(connection, source_app)
+    })
+    .await
+}
+
+/// Resolve one depot, sharedinstall included.
+async fn resolve_one_with<F, Fut>(
+    app_id: u32,
+    vdf: Vdf<'static>,
+    depot_id: u32,
+    fetch: F,
+) -> Result<ResolvedDepots>
+where
+    F: FnMut(u32) -> Fut + Send,
+    Fut: Future<Output = Result<Vdf<'static>>> + Send,
+{
+    let advertised = pics_depots_value(&vdf)
+        .and_then(Value::as_obj)
+        .context("appinfo has no depots object")?
+        .contains_key(&depot_id.to_string());
+    let mut rows = Obj::new();
+    let mut sources = HashMap::new();
+    // Unknown depot: caller reports it.
+    if advertised {
+        let mut resolver = Resolver {
+            apps: HashMap::from([(app_id, vdf)]),
+            fetch,
+            allow_missing_manifests: false,
+        };
+        let (row, source) = resolver.entry(app_id, depot_id, Vec::new()).await?;
+        rows.insert(depot_id.to_string(), row);
+        sources.insert(depot_id, source);
+    }
+    Ok(ResolvedDepots {
+        rows,
+        sources,
+        app_id,
+    })
 }
 
 async fn resolve_with<F, Fut>(
@@ -260,6 +357,54 @@ where
     }
 }
 
+/// Current manifest per depot and branch.
+pub(crate) fn manifest_infos(rows: &Obj<'_>) -> Vec<DepotManifestInfo> {
+    // Quoted string or raw u64.
+    fn parse_gid(v: &Value) -> Option<u64> {
+        if let Some(s) = v.as_str() {
+            return s.parse::<u64>().ok();
+        }
+        v.as_u64()
+    }
+
+    let mut out = Vec::new();
+    for (key, value) in rows.iter() {
+        let Ok(depot_id) = key.parse::<u32>() else {
+            continue;
+        };
+        let Some(obj) = value.as_obj() else { continue };
+        let depot_name = obj.get("name").and_then(|v| v.as_str()).map(str::to_string);
+
+        let Some(manifests) = obj.get("manifests").and_then(|v| v.as_obj()) else {
+            continue;
+        };
+        for (branch, entry) in manifests.iter() {
+            // Object, or bare gid string.
+            let (manifest_id, size) = match entry.as_obj() {
+                Some(bo) => (
+                    bo.get("gid").and_then(parse_gid),
+                    bo.get("size")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| s.parse::<u64>().ok())
+                        .unwrap_or(0),
+                ),
+                None => (parse_gid(entry), 0),
+            };
+            if let Some(manifest_id) = manifest_id {
+                out.push(DepotManifestInfo {
+                    depot_id,
+                    depot_name: depot_name.clone(),
+                    branch: branch.to_string(),
+                    manifest_id,
+                    size,
+                });
+            }
+        }
+    }
+    out.sort_by(|a, b| a.depot_id.cmp(&b.depot_id).then(a.branch.cmp(&b.branch)));
+    out
+}
+
 impl SteamClient {
     pub async fn get_depot_list(&self, app_id: u32) -> Result<Vec<DepotInfo>> {
         let buffer = self
@@ -324,71 +469,23 @@ impl SteamClient {
     /// appinfo `depots -> <depot> -> manifests -> <branch> -> gid/size` walk the
     /// install pipeline reads.
     pub async fn list_depot_manifests(&self, app_id: u32) -> Result<Vec<DepotManifestInfo>> {
+        Ok(manifest_infos(&self.resolved_depots(app_id).await?.rows))
+    }
+
+    /// Depot rows with shared depots resolved.
+    pub(crate) async fn resolved_depots(&self, app_id: u32) -> Result<ResolvedDepots> {
         let buffer = self
             .pics_buffer(
                 app_id,
                 "failed requesting appinfo product info for manifests",
             )
             .await?;
-
-        // Parse a gid value that may be encoded as a quoted string or a raw u64.
-        fn parse_gid(v: &steam_vdf_parser::Value) -> Option<u64> {
-            if let Some(s) = v.as_str() {
-                return s.parse::<u64>().ok();
-            }
-            v.as_u64()
-        }
-
-        let resolved = depots::resolve(
+        depots::resolve(
             self.require_connection()?,
             app_id,
             find_vdf_in_pics(&buffer)?,
         )
-        .await?;
-        let resolved_value = steam_vdf_parser::Value::Obj(resolved.rows);
-        let mut out = Vec::new();
-        {
-            let depots_val = Some(&resolved_value);
-            if let Some(depots) = depots_val.and_then(|v| v.as_obj()) {
-                for (key, value) in depots.iter() {
-                    let Ok(depot_id) = key.parse::<u32>() else {
-                        continue;
-                    };
-                    let Some(obj) = value.as_obj() else { continue };
-                    let depot_name = obj.get("name").and_then(|v| v.as_str()).map(str::to_string);
-
-                    let Some(manifests) = obj.get("manifests").and_then(|v| v.as_obj()) else {
-                        continue;
-                    };
-                    for (branch, entry) in manifests.iter() {
-                        // A branch entry is either an object ({ gid, size, download })
-                        // or, on older appinfo, a bare gid string.
-                        let (manifest_id, size) = match entry.as_obj() {
-                            Some(bo) => (
-                                bo.get("gid").and_then(parse_gid),
-                                bo.get("size")
-                                    .and_then(|v| v.as_str())
-                                    .and_then(|s| s.parse::<u64>().ok())
-                                    .unwrap_or(0),
-                            ),
-                            None => (parse_gid(entry), 0),
-                        };
-                        if let Some(manifest_id) = manifest_id {
-                            out.push(DepotManifestInfo {
-                                depot_id,
-                                depot_name: depot_name.clone(),
-                                branch: branch.to_string(),
-                                manifest_id,
-                                size,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        out.sort_by(|a, b| a.depot_id.cmp(&b.depot_id).then(a.branch.cmp(&b.branch)));
-        Ok(out)
+        .await
     }
 
     /// Estimate the download and on-disk size of installing `app_id` on `platform`,
@@ -402,49 +499,70 @@ impl SteamClient {
         app_id: u32,
         platform: DepotPlatform,
     ) -> Result<InstallSizeEstimate> {
+        let resolved = self.estimate_rows(app_id).await?;
+        Ok(estimate_from_rows(&resolved.rows, platform))
+    }
+
+    /// Size estimate plus language choices.
+    ///
+    /// Reads the local appmanifest, never writes.
+    pub async fn install_preview(
+        &self,
+        app_id: u32,
+        platform: DepotPlatform,
+    ) -> Result<InstallPreview> {
+        let resolved = self.estimate_rows(app_id).await?;
+        let manifest = self
+            .appmanifest_path(app_id)
+            .await
+            .ok()
+            .and_then(|p| std::fs::read_to_string(p).ok());
+        let installed_language = manifest
+            .as_deref()
+            .and_then(super::manifests::user_config_language)
+            .map(|l| l.to_ascii_lowercase());
+        let cfg_language = load_launcher_config().await.ok().and_then(|c| c.language);
+        // Same order as install_game.
+        let wanted = crate::core::locale::pick_install_language(
+            installed_language.as_deref(),
+            crate::core::locale::steam_client_language().as_deref(),
+            cfg_language.as_deref(),
+        );
+        Ok(InstallPreview {
+            estimate: estimate_from_rows(&resolved.rows, platform),
+            languages: super::language::language_choices(&resolved.rows, app_id, platform),
+            default_language: Some(super::language::default_language(
+                &resolved.rows,
+                app_id,
+                platform,
+                &wanted,
+            )),
+            installed_language,
+        })
+    }
+
+    /// Normalised `--language`, or typed error.
+    pub async fn check_install_language(
+        &self,
+        app_id: u32,
+        platform: DepotPlatform,
+        language: &str,
+    ) -> Result<String> {
+        let resolved = self.resolved_depots(app_id).await?;
+        super::language::validate_language(&resolved.rows, app_id, platform, language)
+    }
+
+    /// Resolved depot rows for estimates.
+    async fn estimate_rows(&self, app_id: u32) -> Result<ResolvedDepots> {
         let buffer = self
             .pics_buffer(
                 app_id,
                 "failed requesting appinfo product info for size estimate",
             )
             .await?;
-
-        let mut est = InstallSizeEstimate::default();
         let vdf = find_vdf_in_pics(&buffer).context("failed to parse product info VDF")?;
         vdf.as_obj().context("root is not an object")?;
-        let resolved = depots::resolve(self.require_connection()?, app_id, vdf).await?;
-        let resolved_value = steam_vdf_parser::Value::Obj(resolved.rows);
-        let depots_val = Some(&resolved_value);
-
-        if let Some(depots) = depots_val.and_then(|v| v.as_obj()) {
-            for (_depot_id, obj, public) in platform_depot_rows(depots, platform) {
-                let disk = public
-                    .and_then(|p| p.get("size"))
-                    .and_then(|v| v.as_str())
-                    .and_then(|s| s.parse::<u64>().ok())
-                    .or_else(|| {
-                        obj.get("maxsize")
-                            .and_then(|v| v.as_str())
-                            .and_then(|s| s.parse::<u64>().ok())
-                    })
-                    .unwrap_or(0);
-                // Steam's `download` is the compressed transfer size; fall back to the
-                // uncompressed size when a depot doesn't advertise it.
-                let download = public
-                    .and_then(|p| p.get("download"))
-                    .and_then(|v| v.as_str())
-                    .and_then(|s| s.parse::<u64>().ok())
-                    .unwrap_or(disk);
-
-                if disk > 0 || download > 0 {
-                    est.disk_size += disk;
-                    est.download_size += download;
-                    est.depot_count += 1;
-                }
-            }
-        }
-
-        Ok(est)
+        depots::resolve(self.require_connection()?, app_id, vdf).await
     }
 
     pub async fn get_depot_key(&self, app_id: u32, depot_id: u32) -> Result<Vec<u8>> {
@@ -464,47 +582,37 @@ impl SteamClient {
 
         Ok(response.depot_encryption_key().to_vec())
     }
+}
 
-    pub async fn fetch_depots(&self, appid: u32) -> Result<Vec<BrowserDepotInfo>> {
-        let connection = self.require_connection()?;
-        depot_browser::fetch_depots(connection, appid).await
+/// Sum platform depot sizes from rows.
+pub(crate) fn estimate_from_rows(rows: &Obj<'_>, platform: DepotPlatform) -> InstallSizeEstimate {
+    let mut est = InstallSizeEstimate::default();
+    for (_depot_id, obj, public) in platform_depot_rows(rows, platform) {
+        let disk = public
+            .and_then(|p| p.get("size"))
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse::<u64>().ok())
+            .or_else(|| {
+                obj.get("maxsize")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse::<u64>().ok())
+            })
+            .unwrap_or(0);
+        // Steam's `download` is the compressed transfer size; fall back to the
+        // uncompressed size when a depot doesn't advertise it.
+        let download = public
+            .and_then(|p| p.get("download"))
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(disk);
+        if disk > 0 || download > 0 {
+            est.disk_size += disk;
+            est.download_size += download;
+            est.depot_count += 1;
+        }
     }
-
-    pub async fn fetch_manifest_files(
-        &self,
-        appid: u32,
-        depot_id: u32,
-        manifest_ref: &str,
-    ) -> Result<Vec<ManifestFileEntry>> {
-        let connection = self.require_connection()?;
-        let cdn = self.browser_cdn_client(appid, depot_id).await?;
-        depot_browser::fetch_manifest_files(connection, &cdn, appid, depot_id, manifest_ref).await
-    }
-
-    pub fn download_single_file(
-        &self,
-        appid: u32,
-        depot_id: u32,
-        manifest_ref: &str,
-        file_path: &str,
-        output_dir: &Path,
-    ) -> Result<()> {
-        let connection = self.require_connection()?;
-        let runtime = tokio::runtime::Runtime::new()?;
-        let cdn = runtime.block_on(self.browser_cdn_client(appid, depot_id))?;
-        depot_browser::download_single_file(
-            &runtime,
-            connection,
-            &cdn,
-            appid,
-            depot_id,
-            manifest_ref,
-            file_path,
-            output_dir,
-        )
-    }
+    est
 }
 
 #[cfg(test)]
-#[path = "depots_tests.rs"]
 mod tests;

@@ -37,7 +37,7 @@ impl LauncherApp {
         let busy = this_running || (!custom && self.closing.load(Ordering::Relaxed));
         let downloading = net.install.as_ref().is_some_and(|i| i.active() && i.appid == appid);
         let neighbours = self.neighbours(appid);
-        let mut close = false;
+        let mut close = crate::theme::esc(ctx); // Esc - cancel
         let mut go = false;
         egui::Window::new(if custom { tr!("Сторонняя игра", "Non-Steam game") } else { tr!("Удаление игры", "Uninstall game") })
             .collapsible(false)
@@ -158,7 +158,7 @@ impl LauncherApp {
     /// "Install the game?" - after a double click on a non-installed game (as in Steam).
     pub(crate) fn install_ask_dialog(&mut self, ctx: &egui::Context, net: &NetState) {
         let Some((appid, name)) = self.install_ask.clone() else { return };
-        let mut close = false;
+        let mut close = crate::theme::esc(ctx); // Esc - cancel
         let mut go = false;
         let lib = self.libraries.get(self.lib_idx).cloned();
         egui::Window::new(tr!("Установка игры", "Install game"))
@@ -175,6 +175,36 @@ impl LauncherApp {
                 }
                 if net.install.as_ref().is_some_and(|i| i.active()) {
                     ui.weak(tr!("Сейчас качается другая игра - эта встанет в очередь.", "Another game is downloading now - this one will be queued."));
+                }
+                // The game language, as Steam offers it (Aurelia install_preview): asked once per game.
+                if net.account.is_some() && !crate::custom::is_custom(appid) {
+                    if !net.install_langs.contains_key(&appid) && self.lang_asked.insert(appid) {
+                        let _ = self.tx.send(Cmd::InstallPreview(appid));
+                    }
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label(tr!("Язык игры", "Game language"));
+                        match net.install_langs.get(&appid) {
+                            None => {
+                                crate::spin::spinner(ui);
+                            }
+                            Some(Err(_)) => {
+                                ui.weak(tr!("как решит Steam", "as Steam picks"));
+                            }
+                            Some(Ok((langs, default))) => {
+                                let chosen = self.settings.install_lang.get(&appid).cloned().or_else(|| default.clone()).unwrap_or_else(|| "english".into());
+                                let mut pick = chosen.clone();
+                                egui::ComboBox::from_id_salt(("install_lang", appid)).selected_text(steam_language_name(&pick)).height(300.0).show_ui(ui, |ui| {
+                                    for l in langs {
+                                        ui.selectable_value(&mut pick, l.clone(), steam_language_name(l));
+                                    }
+                                });
+                                if pick != chosen || !self.settings.install_lang.contains_key(&appid) {
+                                    self.settings.install_lang.insert(appid, pick);
+                                }
+                            }
+                        }
+                    });
                 }
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
@@ -193,4 +223,42 @@ impl LauncherApp {
             self.install_ask = None;
         }
     }
+}
+
+/// A Steam language name ("schinese", "brazilian") as a word for the interface.
+pub fn steam_language_name(code: &str) -> String {
+    let n = match code {
+        "english" => tr!("Английский", "English"),
+        "russian" => tr!("Русский", "Russian"),
+        "ukrainian" => tr!("Украинский", "Ukrainian"),
+        "german" => tr!("Немецкий", "German"),
+        "french" => tr!("Французский", "French"),
+        "italian" => tr!("Итальянский", "Italian"),
+        "spanish" => tr!("Испанский (Испания)", "Spanish (Spain)"),
+        "latam" => tr!("Испанский (Латинская Америка)", "Spanish (Latin America)"),
+        "portuguese" => tr!("Португальский (Португалия)", "Portuguese (Portugal)"),
+        "brazilian" => tr!("Португальский (Бразилия)", "Portuguese (Brazil)"),
+        "polish" => tr!("Польский", "Polish"),
+        "czech" => tr!("Чешский", "Czech"),
+        "hungarian" => tr!("Венгерский", "Hungarian"),
+        "romanian" => tr!("Румынский", "Romanian"),
+        "bulgarian" => tr!("Болгарский", "Bulgarian"),
+        "greek" => tr!("Греческий", "Greek"),
+        "turkish" => tr!("Турецкий", "Turkish"),
+        "dutch" => tr!("Нидерландский", "Dutch"),
+        "danish" => tr!("Датский", "Danish"),
+        "finnish" => tr!("Финский", "Finnish"),
+        "norwegian" => tr!("Норвежский", "Norwegian"),
+        "swedish" => tr!("Шведский", "Swedish"),
+        "schinese" => tr!("Китайский (упрощенный)", "Chinese (Simplified)"),
+        "tchinese" => tr!("Китайский (традиционный)", "Chinese (Traditional)"),
+        "japanese" => tr!("Японский", "Japanese"),
+        "koreana" | "korean" => tr!("Корейский", "Korean"),
+        "thai" => tr!("Тайский", "Thai"),
+        "vietnamese" => tr!("Вьетнамский", "Vietnamese"),
+        "arabic" => tr!("Арабский", "Arabic"),
+        "indonesian" => tr!("Индонезийский", "Indonesian"),
+        other => return other.to_string(),
+    };
+    n.to_string()
 }

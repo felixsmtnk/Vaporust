@@ -177,7 +177,7 @@ impl LauncherApp {
     /// "Add to cart": if the game has several purchase options - choose one; if one - straight to the cart.
     pub(crate) fn cart_pick_dialog(&mut self, ctx: &egui::Context, net: &NetState) {
         let Some(appid) = self.cart_ui.pick else { return };
-        let mut close = false;
+        let mut close = crate::theme::esc(ctx); // Esc - cancel
         egui::Window::new(tr!("В корзину", "Add to cart"))
             .collapsible(false)
             .resizable(false)

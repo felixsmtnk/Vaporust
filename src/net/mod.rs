@@ -49,7 +49,11 @@ pub enum Cmd {
         appid: u32,
         name: String,
         library: PathBuf,
+        /// The game language chosen before the install (a Steam language name), None - Aurelia picks.
+        language: Option<String>,
     },
+    /// Languages a game offers for an install (and the default one) - for the "Install game" window.
+    InstallPreview(u32),
     /// Load the conversation history with a friend.
     OpenChat(u64),
     /// Send a message to a friend.
@@ -382,6 +386,8 @@ pub struct NetState {
     pub cloud_shots_busy: bool,
     /// The last loaded page of cloud screenshots ("Show more" asks the next one; a page can hold fewer than 50).
     pub cloud_shots_page: u32,
+    /// Languages offered for an install: appid -> (languages, default) (Aurelia install_preview).
+    pub install_langs: HashMap<u32, Result<(Vec<String>, Option<String>), String>>,
     /// Whose screenshots are in cloud_shots (0 - own).
     pub cloud_shots_user: u64,
     /// Account info from Aurelia ("Settings" -> "Account" tab).
@@ -737,6 +743,7 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             appid,
             name,
             library,
+            language,
         } => {
             if st.lock().unwrap().install.as_ref().is_some_and(|i| i.active()) {
                 return;
@@ -759,13 +766,26 @@ async fn handle(client: &mut SteamClient, cmd: Cmd, st: &Shared, ctx: &egui::Con
             // The install runs in a separate task so other commands do not wait.
             let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
             tokio::spawn(async move {
-                let res = run_install(client, appid, library, abort, &st, &ctx).await;
+                let res = run_install(client, appid, library, language, abort, &st, &ctx).await;
                 upd(&st, &ctx, |s| {
                     if let Some(i) = s.install.as_mut() {
                         i.result = Some(res);
                         i.speed = 0.0;
                     }
                     s.disk_changed += 1;
+                });
+            });
+        }
+        Cmd::InstallPreview(appid) => {
+            let (client, st, ctx) = (client.clone(), st.clone(), ctx.clone());
+            spawn_session(async move {
+                let r = client
+                    .install_preview(appid, aurelia::core::models::DepotPlatform::Windows)
+                    .await
+                    .map(|p| (p.languages, p.default_language))
+                    .map_err(es);
+                upd(&st, &ctx, |s| {
+                    s.install_langs.insert(appid, r);
                 });
             });
         }

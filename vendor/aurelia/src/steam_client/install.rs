@@ -1,8 +1,8 @@
 //! `SteamClient` methods: branches, platform detection, install.
 //!
-//! Split out of `steam_client.rs` for readability; the struct, shared imports
-//! and free helpers live in the parent module (in scope via `use super::*`).
+//! Shares the parent's imports via `use super::*`.
 use super::*;
+use crate::core::acf;
 use crate::core::error::{ErrorKind, TypedError, io_kind, message_kind};
 
 /// CDN hosts tried together.
@@ -100,6 +100,20 @@ pub struct InstallOptions {
     pub manifest_overrides: Option<std::collections::HashMap<u32, u64>>,
     /// Branch for the recorded build id.
     pub branch: Option<String>,
+    /// Chosen language, already validated.
+    pub language: Option<String>,
+}
+
+/// One depot to download or verify.
+pub(crate) struct DepotJob {
+    pub app_id: u32,
+    pub depot_id: u32,
+    pub manifest_id: u64,
+    /// 32-byte depot decryption key.
+    pub key: Vec<u8>,
+    /// Whole-app total; `0` accumulates per-depot.
+    pub grand_total_bytes: u64,
+    pub verify_mode: bool,
 }
 
 impl SteamClient {
@@ -230,6 +244,7 @@ impl SteamClient {
             library_override,
             manifest_overrides,
             branch,
+            language: chosen_language,
         } = opts;
         let connection = self.require_connection_owned()?;
 
@@ -246,20 +261,20 @@ impl SteamClient {
             .join("steamapps")
             .join(format!("appmanifest_{appid}.acf"));
         if let Ok(raw) = std::fs::read_to_string(&existing_manifest) {
-            let parsed = crate::core::acf::parse_app_manifest(&raw);
+            let parsed = acf::parse_app_manifest(&raw);
             if let Some(dir) = parsed.install_dir.clone() {
                 let existing_dir = Path::new(&library_root)
                     .join("steamapps")
                     .join("common")
                     .join(&dir);
-                if existing_dir.is_dir() && crate::core::utils::is_safe_dir_name(&dir) {
+                if existing_dir.is_dir() && crate::core::paths::is_safe_dir_name(&dir) {
                     existing_installdir = Some(dir);
                 }
             }
-            if game_name.starts_with("App ") {
-                if let Some(name) = parsed.display_name().filter(|n| !n.starts_with("App ")) {
-                    game_name = name;
-                }
+            if game_name.starts_with("App ")
+                && let Some(name) = parsed.display_name().filter(|n| !n.starts_with("App "))
+            {
+                game_name = name;
             }
         }
 
@@ -278,9 +293,12 @@ impl SteamClient {
             }
             let base_raw = std::fs::read_to_string(&base_manifest)
                 .with_context(|| format!("failed reading {}", base_manifest.display()))?;
-            let base_installdir = parse_installdir_from_acf(&base_raw).ok_or_else(|| {
-                anyhow!("could not determine base game install dir for app {base_appid}")
-            })?;
+            let base_installdir =
+                acf::parse_app_manifest(&base_raw)
+                    .install_dir
+                    .ok_or_else(|| {
+                        anyhow!("could not determine base game install dir for app {base_appid}")
+                    })?;
             let steamapps = base_manifest
                 .parent()
                 .ok_or_else(|| anyhow!("invalid base manifest path for app {base_appid}"))?;
@@ -306,6 +324,19 @@ impl SteamClient {
                 .join(format!("appmanifest_{appid}.acf"));
             (dir, mp, installdir)
         };
+
+        // Same language source order as Steam.
+        let manifest_language = std::fs::read_to_string(&manifest_path)
+            .ok()
+            .and_then(|raw| super::manifests::user_config_language(&raw));
+        let explicit_language = chosen_language.is_some();
+        let wanted_language = chosen_language.unwrap_or_else(|| {
+            crate::core::locale::pick_install_language(
+                manifest_language.as_deref(),
+                crate::core::locale::steam_client_language().as_deref(),
+                cfg.language.as_deref(),
+            )
+        });
 
         std::fs::create_dir_all(&install_dir)
             .with_context(|| format!("failed creating {}", install_dir.display()))?;
@@ -348,6 +379,8 @@ impl SteamClient {
             // Sum of all selected depots' max (uncompressed) sizes — the whole-app total
             // used to report overall download progress across depots.
             let mut grand_total_bytes: u64 = 0;
+            // UserConfig language, if chosen.
+            let mut recorded_language = None;
 
             let mut has_windows = false;
             if find_vdf_in_pics(appinfo_vdf_bytes).is_ok() {
@@ -361,6 +394,22 @@ impl SteamClient {
                     };
                     let resolved_value = steam_vdf_parser::Value::Obj(resolved.rows.clone());
                     let depots_val = Some(&resolved_value);
+                    recorded_language = super::language::recorded_language(
+                        &resolved.rows,
+                        appid,
+                        platform,
+                        &wanted_language,
+                        explicit_language,
+                    );
+                    // Depot filter language.
+                    let language = recorded_language
+                        .clone()
+                        .unwrap_or_else(|| "english".to_string());
+                    if language != wanted_language {
+                        tracing::info!(
+                            "app {appid} has no {wanted_language} depots; installing {language}"
+                        );
+                    }
 
                     // depots -> branches -> public -> buildid
                     build_id = depots_val
@@ -392,20 +441,8 @@ impl SteamClient {
                                 let manifest_id = if let Some(mid) = override_mid {
                                     Some(mid)
                                 } else {
-                                    let mut match_os = should_keep_depot(oslist, platform);
-
-                                    if match_os {
-                                        // 1. LANGUAGE CHECK
-                                        let lang = value
-                                            .get_obj(&["config"])
-                                            .and_then(|c| c.get("language"))
-                                            .and_then(|l| l.as_str());
-                                        if let Some(lang) = lang {
-                                            if lang != "english" && !lang.is_empty() {
-                                                match_os = false;
-                                            }
-                                        }
-                                    }
+                                    let match_os = should_keep_depot(oslist, platform)
+                                        && depots::depot_matches_language(value, &language);
 
                                     let depot_id_u64 = d_id as u64;
                                     let is_allowed = filter_depots
@@ -473,12 +510,11 @@ impl SteamClient {
 
             // For a downgrade against a named branch, record that branch's build id in
             // the appmanifest instead of the appinfo-derived (public) one.
-            if let Some(branch_name) = branch.as_deref() {
-                if let Some(bid) =
+            if let Some(branch_name) = branch.as_deref()
+                && let Some(bid) =
                     SteamClient::remote_buildid_static(&connection, appid, branch_name).await
-                {
-                    build_id = Some(bid);
-                }
+            {
+                build_id = Some(bid);
             }
 
             let _ = tx
@@ -507,13 +543,16 @@ impl SteamClient {
             if dlc_appid.is_none() {
                 if let Err(e) = SteamClient::write_appmanifest(
                     &manifest_path,
-                    appid,
-                    &game_name,
-                    &installdir,
-                    Vec::new(),
-                    build_id.as_deref(),
-                    false,
-                    pin_updates,
+                    AppManifestSpec {
+                        appid,
+                        game_name: &game_name,
+                        installdir: &installdir,
+                        installed_depots: Vec::new(),
+                        buildid: build_id.as_deref(),
+                        fully_installed: false,
+                        pin_updates,
+                        language: recorded_language.as_deref(),
+                    },
                 ) {
                     tracing::warn!("failed writing initial appmanifest for app {appid}: {e}");
                 } else {
@@ -537,10 +576,12 @@ impl SteamClient {
             let outcome = match fetch_content_hosts(&client_clone, &connection, &tx, appid).await {
                 Some(hosts) => {
                     run_depot_loop(
-                        &client_clone,
-                        &connection,
-                        &tx,
-                        &shared_state_clone,
+                        &DepotLoopCtx {
+                            client: &client_clone,
+                            connection: &connection,
+                            tx: &tx,
+                            shared_state: &shared_state_clone,
+                        },
                         appid,
                         selections,
                         &install_dir,
@@ -573,13 +614,16 @@ impl SteamClient {
             } else {
                 SteamClient::write_appmanifest(
                     &manifest_path,
-                    appid,
-                    &game_name,
-                    &installdir,
-                    successful_depots,
-                    build_id.as_deref(),
-                    true,
-                    pin_updates,
+                    AppManifestSpec {
+                        appid,
+                        game_name: &game_name,
+                        installdir: &installdir,
+                        installed_depots: successful_depots,
+                        buildid: build_id.as_deref(),
+                        fully_installed: true,
+                        pin_updates,
+                        language: recorded_language.as_deref(),
+                    },
                 )
             };
             if let Err(err) = manifest_result {
@@ -624,16 +668,18 @@ impl SteamClient {
         // grand_total_bytes = 0: this standalone call has no whole-app total, so
         // on_manifest will accumulate per-depot totals into state.total_bytes.
         self.download_depot_to_with_hosts(
-            app_id,
-            depot_id,
-            manifest_id,
+            DepotJob {
+                app_id,
+                depot_id,
+                manifest_id,
+                key,
+                grand_total_bytes: 0,
+                verify_mode: false,
+            },
             dest,
             shared_state,
             &hosts,
-            0,
             &connection,
-            key,
-            false,
         )
         .await
     }
@@ -648,17 +694,20 @@ impl SteamClient {
     /// used to decide whether to add this depot's size to `state.total_bytes`.
     pub(crate) async fn download_depot_to_with_hosts(
         &self,
-        app_id: u32,
-        depot_id: u32,
-        manifest_id: u64,
+        job: DepotJob,
         dest: &std::path::Path,
         shared_state: Arc<std::sync::RwLock<crate::core::models::DownloadState>>,
         hosts: &[ContentHost],
-        grand_total_bytes: u64,
         connection: &Connection,
-        key: Vec<u8>,
-        verify_mode: bool,
     ) -> anyhow::Result<u64> {
+        let DepotJob {
+            app_id,
+            depot_id,
+            manifest_id,
+            key,
+            grand_total_bytes,
+            verify_mode,
+        } = job;
         // A valid depot key is exactly 32 bytes; a short/all-zero key would
         // decrypt chunks to garbage (the chunk path then fails the zip parse
         // with "Could not find EOCD").

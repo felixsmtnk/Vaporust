@@ -573,7 +573,7 @@ fn disk_bar(ui: &mut egui::Ui, total: u64, games: u64, free: u64) {
         ] {
             let (r, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
             ui.painter().rect_filled(r, 2.0, color);
-            ui.painter().rect_stroke(r, 2.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(103, 112, 123)));
+            ui.painter().rect_stroke(r, 2.0, egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(103, 112, 123)));
             ui.label(egui::RichText::new(format!("{label}: {}", net::fmt_bytes(size))).size(12.0).color(crate::theme::TEXT2));
             ui.add_space(10.0);
         }

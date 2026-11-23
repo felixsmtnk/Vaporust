@@ -60,11 +60,11 @@ pub fn apply(ctx: &egui::Context) {
     v.code_bg_color = Color32::from_rgb(24, 28, 35);
     v.hyperlink_color = ACCENT;
     v.selection.bg_fill = Color32::from_rgb(35, 98, 160);
-    v.selection.stroke = egui::Stroke::new(1.0, ACCENT);
+    v.selection.stroke = egui::Stroke::new(1.0_f32, ACCENT);
     v.override_text_color = None;
     v.warn_fg_color = Color32::from_rgb(230, 190, 90);
     v.error_fg_color = Color32::from_rgb(235, 110, 100);
-    v.window_stroke = egui::Stroke::new(1.0, Color32::from_rgb(28, 32, 38));
+    v.window_stroke = egui::Stroke::new(1.0_f32, Color32::from_rgb(28, 32, 38));
     v.window_rounding = egui::Rounding::same(3.0);
     v.menu_rounding = egui::Rounding::same(3.0);
     v.window_shadow = egui::epaint::Shadow { offset: egui::vec2(0.0, 6.0), blur: 16.0, spread: 0.0, color: Color32::from_black_alpha(140) };
@@ -72,18 +72,18 @@ pub fn apply(ctx: &egui::Context) {
     let w = &mut v.widgets;
     w.noninteractive.bg_fill = BG;
     w.noninteractive.weak_bg_fill = BG;
-    w.noninteractive.bg_stroke = egui::Stroke::new(1.0, Color32::from_rgb(52, 58, 68));
-    w.noninteractive.fg_stroke = egui::Stroke::new(1.0, TEXT);
+    w.noninteractive.bg_stroke = egui::Stroke::new(1.0_f32, Color32::from_rgb(52, 58, 68));
+    w.noninteractive.fg_stroke = egui::Stroke::new(1.0_f32, TEXT);
     // Buttons, as in Steam: a flat slate plate (#3d4450), lighter on hover, blue when pressed or open.
     w.inactive.bg_fill = BUTTON;
     w.inactive.weak_bg_fill = BUTTON;
-    w.inactive.fg_stroke = egui::Stroke::new(1.0, TEXT);
+    w.inactive.fg_stroke = egui::Stroke::new(1.0_f32, TEXT);
     w.hovered.bg_fill = BUTTON_HOVER;
     w.hovered.weak_bg_fill = BUTTON_HOVER;
-    w.hovered.fg_stroke = egui::Stroke::new(1.0, Color32::WHITE);
+    w.hovered.fg_stroke = egui::Stroke::new(1.0_f32, Color32::WHITE);
     w.active.bg_fill = ACCENT;
     w.active.weak_bg_fill = ACCENT;
-    w.active.fg_stroke = egui::Stroke::new(1.0, Color32::WHITE);
+    w.active.fg_stroke = egui::Stroke::new(1.0_f32, Color32::WHITE);
     w.open.bg_fill = Color32::from_rgb(73, 81, 95);
     w.open.weak_bg_fill = Color32::from_rgb(73, 81, 95);
     for s in [&mut w.inactive, &mut w.hovered, &mut w.active, &mut w.open] {
@@ -142,7 +142,7 @@ pub type Icon = fn(&egui::Painter, egui::Rect, Color32);
 
 /// "+" icon (Add a game).
 pub fn icon_plus(p: &egui::Painter, r: egui::Rect, c: Color32) {
-    let s = egui::Stroke::new(1.8, c);
+    let s = egui::Stroke::new(1.8_f32, c);
     let (m, d) = (r.center(), r.width() * 0.36);
     p.line_segment([m - egui::vec2(d, 0.0), m + egui::vec2(d, 0.0)], s);
     p.line_segment([m - egui::vec2(0.0, d), m + egui::vec2(0.0, d)], s);
@@ -150,7 +150,7 @@ pub fn icon_plus(p: &egui::Painter, r: egui::Rect, c: Color32) {
 
 /// Two people icon (Friends and chat).
 pub fn icon_friends(p: &egui::Painter, r: egui::Rect, c: Color32) {
-    let s = egui::Stroke::new(1.5, c);
+    let s = egui::Stroke::new(1.5_f32, c);
     let m = r.center();
     // The front person.
     p.circle_stroke(m + egui::vec2(-2.0, -2.5), 2.6, s);
@@ -216,13 +216,13 @@ pub fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
 /// Magnifier icon.
 pub fn icon_search(p: &egui::Painter, r: egui::Rect, c: Color32) {
     let m = r.center() + egui::vec2(-1.5, -1.5);
-    p.circle_stroke(m, 4.6, egui::Stroke::new(1.5, c));
-    p.line_segment([m + egui::vec2(3.4, 3.4), m + egui::vec2(7.0, 7.0)], egui::Stroke::new(1.8, c));
+    p.circle_stroke(m, 4.6, egui::Stroke::new(1.5_f32, c));
+    p.line_segment([m + egui::vec2(3.4, 3.4), m + egui::vec2(7.0, 7.0)], egui::Stroke::new(1.8_f32, c));
 }
 
 /// House icon (library "Home").
 pub fn icon_home(p: &egui::Painter, r: egui::Rect, c: Color32) {
-    let s = egui::Stroke::new(1.5, c);
+    let s = egui::Stroke::new(1.5_f32, c);
     let m = r.center();
     let roof = vec![m + egui::vec2(-6.5, 0.0), m + egui::vec2(0.0, -6.0), m + egui::vec2(6.5, 0.0)];
     p.add(egui::Shape::line(roof, s));
@@ -292,7 +292,7 @@ pub fn shelf_title(ui: &mut egui::Ui, text: &str) -> egui::Response {
     let x0 = resp.rect.right() + 10.0;
     let x1 = ui.max_rect().right();
     if x1 > x0 {
-        ui.painter().line_segment([egui::pos2(x0, y), egui::pos2(x1, y)], egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(103, 112, 123, 70)));
+        ui.painter().line_segment([egui::pos2(x0, y), egui::pos2(x1, y)], egui::Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(103, 112, 123, 70)));
     }
     resp
 }
@@ -387,7 +387,7 @@ pub fn icon_play(p: &egui::Painter, r: egui::Rect, c: Color32) {
 
 /// Download arrow into a tray ("Install", "Manage downloads").
 pub fn icon_download(p: &egui::Painter, r: egui::Rect, c: Color32) {
-    let s = egui::Stroke::new(1.6, c);
+    let s = egui::Stroke::new(1.6_f32, c);
     let m = r.center();
     let h = r.height() * 0.5;
     p.line_segment([m + egui::vec2(0.0, -h), m + egui::vec2(0.0, h * 0.35)], s);
@@ -442,22 +442,22 @@ pub fn icon_grid(p: &egui::Painter, r: egui::Rect, c: Color32) {
 pub fn icon_clock(p: &egui::Painter, r: egui::Rect, c: Color32) {
     let m = r.center();
     let rad = r.height() * 0.45;
-    p.circle_stroke(m, rad, egui::Stroke::new(1.4, c));
-    p.line_segment([m, m + egui::vec2(0.0, -rad * 0.6)], egui::Stroke::new(1.4, c));
-    p.line_segment([m, m + egui::vec2(rad * 0.45, rad * 0.2)], egui::Stroke::new(1.4, c));
+    p.circle_stroke(m, rad, egui::Stroke::new(1.4_f32, c));
+    p.line_segment([m, m + egui::vec2(0.0, -rad * 0.6)], egui::Stroke::new(1.4_f32, c));
+    p.line_segment([m, m + egui::vec2(rad * 0.45, rad * 0.2)], egui::Stroke::new(1.4_f32, c));
 }
 
 /// Play in a circle (ready-to-play filter).
 pub fn icon_play_circle(p: &egui::Painter, r: egui::Rect, c: Color32) {
     let m = r.center();
     let rad = r.height() * 0.45;
-    p.circle_stroke(m, rad, egui::Stroke::new(1.4, c));
+    p.circle_stroke(m, rad, egui::Stroke::new(1.4_f32, c));
     icon_play(p, egui::Rect::from_center_size(m + egui::vec2(0.8, 0.0), egui::vec2(rad, rad)), c);
 }
 
 /// Filter lines (advanced filters).
 pub fn icon_filter(p: &egui::Painter, r: egui::Rect, c: Color32) {
-    let s = egui::Stroke::new(1.4, c);
+    let s = egui::Stroke::new(1.4_f32, c);
     let m = r.center();
     let w = r.width() * 0.5;
     for (i, k) in [1.0, 0.65, 0.3].iter().enumerate() {
@@ -468,7 +468,7 @@ pub fn icon_filter(p: &egui::Painter, r: egui::Rect, c: Color32) {
 
 /// Arrow left (back).
 pub fn icon_back(p: &egui::Painter, r: egui::Rect, c: Color32) {
-    let s = egui::Stroke::new(1.8, c);
+    let s = egui::Stroke::new(1.8_f32, c);
     let m = r.center();
     let h = r.height() * 0.4;
     p.line_segment([m + egui::vec2(-h, 0.0), m + egui::vec2(h, 0.0)], s);
@@ -477,7 +477,7 @@ pub fn icon_back(p: &egui::Painter, r: egui::Rect, c: Color32) {
 
 /// Arrow right (forward).
 pub fn icon_forward(p: &egui::Painter, r: egui::Rect, c: Color32) {
-    let s = egui::Stroke::new(1.8, c);
+    let s = egui::Stroke::new(1.8_f32, c);
     let m = r.center();
     let h = r.height() * 0.4;
     p.line_segment([m + egui::vec2(-h, 0.0), m + egui::vec2(h, 0.0)], s);
@@ -597,7 +597,7 @@ pub fn text_link(ui: &mut egui::Ui, text: &str) -> egui::Response {
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
     let c = if resp.hovered() { Color32::WHITE } else { WEAK };
     if resp.hovered() {
-        ui.painter().line_segment([rect.left_bottom(), rect.right_bottom()], egui::Stroke::new(1.0, c));
+        ui.painter().line_segment([rect.left_bottom(), rect.right_bottom()], egui::Stroke::new(1.0_f32, c));
     }
     ui.painter().galley_with_override_text_color(rect.min, galley, c);
     resp
@@ -606,4 +606,9 @@ pub fn text_link(ui: &mut egui::Ui, text: &str) -> egui::Response {
 /// The green Steam purchase button ("Continue to payment", "Add to Cart").
 pub fn buy_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
     action_button(ui, text, Color32::from_rgb(117, 183, 44), Color32::from_rgb(88, 141, 33), None, true)
+}
+
+/// Esc was pressed this frame: dialogs close on it, as "Cancel".
+pub fn esc(ctx: &egui::Context) -> bool {
+    ctx.input(|i| i.key_pressed(egui::Key::Escape))
 }

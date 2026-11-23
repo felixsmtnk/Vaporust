@@ -182,7 +182,7 @@ impl LauncherApp {
                                                 }
                                             }
                                             if tab == 0 {
-                                                ui.painter().rect_stroke(ar.expand(1.0), 0.0, egui::Stroke::new(1.5, p.color));
+                                                ui.painter().rect_stroke(ar.expand(1.0), 0.0, egui::Stroke::new(1.5_f32, p.color));
                                             }
                                             if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                                                 profile = Some(p.id);

@@ -182,7 +182,7 @@ impl LauncherApp {
                     ui.painter().rect_filled(ar, 3.0, crate::theme::CARD);
                 }
             }
-            ui.painter().rect_stroke(ar.expand(1.0), 3.0, egui::Stroke::new(2.0, color));
+            ui.painter().rect_stroke(ar.expand(1.0), 3.0, egui::Stroke::new(2.0_f32, color));
             if resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tr!("Мой профиль", "My profile")).clicked() {
                 open_profile = true;
             }
@@ -273,7 +273,7 @@ impl LauncherApp {
                 let col = if menu.response.hovered() { egui::Color32::WHITE } else { crate::theme::TEXT };
                 for k in 0..3 {
                     let y = mr.center().y - 5.0 + k as f32 * 5.0;
-                    ui.painter().line_segment([egui::pos2(mr.center().x - 7.0, y), egui::pos2(mr.center().x + 7.0, y)], egui::Stroke::new(1.8, col));
+                    ui.painter().line_segment([egui::pos2(mr.center().x - 7.0, y), egui::pos2(mr.center().x + 7.0, y)], egui::Stroke::new(1.8_f32, col));
                 }
                 if !incoming.is_empty() {
                     let b = egui::pos2(mr.right() - 3.0, mr.top() + 4.0);
@@ -561,7 +561,7 @@ impl LauncherApp {
 
         // Own note about a friend (visible only to you, kept in Vaporust settings).
         if let Some((id, name, mut text)) = self.social_ui.note_edit.take() {
-            let mut keep = true;
+            let mut keep = !crate::theme::esc(ctx); // Esc - cancel
             let mut save = false;
             egui::Window::new(trf!("Заметка: {name}", "Note: {name}"))
                 .collapsible(false)
@@ -711,7 +711,7 @@ impl LauncherApp {
                 .get(&id)
                 .and_then(|f| f.persona_name.clone())
                 .unwrap_or_else(crate::social::unknown_name);
-            let mut close = false;
+            let mut close = crate::theme::esc(ctx); // Esc - cancel
             egui::Window::new(tr!("Удалить из друзей?", "Remove friend?"))
                 .id(egui::Id::new("confirm_remove"))
                 .collapsible(false)
@@ -743,7 +743,7 @@ impl LauncherApp {
                 .and_then(|f| f.persona_name.clone())
                 .or_else(|| net.profiles.get(&id).and_then(|p| p.as_ref().ok()).and_then(|p| p.persona_name.clone()))
                 .unwrap_or_else(crate::social::unknown_name);
-            let mut close = false;
+            let mut close = crate::theme::esc(ctx); // Esc - cancel
             egui::Window::new(if block { tr!("Заблокировать?", "Block?") } else { tr!("Разблокировать?", "Unblock?") })
                 .id(egui::Id::new("confirm_block"))
                 .collapsible(false)
@@ -976,7 +976,7 @@ fn profile_left(
             });
             let resp = ui.interact(row.response.rect, ui.id().with(("recent", g.appid)), egui::Sense::click());
             if resp.hovered() {
-                ui.painter().rect_stroke(row.response.rect, 2.0, egui::Stroke::new(1.0, crate::theme::ACCENT));
+                ui.painter().rect_stroke(row.response.rect, 2.0, egui::Stroke::new(1.0_f32, crate::theme::ACCENT));
             }
             if g.appid != 0 && resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tr!("Страница в магазине", "Store page")).clicked() {
                 *act = Some(ProfileAct::Store(g.appid));
@@ -1169,7 +1169,7 @@ fn profile_right(
                 } else {
                     egui::Color32::from_gray(110)
                 };
-                ui.painter().rect_stroke(ar.expand(1.0), 2.0, egui::Stroke::new(1.5, c));
+                ui.painter().rect_stroke(ar.expand(1.0), 2.0, egui::Stroke::new(1.5_f32, c));
                 ui.vertical(|ui| {
                     ui.set_width(ui.available_width() - 34.0);
                     ui.spacing_mut().item_spacing.y = 0.0;
@@ -1212,7 +1212,7 @@ fn trash_button(ui: &mut egui::Ui) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), egui::Sense::click());
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
     let c = if resp.hovered() { egui::Color32::from_rgb(230, 110, 110) } else { crate::theme::WEAK };
-    let s = egui::Stroke::new(1.4, c);
+    let s = egui::Stroke::new(1.4_f32, c);
     let p = ui.painter();
     let m = r.center();
     // Lid with a handle.

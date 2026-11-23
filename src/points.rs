@@ -334,7 +334,7 @@ fn coin(p: &egui::Painter, r: egui::Rect) {
     let c = r.center();
     let rad = r.width().min(r.height()) / 2.0;
     p.circle_filled(c, rad, egui::Color32::from_rgb(26, 159, 255));
-    p.circle_stroke(c, rad * 0.62, egui::Stroke::new(1.4, egui::Color32::from_rgb(190, 228, 255)));
+    p.circle_stroke(c, rad * 0.62, egui::Stroke::new(1.4_f32, egui::Color32::from_rgb(190, 228, 255)));
 }
 
 #[cfg(test)]

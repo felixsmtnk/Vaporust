@@ -39,8 +39,6 @@ downloads, chat, Workshop, community pages, achievements. Still to do - these pr
 
 - Readability at 1366x768 and 125-150% scale: cut-off names in the left game list, small pale
   secondary text.
-- Game page: ten links in one row with the same weight - keep the main ones (store, achievements,
-  community, Workshop), move the rest (folder, shortcut, note, support, trailer) to the manage menu.
 - Long names of games, friends and groups in all lists.
 - Clear grouping of actions: one main and noticeable action, service actions in a menu.
 - Pages do not "jump" while images load: space for the cover and screenshots is reserved in

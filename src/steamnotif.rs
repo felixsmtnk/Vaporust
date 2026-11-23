@@ -394,7 +394,7 @@ mod tests {
 fn draw_bell(p: &egui::Painter, r: egui::Rect, color: egui::Color32, unread: u32) {
     let c = r.center();
     // A thin 1-point line and the same size as the "minimize / close" icons next to it.
-    let s = egui::Stroke::new(1.0, color);
+    let s = egui::Stroke::new(1.0_f32, color);
     // The bell's dome and skirt.
     let mut pts = Vec::new();
     for i in 0..=12 {

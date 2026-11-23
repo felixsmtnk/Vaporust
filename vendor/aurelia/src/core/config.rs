@@ -1,4 +1,4 @@
-use crate::core::models::{OwnedGame, SessionState, SteamPrefixMode, UserConfigStore};
+use crate::core::models::{ExtraKeys, OwnedGame, SessionState, SteamPrefixMode, UserConfigStore};
 use anyhow::{Context, Result};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -53,6 +53,15 @@ pub struct GameConfig {
     /// not upgraded by `update` / `check-updates` (which report it as pinned).
     #[serde(default)]
     pub pinned: bool,
+    /// Overrides `enable_cloud_sync` for `play`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloud_sync: Option<bool>,
+    /// Custom compatdata folder; prefix is `<dir>/pfx`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix_dir: Option<PathBuf>,
+    /// Unknown keys, kept on save.
+    #[serde(flatten)]
+    pub extra: ExtraKeys,
 }
 
 /// Per-game launch backend selection.
@@ -82,6 +91,9 @@ pub struct ProxyConfig {
     /// e.g. `localhost,127.0.0.1,.internal`. `None` = no exceptions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub no_proxy: Option<String>,
+    /// Unknown keys, kept on save.
+    #[serde(flatten)]
+    pub extra: ExtraKeys,
 }
 
 /// Steam presence the session daemon
@@ -188,6 +200,9 @@ pub struct LauncherConfig {
     /// Global download limit in kbit/s; 0 is unlimited.
     #[serde(default)]
     pub download_limit_kbit: u64,
+    /// Unknown keys, kept on save.
+    #[serde(flatten)]
+    pub extra: ExtraKeys,
 }
 
 /// kbit/s to bytes/s.
@@ -203,6 +218,21 @@ fn default_persona_wait_secs() -> u64 {
 }
 
 impl LauncherConfig {
+    /// Whether `play` syncs this game.
+    pub fn cloud_sync_enabled(&self, app_id: u32) -> bool {
+        self.game_configs
+            .get(&app_id)
+            .and_then(|g| g.cloud_sync)
+            .unwrap_or(self.enable_cloud_sync)
+    }
+
+    /// Custom compatdata folder, if set.
+    pub fn prefix_dir(&self, app_id: u32) -> Option<&Path> {
+        self.game_configs
+            .get(&app_id)
+            .and_then(|g| g.prefix_dir.as_deref())
+    }
+
     /// Download limit in bytes/s; 0 is unlimited.
     pub fn download_limit_bytes(&self) -> u64 {
         kbit_to_bytes(self.download_limit_kbit)
@@ -256,6 +286,7 @@ impl Default for LauncherConfig {
             encrypt_session: false,
             persona_wait_secs: DEFAULT_PERSONA_WAIT_SECS,
             download_limit_kbit: 0,
+            extra: ExtraKeys::new(),
         }
     }
 }
@@ -285,7 +316,7 @@ pub fn detect_steam_path() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
         let candidates = [PathBuf::from(r"C:\Program Files (x86)\Steam")];
-        return candidates.into_iter().find(|path| path.exists());
+        candidates.into_iter().find(|path| path.exists())
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -359,7 +390,15 @@ pub fn config_dir() -> Result<PathBuf> {
     if let Some(dir) = std::env::var_os("AURELIA_CONFIG_DIR").filter(|v| !v.is_empty()) {
         return Ok(PathBuf::from(dir));
     }
+    // Lib tests: throwaway dir. Bin tests excluded.
+    #[cfg(test)]
+    {
+        static TEST_DIR: std::sync::LazyLock<PathBuf> =
+            std::sync::LazyLock::new(|| tempfile::tempdir().expect("test config dir").keep());
+        Ok(TEST_DIR.clone())
+    }
     // Joined per component so Windows paths don't mix separators.
+    #[cfg(not(test))]
     Ok(home_dir()?.join(".config").join("Aurelia"))
 }
 
@@ -394,14 +433,6 @@ pub async fn load_session() -> Result<SessionState> {
         .with_context(|| format!("failed reading {}", session_path.display()))?;
     // Encrypted sessions decrypt on the fly.
     if let Some(envelope) = crate::core::session_crypto::EncryptedSession::from_json(&raw) {
-        if !envelope.keyring {
-            // Passwords are gone; a login re-keys it.
-            anyhow::bail!(
-                "session.json was encrypted with a legacy session password — \
-                 run `aurelia login` again to re-key it to the OS keyring \
-                 (without a keyring, run `aurelia logout` first)"
-            );
-        }
         // Keyring-keyed: automatic, never prompts.
         let key = tokio::task::spawn_blocking(crate::core::session_crypto::keyring_secret)
             .await
@@ -424,10 +455,10 @@ pub async fn load_session() -> Result<SessionState> {
 /// already an encrypted envelope — an existing encrypted session is never
 /// silently rewritten as plaintext.
 async fn session_encryption_active(session_path: &Path) -> bool {
-    if let Ok(config) = load_launcher_config().await {
-        if config.encrypt_session {
-            return true;
-        }
+    if let Ok(config) = load_launcher_config().await
+        && config.encrypt_session
+    {
+        return true;
     }
     session_file_encrypted(session_path).await
 }
@@ -633,14 +664,6 @@ pub struct LibraryCache {
     pub games: Vec<OwnedGame>,
 }
 
-/// Current shape or legacy bare array.
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum LibraryCacheFile {
-    Tagged(LibraryCache),
-    Legacy(Vec<OwnedGame>),
-}
-
 pub async fn save_library_cache(owned_games: &[OwnedGame], steam_id: Option<u64>) -> Result<()> {
     #[derive(Serialize)]
     struct Out<'a> {
@@ -656,23 +679,34 @@ pub async fn save_library_cache(owned_games: &[OwnedGame], steam_id: Option<u64>
 
 /// Cached library with its owner, if any.
 pub async fn read_library_cache() -> Result<LibraryCache> {
-    let path = library_cache_path()?;
+    read_library_cache_at(&library_cache_path()?).await
+}
+
+pub(crate) async fn read_library_cache_at(path: &Path) -> Result<LibraryCache> {
     if !path.exists() {
         return Ok(LibraryCache::default());
     }
-    Ok(read_json::<LibraryCacheFile>(&path).await?.into())
+    if let Some(cache) = convert_bare_library_cache(path).await {
+        return Ok(cache);
+    }
+    read_json(path).await
 }
 
-impl From<LibraryCacheFile> for LibraryCache {
-    fn from(file: LibraryCacheFile) -> Self {
-        match file {
-            LibraryCacheFile::Tagged(cache) => cache,
-            LibraryCacheFile::Legacy(games) => LibraryCache {
-                steam_id: None,
-                games,
-            },
-        }
+/// v0.2.5 bare array, owner unknown.
+async fn convert_bare_library_cache(path: &Path) -> Option<LibraryCache> {
+    let raw = fs::read_to_string(path).await.ok()?;
+    if !raw.trim_start().starts_with('[') {
+        return None;
     }
+    let games: Vec<OwnedGame> = serde_json::from_str(&raw).ok()?;
+    let cache = LibraryCache {
+        steam_id: None,
+        games,
+    };
+    if let Err(e) = write_json_pretty(path, &cache).await {
+        tracing::warn!("could not convert {}: {e:#}", path.display());
+    }
+    Some(cache)
 }
 
 impl LibraryCache {
@@ -705,7 +739,7 @@ pub async fn load_library_cache_for(steam_id: Option<u64>) -> Vec<OwnedGame> {
 /// with `AURELIA_INFO_CACHE_TTL` — `0` disables the cache.
 const INFO_CACHE_DEFAULT_TTL_SECS: u64 = 6 * 60 * 60;
 
-/// The configured `info` cache TTL ([`INFO_CACHE_DEFAULT_TTL_SECS`] unless
+/// The configured `info` cache TTL (`INFO_CACHE_DEFAULT_TTL_SECS` unless
 /// `AURELIA_INFO_CACHE_TTL` overrides it).
 pub fn info_cache_ttl() -> std::time::Duration {
     let secs = std::env::var("AURELIA_INFO_CACHE_TTL")
@@ -749,7 +783,7 @@ fn info_cache_path(app_id: u32, language: &str, country: &str) -> Result<PathBuf
     Ok(info_cache_dir()?.join(format!("{app_id}.{lang}.{cc}.json")))
 }
 
-use crate::core::utils::now_unix;
+use crate::core::time::now_unix;
 
 /// Load a cached `info` record for `app_id` if one exists and is still within
 /// `ttl`. Returns `None` on a miss, a stale entry, or any read/parse error, so the
@@ -824,16 +858,61 @@ pub async fn save_tag_name_cache(
 /// options, env vars, the Steam-runtime policy) on one typo is exactly the footgun this
 /// avoids. See the same contract on [`load_launcher_config`].
 pub async fn load_user_configs() -> Result<UserConfigStore> {
-    let path = config_dir()?.join("user_apps.json");
+    load_user_configs_at(&config_dir()?.join("user_apps.json")).await
+}
+
+pub(crate) async fn load_user_configs_at(path: &Path) -> Result<UserConfigStore> {
     if !path.exists() {
         return Ok(UserConfigStore::new());
     }
-    read_json(&path).await.with_context(|| {
+    if let Some(store) = convert_use_steam_runtime(path).await {
+        return Ok(store);
+    }
+    read_json(path).await.with_context(|| {
         format!(
             "invalid per-game config — fix the JSON in {}, or delete it to start fresh",
             path.display()
         )
     })
+}
+
+/// Rewrite v0.2 `use_steam_runtime` keys once.
+async fn convert_use_steam_runtime(path: &Path) -> Option<UserConfigStore> {
+    let raw = fs::read_to_string(path).await.ok()?;
+    if !raw.contains("\"use_steam_runtime\"") {
+        return None;
+    }
+    let mut value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    if !fold_use_steam_runtime(&mut value) {
+        return None;
+    }
+    let store: UserConfigStore = serde_json::from_value(value).ok()?;
+    if let Err(e) = write_json_pretty(path, &store).await {
+        tracing::warn!("could not convert {}: {e:#}", path.display());
+    }
+    Some(store)
+}
+
+/// `use_steam_runtime: true` on `Auto` means `Enabled`.
+pub(crate) fn fold_use_steam_runtime(store: &mut serde_json::Value) -> bool {
+    let Some(entries) = store.as_object_mut() else {
+        return false;
+    };
+    let mut changed = false;
+    for entry in entries.values_mut() {
+        let Some(obj) = entry.as_object_mut() else {
+            continue;
+        };
+        let Some(legacy) = obj.remove("use_steam_runtime") else {
+            continue;
+        };
+        changed = true;
+        let auto = obj.get("steam_runtime_policy").is_none_or(|p| p == "Auto");
+        if legacy == true && auto {
+            obj.insert("steam_runtime_policy".into(), "Enabled".into());
+        }
+    }
+    changed
 }
 
 pub async fn save_user_configs(configs: &UserConfigStore) -> Result<()> {
@@ -842,5 +921,4 @@ pub async fn save_user_configs(configs: &UserConfigStore) -> Result<()> {
 }
 
 #[cfg(test)]
-#[path = "config_tests.rs"]
 mod tests;

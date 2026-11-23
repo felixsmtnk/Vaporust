@@ -13,17 +13,6 @@ use std::path::{Path, PathBuf};
 
 use walkdir::WalkDir;
 
-/// Total size in bytes of every regular file under `path` (0 if it doesn't exist).
-pub fn dir_size(path: &Path) -> u64 {
-    WalkDir::new(path)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-        .filter_map(|e| e.metadata().ok())
-        .map(|m| m.len())
-        .sum()
-}
-
 /// Move the directory tree at `src` to `dst`, invoking `on_progress(copied_bytes,
 /// current_file)` as it goes.
 ///
@@ -167,10 +156,10 @@ pub fn update_libraryfolders_apps(
         let trimmed = line.trim();
 
         // Capture a folder's "path" so we know which library this block describes.
-        if in_apps_of.is_none() {
-            if let Some(path_val) = parse_kv(trimmed, "path") {
-                current_path = Some(normalize_path(&path_val));
-            }
+        if in_apps_of.is_none()
+            && let Some(path_val) = parse_kv(trimmed, "path")
+        {
+            current_path = Some(normalize_path(&path_val));
         }
 
         // The "apps" key precedes its own `{` on the next line.
@@ -253,5 +242,4 @@ fn parse_kv(line: &str, key: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-#[path = "relocate_tests.rs"]
 mod tests;

@@ -193,6 +193,8 @@ pub struct Settings {
     pub pending_shortcuts: Vec<u32>,
     /// Games downloading into the temporary folder: appid -> real library.
     pub staged: std::collections::BTreeMap<u32, String>,
+    /// The language chosen in the "Install game" window: appid -> Steam language name (kept for resumes).
+    pub install_lang: std::collections::BTreeMap<u32, String>,
     /// Non-Steam games added with the "Add a game" button.
     pub custom_games: Vec<crate::custom::CustomGame>,
 }
@@ -302,6 +304,7 @@ impl Default for Settings {
             custom_to_steam: true,
             pending_shortcuts: Vec::new(),
             staged: Default::default(),
+            install_lang: Default::default(),
             custom_games: Vec::new(),
         }
     }

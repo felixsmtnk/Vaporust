@@ -786,6 +786,8 @@ impl LauncherApp {
                                                 appid: d.app_id,
                                                 name: name.clone(),
                                                 library: lib.to_path_buf(),
+                                                // DLC follows the language of its game.
+                                                language: None,
                                             });
                                         }
                                     }

@@ -56,7 +56,7 @@ const PERSONA_DRAIN_IDLE: std::time::Duration = std::time::Duration::from_millis
 pub struct Friend {
     /// SteamID64 of the friend.
     pub steam_id: u64,
-    /// Raw EFriendRelationship value (see [`RELATIONSHIP_FRIEND`]).
+    /// Raw EFriendRelationship value (see `RELATIONSHIP_FRIEND`).
     pub relationship: u32,
     /// Display name, if a persona state update has supplied one.
     pub persona_name: Option<String>,
@@ -235,7 +235,7 @@ pub fn apply_nicknames(roster: &mut Roster, msg: &CMsgClientPlayerNicknameList) 
 
 /// Announcing would sign it out.
 pub fn host_steam_owns_presence() -> bool {
-    crate::core::utils::is_steam_running()
+    crate::core::steam_host::is_steam_running()
 }
 
 /// Drain steam-vent's buffer of messages that arrived with no registered
@@ -574,5 +574,4 @@ impl SteamClient {
 }
 
 #[cfg(test)]
-#[path = "friends_tests.rs"]
 mod tests;

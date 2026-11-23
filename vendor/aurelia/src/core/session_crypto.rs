@@ -20,7 +20,7 @@ const FORMAT: &str = "aurelia-session-v1";
 /// Encrypted `session.json` on-disk form.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EncryptedSession {
-    /// Format tag; see [`FORMAT`].
+    /// Format tag; see `FORMAT`.
     pub format: String,
     /// Plaintext display-name hint (persona, else account).
     ///
@@ -64,9 +64,9 @@ pub fn encrypt(plaintext: &[u8], password: &str) -> Result<EncryptedSession> {
     rand::fill(&mut nonce[..]);
 
     let key = derive_key(password, &salt)?;
-    let cipher = ChaCha20Poly1305::new(Key::from_slice(&key));
+    let cipher = ChaCha20Poly1305::new(&Key::from(key));
     let ciphertext = cipher
-        .encrypt(Nonce::from_slice(&nonce), plaintext)
+        .encrypt(&Nonce::from(nonce), plaintext)
         .map_err(|e| anyhow!("session encryption failed: {e}"))?;
 
     Ok(EncryptedSession {
@@ -91,9 +91,12 @@ pub fn decrypt(envelope: &EncryptedSession, password: &str) -> Result<Vec<u8>> {
         return Err(anyhow!("bad nonce length in encrypted session"));
     }
     let key = derive_key(password, &salt)?;
-    let cipher = ChaCha20Poly1305::new(Key::from_slice(&key));
+    let cipher = ChaCha20Poly1305::new(&Key::from(key));
+    // Wrong length: error, not panic.
+    let nonce = Nonce::try_from(nonce.as_slice())
+        .map_err(|_| anyhow!("bad nonce length in encrypted session"))?;
     cipher
-        .decrypt(Nonce::from_slice(&nonce), ciphertext.as_slice())
+        .decrypt(&nonce, ciphertext.as_slice())
         .map_err(|_| anyhow!("could not decrypt session.json — the key does not match this file"))
 }
 
@@ -173,37 +176,4 @@ pub fn keyring_secret_or_create() -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn round_trip() {
-        let env = encrypt(b"{\"refresh_token\":\"secret\"}", "hunter2").unwrap();
-        assert_eq!(env.format, FORMAT);
-        let plain = decrypt(&env, "hunter2").unwrap();
-        assert_eq!(plain, b"{\"refresh_token\":\"secret\"}");
-    }
-
-    #[test]
-    fn wrong_password_fails() {
-        let env = encrypt(b"data", "right").unwrap();
-        assert!(decrypt(&env, "wrong").is_err());
-    }
-
-    #[test]
-    fn plaintext_is_not_an_envelope() {
-        assert!(EncryptedSession::from_json("{\"account_name\":\"x\"}").is_none());
-        let env = encrypt(b"data", "pw").unwrap();
-        let raw = serde_json::to_string(&env).unwrap();
-        assert!(EncryptedSession::from_json(&raw).is_some());
-    }
-
-    #[test]
-    fn unique_salts_and_nonces() {
-        let a = encrypt(b"data", "pw").unwrap();
-        let b = encrypt(b"data", "pw").unwrap();
-        assert_ne!(a.salt, b.salt);
-        assert_ne!(a.nonce, b.nonce);
-        assert_ne!(a.ciphertext, b.ciphertext);
-    }
-}
+mod tests;

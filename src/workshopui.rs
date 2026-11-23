@@ -171,7 +171,7 @@ fn tile(ui: &mut egui::Ui, it: &aurelia::core::models::WorkshopItem, w: f32, sub
         ui.put(img_rect, img);
     }
     if hovered {
-        p.rect_stroke(img_rect, 3.0, egui::Stroke::new(2.0, crate::theme::ACCENT));
+        p.rect_stroke(img_rect, 3.0, egui::Stroke::new(2.0_f32, crate::theme::ACCENT));
     }
     // Subscription: a green check mark if subscribed; "+" on hover.
     if subscribed || hovered {
@@ -180,7 +180,7 @@ fn tile(ui: &mut egui::Ui, it: &aurelia::core::models::WorkshopItem, w: f32, sub
         let fill = if subscribed { crate::theme::PLAY } else if br.hovered() { crate::theme::ACCENT } else { egui::Color32::from_rgba_unmultiplied(20, 26, 34, 220) };
         p.rect_filled(b, 4.0, fill);
         let c = b.center();
-        let s = egui::Stroke::new(2.2, egui::Color32::WHITE);
+        let s = egui::Stroke::new(2.2_f32, egui::Color32::WHITE);
         if subscribed {
             p.line_segment([c + egui::vec2(-6.0, 0.0), c + egui::vec2(-2.0, 4.5)], s);
             p.line_segment([c + egui::vec2(-2.0, 4.5), c + egui::vec2(6.5, -5.0)], s);
@@ -569,7 +569,7 @@ pub fn detail_page(ui: &mut egui::Ui, w: &mut WsUi, ws: &WorkshopState, cmds: &m
                                 .sense(egui::Sense::click()),
                         );
                         if i == cur {
-                            ui.painter().rect_stroke(r.rect, 3.0, egui::Stroke::new(2.0, crate::theme::ACCENT));
+                            ui.painter().rect_stroke(r.rect, 3.0, egui::Stroke::new(2.0_f32, crate::theme::ACCENT));
                         }
                         if r.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                             w.preview = i;

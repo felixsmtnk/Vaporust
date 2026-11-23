@@ -122,7 +122,7 @@ fn section(ui: &mut egui::Ui, text: &str, add: impl FnOnce(&mut egui::Ui)) {
         add(ui);
         let r = ui.available_rect_before_wrap();
         let y = r.center().y;
-        ui.painter().hline(r.left() + 6.0..=r.right(), y, egui::Stroke::new(1.0, egui::Color32::from_rgb(52, 60, 74)));
+        ui.painter().hline(r.left() + 6.0..=r.right(), y, egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(52, 60, 74)));
     });
     ui.add_space(6.0);
 }
@@ -154,7 +154,7 @@ fn graph(ui: &mut egui::Ui, height: f32) {
     // Grid: 4 horizontal lines.
     for k in 1..4 {
         let y = r.top() + r.height() * k as f32 / 4.0;
-        p.hline(r.x_range(), y, egui::Stroke::new(1.0, egui::Color32::from_rgb(34, 40, 50)));
+        p.hline(r.x_range(), y, egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(34, 40, 50)));
     }
     let n = g.samples.len();
     if n < 2 {
@@ -181,7 +181,7 @@ fn graph(ui: &mut egui::Ui, height: f32) {
         mesh.add_triangle(base, base + 2, base + 3);
     }
     p.add(egui::Shape::mesh(mesh));
-    p.add(egui::Shape::line(pts, egui::Stroke::new(1.5, theme::ACCENT)));
+    p.add(egui::Shape::line(pts, egui::Stroke::new(1.5_f32, theme::ACCENT)));
 }
 
 impl LauncherApp {

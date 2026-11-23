@@ -5,8 +5,7 @@
 //! Only metadata + subscription state live here; downloading a Workshop item's
 //! content (its SteamPipe depot manifest) is the install pipeline's job.
 //!
-//! Split out of `steam_client.rs` for readability; the struct, shared imports
-//! and free helpers live in the parent module (in scope via `use super::*`).
+//! Shares the parent's imports via `use super::*`.
 use super::*;
 
 use crate::core::models::{WorkshopComment, WorkshopItem, WorkshopItemKind};
@@ -202,7 +201,7 @@ impl SteamClient {
     /// Resolve `ids` to a flat, de-duplicated, first-seen-ordered list of leaf
     /// (non-collection) item ids, recursing into nested collections. Plain item
     /// ids pass through unchanged. Cycles are broken with a visited set and
-    /// recursion is capped at [`MAX_COLLECTION_DEPTH`].
+    /// recursion is capped at `MAX_COLLECTION_DEPTH`.
     pub async fn expand_collections(&self, ids: &[u64]) -> Result<Vec<u64>> {
         let mut result: Vec<u64> = Vec::new();
         let mut seen_leaf: HashSet<u64> = HashSet::new();
@@ -563,5 +562,4 @@ impl SteamClient {
 }
 
 #[cfg(test)]
-#[path = "workshop_tests.rs"]
 mod tests;

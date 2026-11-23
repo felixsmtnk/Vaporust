@@ -112,7 +112,7 @@ pub fn list(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, sort: &mu
             }
         }
     }
-    ui.painter().hline(head.x_range(), head.bottom(), egui::Stroke::new(1.0, egui::Color32::from_rgb(50, 57, 69)));
+    ui.painter().hline(head.x_range(), head.bottom(), egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(50, 57, 69)));
 
     let row_h = 28.0;
     // No spacing between rows, set BEFORE show_rows: it counts row height together with the spacing,
@@ -276,7 +276,7 @@ pub fn grid(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, recent: &
             let resp = lab.add(egui::Label::new(job).selectable(false));
             let y = resp.rect.center().y + 1.0;
             if resp.rect.right() + 10.0 < origin.x + width - 16.0 {
-                lab.painter().hline(resp.rect.right() + 10.0..=origin.x + width - 16.0, y, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(103, 112, 123, 70)));
+                lab.painter().hline(resp.rect.right() + 10.0..=origin.x + width - 16.0, y, egui::Stroke::new(1.0_f32, egui::Color32::from_rgba_unmultiplied(103, 112, 123, 70)));
             }
         }
         let first = (((vp.min.y - shelf_h) / row_h).floor().max(0.0)) as usize;
@@ -351,7 +351,7 @@ fn tile_ui(ui: &mut egui::Ui, r: &Row, c: &Ctx, covers: &Covers, tile: egui::Vec
         } else {
             // Blue button with a down arrow (download), like "Install" in Steam.
             painter.rect_filled(b, 4.0, if over { egui::Color32::from_rgb(71, 160, 240) } else { theme::ACCENT });
-            let st = egui::Stroke::new(2.5, egui::Color32::WHITE);
+            let st = egui::Stroke::new(2.5_f32, egui::Color32::WHITE);
             painter.line_segment([egui::pos2(cx, cy - 9.0), egui::pos2(cx, cy + 5.0)], st);
             painter.line_segment([egui::pos2(cx - 6.0, cy - 1.0), egui::pos2(cx, cy + 5.0)], st);
             painter.line_segment([egui::pos2(cx + 6.0, cy - 1.0), egui::pos2(cx, cy + 5.0)], st);
@@ -513,9 +513,12 @@ pub fn sidebar(ui: &mut egui::Ui, rows: &[Row], c: &Ctx, covers: &Covers, select
                 job.wrap = egui::text::TextWrapping::truncate_at_width(rect.right() - x - 4.0);
                 f.layout_job(job)
             });
+            // A cut-off name (narrow column, large scale): the full name on hover.
+            let cut = galley.rows.iter().any(|row| row.ends_with_newline) || galley.rows.first().is_some_and(|row| row.glyphs.len() < r.name.chars().count());
             p.galley(egui::pos2(x, rect.center().y - galley.size().y / 2.0), galley, color);
             collections_menu(&resp, r, c, &mut out);
             let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+            let resp = if cut { resp.on_hover_text(&r.name) } else { resp };
             if resp.double_clicked() && r.ready && !c.launching && !c.installing {
                 out = Some(Action::Play(r.appid));
             } else if resp.double_clicked() && !r.ready && c.logged_in && !c.installing_now(r.appid) && !crate::custom::is_custom(r.appid) {
@@ -787,30 +790,43 @@ pub fn page(ui: &mut egui::Ui, r: &Row, c: &Ctx, covers: &Covers, d: &PageData, 
                     } else {
                         link(ui, tr!("Изменить или убрать...", "Edit or remove..."), tr!("Файл, название, параметры запуска", "File, name, launch options"), Action::Props(r.appid, r.name.clone()));
                     }
-                    if r.installed {
-                        link(ui, tr!("Папка игры", "Browse Files"), tr!("Открыть папку игры в Проводнике", "Open the game folder in Explorer"), Action::Folder(r.appid));
-                        link(ui, tr!("Ярлык", "Shortcut"), tr!("Ярлык на рабочем столе: запуск игры через Vaporust", "Desktop shortcut: launch the game through Vaporust"), Action::Shortcut(r.appid, r.name.clone()));
-                    }
-                    link(ui, tr!("Заметка", "Notes"), tr!("Своя заметка к игре (видна только вам)", "Your own note for the game (only you see it)"), Action::Note(r.appid, r.name.clone()));
-                    if steam_game {
-                        let support = d.support.map(str::to_string).unwrap_or_else(|| format!("https://help.steampowered.com/wizard/HelpWithGame/?appid={}", r.appid));
-                        if band_link(ui, tr!("Поддержка", "Support"), tr!("Поддержка игры: сайт разработчика или помощь Steam", "Game support: the developer's website or Steam Support")).clicked() {
-                            ui.ctx().open_url(egui::OpenUrl::new_tab(support));
+                    // The rest of the game actions - in one menu, so the band keeps the main pages only.
+                    let more = ui.menu_button(egui::RichText::new(tr!("Еще...", "More...")).size(13.0).color(theme::TEXT2), |ui| {
+                        ui.set_min_width(220.0);
+                        let mut item = |ui: &mut egui::Ui, text: &str, hint: &str, act: Action| {
+                            if ui.button(text).on_hover_text(hint).clicked() {
+                                out = Some(act);
+                                ui.close_menu();
+                            }
+                        };
+                        if r.installed {
+                            item(ui, tr!("Папка игры", "Browse Files"), tr!("Открыть папку игры в Проводнике", "Open the game folder in Explorer"), Action::Folder(r.appid));
+                            item(ui, tr!("Ярлык на рабочем столе", "Desktop shortcut"), tr!("Ярлык на рабочем столе: запуск игры через Vaporust", "Desktop shortcut: launch the game through Vaporust"), Action::Shortcut(r.appid, r.name.clone()));
                         }
-                        if let Some(t) = d.trailer {
-                            if band_link(ui, tr!("Трейлер", "Trailer"), tr!("Открыть трейлер игры в браузере", "Open the game trailer in the browser")).clicked() {
-                                ui.ctx().open_url(egui::OpenUrl::new_tab(t));
+                        item(ui, tr!("Заметка", "Notes"), tr!("Своя заметка к игре (видна только вам)", "Your own note for the game (only you see it)"), Action::Note(r.appid, r.name.clone()));
+                        if steam_game {
+                            let support = d.support.map(str::to_string).unwrap_or_else(|| format!("https://help.steampowered.com/wizard/HelpWithGame/?appid={}", r.appid));
+                            if ui.button(tr!("Поддержка", "Support")).on_hover_text(tr!("Поддержка игры: сайт разработчика или помощь Steam", "Game support: the developer's website or Steam Support")).clicked() {
+                                ui.ctx().open_url(egui::OpenUrl::new_tab(support));
+                                ui.close_menu();
+                            }
+                            if let Some(t) = d.trailer {
+                                if ui.button(tr!("Трейлер", "Trailer")).on_hover_text(tr!("Открыть трейлер игры в браузере", "Open the game trailer in the browser")).clicked() {
+                                    ui.ctx().open_url(egui::OpenUrl::new_tab(t));
+                                    ui.close_menu();
+                                }
                             }
                         }
-                    }
-                    if !r.installed && c.logged_in && steam_game {
-                        link(
-                            ui,
-                            tr!("Уже скачана...", "Already downloaded..."),
-                            tr!("Указать папку с уже скачанными файлами игры (например, скопированной с другого ПК)", "Point to a folder with already downloaded game files (for example copied from another PC)"),
-                            Action::Import(r.appid, r.name.clone()),
-                        );
-                    }
+                        if !r.installed && c.logged_in && steam_game {
+                            item(
+                                ui,
+                                tr!("Уже скачана...", "Already downloaded..."),
+                                tr!("Указать папку с уже скачанными файлами игры (например, скопированной с другого ПК)", "Point to a folder with already downloaded game files (for example copied from another PC)"),
+                                Action::Import(r.appid, r.name.clone()),
+                            );
+                        }
+                    });
+                    more.response.on_hover_text(tr!("Папка, ярлык, заметка, поддержка, трейлер", "Folder, shortcut, notes, support, trailer"));
                 });
             });
         });
@@ -923,7 +939,7 @@ fn left_column(ui: &mut egui::Ui, r: &Row, c: &Ctx, d: &PageData, out: &mut Opti
                 });
                 let resp = ui.interact(card.response.rect, ui.id().with(("news", &n.gid)), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
                 if resp.hovered() {
-                    ui.painter().rect_stroke(card.response.rect, 2.0, egui::Stroke::new(1.0, theme::BUTTON_HOVER));
+                    ui.painter().rect_stroke(card.response.rect, 2.0, egui::Stroke::new(1.0_f32, theme::BUTTON_HOVER));
                 }
                 if resp.clicked() {
                     ui.ctx().open_url(egui::OpenUrl::new_tab(&n.url));

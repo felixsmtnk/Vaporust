@@ -1,8 +1,8 @@
-# Vaporust changes to Aurelia 0.2.6
+# Vaporust changes to Aurelia 0.3.1
 
 **English** · [Русский](VAPORUST_CHANGES.ru.md)
 
-This directory is a copy of [Aurelia](https://github.com/Drackrath/Aurelia) version 0.2.6
+This directory is a copy of [Aurelia](https://github.com/Drackrath/Aurelia) version 0.3.1
 (crate `aurelia-steam`, author Drackrath, license GPL-3.0-or-later, see `LICENSE`).
 Vaporust uses it as a library and made the changes listed below (November 2026).
 All other files are unchanged. Every change in the code is marked with a `vaporust` comment.
@@ -19,10 +19,17 @@ All other files are unchanged. Every change in the code is marked with a `vaporu
   made `save_session` fail closed himself (an encrypted session is never rewritten as plain text), so
   his version was taken instead of ours; `library/cloud_sync_tests.rs` - both new test sets kept. The
   Steam crates moved to aurelia-steam-vent 0.8, -chat 0.9, -proto 0.6 (Vaporust uses the same).
+- **0.2.6 -> 0.3.1:** merged the same way (tag v0.3.1). The author split big files into folders
+  (`steam_client.rs` -> `steam_client/mod.rs`, `library/cloud_sync.rs` -> `library/cloud_sync/`), so our
+  changes there were moved by hand: the module declarations and exports to `steam_client/mod.rs`, the
+  cloud fixes to `cloud_sync/paths.rs` (known folders), `transfer.rs` (paged file list) and `transport.rs`
+  (a damaged download is an error) with the test in `tests/body.rs`. The author removed the `sessionid`
+  field of `WebSession`; it is kept again for our form posts. `windows-sys` is 0.61 now (with our
+  `Win32_System_Com`). Aurelia 0.3 needs Rust 1.100.
 
 ## Changed files
 
-- `src/steam_client.rs` - connects the new modules (`vaporust_chat`, `vaporust_props`,
+- `src/steam_client/mod.rs` - connects the new modules (`vaporust_chat`, `vaporust_props`,
   `vaporust_media`, `vaporust_store`, `vaporust_groups`) and exports `CloudScreenshot`, `ChatGroup`,
   `ChatChannel`, `GroupMessage`, `RawChatEvent`, `RawChatKind`, `SentChatMessage`.
 - `src/steam_client/chat.rs` - `recent_chat_messages` asks for the history with
@@ -86,7 +93,7 @@ All other files are unchanged. Every change in the code is marked with a `vaporu
   `ChatGroup.top_members` - a few members to name a group without a name; the group icon address
   `{sha}_64.jpg` as in the Steam client, `_medium.jpg` gave 404), channel history (`group_messages`),
   sending (`send_group_message`), the session's active groups (`activate_chat_groups`).
-- `src/library/cloud_sync.rs`: a download that matches the expected hash neither as received nor unzipped
+- `src/library/cloud_sync/` (`paths.rs`, `transfer.rs`, `transport.rs`): a download that matches the expected hash neither as received nor unzipped
   is an error (retried; a damaged body never overwrites a local save that the next sync would upload);
   the cloud file list is read page by page up to `total_files`; `WinMyDocuments` and `WinSavedGames` are
   the real Windows known folders (Documents moved to OneDrive or another disk).

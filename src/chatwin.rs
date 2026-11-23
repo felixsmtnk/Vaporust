@@ -471,7 +471,7 @@ impl ChatWin {
                         ui.painter().rect_filled(ar, 3.0, crate::theme::CARD);
                     }
                 }
-                ui.painter().rect_stroke(ar.expand(1.0), 3.0, egui::Stroke::new(1.5, status_color));
+                ui.painter().rect_stroke(ar.expand(1.0), 3.0, egui::Stroke::new(1.5_f32, status_color));
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
                     ui.label(egui::RichText::new(crate::richtext::fix(ui, &self.name)).size(15.0).strong());
@@ -559,7 +559,7 @@ impl ChatWin {
                             ui.add_space(8.0);
                             let r = ui.vertical_centered(|ui| ui.label(egui::RichText::new(&day).size(11.0).color(crate::theme::DIM))).inner.rect;
                             let full = ui.max_rect();
-                            let line = egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(103, 112, 123, 60));
+                            let line = egui::Stroke::new(1.0_f32, egui::Color32::from_rgba_unmultiplied(103, 112, 123, 60));
                             ui.painter().hline(full.left() + 8.0..=r.left() - 10.0, r.center().y, line);
                             ui.painter().hline(r.right() + 10.0..=full.right() - 8.0, r.center().y, line);
                             ui.add_space(4.0);
@@ -748,7 +748,7 @@ impl ChatWin {
                 let r = ui.add(egui::Label::new(text).sense(egui::Sense::click())).on_hover_cursor(egui::CursorIcon::PointingHand);
                 if on {
                     let y = r.rect.bottom() + 3.0;
-                    ui.painter().line_segment([egui::pos2(r.rect.left(), y), egui::pos2(r.rect.right(), y)], egui::Stroke::new(2.0, crate::theme::ACCENT));
+                    ui.painter().line_segment([egui::pos2(r.rect.left(), y), egui::pos2(r.rect.right(), y)], egui::Stroke::new(2.0_f32, crate::theme::ACCENT));
                 }
                 if r.clicked() {
                     self.picker_tab = i as u8;
@@ -866,9 +866,9 @@ mod history_live {
 /// Magnifier icon (drawn with lines, no font).
 fn draw_magnifier(p: &egui::Painter, r: egui::Rect, color: egui::Color32) {
     let c = r.center() + egui::vec2(-2.0, -2.0);
-    let s = egui::Stroke::new(1.6, color);
+    let s = egui::Stroke::new(1.6_f32, color);
     p.circle_stroke(c, 5.0, s);
-    p.line_segment([c + egui::vec2(3.6, 3.6), c + egui::vec2(8.0, 8.0)], egui::Stroke::new(2.0, color));
+    p.line_segment([c + egui::vec2(3.6, 3.6), c + egui::vec2(8.0, 8.0)], egui::Stroke::new(2.0_f32, color));
 }
 
 /// Flat icon button of the chat: no frame, a soft background on hover, accent background when active.
@@ -895,7 +895,7 @@ fn icon_button(
 /// Smiley icon: a circle, two eyes and a smile.
 fn draw_smiley(p: &egui::Painter, r: egui::Rect, color: egui::Color32) {
     let c = r.center();
-    let s = egui::Stroke::new(1.5, color);
+    let s = egui::Stroke::new(1.5_f32, color);
     p.circle_stroke(c, 7.5, s);
     p.circle_filled(c + egui::vec2(-2.6, -2.0), 1.1, color);
     p.circle_filled(c + egui::vec2(2.6, -2.0), 1.1, color);
@@ -911,7 +911,7 @@ fn draw_smiley(p: &egui::Painter, r: egui::Rect, color: egui::Color32) {
 /// Picture icon: a frame with a sun and a mountain.
 fn draw_picture(p: &egui::Painter, r: egui::Rect, color: egui::Color32) {
     let b = egui::Rect::from_center_size(r.center(), egui::vec2(16.0, 13.0));
-    let s = egui::Stroke::new(1.5, color);
+    let s = egui::Stroke::new(1.5_f32, color);
     p.rect_stroke(b, 2.0, s);
     p.circle_filled(b.left_top() + egui::vec2(5.0, 4.5), 1.6, color);
     p.add(egui::Shape::line(
@@ -936,7 +936,7 @@ fn draw_send(p: &egui::Painter, r: egui::Rect, color: egui::Color32) {
 /// Cross icon (close, cancel).
 fn draw_cross(p: &egui::Painter, r: egui::Rect, color: egui::Color32) {
     let c = r.center();
-    let s = egui::Stroke::new(1.5, color);
+    let s = egui::Stroke::new(1.5_f32, color);
     let d = 3.5;
     p.line_segment([c + egui::vec2(-d, -d), c + egui::vec2(d, d)], s);
     p.line_segment([c + egui::vec2(-d, d), c + egui::vec2(d, -d)], s);

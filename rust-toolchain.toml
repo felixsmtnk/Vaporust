@@ -1,0 +1,3 @@
+[toolchain]
+# The bundled Aurelia 0.3 needs Rust 1.100 (its rust-version).
+channel = "1.100.0"

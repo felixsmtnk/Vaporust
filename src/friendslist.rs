@@ -188,7 +188,7 @@ impl LauncherApp {
                             ui.painter().rect_filled(ar, 2.0, theme::CARD);
                         }
                     }
-                    ui.painter().rect_stroke(ar.expand(1.0), 2.0, egui::Stroke::new(1.5, if *state == 0 { egui::Color32::from_gray(90) } else { color }));
+                    ui.painter().rect_stroke(ar.expand(1.0), 2.0, egui::Stroke::new(1.5_f32, if *state == 0 { egui::Color32::from_gray(90) } else { color }));
                     ui.vertical(|ui| {
                         ui.horizontal(|ui| {
                             ui.add(egui::Label::new(title).truncate());
@@ -225,7 +225,7 @@ impl LauncherApp {
                                     ui.painter().rect_filled(ar, 3.0, theme::CARD);
                                 }
                             }
-                            ui.painter().rect_stroke(ar.expand(1.0), 3.0, egui::Stroke::new(2.0, if *state == 0 { egui::Color32::from_gray(90) } else { color }));
+                            ui.painter().rect_stroke(ar.expand(1.0), 3.0, egui::Stroke::new(2.0_f32, if *state == 0 { egui::Color32::from_gray(90) } else { color }));
                             ui.vertical(|ui| {
                                 ui.label(egui::RichText::new(crate::richtext::fix(ui, name)).size(15.0).strong());
                                 ui.label(egui::RichText::new(&status).color(color));

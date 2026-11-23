@@ -50,7 +50,7 @@ pub fn title_bar(ctx: &egui::Context, title: &str) {
         resize_edges(ctx);
         // Window outline: without the system frame the edges otherwise blend into the background.
         let rect = ctx.screen_rect();
-        let stroke = egui::Stroke::new(1.0, ctx.style().visuals.widgets.noninteractive.bg_stroke.color);
+        let stroke = egui::Stroke::new(1.0_f32, ctx.style().visuals.widgets.noninteractive.bg_stroke.color);
         ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("vaporust_frame_border")))
             .rect_stroke(rect.shrink(0.5), 0.0, stroke);
     }
@@ -116,7 +116,7 @@ fn button(ui: &mut egui::Ui, rect: egui::Rect, id: &str, glyph: Glyph, hint: &st
         p.rect_filled(rect, 0.0, bg);
     }
     let c = rect.center();
-    let s = egui::Stroke::new(1.0, color);
+    let s = egui::Stroke::new(1.0_f32, color);
     let h = 5.0;
     match glyph {
         Glyph::Minimize => {
@@ -309,7 +309,7 @@ pub fn frame_only(ctx: &egui::Context) {
     if !ctx.input(|i| i.viewport().maximized.unwrap_or(false)) {
         resize_edges(ctx);
         let rect = ctx.screen_rect();
-        let stroke = egui::Stroke::new(1.0, ctx.style().visuals.widgets.noninteractive.bg_stroke.color);
+        let stroke = egui::Stroke::new(1.0_f32, ctx.style().visuals.widgets.noninteractive.bg_stroke.color);
         ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("vaporust_frame_border")))
             .rect_stroke(rect.shrink(0.5), 0.0, stroke);
     }

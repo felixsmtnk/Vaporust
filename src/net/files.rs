@@ -11,6 +11,7 @@ pub(crate) async fn run_install(
     client: SteamClient,
     appid: u32,
     library: PathBuf,
+    language: Option<String>,
     abort: Arc<AtomicBool>,
     st: &Shared,
     ctx: &egui::Context,
@@ -39,6 +40,7 @@ pub(crate) async fn run_install(
     }
     let opts = InstallOptions {
         library_override: Some(library.to_string_lossy().into_owned()),
+        language,
         ..Default::default()
     };
     let rx = client

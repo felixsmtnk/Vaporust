@@ -87,7 +87,7 @@ impl LauncherApp {
     /// Window for the own note to a game.
     pub(crate) fn note_dialog(&mut self, ctx: &egui::Context) {
         let Some((appid, name, mut text)) = self.note_edit.take() else { return };
-        let mut keep = true;
+        let mut keep = !crate::theme::esc(ctx); // Esc - cancel
         egui::Window::new(trf!("Заметка: {name}", "Note: {name}"))
             .collapsible(false)
             .resizable(false)

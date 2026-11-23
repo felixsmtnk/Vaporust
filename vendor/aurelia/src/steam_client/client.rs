@@ -1,7 +1,6 @@
 //! `SteamClient` methods: lifecycle, connection, auth, login, account.
 //!
-//! Split out of `steam_client.rs` for readability; the struct, shared imports
-//! and free helpers live in the parent module (in scope via `use super::*`).
+//! Shares the parent's imports via `use super::*`.
 use super::*;
 use crate::core::error::{ErrorKind, TypedError};
 use steam_vent_proto::steammessages_clientserver_friends::CMsgClientPersonaState;
@@ -198,10 +197,10 @@ impl SteamClient {
         };
 
         // Attempt to populate from persistent session info
-        if let Ok(session) = load_session().await {
-            if let Some(name) = session.account_name {
-                data.account_name = name;
-            }
+        if let Ok(session) = load_session().await
+            && let Some(name) = session.account_name
+        {
+            data.account_name = name;
         }
 
         if data.account_name.is_empty() {
@@ -340,10 +339,6 @@ impl SteamClient {
             return Ok(true);
         }
         Ok(false)
-    }
-
-    pub fn active_cm(&self) -> Option<SocketAddr> {
-        self.active_cm
     }
 
     pub async fn restore_session(&mut self) -> Result<SessionState> {
@@ -510,7 +505,7 @@ impl SteamClient {
     /// [`QrEvent::Scanned`] once the user scans the code, so the caller can swap the
     /// QR for a "waiting for approval" spinner.
     ///
-    /// Fails typed: see [`qr_poll_step`].
+    /// Fails typed: see `qr_poll_step`.
     pub async fn login_qr<F>(&mut self, timeout: Duration, mut on_event: F) -> Result<SessionState>
     where
         F: FnMut(QrEvent),

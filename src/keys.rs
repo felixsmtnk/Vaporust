@@ -134,7 +134,7 @@ impl LauncherApp {
     /// "Activate a key" window (Account -> Activate a key).
     pub(crate) fn key_window(&mut self, ctx: &egui::Context, net: &NetState) {
         let Some(mut input) = self.key_input.take() else { return };
-        let mut open = true;
+        let mut open = !crate::theme::esc(ctx); // Esc - cancel
         let mut send = None;
         let mut refresh = false;
         ctx.show_viewport_immediate(

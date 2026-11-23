@@ -200,7 +200,7 @@ impl LauncherApp {
                         // A light highlight at the top - the card does not look flat and empty.
                         let top = egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), rect.height() * 0.45));
                         painter.rect_filled(top, 0.0, egui::Color32::from_white_alpha(6));
-                        painter.rect_stroke(rect.shrink(0.5), 0.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(58, 68, 86)));
+                        painter.rect_stroke(rect.shrink(0.5), 0.0, egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(58, 68, 86)));
                         // A colored stripe on the left of all notifications: kind (discount, download) or friend status.
                         let bar = egui::Rect::from_min_size(rect.min, egui::vec2(3.0, rect.height()));
                         painter.rect_filled(bar, 0.0, accent_color);
@@ -216,7 +216,7 @@ impl LauncherApp {
                                         painter.rect_filled(icon, 3.0, crate::theme::SIDEBAR);
                                     }
                                 }
-                                painter.rect_stroke(icon.expand(1.0), 5.0, egui::Stroke::new(2.0, accent_color));
+                                painter.rect_stroke(icon.expand(1.0), 5.0, egui::Stroke::new(2.0_f32, accent_color));
                             }
                             Kind::Sale(a) | Kind::Download(a) | Kind::Game(a) if a != 0 => {
                                 // A square from the middle of the game header (460x215).
@@ -267,8 +267,8 @@ impl LauncherApp {
                         }
                         let xc = if over_x { egui::Color32::WHITE } else if hovered { egui::Color32::from_gray(185) } else { egui::Color32::from_gray(125) };
                         let (c, d) = (xr.center(), 4.5);
-                        painter.line_segment([c + egui::vec2(-d, -d), c + egui::vec2(d, d)], egui::Stroke::new(1.6, xc));
-                        painter.line_segment([c + egui::vec2(-d, d), c + egui::vec2(d, -d)], egui::Stroke::new(1.6, xc));
+                        painter.line_segment([c + egui::vec2(-d, -d), c + egui::vec2(d, d)], egui::Stroke::new(1.6_f32, xc));
+                        painter.line_segment([c + egui::vec2(-d, d), c + egui::vec2(d, -d)], egui::Stroke::new(1.6_f32, xc));
                         if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                             if !over_x {
                                 CLICKED.lock().unwrap().push(p.kind);

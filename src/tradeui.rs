@@ -341,7 +341,7 @@ fn price_chart(ui: &mut egui::Ui, h: &[(i64, f64, u64)], cur: u32) {
         )
     };
     let line: Vec<egui::Pos2> = pts.iter().map(|q| to(q.0, q.1)).collect();
-    p.add(egui::Shape::line(line, egui::Stroke::new(1.5, egui::Color32::from_rgb(102, 192, 244))));
+    p.add(egui::Shape::line(line, egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(102, 192, 244))));
     let fmt = |v: f64| crate::invent::money((v * 100.0).round() as i64, cur);
     p.text(rect.left_top() + egui::vec2(4.0, 2.0), egui::Align2::LEFT_TOP, fmt(max), egui::FontId::proportional(10.0), crate::theme::WEAK);
     p.text(rect.left_bottom() + egui::vec2(4.0, -2.0), egui::Align2::LEFT_BOTTOM, fmt(min), egui::FontId::proportional(10.0), crate::theme::WEAK);

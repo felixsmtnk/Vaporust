@@ -71,7 +71,7 @@ impl LauncherApp {
         if !self.smart_edit.open {
             return;
         }
-        let mut open = true;
+        let mut open = !crate::theme::esc(ctx); // Esc - cancel
         let mut create = false;
         egui::Window::new(tr!("Новая умная коллекция", "New smart collection"))
             .open(&mut open)

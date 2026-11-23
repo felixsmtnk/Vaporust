@@ -47,7 +47,7 @@ impl LauncherApp {
                         let p = ui.painter();
                         match it {
                             Tile::NewSmart => {
-                                p.rect_stroke(rect.shrink(1.0), 2.0, egui::Stroke::new(1.0, theme::lerp_color(theme::BUTTON_HOVER, theme::TEXT2, t)));
+                                p.rect_stroke(rect.shrink(1.0), 2.0, egui::Stroke::new(1.0_f32, theme::lerp_color(theme::BUTTON_HOVER, theme::TEXT2, t)));
                                 theme::icon_plus(p, egui::Rect::from_center_size(rect.center() - egui::vec2(0.0, 22.0), egui::vec2(20.0, 20.0)), theme::ACCENT);
                                 p.text(rect.center() + egui::vec2(0.0, 10.0), egui::Align2::CENTER_CENTER, tr!("УМНАЯ КОЛЛЕКЦИЯ", "SMART COLLECTION"), theme::semibold(11.5), theme::TEXT);
                                 p.text(rect.center() + egui::vec2(0.0, 28.0), egui::Align2::CENTER_CENTER, tr!("по правилам", "by rules"), egui::FontId::proportional(11.0), theme::WEAK);
@@ -81,7 +81,7 @@ impl LauncherApp {
                                 }
                             }
                             Tile::New => {
-                                p.rect_stroke(rect.shrink(1.0), 2.0, egui::Stroke::new(1.0, theme::lerp_color(theme::BUTTON_HOVER, theme::TEXT2, t)));
+                                p.rect_stroke(rect.shrink(1.0), 2.0, egui::Stroke::new(1.0_f32, theme::lerp_color(theme::BUTTON_HOVER, theme::TEXT2, t)));
                                 theme::icon_plus(p, egui::Rect::from_center_size(rect.center() - egui::vec2(0.0, 18.0), egui::vec2(20.0, 20.0)), theme::TEXT);
                                 p.text(
                                     rect.center() + egui::vec2(0.0, 14.0),

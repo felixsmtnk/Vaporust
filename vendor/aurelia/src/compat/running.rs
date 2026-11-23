@@ -85,7 +85,7 @@ impl RunningGame {
 pub fn process_start_time(pid: u32) -> Option<u64> {
     use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
     let pid = Pid::from_u32(pid);
-    let mut sys = System::new();
+    let mut sys = System::new().ok()?;
     sys.refresh_processes_specifics(
         ProcessesToUpdate::Some(&[pid]),
         true,
@@ -221,5 +221,4 @@ pub fn reconcile(mut game: RunningGame) -> Option<RunningGame> {
 }
 
 #[cfg(test)]
-#[path = "running_tests.rs"]
 mod tests;

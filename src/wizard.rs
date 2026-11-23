@@ -36,7 +36,7 @@ fn pic_table(p: &egui::Painter, r: egui::Rect, c: egui::Color32) {
 /// a blue frame.
 fn choice(ui: &mut egui::Ui, selected: bool, title: &str, desc: &str, w: f32, pic: Option<Pic>) -> egui::Response {
     let fill = if selected { egui::Color32::from_rgb(28, 50, 74) } else { theme::CARD };
-    let stroke = if selected { egui::Stroke::new(1.5, theme::ACCENT) } else { egui::Stroke::new(1.5, fill) };
+    let stroke = if selected { egui::Stroke::new(1.5_f32, theme::ACCENT) } else { egui::Stroke::new(1.5_f32, fill) };
     let r = egui::Frame::none().fill(fill).stroke(stroke).rounding(6.0).inner_margin(egui::Margin::same(12.0)).show(ui, |ui| {
         ui.set_width(w - 24.0);
         ui.vertical(|ui| {

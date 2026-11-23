@@ -25,7 +25,8 @@ impl LauncherApp {
             self.settings.current_download = Some(settings::QueueItem { appid, name: name.clone(), paused: false });
             let staging = local::staging_dir(std::path::Path::new(&real));
             let _ = std::fs::create_dir_all(staging.join("steamapps").join("common"));
-            let _ = self.tx.send(Cmd::Install { appid, name, library: staging });
+            let language = self.settings.install_lang.get(&appid).cloned();
+            let _ = self.tx.send(Cmd::Install { appid, name, library: staging, language });
             return;
         }
         // Steam is open: an unfinished game in the real library must not be touched (Steam could
@@ -83,10 +84,12 @@ impl LauncherApp {
         } else {
             library
         };
+        let language = self.settings.install_lang.get(&appid).cloned();
         let _ = self.tx.send(Cmd::Install {
             appid,
             name,
             library,
+            language,
         });
     }
 
@@ -187,6 +190,8 @@ impl LauncherApp {
             }
             Ok(()) => {
                 self.resume_tries = 0;
+                // The language choice was for this install only.
+                self.settings.install_lang.remove(&cur.appid);
                 // The record is dropped only when the move succeeded: otherwise the game stays known
                 // (shown as unfinished, can be continued or deleted).
                 if let Some(real) = self.settings.staged.get(&cur.appid).cloned() {

@@ -255,7 +255,7 @@ impl LauncherApp {
         }
         let Some(mut e) = self.custom_edit.take() else { return };
         let steam_open = self.steam_running();
-        let mut keep = true;
+        let mut keep = !crate::theme::esc(ctx); // Esc - cancel
         let title = if e.id.is_some() { tr!("Сторонняя игра", "Non-Steam game") } else { tr!("Добавить стороннюю игру", "Add a non-Steam game") };
         egui::Window::new(title)
             .collapsible(false)

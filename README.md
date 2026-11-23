@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="../../releases/tag/v0.9.2-alpha"><b>Download for Windows</b></a> ·
+  <a href="../../releases/tag/v0.9.3-alpha"><b>Download for Windows</b></a> ·
   <a href="#password-and-security">Password and security</a> ·
   <a href="#features">Features</a> ·
   <a href="#faq">FAQ</a> ·
@@ -114,7 +114,7 @@ The name comes from *vapor* + *Rust*.
 
 1. You need **Windows 10 or 11** and an installed **Steam** that you have logged in to at least
    once with "Remember password" checked.
-2. Download `Vaporust-0.9.2-alpha-windows-x64.zip` from the [latest release](../../releases/tag/v0.9.2-alpha)
+2. Download `Vaporust-0.9.3-alpha-windows-x64.zip` from the [latest release](../../releases/tag/v0.9.3-alpha)
    page (for 32-bit Windows - `windows-x86`).
 3. Unpack it into any folder and run `vaporust.exe`. No installation needed.
 4. Log in to your Steam account: password and Steam Guard code, or a QR code from the Steam app.
@@ -245,7 +245,7 @@ the interface and everything else are its own.
 ## How it works
 
 - **Steam network** (login, downloads, friends, chat) - the [Aurelia](https://github.com/Drackrath/Aurelia)
-  library; its modified copy is in `vendor/aurelia` (version 0.2.6), the changes are listed in
+  library; its modified copy is in `vendor/aurelia` (version 0.3.1), the changes are listed in
   [`VAPORUST_CHANGES.md`](vendor/aurelia/VAPORUST_CHANGES.md).
 - **Interface** - [egui](https://github.com/emilk/egui), no browser. Both languages sit side by
   side in the code (`tr!("Готово.", "Done.")`), see `src/lang.rs`.

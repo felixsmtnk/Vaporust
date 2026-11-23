@@ -31,6 +31,8 @@ pub enum ErrorKind {
     DiskFull,
     /// No network route or DNS.
     Offline,
+    /// Steam wants other depots.
+    SteamConfigMismatch,
     Unknown,
 }
 
@@ -52,6 +54,7 @@ impl ErrorKind {
         Self::InputClosed,
         Self::DiskFull,
         Self::Offline,
+        Self::SteamConfigMismatch,
         Self::Unknown,
     ];
 
@@ -69,6 +72,10 @@ impl ErrorKind {
             Self::InputClosed => Some("keep stdin open while a --json command waits"),
             Self::DiskFull => Some("free space on the target drive or pick another `--library`"),
             Self::Offline => Some("no network connection; reconnect and retry"),
+            Self::SteamConfigMismatch => Some(
+                "Steam wants a different platform or language depot set; check the game's \
+                 language and compatibility tool in Steam (`aurelia proton mappings` lists dangling tools)",
+            ),
             _ => None,
         }
     }
@@ -85,6 +92,7 @@ impl ErrorKind {
             Self::InputClosed => 84,
             Self::DiskFull => 85,
             Self::Offline => 86,
+            Self::SteamConfigMismatch => 87,
             _ => 1,
         }
     }
@@ -156,29 +164,29 @@ pub fn classify(err: &anyhow::Error) -> Classified {
                 retry_after: t.retry_after,
             };
         }
-        if let Some(n) = cause.downcast_ref::<NetworkError>() {
-            if let Some(kind) = network_kind(n) {
-                return Classified {
-                    kind,
-                    retry_after: None,
-                };
-            }
+        if let Some(n) = cause.downcast_ref::<NetworkError>()
+            && let Some(kind) = network_kind(n)
+        {
+            return Classified {
+                kind,
+                retry_after: None,
+            };
         }
-        if let Some(l) = cause.downcast_ref::<LoginError>() {
-            if let Some(kind) = login_kind(l) {
-                return Classified {
-                    kind,
-                    retry_after: None,
-                };
-            }
+        if let Some(l) = cause.downcast_ref::<LoginError>()
+            && let Some(kind) = login_kind(l)
+        {
+            return Classified {
+                kind,
+                retry_after: None,
+            };
         }
-        if let Some(r) = cause.downcast_ref::<reqwest::Error>() {
-            if r.is_timeout() || r.is_connect() {
-                return Classified {
-                    kind: reqwest_kind(r),
-                    retry_after: None,
-                };
-            }
+        if let Some(r) = cause.downcast_ref::<reqwest::Error>()
+            && (r.is_timeout() || r.is_connect())
+        {
+            return Classified {
+                kind: reqwest_kind(r),
+                retry_after: None,
+            };
         }
         if let Some(kind) = cause.downcast_ref::<std::io::Error>().and_then(io_kind) {
             return Classified {
@@ -283,5 +291,4 @@ fn login_kind(err: &LoginError) -> Option<ErrorKind> {
 }
 
 #[cfg(test)]
-#[path = "error_tests.rs"]
 mod tests;

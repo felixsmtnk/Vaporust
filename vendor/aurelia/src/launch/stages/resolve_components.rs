@@ -1,7 +1,11 @@
-use crate::launch::pipeline::{LaunchError, LaunchErrorKind, PipelineContext, PipelineStage};
+use crate::launch::{
+    context::PipelineContext,
+    error::{LaunchError, LaunchErrorKind},
+    pipeline::PipelineStage,
+};
 use async_trait::async_trait;
 
-use crate::infra::runners::{CommandSpec, LaunchContext, Runner};
+use crate::launch::runners::{CommandSpec, LaunchContext, Runner};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -50,6 +54,8 @@ impl Runner for NativeRunner {
             .map(str::to_string)
             .collect();
         let program = PathBuf::from(install_path).join(&exe_rel);
+        // Only mutated on Linux.
+        #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
         let mut env = self.build_env(ctx).await?;
 
         // 32-bit natives need scout runtime libraries.
@@ -98,7 +104,7 @@ impl Runner for NativeRunner {
                     cmd.stdout(file);
                 }
                 None => {
-                    cmd.stdout(crate::infra::logging::relay::child_stdio());
+                    cmd.stdout(crate::logging::relay::child_stdio());
                 }
             }
             match session_log_file(spec, "AURELIA_STDERR_LOG") {
@@ -106,10 +112,10 @@ impl Runner for NativeRunner {
                     cmd.stderr(file);
                 }
                 None => {
-                    cmd.stderr(crate::infra::logging::relay::child_stdio());
+                    cmd.stderr(crate::logging::relay::child_stdio());
                 }
             }
-            cmd.spawn().map(crate::infra::logging::relay::attach)
+            cmd.spawn().map(crate::logging::relay::attach)
         };
         #[allow(unused_mut)]
         let mut result = spawn(&spec.program, None);
@@ -153,7 +159,7 @@ fn needs_scout_libs(program: &std::path::Path, install_dir: &std::path::Path) ->
     if is_elf32(program) {
         return true;
     }
-    if !file_head(program, 2).is_some_and(|h| h == *b"#!") {
+    if file_head(program, 2).is_none_or(|h| h != *b"#!") {
         return false;
     }
     std::fs::read_dir(install_dir)
@@ -237,7 +243,7 @@ impl PipelineStage for ResolveComponentsStage {
         "ResolveComponents"
     }
     async fn execute(&self, ctx: &mut PipelineContext) -> std::result::Result<(), LaunchError> {
-        use crate::infra::runners::{LuxtorpedaRunner, WineTkgRunner};
+        use crate::launch::runners::{LuxtorpedaRunner, WineTkgRunner};
         use crate::steam_client::LaunchTarget;
 
         if ctx.runner.is_none() {
@@ -295,56 +301,4 @@ impl PipelineStage for ResolveComponentsStage {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::core::models::{LibraryGame, UserAppConfig};
-    use crate::steam_client::{LaunchInfo, LaunchTarget};
-
-    #[tokio::test]
-    async fn native_runner_leaves_launch_options_to_their_stage() {
-        let mut user_config = UserAppConfig::default();
-        user_config.launch_options = "-fullscreen --skip-intro".to_string();
-
-        let ctx = LaunchContext {
-            app: LibraryGame {
-                app_id: 123,
-                name: "Test".to_string(),
-                install_path: Some("/tmp/game".to_string()),
-                is_installed: true,
-                playtime_forever_minutes: None,
-                active_branch: "public".to_string(),
-                update_available: false,
-                update_queued: false,
-                local_manifest_ids: HashMap::new(),
-                is_owned: true,
-                is_family_shared: false,
-                online_required: None,
-                platform: None,
-                from_windows_steam: false,
-            },
-            launch_info: LaunchInfo {
-                app_id: 123,
-                id: "0".into(),
-                description: "Test".into(),
-                executable: "game.bin".into(),
-                arguments: "-v".into(),
-                workingdir: None,
-                target: LaunchTarget::NativeLinux,
-            },
-            launcher_config: crate::core::config::LauncherConfig::default(),
-            user_config: Some(user_config),
-            proton_path: None,
-            steam_enabled: false,
-            use_umu: false,
-            umu_run: None,
-            target_architecture: Default::default(),
-            dll_resolutions: Vec::new(),
-            game_fixups: Default::default(),
-            verification_ptr: std::ptr::null_mut(),
-        };
-
-        let spec = NativeRunner.build_command(&ctx).await.unwrap();
-        // UserLaunchOptionsStage adds them later.
-        assert_eq!(spec.args, vec!["-v"]);
-    }
-}
+mod tests;

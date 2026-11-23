@@ -406,7 +406,7 @@ pub fn level_badge_sized(ui: &mut egui::Ui, level: u32, size: f32) {
         _ => egui::Color32::from_rgb(220, 90, 140),
     };
     let r = size / 2.0 - 2.0;
-    ui.painter().circle_stroke(rect.center(), r, egui::Stroke::new(if size > 30.0 { 2.5 } else { 1.8 }, color));
+    ui.painter().circle_stroke(rect.center(), r, egui::Stroke::new(if size > 30.0 { 2.5 } else { 1.8_f32 }, color));
     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, level.to_string(), egui::FontId::proportional(if size > 30.0 { 14.0 } else { 10.5 }), ui.visuals().strong_text_color());
 }
 

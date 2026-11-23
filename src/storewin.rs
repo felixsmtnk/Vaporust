@@ -1049,7 +1049,7 @@ fn game_page(
                         for (i, s) in a.screenshots.iter().take(16).enumerate() {
                             let r = ui.add(egui::Image::new(store::screenshot_thumb(s)).fit_to_exact_size(egui::vec2(116.0, 65.0)).sense(egui::Sense::click())).on_hover_cursor(egui::CursorIcon::PointingHand);
                             if i == sel {
-                                ui.painter().rect_stroke(r.rect, 0.0, egui::Stroke::new(2.0, egui::Color32::WHITE));
+                                ui.painter().rect_stroke(r.rect, 0.0, egui::Stroke::new(2.0_f32, egui::Color32::WHITE));
                             }
                             if r.clicked() {
                                 ui.data_mut(|d| d.insert_temp(sel_key, i));

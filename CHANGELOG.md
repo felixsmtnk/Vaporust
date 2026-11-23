@@ -5,6 +5,27 @@
 What went into each released version, newest first. Plans for the future are in
 [ROADMAP.md](ROADMAP.md), archives and full release notes are on the [Releases](../../releases) page.
 
+## ✅ 0.9.3-alpha: Aurelia 0.3.1 and the game language at install
+
+*Released 2026-11-23.*
+
+**Aurelia 0.3.1**
+- The bundled Aurelia is updated to 0.3.1: about 40% less memory during installs, busy download servers
+  are retried instead of failing the download, Steam no longer gets stuck re-updating games Vaporust
+  installed, appmanifests keep Steam's own fields, Steam files are written atomically (a crash or a full
+  disk no longer leaves a broken file), and all open security advisories of the dependencies are fixed.
+- Vaporust is now built with Rust 1.100 (Aurelia 0.3 needs it).
+
+**New**
+- Choose the game language before installing: the "Install game" window lists the languages the game
+  offers, with the one Steam would pick selected.
+
+**Design**
+- Game page: the band keeps the main pages (store, achievements, community, Workshop, screenshots);
+  folder, desktop shortcut, notes, support, trailer and "Already downloaded" are in the "More..." menu.
+- Esc closes question windows (as "Cancel").
+- A game name cut off in the left list shows in full on hover.
+
 ## ✅ 0.9.2-alpha: Aurelia 0.2.6 and fixes from a code review
 
 *Released 2026-11-20.*

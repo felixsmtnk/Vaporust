@@ -442,7 +442,7 @@ impl LauncherApp {
                             });
                             let r = ui.interact(row.response.rect, ui.id().with(("topic", &t.url)), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
                             if r.hovered() {
-                                ui.painter().rect_stroke(row.response.rect, 2.0, egui::Stroke::new(1.0, theme::BUTTON_HOVER));
+                                ui.painter().rect_stroke(row.response.rect, 2.0, egui::Stroke::new(1.0_f32, theme::BUTTON_HOVER));
                             }
                             if r.clicked() {
                                 open_topic = Some(t.url.clone());

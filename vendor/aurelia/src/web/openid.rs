@@ -38,7 +38,7 @@ const MIN_INDIVIDUAL_STEAMID: u64 = 76561197960265728;
 ///
 /// Binds a localhost-only callback listener, invokes `on_url` once with the
 /// official Steam sign-in URL (the caller renders it and/or opens a browser),
-/// then waits — bounded by [`BROWSER_WAIT`] — for Steam to redirect back.
+/// then waits — bounded by `BROWSER_WAIT` — for Steam to redirect back.
 /// The assertion is accepted only when every local check passes **and** Steam
 /// itself confirms the signature via `check_authentication`.
 pub async fn verify_identity_via_browser<F>(mut on_url: F) -> Result<u64>
@@ -316,5 +316,4 @@ const SUCCESS_PAGE: &str = "<!DOCTYPE html><html><head><title>Aurelia</title></h
 const FAILURE_PAGE: &str = "<!DOCTYPE html><html><head><title>Aurelia</title></head><body style=\"font-family:sans-serif;text-align:center;margin-top:4em\"><h2>Steam sign-in not verified</h2><p>Return to the terminal for details.</p></body></html>";
 
 #[cfg(test)]
-#[path = "openid_tests.rs"]
 mod tests;

@@ -41,6 +41,8 @@ impl SteamClient {
                 online_required: None,
                 platform: None,
                 from_windows_steam: false,
+                steam_config_mismatch: false,
+                size_on_disk: None,
             })
             .collect();
         self.check_for_updates(&mut list).await?;

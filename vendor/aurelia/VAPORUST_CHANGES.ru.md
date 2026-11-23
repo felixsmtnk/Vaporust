@@ -1,8 +1,8 @@
-# Изменения Vaporust в Aurelia 0.2.6
+# Изменения Vaporust в Aurelia 0.3.1
 
 [English](VAPORUST_CHANGES.md) · **Русский**
 
-Этот каталог - копия [Aurelia](https://github.com/Drackrath/Aurelia) версии 0.2.6
+Этот каталог - копия [Aurelia](https://github.com/Drackrath/Aurelia) версии 0.3.1
 (crate `aurelia-steam`, автор - Drackrath, лицензия GPL-3.0-or-later, см. `LICENSE`).
 Vaporust использует ее как библиотеку и внес перечисленные ниже изменения (ноябрь 2026).
 Остальные файлы не менялись. Каждое изменение в коде помечено комментарием `vaporust`.
@@ -18,10 +18,17 @@ Vaporust использует ее как библиотеку и внес пе�
   `save_session` не пишет вход открытым текстом, если шифрование включено, поэтому взята его версия;
   `library/cloud_sync_tests.rs` - оставлены новые тесты обеих сторон. Библиотеки Steam перешли на
   aurelia-steam-vent 0.8, -chat 0.9, -proto 0.6 (Vaporust использует те же).
+- **0.2.6 -> 0.3.1:** так же (тег v0.3.1). Автор разбил большие файлы на папки (`steam_client.rs` ->
+  `steam_client/mod.rs`, `library/cloud_sync.rs` -> `library/cloud_sync/`), поэтому наши правки в них
+  перенесены вручную: объявления модулей и экспорт - в `steam_client/mod.rs`, исправления облака - в
+  `cloud_sync/paths.rs` (папки Windows), `transfer.rs` (список файлов постранично) и `transport.rs`
+  (испорченная загрузка - ошибка), тест - в `tests/body.rs`. Автор убрал поле `sessionid` у `WebSession`;
+  оно снова добавлено для наших отправок форм. `windows-sys` теперь 0.61 (с нашим `Win32_System_Com`).
+  Aurelia 0.3 требует Rust 1.100.
 
 ## Измененные файлы
 
-- `src/steam_client.rs` - подключены новые модули (`vaporust_chat`, `vaporust_props`,
+- `src/steam_client/mod.rs` - подключены новые модули (`vaporust_chat`, `vaporust_props`,
   `vaporust_media`, `vaporust_store`, `vaporust_groups`), наружу вынесены `CloudScreenshot`, `ChatGroup`,
   `ChatChannel`, `GroupMessage`, `RawChatEvent`, `RawChatKind`, `SentChatMessage`.
 - `src/steam_client/chat.rs` - `recent_chat_messages` запрашивает историю с
@@ -85,7 +92,7 @@ Vaporust использует ее как библиотеку и внес пе�
   `ChatGroup.top_members` - несколько участников для названия группы без имени; адрес значка группы
   `{sha}_64.jpg`, как в клиенте Steam, `_medium.jpg` давал 404), история канала (`group_messages`),
   отправка (`send_group_message`), активные группы сеанса (`activate_chat_groups`).
-- `src/library/cloud_sync.rs`: скачанный файл, который не совпал с ожидаемым хэшем ни как есть, ни
+- `src/library/cloud_sync/` (`paths.rs`, `transfer.rs`, `transport.rs`): скачанный файл, который не совпал с ожидаемым хэшем ни как есть, ни
   после распаковки, - ошибка (с повтором; испорченные данные не записываются поверх сохранения, которое
   следующая синхронизация отправила бы в облако); список файлов облака читается постранично до
   `total_files`; `WinMyDocuments` и `WinSavedGames` - настоящие папки Windows (Документы на OneDrive или

@@ -248,7 +248,7 @@ cargo add aurelia-steam
 ```
 
 ```rust
-use aurelia::core::utils::is_safe_dir_name;
+use aurelia::core::paths::is_safe_dir_name;
 
 assert!(!is_safe_dir_name("../x"));
 ```
@@ -274,6 +274,8 @@ aurelia list                         # list your library
 aurelia list --installed             # only installed games
 aurelia list --search elden          # filter by name
 aurelia list --online                # add an ONLINE column (needs-connection heuristic)
+aurelia list -i --check-updates      # STATUS `update`, or `mismatch` when Steam wants other depots
+                                     # (`--json`: `update_available` / `steam_config_mismatch`)
 aurelia info 690830                  # game details (description, release, reviews, tags, rating, DLC)
 aurelia info 690830 --extended       # + requirements, Metacritic, genres, categories
 aurelia info 690830 --lang german    # localize store text (falls back to config, then English)
@@ -307,6 +309,8 @@ aurelia install forget 1245620       # remove an entry without deleting partial 
 aurelia install forget 1245620 --delete-files
                                       # remove the entry and safe partial files
 aurelia update 1245620               # download the latest manifest
+                                     # (exit 87 `steam_config_mismatch`: Steam wants other depots,
+                                     #  e.g. another language or compat tool; nothing to update)
 aurelia verify 1245620               # verify installed files
 aurelia uninstall 1245620            # remove a game (--delete-prefix wipes its prefix)
 aurelia move 1245620 D:\SteamLibrary # move an install to another library (updates Steam data)
@@ -332,7 +336,11 @@ aurelia disable 2001                 # disable a DLC
 # Branches & depots
 aurelia branches 1245620             # list beta branches
 aurelia set-branch 1245620 beta      # switch branch
+aurelia set-language 1086940 german  # swap language depots (download new, drop old-only files)
+aurelia install 1086940 --language german  # install in a language (`install --dry-run --json` lists `languages`)
 aurelia depots 1245620               # list depots
+aurelia depots files 1245620 1245621 -f '*.exe'   # list a depot's files (`-m` id or `-b` branch; dir/, exe*, link ->)
+aurelia depots download 1245620 1245621 bin/game.exe -o out   # fetch one file, SHA-1 checked (`--force` overwrites)
 aurelia launch-options 1245620       # list Steam launch configs (exe, args, platform; `--json` adds `installed`)
 
 # Launch
@@ -390,6 +398,7 @@ aurelia config language german       # default language for info and achievement
 aurelia config country DE            # default store region for prices (unset: system locale, else US)
 aurelia config game 1245620 --proton GE-Proton9-20  # pin a Proton version for one game
 aurelia config game 1245620 --launch-options "gamemoderun %command% -novid"  # Steam-style launch options
+aurelia config game 1245620 --prefix ~/Games/Prefixes/Elden  # own Wine prefix (DIR/pfx) instead of compatdata
 aurelia config install-resume auto   # let the daemon resume interrupted installs when it starts
 aurelia config download-limit 50000  # cap all game downloads at 50000 kbit/s (off: no limit, the default)
 aurelia config shader-precache off   # Linux: don't pre-compile Vulkan shaders before play (default: auto)
@@ -400,6 +409,7 @@ aurelia proton list                  # installable runtimes (Valve + GE + CachyO
 aurelia proton install GE-Proton9-20 # download a GE build (or "Proton 9.0" via Steam)
 aurelia proton install Proton-CachyOS # CachyOS build (auto-picks x86_64_v3 or AVX2 when supported)
 aurelia proton default GE-Proton9-20 # set the global default (used when a game has none set)
+aurelia proton mappings              # Steam's compat tool mappings; flags tools that no longer exist
 aurelia proton uninstall GE-Proton9-19  # delete an installed GE build
 
 # Windows Steam runtime (self-contained Steamworks and DRM handshake, no host Steam client)
@@ -519,7 +529,10 @@ results, backlog changes and QR logins end with a `{"event":"result",...}` line 
 
 Two error types apply to every command. `disk_full` (exit 85): no space or quota left, including
 `install`'s free-space check before it starts. `offline` (exit 86): no network route or DNS,
-or Steam is unreachable and Aurelia is using its cached library. A stopped install
+or Steam is unreachable and Aurelia is using its cached library. `steam_config_mismatch`
+(exit 87): `update` found Steam's update flag set but the installed depots already current, so
+Steam wants a different depot set (language or compatibility tool); the appmanifest is left
+alone. A stopped install
 (`install stop`) ends as `cancelled` (83). `aurelia capabilities` lists every type with its code.
 
 Logs go to stderr. By default only warnings and errors are shown. `-v` adds Aurelia's

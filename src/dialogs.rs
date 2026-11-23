@@ -50,7 +50,7 @@ impl LauncherApp {
         self.cart_pick_dialog(ctx, net);
         // Friend nickname.
         if let Some((id, name, mut nick)) = self.social_ui.nick_edit.take() {
-            let mut keep = true;
+            let mut keep = !crate::theme::esc(ctx); // Esc - cancel
             window(&trf!("Ник: {name}", "Nickname: {name}")).show(ctx, |ui| {
                 ui.weak(tr!("Ваш ник для друга: виден только вам (в Steam и в Vaporust). Пусто - убрать.", "Your nickname for the friend: only you see it (in Steam and in Vaporust). Empty - remove."));
                 ui.add(egui::TextEdit::singleline(&mut nick).desired_width(280.0));
@@ -71,7 +71,7 @@ impl LauncherApp {
 
         // Steam points award.
         if let Some((kind, target, what)) = self.social_ui.award.clone() {
-            let mut keep = true;
+            let mut keep = !crate::theme::esc(ctx); // Esc - cancel
             if net.award_config.is_none() && !self.award_asked {
                 self.award_asked = true;
                 let _ = self.tx.send(Cmd::AwardConfig);
@@ -133,7 +133,7 @@ impl LauncherApp {
 
         // New group chat.
         if let Some((mut name, mut picked)) = self.social_ui.group_create.take() {
-            let mut keep = true;
+            let mut keep = !crate::theme::esc(ctx); // Esc - cancel
             let mut friends: Vec<(u64, String)> = net
                 .roster
                 .read()
@@ -179,7 +179,7 @@ impl LauncherApp {
 
         // Own game review.
         if let Some((appid, game, mut r, mut filled)) = self.dialogs.review.take() {
-            let mut keep = true;
+            let mut keep = !crate::theme::esc(ctx); // Esc - cancel
             let existing = net.my_reviews.get(&appid);
             if !filled {
                 if let Some(Ok(Some(old))) = existing {
@@ -228,7 +228,7 @@ impl LauncherApp {
 
         // New topic in the game's discussions.
         if let Some((appid, game, mut title, mut text)) = self.dialogs.topic.take() {
-            let mut keep = true;
+            let mut keep = !crate::theme::esc(ctx); // Esc - cancel
             window(&trf!("Новая тема: {game}", "New topic: {game}")).show(ctx, |ui| {
                 ui.add(egui::TextEdit::singleline(&mut title).desired_width(460.0).hint_text(tr!("Заголовок", "Title")));
                 ui.add(egui::TextEdit::multiline(&mut text).desired_rows(8).desired_width(460.0).hint_text(tr!("Текст", "Text")));

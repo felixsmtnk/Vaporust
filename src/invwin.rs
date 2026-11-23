@@ -244,7 +244,7 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
                     };
                     ui.painter().rect_filled(rect, 3.0, fill);
                     if sel {
-                        ui.painter().line_segment([rect.left_bottom(), rect.right_bottom()], egui::Stroke::new(2.0, crate::theme::ACCENT));
+                        ui.painter().line_segment([rect.left_bottom(), rect.right_bottom()], egui::Stroke::new(2.0_f32, crate::theme::ACCENT));
                     }
                     let ir = egui::Rect::from_min_size(rect.min + egui::vec2(8.0, 7.0), egui::vec2(20.0, 20.0));
                     if let Some(u) = a.icon.as_deref().filter(|u| u.starts_with("http")) {
@@ -408,11 +408,11 @@ fn items_tab(ui: &mut egui::Ui, w: &mut InvWin, st: &InvState, my_id: u64, cmds:
                             egui::Image::new(icon(u, 96)).paint_at(ui, rect.shrink(8.0));
                         }
                         let border = if sel {
-                            egui::Stroke::new(2.0, egui::Color32::WHITE)
+                            egui::Stroke::new(2.0_f32, egui::Color32::WHITE)
                         } else if resp.hovered() {
-                            egui::Stroke::new(1.5, rarity.unwrap_or(egui::Color32::from_rgb(140, 150, 160)))
+                            egui::Stroke::new(1.5_f32, rarity.unwrap_or(egui::Color32::from_rgb(140, 150, 160)))
                         } else {
-                            egui::Stroke::new(1.0, rarity.map(|c| c.gamma_multiply(0.7)).unwrap_or(egui::Color32::from_rgb(60, 66, 76)))
+                            egui::Stroke::new(1.0_f32, rarity.map(|c| c.gamma_multiply(0.7)).unwrap_or(egui::Color32::from_rgb(60, 66, 76)))
                         };
                         ui.painter().rect_stroke(rect, 2.0, border);
                         if s.amount > 1 {

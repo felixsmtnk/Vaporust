@@ -1,6 +1,6 @@
 //! Single-pass Steam appmanifest parsing.
 
-use crate::core::utils::extract_quoted_values;
+use std::collections::HashMap;
 
 /// Top-level appmanifest fields, one pass.
 #[derive(Debug, Default)]
@@ -16,6 +16,8 @@ pub struct AppManifest {
     pub build_id: u64,
     /// `UserConfig/BetaKey`, defaulting to `public`.
     pub active_branch: String,
+    /// `SizeOnDisk` in bytes; 0 when absent.
+    pub size_on_disk: u64,
 }
 
 impl AppManifest {
@@ -78,7 +80,7 @@ pub fn parse_app_manifest(raw: &str) -> AppManifest {
             "appid" if m.app_id.is_none() => m.app_id = value.parse().ok(),
             "installdir" if m.install_dir.is_none() => {
                 // Refuse names escaping steamapps/common.
-                if crate::core::utils::is_safe_dir_name(value) {
+                if crate::core::paths::is_safe_dir_name(value) {
                     m.install_dir = Some(value.to_string());
                 } else {
                     tracing::warn!("ignoring unsafe appmanifest installdir {value:?}");
@@ -92,6 +94,7 @@ pub fn parse_app_manifest(raw: &str) -> AppManifest {
             "stateflags" if m.state_flags.is_none() => m.state_flags = value.parse().ok(),
             "lastupdated" => m.last_updated = value.parse().unwrap_or(0),
             "buildid" => m.build_id = value.parse().unwrap_or(0),
+            "sizeondisk" => m.size_on_disk = value.parse().unwrap_or(0),
             _ => {}
         }
     }
@@ -99,6 +102,119 @@ pub fn parse_app_manifest(raw: &str) -> AppManifest {
     m
 }
 
+/// `InstalledDepots` depot to manifest map.
+pub fn installed_depots(raw: &str) -> HashMap<u64, u64> {
+    let mut manifests = HashMap::new();
+    let mut in_installed_depots = false;
+    let mut current_depot: Option<u64> = None;
+
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed.contains("\"InstalledDepots\"") {
+            in_installed_depots = true;
+            continue;
+        }
+
+        if !in_installed_depots {
+            continue;
+        }
+
+        if trimmed == "}" {
+            if current_depot.is_some() {
+                current_depot = None;
+                continue;
+            }
+            break;
+        }
+
+        let quoted = extract_quoted_values(trimmed);
+        if quoted.len() == 1 {
+            if let Ok(depot_id) = quoted[0].parse::<u64>() {
+                current_depot = Some(depot_id);
+            }
+        } else if quoted.len() >= 2
+            && quoted[0] == "manifest"
+            && let (Some(depot), Ok(manifest)) = (current_depot, quoted[1].parse::<u64>())
+        {
+            manifests.insert(depot, manifest);
+        }
+    }
+
+    manifests
+}
+
+/// Set `UserConfig/BetaKey` to `branch`.
+pub fn rewrite_branch(raw: &str, branch: &str) -> String {
+    let mut out = Vec::new();
+    let mut in_user_config = false;
+    let mut branch_updated = false;
+
+    for line in raw.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.eq_ignore_ascii_case("\"UserConfig\"") {
+            in_user_config = true;
+            out.push(line.to_string());
+            continue;
+        }
+
+        if in_user_config && trimmed == "{" {
+            out.push(line.to_string());
+            continue;
+        }
+
+        if in_user_config && trimmed == "}" {
+            if !branch_updated {
+                out.push(format!("\t\t\"BetaKey\"\t\t\"{branch}\""));
+            }
+            in_user_config = false;
+            out.push(line.to_string());
+            continue;
+        }
+
+        if in_user_config {
+            let quoted = extract_quoted_values(trimmed);
+            if !quoted.is_empty() && quoted[0].eq_ignore_ascii_case("betakey") {
+                let indent = line
+                    .chars()
+                    .take_while(|ch| ch.is_whitespace())
+                    .collect::<String>();
+                out.push(format!("{indent}\"BetaKey\"\t\t\"{branch}\""));
+                branch_updated = true;
+                continue;
+            }
+        }
+
+        out.push(line.to_string());
+    }
+
+    // Assumes Steam wrote a UserConfig.
+
+    out.join("\n")
+}
+
+/// Extract the double-quoted values from a single VDF/ACF-style line, in order.
+///
+/// e.g. `"installdir"  "Half-Life 2"` -> `["installdir", "Half-Life 2"]`. Shared by the
+/// appinfo/appmanifest/workshop-manifest parsers (see `steam_client`, `library`).
+pub fn extract_quoted_values(line: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut in_quote = false;
+    let mut current = String::new();
+    for ch in line.chars() {
+        if ch == '"' {
+            if in_quote {
+                out.push(std::mem::take(&mut current));
+            }
+            in_quote = !in_quote;
+            continue;
+        }
+        if in_quote {
+            current.push(ch);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
-#[path = "acf_tests.rs"]
 mod tests;

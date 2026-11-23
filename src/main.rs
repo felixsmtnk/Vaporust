@@ -354,6 +354,8 @@ struct LauncherApp {
     music: music::Music,
     /// Install confirmation on double click: (appid, name).
     install_ask: Option<(u32, String)>,
+    /// Games whose install languages were asked (the "Install game" window).
+    lang_asked: std::collections::HashSet<u32>,
     dialogs: dialogs::Dialogs,
     accounts_open: bool,
     accounts_noted: Option<String>,
@@ -598,6 +600,7 @@ impl LauncherApp {
             cart_ui: Default::default(),
             music: Default::default(),
             install_ask: None,
+            lang_asked: Default::default(),
             dialogs: Default::default(),
             accounts_open: false,
             accounts_noted: None,
@@ -1366,7 +1369,7 @@ impl eframe::App for LauncherApp {
             egui::TopBottomPanel::bottom("status").frame(bottom_frame).show_animated(ctx, bottom_bar, |ui| {
                 // A thin light line on top, as the inset border of the Steam bottom bar.
                 let top_y = ui.max_rect().top() - 4.0;
-                ui.painter().hline(ui.max_rect().x_range().expand(8.0), top_y, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(61, 68, 80, 166)));
+                ui.painter().hline(ui.max_rect().x_range().expand(8.0), top_y, egui::Stroke::new(1.0_f32, egui::Color32::from_rgba_unmultiplied(61, 68, 80, 166)));
                 let full = ui.max_rect();
                 let row = ui.horizontal(|ui| {
                     // On the left, as in Steam - "Add a game" (a menu that opens upwards).

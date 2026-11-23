@@ -75,7 +75,7 @@ pub(crate) fn row(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui
 /// The thin line between settings rows (Steam #3d4450 at low opacity).
 fn rule(ui: &mut egui::Ui) {
     let r = ui.available_rect_before_wrap();
-    ui.painter().hline(r.x_range(), r.top(), egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(61, 68, 80, 140)));
+    ui.painter().hline(r.x_range(), r.top(), egui::Stroke::new(1.0_f32, egui::Color32::from_rgba_unmultiplied(61, 68, 80, 140)));
     ui.add_space(8.0);
 }
 
